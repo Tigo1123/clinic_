@@ -1,0 +1,89 @@
+:root {
+  --color-primary: #1769e0;
+  --color-primary-hover: #1057bd;
+  --color-primary-strong: #0b3f8a;
+  --color-primary-soft: #eaf3ff;
+  --color-secondary: #52a8ff;
+  --color-bg: #f4f7fb;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8fafc;
+  --color-text: #142033;
+  --color-text-secondary: #5f6f85;
+  --color-text-muted: #8c9aad;
+  --color-border: #dce5f0;
+  --color-success: #138a55;
+  --color-success-soft: #e9f8f0;
+  --color-warning: #b96b08;
+  --color-warning-soft: #fff5df;
+  --color-danger: #c43d4f;
+  --color-danger-soft: #fff0f2;
+  --color-info: #1769e0;
+  --space-1: .25rem;
+  --space-2: .5rem;
+  --space-3: .75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --radius-sm: .5rem;
+  --radius-md: .75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.4rem;
+  --radius-pill: 999px;
+  --shadow-sm: 0 1px 3px rgba(24, 50, 83, .06);
+  --shadow-md: 0 10px 30px rgba(24, 73, 125, .08);
+  --shadow-lg: 0 20px 50px rgba(24, 73, 125, .12);
+  --transition: 180ms ease;
+  --content-max: 1440px;
+
+  /* Compatibility aliases for the legacy staff workspace. */
+  --bg-base: var(--color-bg);
+  --bg-surface: var(--color-surface);
+  --bg-card: var(--color-surface);
+  --border-color: var(--color-border);
+  --primary: var(--color-primary);
+  --primary-hover: var(--color-primary-hover);
+  --primary-glow: rgba(23, 105, 224, .18);
+  --secondary: var(--color-secondary);
+  --danger: var(--color-danger);
+  --danger-hover: #a92e40;
+  --danger-glow: rgba(196, 61, 79, .16);
+  --warning: var(--color-warning);
+  --text-primary: var(--color-text);
+  --text-secondary: var(--color-text-secondary);
+  --text-muted: var(--color-text-muted);
+  --text-inverse: #fff;
+  --nav-bg: rgba(255, 255, 255, .96);
+  --sidebar-bg: #fff;
+  --slot-bg: #f5f8fc;
+  --dropdown-bg: #fff;
+  --lock-bg: #f8fafc;
+  --currency-bg: #f2f6fb;
+  --modal-bg: rgba(14, 31, 53, .56);
+  --layout-gradient: linear-gradient(145deg, #f8fbff 0%, #f1f6fc 100%);
+}
+
+[data-theme='dark'] {
+  /* A restrained optional night mode, with the blue identity preserved. */
+  --color-bg: #0f1928;
+  --color-surface: #172438;
+  --color-surface-muted: #1d2c42;
+  --color-text: #edf4ff;
+  --color-text-secondary: #b4c1d3;
+  --color-text-muted: #8493a8;
+  --color-border: #2c3c52;
+  --color-primary-soft: #19365d;
+  --color-success-soft: #123b2d;
+  --color-warning-soft: #44341b;
+  --color-danger-soft: #43232b;
+  --nav-bg: rgba(23, 36, 56, .96);
+  --sidebar-bg: #172438;
+  --dropdown-bg: #172438;
+  --slot-bg: #1d2c42;
+  --lock-bg: #1d2c42;
+  --currency-bg: #1d2c42;
+  --layout-gradient: linear-gradient(145deg, #111d2d 0%, #0f1928 100%);
+}

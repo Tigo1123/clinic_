@@ -1,19 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Activity,
   Lock,
-  Plus,
   Trash2,
   Users,
-  Settings,
   DollarSign,
   FileText,
   CheckCircle,
   Calendar,
   Clock,
   LogOut,
-  RefreshCw,
   Sliders,
   Download,
   AlertTriangle,
@@ -26,17 +23,16 @@ import {
   Building,
   Check,
   AlertCircle,
-  Eye,
   HelpCircle,
-  Briefcase,
   Printer,
   Mail,
   MessageCircle,
   MessageSquare, // <--- تم إضافة الأيقونة الناقصة
   X
+  ,Sun
+  ,Moon
 } from 'lucide-react';
 
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, BarChart, Bar, Legend, LineChart, Line } from 'recharts';
 import NotificationDropdown from './components/NotificationDropdown';
 
 import './App.css';
@@ -121,18 +117,18 @@ const SUDANESE_STATES = [
   { id: 18, labelAr: 'وسط دارفور', labelEn: 'Central Darfur' }
 ];
 
-export default function App() {
+export default function App({ initialView = 'login' }) {
   const { t, i18n } = useTranslation();
   const [user, setUser] = useState(null);
-  const [view, setView] = useState('portal'); // 'portal', 'login', 'dashboard'
+  const [view, setView] = useState(initialView); // 'portal', 'login', 'dashboard'
   const [lang, setLang] = useState('ar');
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useState('light');
 
   // Load state on mount
   useEffect(() => {
     const savedUser = localStorage.getItem('cms_user');
     const savedToken = localStorage.getItem('cms_token');
-    const savedTheme = localStorage.getItem('cms_theme') || 'dark';
+    const savedTheme = localStorage.getItem('cms_theme') || 'light';
 
     if (savedUser && savedToken) {
       setUser(JSON.parse(savedUser));
@@ -174,7 +170,7 @@ export default function App() {
     localStorage.removeItem('cms_user');
     localStorage.removeItem('cms_token');
     setUser(null);
-    setView('portal');
+    setView(initialView);
     socket.disconnect();
   };
 
@@ -196,7 +192,7 @@ export default function App() {
             {lang === 'ar' ? 'English' : 'العربية'}
           </button>
           <button className="lang-toggle-btn" style={{ padding: '0.5rem' }} onClick={toggleTheme}>
-            {theme === 'dark' ? '☀️' : '🌙'}
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
 
           {user ? (
@@ -217,7 +213,7 @@ export default function App() {
                 {t('login')}
               </button>
             ) : (
-              <button className="btn btn-secondary" onClick={() => setView('portal')}>
+              <button className="btn btn-secondary" onClick={() => { window.location.href = '/'; }}>
                 {t('patientPortal')}
               </button>
             )
@@ -230,7 +226,7 @@ export default function App() {
         {view === 'portal' && <PatientPortal lang={lang} t={t} />}
         {view === 'login' && <LoginView onLogin={handleLogin} t={t} />}
         {view === 'dashboard' && user && (
-          <DashboardContainer user={user} lang={lang} t={t} onLogout={handleLogout} />
+          <DashboardContainer user={user} lang={lang} t={t} />
         )}
       </main>
     </div>
@@ -809,7 +805,7 @@ function LoginView({ onLogin, t }) {
 /* ==========================================
    ROLE DASHBOARDS CONTAINER
    ========================================== */
-function DashboardContainer({ user, lang, t, onLogout }) {
+function DashboardContainer({ user, lang, t }) {
   if (user.role === 'ADMIN') {
     return <AdminDashboard lang={lang} t={t} />;
   }
@@ -823,7 +819,7 @@ function DashboardContainer({ user, lang, t, onLogout }) {
     return <PharmacistDashboard lang={lang} t={t} />;
   }
   if (user.role === 'LAB_TECH') {
-    return <LabTechDashboard lang={lang} t={t} />;
+    return <LabTechDashboard lang={lang} />;
   }
   return (
     <div style={{ padding: '3rem', textAlign: 'center' }}>
@@ -1010,6 +1006,7 @@ function AdminDashboard({ lang, t }) {
                   type="text"
                   className="form-input"
                   value={config.clinicNameAr}
+                  readOnly
                   onChange={(e) => setConfig({ ...config, clinicNameAr: e.target.value })}
                 />
               </div>
@@ -1019,6 +1016,7 @@ function AdminDashboard({ lang, t }) {
                   type="text"
                   className="form-input"
                   value={config.clinicNameEn}
+                  readOnly
                   onChange={(e) => setConfig({ ...config, clinicNameEn: e.target.value })}
                 />
               </div>
@@ -1031,6 +1029,7 @@ function AdminDashboard({ lang, t }) {
                   type="number"
                   className="form-input"
                   value={config.vatPercent}
+                  readOnly
                   onChange={(e) => setConfig({ ...config, vatPercent: parseFloat(e.target.value) })}
                 />
               </div>
@@ -1040,6 +1039,7 @@ function AdminDashboard({ lang, t }) {
                   type="number"
                   className="form-input"
                   value={config.stampDutySdg}
+                  readOnly
                   onChange={(e) => setConfig({ ...config, stampDutySdg: parseFloat(e.target.value) })}
                 />
               </div>
@@ -1049,14 +1049,15 @@ function AdminDashboard({ lang, t }) {
                   type="number"
                   className="form-input"
                   value={config.exchangeRate}
+                  readOnly
                   onChange={(e) => setConfig({ ...config, exchangeRate: parseFloat(e.target.value) })}
                 />
               </div>
             </div>
 
-            <button className="btn btn-primary" style={{ marginTop: '2rem' }}>
-              {lang === 'ar' ? 'حفظ التعديلات' : 'Save Configurations'}
-            </button>
+            <div className="badge badge-info" style={{ marginTop: '2rem', padding: '.75rem' }}>
+              {lang === 'ar' ? 'الإعدادات للعرض فقط حتى يتم تفعيل الحفظ الآمن.' : 'Settings are read-only until secure persistence is configured.'}
+            </div>
           </div>
         )}
 
@@ -1740,7 +1741,6 @@ function ReceptionistDashboard({ lang, t }) {
   const handleCreateInvoice = async () => {
     setErrorMsg('');
     setSuccessMsg('');
-    const { totalSdg } = calculateInvoiceTotals();
     if (addedServices.length === 0 || !billingPatient) {
       setErrorMsg('Choose a patient and add at least one clinical service.');
       return;
@@ -2648,9 +2648,9 @@ function PostVisitSummaryModal({ summaryId, onClose, lang }) {
         }
         return;
       }
-      const data = await res.json();
+      await res.json();
       setEmailMsg(lang === 'ar' ? 'تم إرسال ملخص الزيارة إلى البريد بنجاح.' : 'Post-visit summary emailed successfully!');
-    } catch (err) {
+    } catch {
       setEmailMsg('Error connecting to mail server.');
     } finally {
       setEmailing(false);
@@ -2820,11 +2820,9 @@ function DoctorDashboard({ user, lang, t }) {
   const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [selectedAppointmentId, setSelectedAppointmentId] = useState('');
-  const [activeTab, setActiveTab] = useState('history'); // Keep activeTab state for backwards compatibility if needed
 
   // EMR Details
   const [historyData, setHistoryData] = useState([]);
-  const [hasFullAccess, setHasFullAccess] = useState(false);
   const [activeSummaryId, setActiveSummaryId] = useState(null);
   const [viewingProfilePatientId, setViewingProfilePatientId] = useState(null);
 
@@ -2913,7 +2911,7 @@ function DoctorDashboard({ user, lang, t }) {
 
   // Fetch lists on load
   useEffect(() => {
-    fetch('/api/records/drugs')
+    fetchWithAuth('/api/records/drugs')
       .then((res) => res.ok ? res.json() : [])
       .then((data) => setDrugs(Array.isArray(data) ? data : []))
       .catch((err) => {
@@ -2935,7 +2933,6 @@ function DoctorDashboard({ user, lang, t }) {
       .then((res) => res.ok ? res.json() : {})
       .then((data) => {
         setHistoryData(data.history || []);
-        setHasFullAccess(data.hasFullAccess);
       })
       .catch((err) => {
         console.error(err);
@@ -3692,9 +3689,9 @@ function PharmacistDashboard({ lang, t }) {
                           <span className="badge badge-success" style={{ fontSize: '0.7rem' }}>{lang === 'ar' ? 'متوفر' : `In Stock (${qtyOnHand})`}</span>
                         )}
                       </div>
-                      {/* Batch FIFO suggestion indicator */}
+                      {/* Backend-compatible First Expiry, First Out suggestion. */}
                       <div style={{ fontSize: '0.75rem', color: 'var(--warning)', marginTop: '0.5rem' }}>
-                        FIFO Suggestion: Batch{' '}
+                        FEFO: Batch{' '}
                         {[...(item.drug.inventoryBatches || [])].sort((a, b) => a.expiryDate.localeCompare(b.expiryDate))[0]?.batchNumber || 'N/A'} (Exp: {[...(item.drug.inventoryBatches || [])].sort((a, b) => a.expiryDate.localeCompare(b.expiryDate))[0]?.expiryDate || 'N/A'})
                       </div>
                     </div>
@@ -3745,10 +3742,10 @@ function PharmacistDashboard({ lang, t }) {
 /* ==========================================
    5. LAB TECHNICIAN DASHBOARD
    ========================================== */
-function LabTechDashboard({ lang, t }) {
+function LabTechDashboard({ lang }) {
   const [orders, setOrders] = useState([]);
   const [selectedOrder, setSelectedOrder] = useState(null);
-  const [resultVal, setResultVal] = useState('');
+  const [resultForms, setResultForms] = useState({});
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -3769,24 +3766,26 @@ function LabTechDashboard({ lang, t }) {
   const handleSubmitResult = async (item) => {
     setErrorMsg('');
     setSuccessMsg('');
-    if (!resultVal) return;
-
-    // Simple bounds check: hemoglobin normal is 12-16. If <12 or >16, flag out of range
-    const isOut = parseFloat(resultVal) < 12.0 || parseFloat(resultVal) > 16.0;
+    const form = resultForms[item.id] || {};
+    if (!form.value?.trim()) return;
+    const numericValue = Number(form.value);
+    const min = form.min === '' || form.min == null ? undefined : Number(form.min);
+    const max = form.max === '' || form.max == null ? undefined : Number(form.max);
+    const isOut = Number.isFinite(numericValue) && ((Number.isFinite(min) && numericValue < min) || (Number.isFinite(max) && numericValue > max));
 
     try {
       const res = await fetchWithAuth(`/api/records/lab-orders/items/${item.id}/results`, {
         method: 'PUT',
         body: JSON.stringify({
-          resultValue: resultVal,
-          referenceRangeMin: 12.0,
-          referenceRangeMax: 16.0,
+          resultValue: form.value,
+          ...(Number.isFinite(min) ? { referenceRangeMin: min } : {}),
+          ...(Number.isFinite(max) ? { referenceRangeMax: max } : {}),
           isOutOfRange: isOut
         })
       });
       if (res.ok) {
         setSuccessMsg(lang === 'ar' ? 'تم تسجيل النتيجة وتنبيه الطبيب بنجاح.' : 'Lab results logged and doctor notified.');
-        setResultVal('');
+        setResultForms((current) => { const next = { ...current }; delete next[item.id]; return next; });
         setSelectedOrder(null);
         fetchPendingLabOrders();
       } else {
@@ -3853,8 +3852,12 @@ function LabTechDashboard({ lang, t }) {
                 </p>
 
                 {selectedOrder.items.map((item) => {
-                  const valParsed = parseFloat(resultVal);
-                  const isOutOfRange = resultVal !== '' && !isNaN(valParsed) && (valParsed < 12.0 || valParsed > 16.0);
+                  const form = resultForms[item.id] || { value: '', min: '', max: '' };
+                  const valParsed = Number(form.value);
+                  const minParsed = Number(form.min);
+                  const maxParsed = Number(form.max);
+                  const isOutOfRange = form.value !== '' && Number.isFinite(valParsed) && ((form.min !== '' && valParsed < minParsed) || (form.max !== '' && valParsed > maxParsed));
+                  const updateForm = (field, value) => setResultForms((current) => ({ ...current, [item.id]: { ...form, [field]: value } }));
 
                   return (
                     <div key={item.id} className="glass-panel" style={{ padding: '1rem', marginBottom: '1rem', borderLeft: isOutOfRange ? '4px solid var(--danger)' : '1px solid var(--border-color)' }}>
@@ -3866,13 +3869,12 @@ function LabTechDashboard({ lang, t }) {
                             placeholder="Result value (e.g. 13.5)"
                             className="form-input"
                             style={isOutOfRange ? { border: '1px solid var(--danger)', boxShadow: '0 0 8px rgba(239, 68, 68, 0.3)', color: 'var(--danger)', fontWeight: 'bold' } : {}}
-                            value={resultVal}
-                            onChange={(e) => setResultVal(e.target.value)}
+                            value={form.value}
+                            onChange={(e) => updateForm('value', e.target.value)}
                           />
                         </div>
-                        <div style={{ fontSize: '0.85rem', color: isOutOfRange ? 'var(--danger)' : 'var(--text-secondary)', fontWeight: isOutOfRange ? 'bold' : 'normal' }}>
-                          Normal Range: 12.0 - 16.0 g/dL
-                        </div>
+                        <input aria-label="Reference minimum" type="number" step="any" placeholder="Reference min" className="form-input" style={{width:'130px'}} value={form.min} onChange={(e) => updateForm('min', e.target.value)} />
+                        <input aria-label="Reference maximum" type="number" step="any" placeholder="Reference max" className="form-input" style={{width:'130px'}} value={form.max} onChange={(e) => updateForm('max', e.target.value)} />
                       </div>
 
                       {isOutOfRange && (
