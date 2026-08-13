@@ -58,6 +58,12 @@ router.get('/:filename', authenticate, async (req, res, next) => {
         where: { fileAttachmentPath: { in: [legacyPath, securePath] } }, select: { id: true }
       }));
     }
+    if (!authorized && req.user.role === ROLES.PATIENT) {
+      const ownedPatient = await prisma.patient.findUnique({ where: { userId: req.user.id }, select: { id: true } });
+      if (ownedPatient) {
+        authorized = Boolean(await prisma.medicalRecord.findFirst({ where: { patientId: ownedPatient.id, attachmentPath: { in: [legacyPath, securePath] } }, select: { id: true } })) || Boolean(await prisma.labOrderItem.findFirst({ where: { fileAttachmentPath: { in: [legacyPath, securePath] }, labOrder: { patientId: ownedPatient.id, status: 'COMPLETED', releasedToPatientAt: { not: null } } }, select: { id: true } }));
+      }
+    }
     if (!authorized) return sendError(res, 403, 'ATTACHMENT_ACCESS_FORBIDDEN', 'You do not have access to this attachment.');
 
     const resolved = path.join(uploadDir, filename);

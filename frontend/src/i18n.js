@@ -49,8 +49,9 @@ const resources = {
       splitPayment: 'تجزئة الدفع',
       invoiceTotal: 'إجمالي الفاتورة',
       patientShare: 'حصة المريض للجمع',
+      rescheduleAppointment: 'إعادة جدولة الموعد',
       insuranceShare: 'حصة شركة التأمين',
-      reconcile: 'تسوية الوردية'
+      reconcile: 'تسوية الوردية', patientHome:'الرئيسية',doctors:'الأطباء',myAppointments:'مواعيدي',labResults:'نتائج المختبر',prescriptions:'الوصفات',medicalRecords:'السجلات الطبية',profile:'الملف الشخصي',patientNavigation:'تنقل بوابة المريض',patientLogin:'دخول المريض',phoneOrEmail:'الهاتف أو البريد الإلكتروني',createPatientAccount:'إنشاء حساب مريض',patientAccountRequired:'يتطلب حساب مريض',fullName:'الاسم الكامل',emailOptional:'البريد الإلكتروني (اختياري)',dateOfBirth:'تاريخ الميلاد',confirmPassword:'تأكيد كلمة المرور',passwordMismatch:'كلمتا المرور غير متطابقتين',loading:'جارٍ التحميل...',createAccount:'إنشاء الحساب',verificationCodePrompt:'أدخل رمز التحقق المرسل لهويتك.',developmentCode:'رمز التطوير فقط',verificationCode:'رمز التحقق',claimAfterLogin:'تم التحقق. سجل الدخول وأدخل رمز المطالبة من الاستقبال.',accountVerified:'تم التحقق من الحساب.',claimRecord:'ربط السجل الطبي',claimInstructions:'أدخل رمز المطالبة الذي أصدره موظف الاستقبال وتاريخ ميلادك.',claimCode:'رمز المطالبة',welcome:'مرحباً',upcomingAppointments:'المواعيد القادمة',recentLabResults:'أحدث النتائج',noDoctors:'لا يوجد أطباء متاحون.',details:'التفاصيل',book:'حجز',noSlots:'لا توجد أوقات متاحة.',confirmBooking:'تأكيد الحجز',upcoming:'القادمة',past:'السابقة',cancelled:'الملغاة',all:'الكل',noAppointments:'لا توجد مواعيد.',appointmentDetails:'تفاصيل الموعد',cancelAppointment:'إلغاء الموعد',noRecords:'لا توجد سجلات متاحة.',addressDetails:'تفاصيل العنوان',emergencyContact:'جهة اتصال الطوارئ',saved:'تم الحفظ',save:'حفظ'
     }
   },
   en: {
@@ -100,8 +101,9 @@ const resources = {
       splitPayment: 'Split Payment Allocation',
       invoiceTotal: 'Invoice Total',
       patientShare: 'Patient Share Copay',
+      rescheduleAppointment: 'Reschedule appointment',
       insuranceShare: 'Insurance Claim Share',
-      reconcile: 'Reconcile Shift'
+      reconcile: 'Reconcile Shift', patientHome:'Home',doctors:'Doctors',myAppointments:'My Appointments',labResults:'Lab Results',prescriptions:'Prescriptions',medicalRecords:'Medical Records',profile:'Profile',patientNavigation:'Patient navigation',patientLogin:'Patient Login',phoneOrEmail:'Phone or email',createPatientAccount:'Create patient account',patientAccountRequired:'A patient account is required.',fullName:'Full name',emailOptional:'Email (optional)',dateOfBirth:'Date of birth',confirmPassword:'Confirm password',passwordMismatch:'Passwords do not match.',loading:'Loading…',createAccount:'Create account',verificationCodePrompt:'Enter the verification code delivered to your identity.',developmentCode:'Development-only code',verificationCode:'Verification code',claimAfterLogin:'Verified. Sign in and enter the claim code issued by reception.',accountVerified:'Account verified.',claimRecord:'Link clinic record',claimInstructions:'Enter the claim code issued by reception and your date of birth.',claimCode:'Claim code',welcome:'Welcome',upcomingAppointments:'Upcoming appointments',recentLabResults:'Recent lab results',noDoctors:'No doctors are currently available.',details:'Details',book:'Book',noSlots:'No available times.',confirmBooking:'Confirm booking',upcoming:'Upcoming',past:'Past',cancelled:'Cancelled',all:'All',noAppointments:'No appointments found.',appointmentDetails:'Appointment details',cancelAppointment:'Cancel appointment',noRecords:'No records available.',addressDetails:'Address details',emergencyContact:'Emergency contact',saved:'Saved successfully.',save:'Save'
     }
   }
 };

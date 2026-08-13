@@ -5,6 +5,7 @@ datasource db {
 
 generator client {
   provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
 }
 
 model User {
@@ -19,6 +20,14 @@ model User {
   preferredLanguage  String     @default("ar") // ar, en
   createdAt          DateTime   @default(now())
   doctor             Doctor?
+  email              String?    @unique
+  phoneNormalized    String?    @unique
+  emailVerifiedAt    DateTime?
+  phoneVerifiedAt    DateTime?
+  patient            Patient?
+  verificationChallenges VerificationChallenge[]
+  issuedClaimCodes   PatientClaimCode[] @relation("ClaimCodeIssuer")
+  pendingPatientRegistration PatientRegistration?
 }
 
 model State {
@@ -68,6 +77,9 @@ model Patient {
   labOrders        LabOrder[]
   invoices         Invoice[]
   insuranceClaims  InsuranceClaim[]
+  userId           String?          @unique
+  user             User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  claimCodes       PatientClaimCode[]
 
   @@index([phone])
 }
@@ -201,6 +213,48 @@ model LabOrder {
   orderDate       DateTime       @default(now())
   status          String         @default("PENDING_BILLING") // PENDING_BILLING, PAID, SAMPLE_COLLECTED, COMPLETED
   items           LabOrderItem[]
+  releasedToPatientAt DateTime?
+}
+
+model VerificationChallenge {
+  id               String    @id @default(uuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type             String
+  targetNormalized String
+  codeHash         String
+  expiresAt        DateTime
+  attemptCount     Int       @default(0)
+  maxAttempts      Int       @default(5)
+  usedAt           DateTime?
+  createdAt        DateTime  @default(now())
+
+  @@index([userId, type, createdAt])
+}
+
+model PatientClaimCode {
+  id          String    @id @default(uuid())
+  patientId   String
+  patient     Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  codeHash    String
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdById String
+  createdBy   User      @relation("ClaimCodeIssuer", fields: [createdById], references: [id])
+  createdAt   DateTime  @default(now())
+
+  @@index([patientId, createdAt])
+}
+
+model PatientRegistration {
+  userId         String   @id
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullNameAr     String
+  fullNameEn     String
+  gender         String
+  dateOfBirth    String
+  addressStateId Int
+  createdAt      DateTime @default(now())
 }
 
 model LabOrderItem {

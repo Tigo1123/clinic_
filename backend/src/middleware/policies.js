@@ -3,7 +3,7 @@ import { sendError } from '../utils/apiError.js';
 
 export const ROLES = Object.freeze({
   ADMIN: 'ADMIN', RECEPTIONIST: 'RECEPTIONIST', DOCTOR: 'DOCTOR',
-  PHARMACIST: 'PHARMACIST', LAB_TECH: 'LAB_TECH'
+  PHARMACIST: 'PHARMACIST', LAB_TECH: 'LAB_TECH', PATIENT: 'PATIENT'
 });
 
 export function allowRoles(...roles) {
@@ -12,6 +12,16 @@ export function allowRoles(...roles) {
     if (!roles.includes(req.user.role)) return sendError(res, 403, 'FORBIDDEN', 'You do not have permission to perform this action.');
     next();
   };
+}
+
+export async function requireOwnedPatient(req, res, next) {
+  try {
+    if (req.user?.role !== ROLES.PATIENT) return sendError(res, 403, 'PATIENT_ROLE_REQUIRED', 'A patient account is required.');
+    const patient = await prisma.patient.findUnique({ where: { userId: req.user.id } });
+    if (!patient) return sendError(res, 409, 'PATIENT_RECORD_NOT_LINKED', 'This account is not linked to a patient record.');
+    req.patient = patient;
+    next();
+  } catch (error) { next(error); }
 }
 
 export async function doctorHasPatientAccess(user, patientId) {

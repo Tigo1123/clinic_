@@ -7,12 +7,13 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { sendError } from '../utils/apiError.js';
+import { normalizeEmail, normalizePhone } from '../utils/identity.js';
 
 const router = express.Router();
 const STAFF_ROLES = ['ADMIN', 'RECEPTIONIST', 'DOCTOR', 'PHARMACIST', 'LAB_TECH'];
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 10,
+  limit: process.env.NODE_ENV === 'test' ? 100 : 10,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   handler: (req, res) => sendError(res, 429, 'LOGIN_RATE_LIMITED', 'Too many login attempts. Please try again later.')
@@ -23,7 +24,7 @@ const loginLimiter = rateLimit({
  * Authenticates user credentials and signs a JWT.
  */
 router.post('/login', loginLimiter, validate(z.object({
-  username: z.string().trim().email().max(254),
+  username: z.string().trim().min(3).max(254),
   password: z.string().min(1).max(200)
 })), async (req, res) => {
   const { username, password } = req.body;
@@ -34,9 +35,12 @@ router.post('/login', loginLimiter, validate(z.object({
 
   try {
     // 1. Fetch user from DB
-    const user = await prisma.user.findUnique({
-      where: { username }
-    });
+    const normalizedEmail = username.includes('@') ? normalizeEmail(username) : null;
+    const normalizedPhone = normalizePhone(username);
+    const user = await prisma.user.findFirst({ where: { OR: [
+      { username }, ...(normalizedEmail ? [{ email: normalizedEmail }, { username: normalizedEmail }] : []),
+      ...(normalizedPhone ? [{ phoneNormalized: normalizedPhone }] : [])
+    ] } });
 
     if (!user) {
       return res.status(401).json({ error: 'Invalid username or password.' });
@@ -84,6 +88,8 @@ router.post('/login', loginLimiter, validate(z.object({
         mfaEnabled: user.mfaEnabled,
         doctorId: doctorDetails ? doctorDetails.id : null,
         doctorName: doctorDetails ? doctorDetails.fullNameEn : null
+        ,email: user.email
+        ,phone: user.phoneNormalized
       }
     });
 

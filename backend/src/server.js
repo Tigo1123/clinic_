@@ -13,6 +13,8 @@ import billingRoutes from './routes/billing.js';
 import uploadRoutes from './routes/upload.js';
 import adminRoutes from './routes/admin.js';
 import notificationRoutes from './routes/notifications.js';
+import patientAuthRoutes from './routes/patientAuth.js';
+import patientSelfRoutes from './routes/patient.js';
 import { errorHandler, notFoundHandler } from './utils/apiError.js';
 import { fileURLToPath } from 'url';
 
@@ -101,6 +103,8 @@ app.use('/api/billing', billingRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/patient-auth', patientAuthRoutes);
+app.use('/api/patient', patientSelfRoutes);
 
 // Fallback handler for unmatched API endpoints to ensure JSON response instead of HTML
 app.use('/api', notFoundHandler);

@@ -453,6 +453,15 @@ router.put('/lab-orders/items/:id/results', authenticate, allowRoles(ROLES.LAB_T
   }
 });
 
+router.put('/lab-orders/:id/release', authenticate, allowRoles(ROLES.LAB_TECH), async (req, res) => {
+  const order = await prisma.labOrder.findUnique({ where: { id: req.params.id } });
+  if (!order) return sendError(res, 404, 'LAB_ORDER_NOT_FOUND', 'Lab order not found.');
+  if (order.status !== 'COMPLETED') return sendError(res, 409, 'LAB_ORDER_NOT_COMPLETE', 'Only completed lab orders can be released.');
+  const updated = await prisma.labOrder.update({ where: { id: order.id }, data: { releasedToPatientAt: new Date() } });
+  await prisma.tenantAuditLog.create({ data: { userId: req.user.id, action: 'LAB_RESULTS_RELEASED_TO_PATIENT', details: `Released lab order ${order.id} to patient.`, ipAddress: req.ip || 'unknown' } });
+  return res.json({ id: updated.id, releasedToPatientAt: updated.releasedToPatientAt });
+});
+
 /**
  * Helper to safely decrypt strings or return plain text fallback.
  */

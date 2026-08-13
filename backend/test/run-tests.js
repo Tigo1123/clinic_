@@ -15,12 +15,14 @@ const env = {
   MEDICAL_ENCRYPTION_KEY: 'test-medical-key-separate-at-least-thirty-two',
   CORS_ALLOWED_ORIGINS: 'http://localhost:5173',
   NOTIFICATIONS_DISABLED: 'true'
+  ,VERIFICATION_PROVIDER: 'development'
+  ,PHONE_DEFAULT_COUNTRY: 'RW'
 };
 
 for (const [command, args] of [
   ['npx', ['prisma', 'migrate', 'deploy']],
   ['node', ['prisma/seed.js']],
-  ['node', ['--test', '--test-concurrency=1', 'test/integration.test.js']]
+  ['node', ['--test', '--test-concurrency=1', 'test/integration.test.js', 'test/patient.test.js']]
 ]) {
   const result = spawnSync(command, args, { cwd: backendDir, env, stdio: 'inherit' });
   if (result.status !== 0) process.exit(result.status || 1);

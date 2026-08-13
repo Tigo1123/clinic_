@@ -5,5 +5,6 @@ backend/prisma/*.db-shm
 backend/prisma/test.db
 backend/uploads/
 node_modules/
+backend/src/generated/
 dist/
 coverage/
