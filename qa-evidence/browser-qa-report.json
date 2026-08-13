@@ -1,0 +1,394 @@
+{
+  "screenshots": [
+    {
+      "name": "reception-checked-in-desktop-ar",
+      "file": "/home/taj/Desktop/mine/my project/clinic_/qa-evidence/reception-checked-in-desktop-ar.png",
+      "width": 1366,
+      "height": 900,
+      "layout": {
+        "url": "/staff",
+        "width": 1366,
+        "scrollWidth": 1360,
+        "dir": "rtl",
+        "title": "frontend",
+        "active": "BODY"
+      }
+    },
+    {
+      "name": "reception-billing-populated-mobile-en",
+      "file": "/home/taj/Desktop/mine/my project/clinic_/qa-evidence/reception-billing-populated-mobile-en.png",
+      "width": 390,
+      "height": 844,
+      "layout": {
+        "url": "/staff",
+        "width": 390,
+        "scrollWidth": 390,
+        "dir": "ltr",
+        "title": "frontend",
+        "active": "BUTTON"
+      }
+    },
+    {
+      "name": "doctor-consultation-tablet-ar",
+      "file": "/home/taj/Desktop/mine/my project/clinic_/qa-evidence/doctor-consultation-tablet-ar.png",
+      "width": 768,
+      "height": 1024,
+      "layout": {
+        "url": "/staff",
+        "width": 768,
+        "scrollWidth": 762,
+        "dir": "rtl",
+        "title": "frontend",
+        "active": "BUTTON"
+      }
+    },
+    {
+      "name": "doctor-clinical-history-desktop-en",
+      "file": "/home/taj/Desktop/mine/my project/clinic_/qa-evidence/doctor-clinical-history-desktop-en.png",
+      "width": 1366,
+      "height": 900,
+      "layout": {
+        "url": "/staff",
+        "width": 1366,
+        "scrollWidth": 1360,
+        "dir": "ltr",
+        "title": "frontend",
+        "active": "BUTTON"
+      }
+    },
+    {
+      "name": "laboratory-independent-results-mobile-ar",
+      "file": "/home/taj/Desktop/mine/my project/clinic_/qa-evidence/laboratory-independent-results-mobile-ar.png",
+      "width": 390,
+      "height": 844,
+      "layout": {
+        "url": "/staff",
+        "width": 390,
+        "scrollWidth": 390,
+        "dir": "rtl",
+        "title": "frontend",
+        "active": "BUTTON"
+      }
+    },
+    {
+      "name": "laboratory-queue-desktop-en",
+      "file": "/home/taj/Desktop/mine/my project/clinic_/qa-evidence/laboratory-queue-desktop-en.png",
+      "width": 1366,
+      "height": 900,
+      "layout": {
+        "url": "/staff",
+        "width": 1366,
+        "scrollWidth": 1360,
+        "dir": "ltr",
+        "title": "frontend",
+        "active": "BUTTON"
+      }
+    },
+    {
+      "name": "pharmacy-dispensing-mobile-ar",
+      "file": "/home/taj/Desktop/mine/my project/clinic_/qa-evidence/pharmacy-dispensing-mobile-ar.png",
+      "width": 430,
+      "height": 900,
+      "layout": {
+        "url": "/staff",
+        "width": 430,
+        "scrollWidth": 430,
+        "dir": "rtl",
+        "title": "frontend",
+        "active": "BUTTON"
+      }
+    },
+    {
+      "name": "pharmacy-queue-desktop-en",
+      "file": "/home/taj/Desktop/mine/my project/clinic_/qa-evidence/pharmacy-queue-desktop-en.png",
+      "width": 1366,
+      "height": 900,
+      "layout": {
+        "url": "/staff",
+        "width": 1366,
+        "scrollWidth": 1360,
+        "dir": "ltr",
+        "title": "frontend",
+        "active": "BUTTON"
+      }
+    },
+    {
+      "name": "admin-staff-management-mobile-ar",
+      "file": "/home/taj/Desktop/mine/my project/clinic_/qa-evidence/admin-staff-management-mobile-ar.png",
+      "width": 390,
+      "height": 844,
+      "layout": {
+        "url": "/staff",
+        "width": 390,
+        "scrollWidth": 390,
+        "dir": "rtl",
+        "title": "frontend",
+        "active": "BUTTON"
+      }
+    },
+    {
+      "name": "admin-staff-management-desktop-en",
+      "file": "/home/taj/Desktop/mine/my project/clinic_/qa-evidence/admin-staff-management-desktop-en.png",
+      "width": 1440,
+      "height": 1000,
+      "layout": {
+        "url": "/staff",
+        "width": 1440,
+        "scrollWidth": 1434,
+        "dir": "ltr",
+        "title": "frontend",
+        "active": "BUTTON"
+      }
+    },
+    {
+      "name": "patient-completed-appointment-mobile",
+      "file": "/home/taj/Desktop/mine/my project/clinic_/qa-evidence/patient-completed-appointment-mobile.png",
+      "width": 390,
+      "height": 844,
+      "layout": {
+        "url": "/patient/appointments",
+        "width": 390,
+        "scrollWidth": 390,
+        "dir": "",
+        "title": "frontend",
+        "active": "BODY"
+      }
+    },
+    {
+      "name": "patient-released-lab-result-mobile",
+      "file": "/home/taj/Desktop/mine/my project/clinic_/qa-evidence/patient-released-lab-result-mobile.png",
+      "width": 390,
+      "height": 844,
+      "layout": {
+        "url": "/patient/lab-results",
+        "width": 390,
+        "scrollWidth": 390,
+        "dir": "",
+        "title": "frontend",
+        "active": "BODY"
+      }
+    },
+    {
+      "name": "patient-filled-prescription-desktop",
+      "file": "/home/taj/Desktop/mine/my project/clinic_/qa-evidence/patient-filled-prescription-desktop.png",
+      "width": 1366,
+      "height": 900,
+      "layout": {
+        "url": "/patient/prescriptions",
+        "width": 1366,
+        "scrollWidth": 1366,
+        "dir": "",
+        "title": "frontend",
+        "active": "BODY"
+      }
+    },
+    {
+      "name": "patient-final-medical-record-desktop",
+      "file": "/home/taj/Desktop/mine/my project/clinic_/qa-evidence/patient-final-medical-record-desktop.png",
+      "width": 1440,
+      "height": 1000,
+      "layout": {
+        "url": "/patient/records",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "dir": "",
+        "title": "frontend",
+        "active": "BODY"
+      }
+    }
+  ],
+  "pages": [
+    {
+      "name": "reception-checked-in-desktop-ar",
+      "url": "/staff",
+      "width": 1366,
+      "scrollWidth": 1360,
+      "dir": "rtl",
+      "title": "frontend",
+      "active": "BODY",
+      "overflow": false
+    },
+    {
+      "name": "reception-billing-populated-mobile-en",
+      "url": "/staff",
+      "width": 390,
+      "scrollWidth": 390,
+      "dir": "ltr",
+      "title": "frontend",
+      "active": "BUTTON",
+      "overflow": false
+    },
+    {
+      "name": "doctor-consultation-tablet-ar",
+      "url": "/staff",
+      "width": 768,
+      "scrollWidth": 762,
+      "dir": "rtl",
+      "title": "frontend",
+      "active": "BUTTON",
+      "overflow": false
+    },
+    {
+      "name": "doctor-clinical-history-desktop-en",
+      "url": "/staff",
+      "width": 1366,
+      "scrollWidth": 1360,
+      "dir": "ltr",
+      "title": "frontend",
+      "active": "BUTTON",
+      "overflow": false
+    },
+    {
+      "name": "laboratory-independent-results-mobile-ar",
+      "url": "/staff",
+      "width": 390,
+      "scrollWidth": 390,
+      "dir": "rtl",
+      "title": "frontend",
+      "active": "BUTTON",
+      "overflow": false
+    },
+    {
+      "name": "laboratory-queue-desktop-en",
+      "url": "/staff",
+      "width": 1366,
+      "scrollWidth": 1360,
+      "dir": "ltr",
+      "title": "frontend",
+      "active": "BUTTON",
+      "overflow": false
+    },
+    {
+      "name": "pharmacy-dispensing-mobile-ar",
+      "url": "/staff",
+      "width": 430,
+      "scrollWidth": 430,
+      "dir": "rtl",
+      "title": "frontend",
+      "active": "BUTTON",
+      "overflow": false
+    },
+    {
+      "name": "pharmacy-queue-desktop-en",
+      "url": "/staff",
+      "width": 1366,
+      "scrollWidth": 1360,
+      "dir": "ltr",
+      "title": "frontend",
+      "active": "BUTTON",
+      "overflow": false
+    },
+    {
+      "name": "admin-staff-management-mobile-ar",
+      "url": "/staff",
+      "width": 390,
+      "scrollWidth": 390,
+      "dir": "rtl",
+      "title": "frontend",
+      "active": "BUTTON",
+      "overflow": false
+    },
+    {
+      "name": "admin-staff-management-desktop-en",
+      "url": "/staff",
+      "width": 1440,
+      "scrollWidth": 1434,
+      "dir": "ltr",
+      "title": "frontend",
+      "active": "BUTTON",
+      "overflow": false
+    },
+    {
+      "name": "patient-completed-appointment-mobile",
+      "url": "/patient/appointments",
+      "width": 390,
+      "scrollWidth": 390,
+      "dir": "",
+      "title": "frontend",
+      "active": "BODY",
+      "overflow": false
+    },
+    {
+      "name": "patient-released-lab-result-mobile",
+      "url": "/patient/lab-results",
+      "width": 390,
+      "scrollWidth": 390,
+      "dir": "",
+      "title": "frontend",
+      "active": "BODY",
+      "overflow": false
+    },
+    {
+      "name": "patient-filled-prescription-desktop",
+      "url": "/patient/prescriptions",
+      "width": 1366,
+      "scrollWidth": 1366,
+      "dir": "",
+      "title": "frontend",
+      "active": "BODY",
+      "overflow": false
+    },
+    {
+      "name": "patient-final-medical-record-desktop",
+      "url": "/patient/records",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "dir": "",
+      "title": "frontend",
+      "active": "BODY",
+      "overflow": false
+    }
+  ],
+  "consoleErrors": [],
+  "failedRequests": [],
+  "corsErrors": [],
+  "duplicateMutations": [],
+  "keyboard": [
+    {
+      "label": "Reception billing",
+      "focused": {
+        "tag": "BUTTON",
+        "text": "العربية",
+        "label": null,
+        "outline": "solid"
+      }
+    },
+    {
+      "label": "Doctor consultation",
+      "focused": {
+        "tag": "BUTTON",
+        "text": "English",
+        "label": null,
+        "outline": "solid"
+      }
+    },
+    {
+      "label": "Laboratory result entry",
+      "focused": {
+        "tag": "BUTTON",
+        "text": "English",
+        "label": null,
+        "outline": "solid"
+      }
+    },
+    {
+      "label": "Pharmacy dispensing",
+      "focused": {
+        "tag": "BUTTON",
+        "text": "English",
+        "label": null,
+        "outline": "solid"
+      }
+    },
+    {
+      "label": "Admin staff management",
+      "focused": {
+        "tag": "BUTTON",
+        "text": "English",
+        "label": null,
+        "outline": "solid"
+      }
+    }
+  ],
+  "labIndependentInputCount": 2
+}

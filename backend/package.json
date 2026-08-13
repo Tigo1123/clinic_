@@ -10,6 +10,9 @@
     "dev": "nodemon src/server.js",
     "db:init": "prisma migrate dev --name init",
     "db:seed": "node prisma/seed.js",
+    "qa:reset": "node scripts/reset-qa-db.js",
+    "qa:workflow": "node scripts/qa-workflow.js",
+    "qa:visual-fixtures": "node scripts/seed-qa-visual-states.js",
     "test": "node test/run-tests.js"
   },
   "dependencies": {

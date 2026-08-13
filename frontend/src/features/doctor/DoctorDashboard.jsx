@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Activity, Lock, MessageCircle, Printer, Shield, Sliders, Stethoscope, User } from 'lucide-react';
 import { PatientProfileModal, PostVisitSummaryModal } from '../clinical/ClinicalModals';
+import { getWhatsAppLink } from '../reception/clinicData';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import { staffSocket as socket } from '../../services/staffSocket';
 

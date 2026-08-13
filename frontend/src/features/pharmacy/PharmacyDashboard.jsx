@@ -24,7 +24,7 @@ export default function PharmacyDashboard({ lang, t }) {
   useEffect(() => {
     fetchPendingRx();
 
-    fetch('/api/records/drugs')
+    fetchWithAuth('/api/records/drugs')
       .then((res) => res.ok ? res.json() : [])
       .then((data) => {
         if (Array.isArray(data)) {
@@ -209,4 +209,3 @@ export default function PharmacyDashboard({ lang, t }) {
 /* ==========================================
    5. LAB TECHNICIAN DASHBOARD
    ========================================== */
-

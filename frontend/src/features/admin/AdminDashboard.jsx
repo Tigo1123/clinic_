@@ -336,7 +336,8 @@ export default function AdminDashboard({ lang, t }) {
 
             <div className="glass-panel" style={{ padding: '1.5rem' }}>
               <h4 style={{ marginBottom: '1.5rem' }}>{lang === 'ar' ? 'سجل موظفي النظام' : 'Staff Directory'}</h4>
-              <table className="staff-table">
+              <div className="table-responsive">
+                <table className="staff-table">
                 <thead>
                   <tr>
                     <th>{t('username')}</th>
@@ -369,7 +370,8 @@ export default function AdminDashboard({ lang, t }) {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -638,4 +640,3 @@ export default function AdminDashboard({ lang, t }) {
 /* ==========================================
    2. RECEPTIONIST DASHBOARD
    ========================================== */
-

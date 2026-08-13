@@ -86,6 +86,8 @@ h1,h2,h3,h4 { color: var(--color-text); line-height: 1.25; letter-spacing: -.02e
   .menu-btn { width: auto; padding: .65rem .8rem; }
   .workspace-panel { padding: 1rem; }
   .panel-grid, .panel-grid-2, .form-row-2col { grid-template-columns: 1fr !important; }
+  .workspace-panel [style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+  .workspace-panel [style*="grid-template-columns"] > * { min-width: 0; }
   .panel-grid > :last-child { grid-column: auto; }
   .portal-container { margin: .75rem; }
   .staff-table { min-width: 680px; }

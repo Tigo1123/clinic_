@@ -3,6 +3,8 @@ backend/prisma/*.db-journal
 backend/prisma/*.db-wal
 backend/prisma/*.db-shm
 backend/prisma/test.db
+backend/prisma/qa.db
+backend/.env.qa
 backend/uploads/
 node_modules/
 backend/src/generated/

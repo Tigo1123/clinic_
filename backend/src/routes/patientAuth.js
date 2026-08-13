@@ -112,6 +112,8 @@ router.post('/claim', authenticate, allowRoles(ROLES.PATIENT), validate(z.object
     }
     const claim = await prisma.patientClaimCode.findFirst({ where: { patientId: matches[0].id, usedAt: null, expiresAt: { gt: new Date() } }, orderBy: { createdAt: 'desc' } });
     if (!claim || !(await bcrypt.compare(req.body.code, claim.codeHash))) {
+      const currentOwner = await prisma.patient.findUnique({ where: { id: matches[0].id }, select: { userId: true } });
+      if (currentOwner?.userId) return sendError(res, 409, 'PATIENT_ALREADY_CLAIMED', 'Patient record was claimed by another account.');
       await audit(user.id, 'PATIENT_CLAIM_REJECTED', 'Patient claim code verification failed.', req);
       return sendError(res, 422, 'CLAIM_VERIFICATION_FAILED', 'Claim verification failed.');
     }
