@@ -6,6 +6,7 @@ button, input, select, textarea { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 :focus-visible { outline: 3px solid rgba(23,105,224,.3); outline-offset: 2px; }
 h1,h2,h3,h4 { color: var(--color-text); line-height: 1.25; letter-spacing: -.02em; }
+.route-loading,.portal-loading{min-height:240px;display:flex;align-items:center;justify-content:center;gap:.75rem;color:var(--color-primary);font-weight:750}.portal-loading svg{animation:ui-pulse 1.2s ease-in-out infinite}@keyframes ui-pulse{50%{opacity:.35;transform:scale(.92)}}
 
 .app-layout { background: var(--layout-gradient); min-height: 100dvh; }
 .nav-header { background: var(--nav-bg); border-color: var(--color-border); box-shadow: var(--shadow-sm); padding: .8rem clamp(1rem,3vw,2.25rem); }
