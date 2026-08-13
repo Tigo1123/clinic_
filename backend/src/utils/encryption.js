@@ -1,9 +1,10 @@
 import crypto from 'crypto';
 
-const ENCRYPTION_KEY = crypto
-  .createHash('sha256')
-  .update(process.env.JWT_SECRET || 'fallback-super-secret-key-32-chars-long')
-  .digest(); // 32 bytes key
+function encryptionKey() {
+  const configured = process.env.MEDICAL_ENCRYPTION_KEY;
+  if (!configured) throw new Error('MEDICAL_ENCRYPTION_KEY is required.');
+  return crypto.createHash('sha256').update(configured).digest();
+}
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
@@ -15,7 +16,7 @@ const IV_LENGTH = 12;
 export function encrypt(text) {
   if (!text) return '';
   const iv = crypto.randomBytes(IV_LENGTH);
-  const cipher = crypto.createCipheriv(ALGORITHM, ENCRYPTION_KEY, iv);
+  const cipher = crypto.createCipheriv(ALGORITHM, encryptionKey(), iv);
   let encrypted = cipher.update(text, 'utf8', 'hex');
   encrypted += cipher.final('hex');
   const authTag = cipher.getAuthTag().toString('hex');
@@ -36,7 +37,7 @@ export function decrypt(cipherText) {
     const authTag = Buffer.from(parts[1], 'hex');
     const encryptedText = Buffer.from(parts[2], 'hex');
     
-    const decipher = crypto.createDecipheriv(ALGORITHM, ENCRYPTION_KEY, iv);
+    const decipher = crypto.createDecipheriv(ALGORITHM, encryptionKey(), iv);
     decipher.setAuthTag(authTag);
     let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
     decrypted += decipher.final('utf8');

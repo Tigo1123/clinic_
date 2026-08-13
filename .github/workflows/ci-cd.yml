@@ -11,28 +11,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/workflows/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: |
             backend/package-lock.json
             frontend/package-lock.json
 
       - name: Lint and Test Backend
+        env:
+          DATABASE_URL: file:./ci.db
+          JWT_SECRET: ci-only-jwt-secret-that-is-long-and-not-production
+          MEDICAL_ENCRYPTION_KEY: ci-only-medical-key-that-is-long-and-not-production
+          CORS_ALLOWED_ORIGINS: http://localhost:5173
         run: |
           cd backend
           npm ci
           npx prisma generate
-          # Add backend tests here if applicable (e.g., npm test)
+          npx prisma migrate deploy
+          npm test
 
       - name: Build Frontend
         run: |
           cd frontend
           npm ci
+          npm run lint
           npm run build
 
   build-docker-images:

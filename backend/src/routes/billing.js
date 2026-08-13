@@ -1,6 +1,8 @@
 import express from 'express';
 import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
+import { allowRoles, ROLES } from '../middleware/policies.js';
+import { sendError } from '../utils/apiError.js';
 
 const router = express.Router();
 
@@ -8,7 +10,7 @@ const router = express.Router();
  * POST /api/billing/invoice
  * Generates an itemized invoice. Locked exchange rate is pinned at creation time.
  */
-router.post('/invoice', authenticate, async (req, res) => {
+router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
   const {
     patientId,
     appointmentId,
@@ -29,13 +31,17 @@ router.post('/invoice', authenticate, async (req, res) => {
     let totalSdg = 0;
     const invoiceItemsData = items.map((item) => {
       const priceSdg = parseFloat(item.unitPriceSdg);
+      const qty = Number(item.qty);
+      if (!Number.isFinite(priceSdg) || priceSdg <= 0 || !Number.isInteger(qty) || qty <= 0) {
+        throw new Error('Invoice quantities and prices must be positive values.');
+      }
       const priceUsd = priceSdg / lockedExchangeRate;
-      totalSdg += priceSdg * item.qty;
+      totalSdg += priceSdg * qty;
 
       return {
         descriptionAr: item.descriptionAr,
         descriptionEn: item.descriptionEn,
-        qty: item.qty,
+        qty,
         unitPriceSdg: priceSdg,
         unitPriceUsd: priceUsd
       };
@@ -111,7 +117,7 @@ router.post('/invoice', authenticate, async (req, res) => {
  * POST /api/billing/invoice/:id/payments
  * Records split payment methods. Validates transaction reference uniqueness.
  */
-router.post('/invoice/:id/payments', authenticate, async (req, res) => {
+router.post('/invoice/:id/payments', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
   const invoiceId = req.params.id;
   const { payments } = req.body; // Array of { amountSdg, paymentMethod, transactionReference }
 
@@ -122,11 +128,17 @@ router.post('/invoice/:id/payments', authenticate, async (req, res) => {
   try {
     const invoice = await prisma.invoice.findUnique({
       where: { id: invoiceId },
-      include: { insuranceClaim: true }
+      include: { insuranceClaim: true, payments: true }
     });
 
     if (!invoice) {
       return res.status(404).json({ error: 'Invoice not found.' });
+    }
+
+    for (const pay of payments) {
+      const amount = Number(pay.amountSdg);
+      if (!Number.isFinite(amount) || amount <= 0) return sendError(res, 422, 'INVALID_PAYMENT_AMOUNT', 'Payment amounts must be greater than zero.');
+      if (!['CASH', 'CARD', 'BANKAK', 'FAWRY'].includes(pay.paymentMethod)) return sendError(res, 422, 'INVALID_PAYMENT_METHOD', 'Unsupported payment method.');
     }
 
     // Verify transaction references are not already used in DB (deduplication check)
@@ -144,7 +156,11 @@ router.post('/invoice/:id/payments', authenticate, async (req, res) => {
     }
 
     // Record payments in transaction
-    const totalPaidSdg = payments.reduce((acc, curr) => acc + parseFloat(curr.amountSdg), 0);
+    const priorPaidSdg = invoice.payments.reduce((sum, payment) => sum + Number(payment.amountSdg), 0);
+    const newPaidSdg = payments.reduce((acc, curr) => acc + Number(curr.amountSdg), 0);
+    const resultingPaidSdg = priorPaidSdg + newPaidSdg;
+    const invoiceTotal = Number(invoice.totalAmountSdg);
+    if (resultingPaidSdg > invoiceTotal + 0.001) return sendError(res, 409, 'PAYMENT_EXCEEDS_BALANCE', 'Payment exceeds the remaining invoice balance.');
 
     const result = await prisma.$transaction(async (tx) => {
       for (const pay of payments) {
@@ -164,9 +180,7 @@ router.post('/invoice/:id/payments', authenticate, async (req, res) => {
         });
       }
 
-      // Update invoice status
-      // In case of insurance split: patient pays copay, invoice can be marked paid (the rest goes to claim)
-      const invoiceStatus = 'PAID'; // In simple terms we mark it PAID when checkout is complete
+      const invoiceStatus = resultingPaidSdg >= invoiceTotal ? 'PAID' : resultingPaidSdg > 0 ? 'PARTIALLY_PAID' : 'UNPAID';
 
       const updatedInvoice = await tx.invoice.update({
         where: { id: invoiceId },
@@ -174,7 +188,7 @@ router.post('/invoice/:id/payments', authenticate, async (req, res) => {
         include: { payments: true }
       });
 
-      return updatedInvoice;
+      return { ...updatedInvoice, totalPaidSdg: resultingPaidSdg, remainingBalanceSdg: Math.max(0, invoiceTotal - resultingPaidSdg) };
     });
 
     return res.json(result);
@@ -190,7 +204,7 @@ router.post('/invoice/:id/payments', authenticate, async (req, res) => {
  * Voids invoice. Implements refund lockout rules.
  * Refunds are disabled if patient has started consultation or completed visit.
  */
-router.post('/invoice/:id/refund', authenticate, async (req, res) => {
+router.post('/invoice/:id/refund', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
   try {
     const invoice = await prisma.invoice.findUnique({
       where: { id: req.params.id },
@@ -239,7 +253,7 @@ router.post('/invoice/:id/refund', authenticate, async (req, res) => {
  * POST /api/billing/shift/reconcile
  * Logs shift balance reconciliation.
  */
-router.post('/shift/reconcile', authenticate, async (req, res) => {
+router.post('/shift/reconcile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
   const { expectedAmountSdg, actualAmountSdg, note } = req.body;
 
   if (expectedAmountSdg === undefined || actualAmountSdg === undefined) {

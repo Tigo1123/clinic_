@@ -17,6 +17,7 @@ const transporter = nodemailer.createTransport({
  * Sends a real or mock email.
  */
 export async function sendEmail({ to, subject, text, html }) {
+  if (process.env.NOTIFICATIONS_DISABLED === 'true') return { messageId: 'notifications-disabled' };
   const fromEmail = process.env.SMTP_FROM || '"Al-Shifa Medical Center" <no-reply@alshifaclinic.com>';
   
   try {
@@ -65,6 +66,7 @@ export async function sendEmail({ to, subject, text, html }) {
  * Sends a real or mock SMS.
  */
 export async function sendSMS({ to, body, language = 'en' }) {
+  if (process.env.NOTIFICATIONS_DISABLED === 'true') return true;
   try {
     // In production, you would place Twilio / local Sudanese SMS Gateway API calls here
     // Example Twilio snippet:
@@ -203,5 +205,4 @@ export async function sendStatusUpdateNotification(appointment, status) {
 
   return { messageAr, messageEn, whatsAppLinkAr, whatsAppLinkEn };
 }
-
 

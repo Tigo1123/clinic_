@@ -2,6 +2,10 @@ import express from 'express';
 import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
 import { decrypt } from '../utils/encryption.js';
+import { allowRoles, doctorHasPatientAccess, ROLES } from '../middleware/policies.js';
+import { sendError } from '../utils/apiError.js';
+import { z } from 'zod';
+import { validate } from '../middleware/validate.js';
 
 const router = express.Router();
 
@@ -9,7 +13,7 @@ const router = express.Router();
  * GET /api/patients/search
  * Searches patients by name (Arabic or English), phone, or national ID.
  */
-router.get('/search', authenticate, async (req, res) => {
+router.get('/search', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
   const { q } = req.query;
 
   if (!q) {
@@ -43,7 +47,14 @@ router.get('/search', authenticate, async (req, res) => {
  * POST /api/patients
  * Registers a new patient.
  */
-router.post('/', authenticate, checkRoles('ADMIN', 'RECEPTIONIST'), async (req, res) => {
+router.post('/', authenticate, checkRoles('ADMIN', 'RECEPTIONIST'), validate(z.object({
+  fullNameAr: z.string().trim().min(2).max(150), fullNameEn: z.string().trim().min(2).max(150),
+  gender: z.enum(['MALE', 'FEMALE']), dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  nationalId: z.string().trim().max(30).optional(), phone: z.string().trim().min(7).max(20),
+  addressStateId: z.coerce.number().int().min(1).max(18), addressDetails: z.string().trim().max(300).optional(),
+  emergencyContact: z.string().trim().max(150).optional(), nationalIdAttachmentPath: z.string().max(300).optional(),
+  insuranceAttachmentPath: z.string().max(300).optional()
+})), async (req, res) => {
   const {
     fullNameAr,
     fullNameEn,
@@ -63,6 +74,9 @@ router.post('/', authenticate, checkRoles('ADMIN', 'RECEPTIONIST'), async (req, 
   }
 
   const finalEmergencyContact = emergencyContact || 'Self';
+  if (dateOfBirth >= new Date().toISOString().slice(0, 10)) {
+    return sendError(res, 422, 'INVALID_DATE_OF_BIRTH', 'Date of birth must be in the past.');
+  }
 
   try {
     // Check if national ID or phone is already registered (deduplication check)
@@ -106,8 +120,11 @@ router.post('/', authenticate, checkRoles('ADMIN', 'RECEPTIONIST'), async (req, 
  * GET /api/patients/:id
  * Fetches basic demographic info for a specific patient.
  */
-router.get('/:id', authenticate, async (req, res) => {
+router.get('/:id', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.DOCTOR), async (req, res) => {
   try {
+    if (req.user.role === ROLES.DOCTOR && !(await doctorHasPatientAccess(req.user, req.params.id))) {
+      return sendError(res, 403, 'PATIENT_ACCESS_FORBIDDEN', 'This patient is not assigned to the authenticated doctor.');
+    }
     const patient = await prisma.patient.findUnique({
       where: { id: req.params.id },
       include: { addressState: true }
@@ -131,11 +148,14 @@ router.get('/:id', authenticate, async (req, res) => {
  *   or if a valid Consent / active Break-the-Glass exists.
  * - Otherwise, masks clinical details with a LOCKED status.
  */
-router.get('/:id/history', authenticate, async (req, res) => {
+router.get('/:id/history', authenticate, allowRoles(ROLES.DOCTOR), async (req, res) => {
   const patientId = req.params.id;
   const user = req.user; // { id, role }
 
   try {
+    if (!(await doctorHasPatientAccess(user, patientId))) {
+      return sendError(res, 403, 'PATIENT_ACCESS_FORBIDDEN', 'This patient is not assigned to the authenticated doctor.');
+    }
     // 1. Fetch patient
     const patient = await prisma.patient.findUnique({
       where: { id: patientId }
@@ -245,7 +265,7 @@ function safeDecryptField(encryptedVal) {
  * Retrieves full master patient profile with demographics, insurance,
  * and chronological visit history ordered from newest to oldest.
  */
-router.get('/:id/profile', authenticate, async (req, res) => {
+router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.DOCTOR), async (req, res) => {
   const patientId = req.params.id;
 
   if (!patientId) {
@@ -253,6 +273,10 @@ router.get('/:id/profile', authenticate, async (req, res) => {
   }
 
   try {
+    const canViewClinical = req.user.role === ROLES.DOCTOR && await doctorHasPatientAccess(req.user, patientId);
+    if (req.user.role === ROLES.DOCTOR && !canViewClinical) {
+      return sendError(res, 403, 'PATIENT_ACCESS_FORBIDDEN', 'This patient is not assigned to the authenticated doctor.');
+    }
     const patient = await prisma.patient.findUnique({
       where: { id: patientId },
       include: {
@@ -313,10 +337,10 @@ router.get('/:id/profile', authenticate, async (req, res) => {
           specialtyEn: rec.doctor?.specialtyEn || ''
         },
         vitals,
-        symptoms: safeDecryptField(rec.symptomsEncrypted),
-        diagnosis: safeDecryptField(rec.diagnosisEncrypted),
-        treatment: safeDecryptField(rec.treatmentEncrypted),
-        clinicalNotes: safeDecryptField(rec.clinicalNotesEncrypted),
+        symptoms: canViewClinical ? safeDecryptField(rec.symptomsEncrypted) : undefined,
+        diagnosis: canViewClinical ? safeDecryptField(rec.diagnosisEncrypted) : undefined,
+        treatment: canViewClinical ? safeDecryptField(rec.treatmentEncrypted) : undefined,
+        clinicalNotes: canViewClinical ? safeDecryptField(rec.clinicalNotesEncrypted) : undefined,
         prescriptionsCount: (rec.prescriptions || []).reduce((acc, p) => acc + (p.prescribedDrugs?.length || 0), 0),
         labOrdersCount: (rec.labOrders || []).reduce((acc, lo) => acc + (lo.items?.length || 0), 0)
       };

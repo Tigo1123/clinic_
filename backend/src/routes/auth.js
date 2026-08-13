@@ -3,15 +3,29 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
+import rateLimit from 'express-rate-limit';
+import { z } from 'zod';
+import { validate } from '../middleware/validate.js';
+import { sendError } from '../utils/apiError.js';
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback-super-secret-key-32-chars-long-khartoum';
+const STAFF_ROLES = ['ADMIN', 'RECEPTIONIST', 'DOCTOR', 'PHARMACIST', 'LAB_TECH'];
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  handler: (req, res) => sendError(res, 429, 'LOGIN_RATE_LIMITED', 'Too many login attempts. Please try again later.')
+});
 
 /**
  * POST /api/auth/login
  * Authenticates user credentials and signs a JWT.
  */
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, validate(z.object({
+  username: z.string().trim().email().max(254),
+  password: z.string().min(1).max(200)
+})), async (req, res) => {
   const { username, password } = req.body;
 
   if (!username || !password) {
@@ -55,7 +69,7 @@ router.post('/login', async (req, res) => {
         role: user.role,
         doctorId: doctorDetails ? doctorDetails.id : null
       },
-      JWT_SECRET,
+      process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
 
@@ -124,7 +138,17 @@ router.get('/users', authenticate, checkRoles('ADMIN'), async (req, res) => {
  * POST /api/auth/users
  * Registers a new staff member. Only accessible by ADMIN.
  */
-router.post('/users', authenticate, checkRoles('ADMIN'), async (req, res) => {
+router.post('/users', authenticate, checkRoles('ADMIN'), validate(z.object({
+  username: z.string().trim().email().max(254),
+  password: z.string().min(10).max(200),
+  role: z.enum(STAFF_ROLES),
+  preferredLanguage: z.enum(['ar', 'en']).optional(),
+  fullNameAr: z.string().trim().min(1).max(150).optional(),
+  fullNameEn: z.string().trim().min(1).max(150).optional(),
+  specialtyAr: z.string().trim().min(1).max(150).optional(),
+  specialtyEn: z.string().trim().min(1).max(150).optional(),
+  consultationFee: z.coerce.number().positive().optional()
+})), async (req, res) => {
   const { username, password, role, preferredLanguage } = req.body;
 
   if (!username || !password || !role) {
@@ -206,7 +230,7 @@ router.post('/users', authenticate, checkRoles('ADMIN'), async (req, res) => {
  * PUT /api/auth/users/:id/status
  * Toggles status of a staff member. Only accessible by ADMIN.
  */
-router.put('/users/:id/status', authenticate, checkRoles('ADMIN'), async (req, res) => {
+router.put('/users/:id/status', authenticate, checkRoles('ADMIN'), validate(z.object({ status: z.enum(['ACTIVE', 'INACTIVE']) })), async (req, res) => {
   const { status } = req.body;
   try {
     const updated = await prisma.user.update({

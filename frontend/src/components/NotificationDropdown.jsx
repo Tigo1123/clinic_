@@ -38,10 +38,7 @@ export default function NotificationDropdown({ userId, lang = 'ar' }) {
     fetchNotifications();
 
     // Connect to Socket.io server
-    socket = io(SOCKET_URL);
-
-    // Join user room for targeted notifications
-    socket.emit('joinUserRoom', userId);
+    socket = io(SOCKET_URL, { auth: { token: localStorage.getItem('cms_token') } });
 
     // Listen for real-time notifications
     socket.on('notification', (newNotif) => {

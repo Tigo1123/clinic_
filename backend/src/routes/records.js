@@ -3,6 +3,10 @@ import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
 import { encrypt, decrypt } from '../utils/encryption.js';
 import { sendEmail } from '../utils/notifications.js';
+import { allowRoles, ROLES, doctorHasPatientAccess } from '../middleware/policies.js';
+import { sendError } from '../utils/apiError.js';
+import { z } from 'zod';
+import { validate } from '../middleware/validate.js';
 
 const router = express.Router();
 
@@ -11,7 +15,13 @@ const router = express.Router();
  * Saves the consultation results. Encrypts clinical fields, serializes vitals,
  * and creates prescriptions and lab orders in a single atomic transaction.
  */
-router.post('/', authenticate, checkRoles('DOCTOR'), async (req, res) => {
+router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
+  patientId: z.string().uuid(), appointmentId: z.string().uuid(), symptoms: z.string().max(5000).optional(),
+  diagnosis: z.string().trim().min(1).max(5000), treatment: z.string().max(5000).optional(), clinicalNotes: z.string().max(10000).optional(),
+  vitalSigns: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
+  prescribedDrugs: z.array(z.object({ drugId: z.string().uuid(), dosage: z.string().min(1).max(200), duration: z.string().min(1).max(200), instructionsAr: z.string().max(1000).optional(), instructionsEn: z.string().max(1000).optional(), qtyPrescribed: z.coerce.number().int().positive() })).max(50).optional(),
+  orderedServices: z.array(z.string().uuid()).max(50).optional(), attachmentPath: z.string().max(300).optional()
+})), async (req, res) => {
   const {
     patientId,
     appointmentId,
@@ -42,6 +52,13 @@ router.post('/', authenticate, checkRoles('DOCTOR'), async (req, res) => {
   }
 
   try {
+    const appointment = await prisma.appointment.findUnique({ where: { id: appointmentId } });
+    if (!appointment || appointment.doctorId !== doctorId || appointment.patientId !== patientId) {
+      return sendError(res, 403, 'CONSULTATION_RELATIONSHIP_INVALID', 'The appointment is not assigned to this doctor and patient.');
+    }
+    if (appointment.status !== 'IN_CONSULTATION') {
+      return sendError(res, 409, 'CONSULTATION_STATUS_INVALID', 'The appointment must be in consultation before clinical notes can be saved.');
+    }
     // Check if EMR already exists for this appointment
     const existingRecord = await prisma.medicalRecord.findFirst({
       where: { appointmentId },
@@ -202,7 +219,7 @@ router.post('/bypass', authenticate, checkRoles('DOCTOR'), async (req, res) => {
  * GET /api/records/drugs
  * Returns list of drugs and inventory levels.
  */
-router.get('/drugs', async (req, res) => {
+router.get('/drugs', authenticate, allowRoles(ROLES.DOCTOR, ROLES.PHARMACIST), async (req, res) => {
   try {
     const drugs = await prisma.drugFormulary.findMany({
       include: {
@@ -220,7 +237,7 @@ router.get('/drugs', async (req, res) => {
  * GET /api/records/prescriptions/pending
  * Returns list of prescriptions that are ACTIVE or PARTIALLY_FILLED.
  */
-router.get('/prescriptions/pending', authenticate, async (req, res) => {
+router.get('/prescriptions/pending', authenticate, allowRoles(ROLES.PHARMACIST), async (req, res) => {
   try {
     const prescriptions = await prisma.prescription.findMany({
       where: {
@@ -252,7 +269,9 @@ router.get('/prescriptions/pending', authenticate, async (req, res) => {
  * POST /api/records/prescriptions/:id/dispense
  * Fills or partially fills a prescription. Updates inventory levels.
  */
-router.post('/prescriptions/:id/dispense', authenticate, async (req, res) => {
+router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMACIST), validate(z.object({
+  items: z.array(z.object({ prescribedDrugId: z.string().uuid(), qtyToDispense: z.coerce.number().int().positive(), batchId: z.string().uuid() })).min(1).max(100)
+})), async (req, res) => {
   const prescriptionId = req.params.id;
   const { items } = req.body; // Array of { prescribedDrugId, qtyToDispense, batchId }
 
@@ -265,7 +284,9 @@ router.post('/prescriptions/:id/dispense', authenticate, async (req, res) => {
       let allFilled = true;
 
       for (const item of items) {
-        const { prescribedDrugId, qtyToDispense, batchId } = item;
+        const { prescribedDrugId, batchId } = item;
+        const qtyToDispense = Number(item.qtyToDispense);
+        if (!Number.isInteger(qtyToDispense) || qtyToDispense <= 0) throw new Error('Dispensing quantity must be a positive whole number.');
 
         const prescribedDrug = await tx.prescribedDrug.findUnique({
           where: { id: prescribedDrugId }
@@ -274,6 +295,9 @@ router.post('/prescriptions/:id/dispense', authenticate, async (req, res) => {
         if (!prescribedDrug) {
           throw new Error('Prescribed drug item not found.');
         }
+        if (prescribedDrug.prescriptionId !== prescriptionId) throw new Error('Prescribed drug does not belong to this prescription.');
+        const remaining = prescribedDrug.qtyPrescribed - prescribedDrug.qtyDispensed;
+        if (qtyToDispense > remaining) throw new Error('Dispensing quantity exceeds the remaining prescribed quantity.');
 
         if (batchId) {
           const batch = await tx.inventoryBatch.findUnique({
@@ -283,6 +307,13 @@ router.post('/prescriptions/:id/dispense', authenticate, async (req, res) => {
           if (!batch) {
             throw new Error('Inventory batch not found.');
           }
+          if (batch.drugId !== prescribedDrug.drugId) throw new Error('Inventory batch does not belong to the prescribed drug.');
+
+          const earliestBatch = await tx.inventoryBatch.findFirst({
+            where: { drugId: prescribedDrug.drugId, qtyOnHand: { gt: 0 }, expiryDate: { gte: new Date().toISOString().slice(0, 10) } },
+            orderBy: [{ expiryDate: 'asc' }, { batchNumber: 'asc' }]
+          });
+          if (earliestBatch && earliestBatch.id !== batch.id) throw new Error('A batch with an earlier expiry must be dispensed first (FEFO).');
 
           if (batch.qtyOnHand < qtyToDispense) {
             throw new Error(`Insufficient stock in batch ${batch.batchNumber}.`);
@@ -290,8 +321,10 @@ router.post('/prescriptions/:id/dispense', authenticate, async (req, res) => {
 
           await tx.inventoryBatch.update({
             where: { id: batchId },
-            data: { qtyOnHand: batch.qtyOnHand - qtyToDispense }
+            data: { qtyOnHand: { decrement: qtyToDispense } }
           });
+        } else {
+          throw new Error('An eligible FEFO inventory batch is required.');
         }
 
         const newQtyDispensed = prescribedDrug.qtyDispensed + qtyToDispense;
@@ -315,7 +348,13 @@ router.post('/prescriptions/:id/dispense', authenticate, async (req, res) => {
 
   } catch (error) {
     console.error('Dispense prescription error:', error);
-    return res.status(500).json({ error: error.message || 'Failed to dispense prescription.' });
+    const knownValidation = [
+      'positive whole number', 'does not belong', 'exceeds the remaining',
+      'earlier expiry', 'eligible FEFO', 'not found'
+    ].some((fragment) => error.message?.includes(fragment));
+    if (knownValidation) return sendError(res, 422, 'DISPENSING_VALIDATION_FAILED', error.message);
+    if (error.message?.includes('Insufficient stock')) return sendError(res, 409, 'INSUFFICIENT_STOCK', error.message);
+    return sendError(res, 500, 'DISPENSING_FAILED', 'Failed to dispense prescription.');
   }
 });
 
@@ -323,9 +362,12 @@ router.post('/prescriptions/:id/dispense', authenticate, async (req, res) => {
  * GET /api/records/lab-orders/pending
  * Returns test orders.
  */
-router.get('/lab-orders/pending', authenticate, async (req, res) => {
+router.get('/lab-orders/pending', authenticate, allowRoles(ROLES.LAB_TECH), async (req, res) => {
   try {
     const orders = await prisma.labOrder.findMany({
+      // PENDING_BILLING remains visible to preserve the existing workflow until
+      // invoices are explicitly linked to lab orders in a later forward migration.
+      where: { status: { in: ['PENDING_BILLING', 'PAID', 'SAMPLE_COLLECTED'] } },
       include: {
         patient: true,
         doctor: true,
@@ -348,7 +390,10 @@ router.get('/lab-orders/pending', authenticate, async (req, res) => {
  * PUT /api/records/lab-orders/items/:id/results
  * Logs structured results and updates completed status.
  */
-router.put('/lab-orders/items/:id/results', authenticate, async (req, res) => {
+router.put('/lab-orders/items/:id/results', authenticate, allowRoles(ROLES.LAB_TECH), validate(z.object({
+  resultValue: z.string().trim().min(1).max(2000), referenceRangeMin: z.coerce.number().optional(),
+  referenceRangeMax: z.coerce.number().optional(), isOutOfRange: z.boolean().optional(), fileAttachmentPath: z.string().max(300).optional()
+})), async (req, res) => {
   const itemId = req.params.id;
   const { resultValue, referenceRangeMin, referenceRangeMax, isOutOfRange, fileAttachmentPath } = req.body;
 
@@ -357,13 +402,13 @@ router.put('/lab-orders/items/:id/results', authenticate, async (req, res) => {
       where: { id: itemId },
       data: {
         resultValue,
-        referenceRangeMin: referenceRangeMin ? parseFloat(referenceRangeMin) : null,
-        referenceRangeMax: referenceRangeMax ? parseFloat(referenceRangeMax) : null,
+        referenceRangeMin: referenceRangeMin !== undefined ? Number(referenceRangeMin) : null,
+        referenceRangeMax: referenceRangeMax !== undefined ? Number(referenceRangeMax) : null,
         isOutOfRange: !!isOutOfRange,
         fileAttachmentPath
       },
       include: {
-        labOrders: {
+        labOrder: {
           include: {
             patient: true
           }
@@ -428,7 +473,7 @@ function safeDecryptField(encryptedVal) {
  * GET /api/records/:id/summary
  * Fetches compiled post-visit summary for a medical record or appointment ID.
  */
-router.get('/:id/summary', authenticate, async (req, res) => {
+router.get('/:id/summary', authenticate, allowRoles(ROLES.DOCTOR), async (req, res) => {
   const targetId = req.params.id;
   console.log(`[GET /api/records/:id/summary] Received request for ID: "${targetId}"`);
 
@@ -468,6 +513,7 @@ router.get('/:id/summary', authenticate, async (req, res) => {
       console.warn(`[GET /api/records/:id/summary] No record found matching targetId: "${targetId}"`);
       return res.status(404).json({ error: 'Visit medical record not found.' });
     }
+    if (record.doctorId !== req.user.doctorId) return sendError(res, 403, 'RECORD_ACCESS_FORBIDDEN', 'This clinical record does not belong to the authenticated doctor.');
 
     let vitals = {};
     if (record.vitalSignsJson) {
@@ -536,7 +582,7 @@ router.get('/:id/summary', authenticate, async (req, res) => {
  * POST /api/records/:id/send-summary
  * Emails post-visit summary directly to the patient.
  */
-router.post('/:id/send-summary', authenticate, async (req, res) => {
+router.post('/:id/send-summary', authenticate, allowRoles(ROLES.DOCTOR), async (req, res) => {
   const targetId = req.params.id;
   const { email } = req.body;
 
@@ -572,6 +618,7 @@ router.post('/:id/send-summary', authenticate, async (req, res) => {
         }
       });
     }
+    if (record.doctorId !== req.user.doctorId) return sendError(res, 403, 'RECORD_ACCESS_FORBIDDEN', 'This clinical record does not belong to the authenticated doctor.');
 
     if (!record) {
       return res.status(404).json({ error: 'Visit medical record not found.' });

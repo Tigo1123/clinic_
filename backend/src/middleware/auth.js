@@ -1,23 +1,33 @@
 import jwt from 'jsonwebtoken';
+import { sendError } from '../utils/apiError.js';
+import prisma from '../db.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback-super-secret-key-32-chars-long-khartoum';
+function jwtSecret() {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error('JWT_SECRET is required.');
+  return secret;
+}
 
 /**
  * Middleware to verify JWT token.
  */
-export function authenticate(req, res, next) {
+export async function authenticate(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Access denied. No token provided.' });
+    return sendError(res, 401, 'AUTHENTICATION_REQUIRED', 'Access denied. No token provided.');
   }
 
   const token = authHeader.split(' ')[1];
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, jwtSecret());
+    const activeUser = await prisma.user.findUnique({ where: { id: decoded.id }, select: { status: true, role: true } });
+    if (!activeUser || activeUser.status !== 'ACTIVE' || activeUser.role !== decoded.role) {
+      return sendError(res, 401, 'SESSION_REVOKED', 'This session is no longer active.');
+    }
     req.user = decoded; // { id, username, role }
     next();
   } catch (error) {
-    return res.status(403).json({ error: 'Invalid or expired token.' });
+    return sendError(res, 401, 'INVALID_TOKEN', 'Invalid or expired token.');
   }
 }
 
@@ -28,10 +38,10 @@ export function checkRoles(...allowedRoles) {
   const roles = allowedRoles.flat();
   return (req, res, next) => {
     if (!req.user) {
-      return res.status(401).json({ error: 'Unauthenticated request.' });
+      return sendError(res, 401, 'AUTHENTICATION_REQUIRED', 'Unauthenticated request.');
     }
     if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ error: 'Unauthorized role. Access denied.' });
+      return sendError(res, 403, 'FORBIDDEN', 'Unauthorized role. Access denied.');
     }
     next();
   };

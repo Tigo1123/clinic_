@@ -94,8 +94,7 @@ export async function sendNotification(io, { userId, title, message }) {
     });
 
     if (io) {
-      // Emit to targeted user room (supports both io.to(userId) and io.to(`user_${userId}`))
-      io.to(userId).to(`user_${userId}`).emit('notification', notification);
+      io.to(`user_${userId}`).emit('notification', notification);
     }
 
     return notification;

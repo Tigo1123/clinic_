@@ -1,0 +1,9 @@
+backend/.env
+backend/prisma/*.db-journal
+backend/prisma/*.db-wal
+backend/prisma/*.db-shm
+backend/prisma/test.db
+backend/uploads/
+node_modules/
+dist/
+coverage/

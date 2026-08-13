@@ -1,19 +1,4 @@
-version: '3.8'
-
 services:
-  db:
-    image: postgres:15-alpine
-    container_name: cms-postgres
-    restart: always
-    environment:
-      POSTGRES_DB: cms_db
-      POSTGRES_USER: cms_user
-      POSTGRES_PASSWORD: cms_password_2026
-    ports:
-      - "5432:5432"
-    volumes:
-      - pg-data:/var/lib/postgresql/data
-
   backend:
     build:
       context: ./backend
@@ -21,14 +6,20 @@ services:
     container_name: cms-backend
     ports:
       - "5000:5000"
+    env_file:
+      - ./backend/.env
     environment:
-      - PORT=5000
-      - DATABASE_URL=postgresql://cms_user:cms_password_2026@db:5432/cms_db?schema=public
-      - JWT_SECRET=super-secret-clinic-security-key-2026-khartoum
-    depends_on:
-      - db
+      PORT: 5000
+      DATABASE_URL: file:/data/clinic.db
+      CORS_ALLOWED_ORIGINS: http://localhost:5173
     volumes:
+      - clinic-db:/data
       - uploads-data:/app/uploads
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5000/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
   frontend:
     build:
@@ -38,10 +29,12 @@ services:
     ports:
       - "5173:5173"
     environment:
-      - VITE_BACKEND_URL=http://backend:5000
+      VITE_PROXY_TARGET: http://backend:5000
+      VITE_SOCKET_URL: http://localhost:5000
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
-  pg-data:
+  clinic-db:
   uploads-data:

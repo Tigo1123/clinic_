@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+import jwt from 'jsonwebtoken';
 import prisma from './db.js';
 import authRoutes from './routes/auth.js';
 import patientRoutes from './routes/patients.js';
@@ -11,14 +12,24 @@ import recordRoutes from './routes/records.js';
 import billingRoutes from './routes/billing.js';
 import uploadRoutes from './routes/upload.js';
 import adminRoutes from './routes/admin.js';
-import notificationRoutes, { sendNotification } from './routes/notifications.js';
-import path from 'path';
+import notificationRoutes from './routes/notifications.js';
+import { errorHandler, notFoundHandler } from './utils/apiError.js';
+import { fileURLToPath } from 'url';
 
 // Load environment configuration
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || 'http://localhost:5173')
+  .split(',').map((origin) => origin.trim()).filter(Boolean);
+const corsOptions = {
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('Origin is not allowed by CORS policy.'));
+  },
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
+};
 
 // Create HTTP Server
 const httpServer = createServer(app);
@@ -26,8 +37,19 @@ const httpServer = createServer(app);
 // Initialize Socket.io Server
 const io = new Server(httpServer, {
   cors: {
-    origin: '*',
+    origin: allowedOrigins,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+  }
+});
+
+io.use((socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token;
+    if (!token || !process.env.JWT_SECRET) return next(new Error('Authentication required.'));
+    socket.user = jwt.verify(token, process.env.JWT_SECRET);
+    return next();
+  } catch (error) {
+    return next(new Error('Invalid or expired token.'));
   }
 });
 
@@ -37,14 +59,7 @@ app.set('io', io);
 io.on('connection', (socket) => {
   console.log(`[Socket.io] Client connected: ${socket.id}`);
 
-  // Allow client to join user-specific notification room
-  socket.on('joinUserRoom', (userId) => {
-    if (userId) {
-      socket.join(`user_${userId}`);
-      socket.join(userId); // Also join direct userId room
-      console.log(`[Socket.io] Socket ${socket.id} joined user room: ${userId}`);
-    }
-  });
+  socket.join(`user_${socket.user.id}`);
 
   socket.on('disconnect', () => {
     console.log(`[Socket.io] Client disconnected: ${socket.id}`);
@@ -52,7 +67,7 @@ io.on('connection', (socket) => {
 });
 
 // Enable CORS for frontend requests
-app.use(cors());
+app.use(cors(corsOptions));
 
 // Parse incoming request payloads
 app.use(express.json());
@@ -87,36 +102,23 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);
 
-// Test Notification Endpoint for real-time testing
-app.post('/api/test-notification', async (req, res) => {
-  const io = req.app.get('io');
-  const { userId, title, message } = req.body;
-
-  try {
-    const notification = await sendNotification(io, { userId, title, message });
-    return res.json({ success: true, notification });
-  } catch (error) {
-    return res.status(500).json({ error: error.message });
-  }
-});
-
-app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
-
 // Fallback handler for unmatched API endpoints to ensure JSON response instead of HTML
-app.use('/api', (req, res) => {
-  res.status(404).json({ error: 'API route not found' });
-});
+app.use('/api', notFoundHandler);
 
 // Global Error Catching Middleware
-app.use((err, req, res, next) => {
-  console.error('Unhandled runtime error:', err);
-  res.status(500).json({ error: 'An unexpected server error occurred.' });
-});
+app.use(errorHandler);
 
 // Launch listening loop
-httpServer.listen(PORT, () => {
+export function startServer(port = PORT) {
+  return httpServer.listen(port, () => {
   console.log(`==================================================`);
   console.log(` CMS SERVER RUNNING IN KHARTOUM TIME ZONE (GMT+2) `);
   console.log(` Local Server URL: http://localhost:${PORT}      `);
   console.log(`==================================================`);
-});
+  });
+}
+
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(new URL(`file://${process.argv[1]}`));
+if (isMain) startServer();
+
+export { app, httpServer, io };

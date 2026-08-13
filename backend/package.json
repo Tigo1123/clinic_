@@ -6,9 +6,11 @@
   "type": "module",
   "scripts": {
     "start": "node src/server.js",
+    "start:container": "prisma migrate deploy && node prisma/seed.js && node src/server.js",
     "dev": "nodemon src/server.js",
     "db:init": "prisma migrate dev --name init",
-    "db:seed": "node prisma/seed.js"
+    "db:seed": "node prisma/seed.js",
+    "test": "node test/run-tests.js"
   },
   "dependencies": {
     "@prisma/client": "^5.16.1",
@@ -16,13 +18,16 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "express-rate-limit": "^8.6.2",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.2.0",
     "nodemailer": "^9.0.3",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "nodemon": "^3.1.4",
-    "prisma": "^5.16.1"
+    "prisma": "^5.16.1",
+    "supertest": "^7.2.2"
   }
 }

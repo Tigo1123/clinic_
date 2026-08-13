@@ -45,7 +45,8 @@ import { io } from 'socket.io-client';
 const socket = io(
   window.location.hostname === 'localhost'
     ? 'http://localhost:5000'
-    : `${window.location.protocol}//${window.location.hostname}:5000`
+    : `${window.location.protocol}//${window.location.hostname}:5000`,
+  { autoConnect: false, auth: (cb) => cb({ token: localStorage.getItem('cms_token') }) }
 );
 
 /**
@@ -60,6 +61,10 @@ function getWhatsAppLink(phone, message) {
     cleaned = '249' + cleaned;
   }
   return `https://wa.me/${cleaned}?text=${encodeURIComponent(message || '')}`;
+}
+
+function apiErrorMessage(payload, fallback) {
+  return typeof payload?.error === 'string' ? payload.error : payload?.error?.message || fallback;
 }
 
 // Base fetch helper with JWT header
@@ -170,7 +175,13 @@ export default function App() {
     localStorage.removeItem('cms_token');
     setUser(null);
     setView('portal');
+    socket.disconnect();
   };
+
+  useEffect(() => {
+    if (user && localStorage.getItem('cms_token')) socket.connect();
+    return () => socket.disconnect();
+  }, [user]);
 
   return (
     <div className="app-layout">
@@ -257,7 +268,10 @@ function PatientPortal({ lang, t }) {
   // Fetch all doctors and extract unique specialties dynamically
   useEffect(() => {
     fetch('/api/appointments/doctors')
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error(`Unable to load doctors (HTTP ${res.status})`);
+        return res.json();
+      })
       .then((data) => {
         setAllDoctors(data);
         const uniqueSpecsMap = {};
@@ -273,8 +287,13 @@ function PatientPortal({ lang, t }) {
         });
         setSpecialties(Object.values(uniqueSpecsMap));
       })
-      .catch((err) => console.error(err));
-  }, []);
+      .catch((err) => {
+        console.error(err);
+        setAllDoctors([]);
+        setSpecialties([]);
+        setErrorMsg(lang === 'ar' ? 'تعذر تحميل قائمة الأطباء. يرجى المحاولة مرة أخرى.' : 'Unable to load doctors. Please try again.');
+      });
+  }, [lang]);
 
   const doctors = allDoctors.filter(
     (d) => d.specialtyEn === specialty || d.specialtyAr === specialty
@@ -357,7 +376,7 @@ function PatientPortal({ lang, t }) {
         setTicketDetails(data);
         setStep(6);
       } else {
-        setErrorMsg(data.error || 'Booking failed.');
+        setErrorMsg(apiErrorMessage(data, 'Booking failed.'));
       }
     } catch (err) {
       console.error(err);
@@ -740,7 +759,7 @@ function LoginView({ onLogin, t }) {
       if (res.ok) {
         onLogin(data.user, data.token);
       } else {
-        setErrorMsg(data.error || 'Login failed.');
+        setErrorMsg(apiErrorMessage(data, 'Login failed.'));
       }
     } catch (err) {
       console.error(err);
@@ -918,7 +937,7 @@ function AdminDashboard({ lang, t }) {
           .then((r) => r.json())
           .then((d) => setUsers(d));
       } else {
-        setErrorMsg(data.error || 'Failed to create user.');
+        setErrorMsg(apiErrorMessage(data, 'Failed to create user.'));
       }
     } catch (err) {
       console.error(err);
@@ -1513,7 +1532,7 @@ function ReceptionistDashboard({ lang, t }) {
           window.open(data.whatsAppLinkAr, '_blank');
         }
       } else {
-        setErrorMsg(data.error || 'Failed to confirm appointment.');
+        setErrorMsg(apiErrorMessage(data, 'Failed to confirm appointment.'));
       }
     } catch (err) {
       console.error(err);
@@ -1648,7 +1667,7 @@ function ReceptionistDashboard({ lang, t }) {
         setAddressDetails('');
         setEmergencyContact('');
       } else {
-        setErrorMsg(data.error || 'Registration failed.');
+        setErrorMsg(apiErrorMessage(data, 'Registration failed.'));
       }
     } catch (err) {
       console.error(err);
@@ -1765,7 +1784,7 @@ function ReceptionistDashboard({ lang, t }) {
           setErrorMsg(payError.error || 'Failed to apply payments.');
         }
       } else {
-        setErrorMsg(data.error || 'Invoice creation failed.');
+        setErrorMsg(apiErrorMessage(data, 'Invoice creation failed.'));
       }
     } catch (err) {
       console.error(err);
@@ -3033,7 +3052,7 @@ function DoctorDashboard({ user, lang, t }) {
         setOrderedTests([]);
         fetchDoctorQueue();
       } else {
-        setErrorMsg(data.error || 'Failed to save EMR.');
+        setErrorMsg(apiErrorMessage(data, 'Failed to save EMR.'));
       }
     } catch (err) {
       console.error(err);
@@ -3564,8 +3583,11 @@ function PharmacistDashboard({ lang, t }) {
     setErrorMsg('');
     setSuccessMsg('');
     const items = rx.prescribedDrugs.map((item) => {
-      // Find default batch
-      const batch = item.drug.inventoryBatches[0];
+      // Select the eligible batch with the earliest expiry (FEFO).
+      const today = new Date().toISOString().slice(0, 10);
+      const batch = [...(item.drug.inventoryBatches || [])]
+        .filter((candidate) => candidate.qtyOnHand > 0 && candidate.expiryDate >= today)
+        .sort((a, b) => a.expiryDate.localeCompare(b.expiryDate) || a.batchNumber.localeCompare(b.batchNumber))[0];
       return {
         prescribedDrugId: item.id,
         qtyToDispense: item.qtyPrescribed - item.qtyDispensed,
@@ -3584,7 +3606,7 @@ function PharmacistDashboard({ lang, t }) {
         fetchPendingRx();
       } else {
         const err = await res.json();
-        setErrorMsg(err.error || 'Dispense failed.');
+        setErrorMsg(apiErrorMessage(err, 'Dispense failed.'));
       }
     } catch (e) {
       console.error(e);
@@ -3673,7 +3695,7 @@ function PharmacistDashboard({ lang, t }) {
                       {/* Batch FIFO suggestion indicator */}
                       <div style={{ fontSize: '0.75rem', color: 'var(--warning)', marginTop: '0.5rem' }}>
                         FIFO Suggestion: Batch{' '}
-                        {item.drug.inventoryBatches[0]?.batchNumber || 'N/A'} (Exp: {item.drug.inventoryBatches[0]?.expiryDate || 'N/A'})
+                        {[...(item.drug.inventoryBatches || [])].sort((a, b) => a.expiryDate.localeCompare(b.expiryDate))[0]?.batchNumber || 'N/A'} (Exp: {[...(item.drug.inventoryBatches || [])].sort((a, b) => a.expiryDate.localeCompare(b.expiryDate))[0]?.expiryDate || 'N/A'})
                       </div>
                     </div>
                   );

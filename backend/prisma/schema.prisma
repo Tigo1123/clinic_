@@ -87,6 +87,7 @@ model Appointment {
   invoices          Invoice[]
 
   @@index([appointmentDate, appointmentTime])
+  @@index([doctorId, appointmentDate, appointmentTime])
 }
 
 model EmergencyOverride {
