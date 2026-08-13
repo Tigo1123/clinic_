@@ -1,0 +1,636 @@
+import express from 'express';
+import prisma from '../db.js';
+import { authenticate, checkRoles } from '../middleware/auth.js';
+import { encrypt, decrypt } from '../utils/encryption.js';
+import { sendEmail } from '../utils/notifications.js';
+
+const router = express.Router();
+
+/**
+ * POST /api/records
+ * Saves the consultation results. Encrypts clinical fields, serializes vitals,
+ * and creates prescriptions and lab orders in a single atomic transaction.
+ */
+router.post('/', authenticate, checkRoles('DOCTOR'), async (req, res) => {
+  const {
+    patientId,
+    appointmentId,
+    symptoms,
+    diagnosis,
+    treatment,
+    clinicalNotes,
+    vitalSigns, // { blood_pressure, heart_rate, temperature, weight }
+    prescribedDrugs, // Array of { drugId, dosage, duration, instructionsAr, instructionsEn, qtyPrescribed }
+    orderedServices, // Array of ClinicalService IDs
+    attachmentPath
+  } = req.body;
+
+  if (!patientId || !appointmentId || !diagnosis) {
+    return res.status(400).json({ error: 'Patient ID, Appointment ID, and Diagnosis are required.' });
+  }
+
+  let doctorId = req.user.doctorId;
+  if (!doctorId && req.user.role === 'DOCTOR') {
+    const doc = await prisma.doctor.findUnique({
+      where: { userId: req.user.id }
+    });
+    doctorId = doc ? doc.id : null;
+  }
+
+  if (!doctorId) {
+    return res.status(403).json({ error: 'Only registered doctors with assigned profiles can complete consultations.' });
+  }
+
+  try {
+    // Check if EMR already exists for this appointment
+    const existingRecord = await prisma.medicalRecord.findFirst({
+      where: { appointmentId },
+      include: {
+        prescriptions: true,
+        labOrders: true
+      }
+    });
+
+    if (existingRecord) {
+      return res.status(200).json({
+        success: true,
+        message: 'EMR consultation already saved.',
+        recordId: existingRecord.id,
+        record: existingRecord,
+        prescriptions: existingRecord.prescriptions,
+        labOrders: existingRecord.labOrders,
+        data: { record: existingRecord, prescription: existingRecord.prescriptions[0] || null, labOrder: existingRecord.labOrders[0] || null }
+      });
+    }
+    // 1. Encrypt clinical text fields
+    const encryptedSymptoms = encrypt(symptoms || '');
+    const encryptedDiagnosis = encrypt(diagnosis);
+    const encryptedTreatment = encrypt(treatment || '');
+    const encryptedNotes = encrypt(clinicalNotes || '');
+    const vitalSignsStr = JSON.stringify(vitalSigns || {});
+
+    // Execute atomic transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // a. Create EMR Medical Record
+      const record = await tx.medicalRecord.create({
+        data: {
+          patientId,
+          doctorId,
+          appointmentId,
+          symptomsEncrypted: encryptedSymptoms,
+          diagnosisEncrypted: encryptedDiagnosis,
+          treatmentEncrypted: encryptedTreatment,
+          vitalSignsJson: vitalSignsStr,
+          clinicalNotesEncrypted: encryptedNotes,
+          attachmentPath: attachmentPath || null
+        }
+      });
+
+      // b. If drugs are prescribed, create Prescription & PrescribedDrug items
+      let prescription = null;
+      if (prescribedDrugs && prescribedDrugs.length > 0) {
+        prescription = await tx.prescription.create({
+          data: {
+            medicalRecordId: record.id,
+            patientId,
+            doctorId,
+            status: 'ACTIVE'
+          }
+        });
+
+        for (const drug of prescribedDrugs) {
+          await tx.prescribedDrug.create({
+            data: {
+              prescriptionId: prescription.id,
+              drugId: drug.drugId,
+              dosage: drug.dosage,
+              duration: drug.duration,
+              instructionsAr: drug.instructionsAr || '',
+              instructionsEn: drug.instructionsEn || '',
+              qtyPrescribed: parseInt(drug.qtyPrescribed)
+            }
+          });
+        }
+      }
+
+      // c. If lab/radiology tests are ordered, create LabOrder & LabOrderItems
+      let labOrder = null;
+      if (orderedServices && orderedServices.length > 0) {
+        labOrder = await tx.labOrder.create({
+          data: {
+            medicalRecordId: record.id,
+            patientId,
+            doctorId,
+            status: 'PENDING_BILLING'
+          }
+        });
+
+        for (const serviceId of orderedServices) {
+          await tx.labOrderItem.create({
+            data: {
+              labOrderId: labOrder.id,
+              serviceId,
+              isOutOfRange: false
+            }
+          });
+        }
+      }
+
+      // d. Update appointment status to COMPLETED
+      await tx.appointment.update({
+        where: { id: appointmentId },
+        data: { status: 'COMPLETED' }
+      });
+
+      return { record, prescription, labOrder };
+    });
+
+    // Emit WebSocket update
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('queueUpdated', { type: 'CONSULTATION_COMPLETE', appointmentId, patientId, doctorId });
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: 'Consultation saved and EMR record created successfully.',
+      recordId: result.record.id,
+      record: result.record,
+      data: result
+    });
+
+  } catch (error) {
+    console.error('Save clinical record error:', error);
+    return res.status(500).json({ error: 'Failed to save EMR consultation record.' });
+  }
+});
+
+/**
+ * POST /api/records/bypass
+ * Break-the-Glass Emergency Access Override.
+ * Logs a CRITICAL bypass entry allowing 2-hour decryption authorization.
+ */
+router.post('/bypass', authenticate, checkRoles('DOCTOR'), async (req, res) => {
+  const { patientId, justification } = req.body;
+
+  if (!patientId || !justification || justification.length < 20) {
+    return res.status(400).json({ error: 'Patient ID and a detailed justification (min 20 characters) are required.' });
+  }
+
+  try {
+    // Create audit log entry
+    await prisma.tenantAuditLog.create({
+      data: {
+        userId: req.user.id,
+        action: `EMR_BREAK_THE_GLASS_BYPASS:${patientId}`,
+        details: `Emergency EMR access override. Justification: ${justification}`,
+        ipAddress: req.ip || '127.0.0.1'
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: 'Break-the-Glass authorization granted. EMR details unlocked for 2 hours.'
+    });
+  } catch (error) {
+    console.error('Break the glass bypass error:', error);
+    return res.status(500).json({ error: 'Failed to authorize break-the-glass override.' });
+  }
+});
+
+/**
+ * GET /api/records/drugs
+ * Returns list of drugs and inventory levels.
+ */
+router.get('/drugs', async (req, res) => {
+  try {
+    const drugs = await prisma.drugFormulary.findMany({
+      include: {
+        inventoryBatches: true
+      }
+    });
+    return res.json(drugs);
+  } catch (error) {
+    console.error('Fetch drugs error:', error);
+    return res.status(500).json({ error: 'Failed to retrieve drug formulary.' });
+  }
+});
+
+/**
+ * GET /api/records/prescriptions/pending
+ * Returns list of prescriptions that are ACTIVE or PARTIALLY_FILLED.
+ */
+router.get('/prescriptions/pending', authenticate, async (req, res) => {
+  try {
+    const prescriptions = await prisma.prescription.findMany({
+      where: {
+        status: { in: ['ACTIVE', 'PARTIALLY_FILLED'] }
+      },
+      include: {
+        patient: true,
+        doctor: true,
+        prescribedDrugs: {
+          include: {
+            drug: {
+              include: {
+                inventoryBatches: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: { prescriptionDate: 'desc' }
+    });
+    return res.json(prescriptions);
+  } catch (error) {
+    console.error('Fetch pending prescriptions error:', error);
+    return res.status(500).json({ error: 'Failed to retrieve pending prescriptions.' });
+  }
+});
+
+/**
+ * POST /api/records/prescriptions/:id/dispense
+ * Fills or partially fills a prescription. Updates inventory levels.
+ */
+router.post('/prescriptions/:id/dispense', authenticate, async (req, res) => {
+  const prescriptionId = req.params.id;
+  const { items } = req.body; // Array of { prescribedDrugId, qtyToDispense, batchId }
+
+  if (!items || items.length === 0) {
+    return res.status(400).json({ error: 'Dispensing items are required.' });
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      let allFilled = true;
+
+      for (const item of items) {
+        const { prescribedDrugId, qtyToDispense, batchId } = item;
+
+        const prescribedDrug = await tx.prescribedDrug.findUnique({
+          where: { id: prescribedDrugId }
+        });
+
+        if (!prescribedDrug) {
+          throw new Error('Prescribed drug item not found.');
+        }
+
+        if (batchId) {
+          const batch = await tx.inventoryBatch.findUnique({
+            where: { id: batchId }
+          });
+
+          if (!batch) {
+            throw new Error('Inventory batch not found.');
+          }
+
+          if (batch.qtyOnHand < qtyToDispense) {
+            throw new Error(`Insufficient stock in batch ${batch.batchNumber}.`);
+          }
+
+          await tx.inventoryBatch.update({
+            where: { id: batchId },
+            data: { qtyOnHand: batch.qtyOnHand - qtyToDispense }
+          });
+        }
+
+        const newQtyDispensed = prescribedDrug.qtyDispensed + qtyToDispense;
+        await tx.prescribedDrug.update({
+          where: { id: prescribedDrugId },
+          data: { qtyDispensed: newQtyDispensed }
+        });
+
+        if (newQtyDispensed < prescribedDrug.qtyPrescribed) {
+          allFilled = false;
+        }
+      }
+
+      await tx.prescription.update({
+        where: { id: prescriptionId },
+        data: { status: allFilled ? 'FILLED' : 'PARTIALLY_FILLED' }
+      });
+    });
+
+    return res.json({ success: true, message: 'Prescription dispensed successfully.' });
+
+  } catch (error) {
+    console.error('Dispense prescription error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to dispense prescription.' });
+  }
+});
+
+/**
+ * GET /api/records/lab-orders/pending
+ * Returns test orders.
+ */
+router.get('/lab-orders/pending', authenticate, async (req, res) => {
+  try {
+    const orders = await prisma.labOrder.findMany({
+      include: {
+        patient: true,
+        doctor: true,
+        items: {
+          include: {
+            service: true
+          }
+        }
+      },
+      orderBy: { orderDate: 'desc' }
+    });
+    return res.json(orders);
+  } catch (error) {
+    console.error('Fetch pending lab orders error:', error);
+    return res.status(500).json({ error: 'Failed to retrieve pending lab orders.' });
+  }
+});
+
+/**
+ * PUT /api/records/lab-orders/items/:id/results
+ * Logs structured results and updates completed status.
+ */
+router.put('/lab-orders/items/:id/results', authenticate, async (req, res) => {
+  const itemId = req.params.id;
+  const { resultValue, referenceRangeMin, referenceRangeMax, isOutOfRange, fileAttachmentPath } = req.body;
+
+  try {
+    const item = await prisma.labOrderItem.update({
+      where: { id: itemId },
+      data: {
+        resultValue,
+        referenceRangeMin: referenceRangeMin ? parseFloat(referenceRangeMin) : null,
+        referenceRangeMax: referenceRangeMax ? parseFloat(referenceRangeMax) : null,
+        isOutOfRange: !!isOutOfRange,
+        fileAttachmentPath
+      },
+      include: {
+        labOrders: {
+          include: {
+            patient: true
+          }
+        }
+      }
+    });
+
+    const orderId = item.labOrderId;
+    const remainingItems = await prisma.labOrderItem.count({
+      where: {
+        labOrderId: orderId,
+        resultValue: null
+      }
+    });
+
+    if (remainingItems === 0) {
+      await prisma.labOrder.update({
+        where: { id: orderId },
+        data: { status: 'COMPLETED' }
+      });
+    } else {
+      await prisma.labOrder.update({
+        where: { id: orderId },
+        data: { status: 'SAMPLE_COLLECTED' }
+      });
+    }
+
+    await prisma.tenantAuditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'LAB_RESULTS_LOGGED',
+        details: `Logged results for Lab Order Item ${itemId} for Patient ${item.labOrder.patient.fullNameEn}`,
+        ipAddress: req.ip || '127.0.0.1'
+      }
+    });
+
+    return res.json(item);
+
+  } catch (error) {
+    console.error('Log lab results error:', error);
+    return res.status(500).json({ error: 'Failed to save lab results.' });
+  }
+});
+
+/**
+ * Helper to safely decrypt strings or return plain text fallback.
+ */
+function safeDecryptField(encryptedVal) {
+  if (!encryptedVal) return '';
+  try {
+    const result = decrypt(encryptedVal);
+    if (result && !result.startsWith('[Decryption Error')) {
+      return result;
+    }
+  } catch (e) {
+    // Ignore and fallback to raw text
+  }
+  return encryptedVal;
+}
+
+/**
+ * GET /api/records/:id/summary
+ * Fetches compiled post-visit summary for a medical record or appointment ID.
+ */
+router.get('/:id/summary', authenticate, async (req, res) => {
+  const targetId = req.params.id;
+  console.log(`[GET /api/records/:id/summary] Received request for ID: "${targetId}"`);
+
+  if (!targetId || targetId === 'undefined' || targetId === 'null') {
+    return res.status(400).json({ error: 'Record ID or Appointment ID is required.' });
+  }
+
+  try {
+    let record = await prisma.medicalRecord.findFirst({
+      where: {
+        OR: [
+          { id: targetId },
+          { appointmentId: targetId }
+        ]
+      },
+      include: {
+        patient: true,
+        doctor: true,
+        prescriptions: {
+          include: {
+            prescribedDrugs: {
+              include: { drug: true }
+            }
+          }
+        },
+        labOrders: {
+          include: {
+            items: {
+              include: { service: true }
+            }
+          }
+        }
+      }
+    });
+
+    if (!record) {
+      console.warn(`[GET /api/records/:id/summary] No record found matching targetId: "${targetId}"`);
+      return res.status(404).json({ error: 'Visit medical record not found.' });
+    }
+
+    let vitals = {};
+    if (record.vitalSignsJson) {
+      try {
+        vitals = typeof record.vitalSignsJson === 'string' ? JSON.parse(record.vitalSignsJson) : record.vitalSignsJson;
+      } catch (e) {
+        console.error('Failed to parse vitalSignsJson:', e);
+        vitals = {};
+      }
+    }
+
+    const summary = {
+      id: record.id,
+      appointmentId: record.appointmentId,
+      visitDate: record.visitDate,
+      patient: {
+        id: record.patient?.id || '',
+        fullNameAr: record.patient?.fullNameAr || '',
+        fullNameEn: record.patient?.fullNameEn || '',
+        gender: record.patient?.gender || '',
+        dateOfBirth: record.patient?.dateOfBirth || '',
+        phone: record.patient?.phone || ''
+      },
+      doctor: {
+        fullNameAr: record.doctor?.fullNameAr || '',
+        fullNameEn: record.doctor?.fullNameEn || '',
+        specialtyAr: record.doctor?.specialtyAr || '',
+        specialtyEn: record.doctor?.specialtyEn || ''
+      },
+      vitals,
+      symptoms: safeDecryptField(record.symptomsEncrypted),
+      diagnosis: safeDecryptField(record.diagnosisEncrypted),
+      treatment: safeDecryptField(record.treatmentEncrypted),
+      clinicalNotes: safeDecryptField(record.clinicalNotesEncrypted),
+      prescriptions: (record.prescriptions || []).flatMap(p => (p.prescribedDrugs || []).map(pd => ({
+        drugNameAr: pd.drug?.labelAr || pd.drug?.genericName || '',
+        drugNameEn: pd.drug?.labelEn || pd.drug?.genericName || '',
+        dosage: pd.dosage || '',
+        duration: pd.duration || '',
+        instructionsAr: pd.instructionsAr || '',
+        instructionsEn: pd.instructionsEn || '',
+        qtyPrescribed: pd.qtyPrescribed || 0
+      }))),
+      labOrders: (record.labOrders || []).flatMap(lo => (lo.items || []).map(i => ({
+        serviceNameAr: i.service?.labelAr || '',
+        serviceNameEn: i.service?.labelEn || '',
+        resultValue: i.resultValue || '',
+        isOutOfRange: !!i.isOutOfRange
+      }))),
+      instructions: [
+        "Take prescribed medications exactly as directed.",
+        "Drink plenty of water and maintain adequate rest.",
+        "Return immediately if symptoms worsen or high fever persists.",
+        "Follow up in 7 days for progress evaluation."
+      ]
+    };
+
+    return res.json(summary);
+  } catch (error) {
+    console.error('Fetch visit summary error:', error);
+    return res.status(500).json({ error: 'Failed to generate visit summary.' });
+  }
+});
+
+/**
+ * POST /api/records/:id/send-summary
+ * Emails post-visit summary directly to the patient.
+ */
+router.post('/:id/send-summary', authenticate, async (req, res) => {
+  const targetId = req.params.id;
+  const { email } = req.body;
+
+  try {
+    let record = await prisma.medicalRecord.findUnique({
+      where: { id: targetId },
+      include: {
+        patient: true,
+        doctor: true,
+        prescriptions: {
+          include: {
+            prescribedDrugs: {
+              include: { drug: true }
+            }
+          }
+        }
+      }
+    });
+
+    if (!record) {
+      record = await prisma.medicalRecord.findFirst({
+        where: { appointmentId: targetId },
+        include: {
+          patient: true,
+          doctor: true,
+          prescriptions: {
+            include: {
+              prescribedDrugs: {
+                include: { drug: true }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    if (!record) {
+      return res.status(404).json({ error: 'Visit medical record not found.' });
+    }
+
+    const recipientEmail = email || `${record.patient.phone}@patient.cms.local`;
+    const diagnosis = decrypt(record.diagnosisEncrypted);
+    const treatment = decrypt(record.treatmentEncrypted);
+    const vitals = JSON.parse(record.vitalSignsJson || '{}');
+
+    const drugsListHtml = record.prescriptions.flatMap(p => p.prescribedDrugs).map(pd => `
+      <li><strong>${pd.drug?.labelEn || pd.drug?.genericName}</strong>: ${pd.dosage} for ${pd.duration} (${pd.instructionsEn || pd.instructionsAr || 'As instructed'})</li>
+    `).join('');
+
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: 24px; color: #1f2937;">
+        <h2 style="color: #0d9488; text-align: center; border-bottom: 2px solid #0d9488; padding-bottom: 10px;">Al-Shifa Medical Center<br/><span style="font-size:16px;">Visit Summary & Instructions</span></h2>
+        
+        <p><strong>Patient Name:</strong> ${record.patient.fullNameEn} (${record.patient.fullNameAr})</p>
+        <p><strong>Attending Doctor:</strong> ${record.doctor.fullNameEn} - ${record.doctor.specialtyEn}</p>
+        <p><strong>Visit Date:</strong> ${new Date(record.visitDate).toLocaleDateString()}</p>
+        
+        <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 16px 0;" />
+        
+        <h4 style="color: #0369a1; margin-bottom: 8px;">Vital Signs</h4>
+        <p style="background: #f0f9ff; padding: 10px; border-radius: 6px;">
+          Blood Pressure: ${vitals.blood_pressure || 'N/A'} | Heart Rate: ${vitals.heart_rate || 'N/A'} bpm | Temp: ${vitals.temperature || 'N/A'} °C | Weight: ${vitals.weight || 'N/A'} kg
+        </p>
+
+        <h4 style="color: #0369a1; margin-bottom: 8px;">Diagnosis & Care Plan</h4>
+        <p><strong>Diagnosis:</strong> ${diagnosis}</p>
+        <p><strong>Treatment:</strong> ${treatment}</p>
+
+        ${drugsListHtml ? `<h4 style="color: #0369a1; margin-bottom: 8px;">Prescribed Medications</h4><ul>${drugsListHtml}</ul>` : ''}
+
+        <h4 style="color: #0369a1; margin-bottom: 8px;">Post-Visit Instructions</h4>
+        <ol>
+          <li>Take all prescribed medications according to schedule.</li>
+          <li>Ensure adequate hydration and rest.</li>
+          <li>Seek immediate medical attention if you experience severe symptoms or high fever.</li>
+        </ol>
+
+        <p style="text-align: center; font-size: 12px; color: #6b7280; margin-top: 24px;">Al-Shifa Medical Center - Khartoum, Sudan. Phone: +249 91 234 5678</p>
+      </div>
+    `;
+
+    await sendEmail({
+      to: recipientEmail,
+      subject: `Post-Visit Summary - Al-Shifa Medical Center`,
+      text: `Visit summary for ${record.patient.fullNameEn}. Diagnosis: ${diagnosis}. Treatment: ${treatment}`,
+      html: htmlContent
+    });
+
+    return res.json({ success: true, message: `Post-visit summary emailed successfully to ${recipientEmail}.` });
+
+  } catch (error) {
+    console.error('Email visit summary error:', error);
+    return res.status(500).json({ error: 'Failed to email visit summary.' });
+  }
+});
+
+export default router;
