@@ -68,4 +68,27 @@ export function LabResults(){return <Collection path="/api/patient/lab-results" 
 export function Prescriptions(){return <Collection path="/api/patient/prescriptions" titleKey="prescriptions" render={item=><><h2>{new Date(item.prescriptionDate).toLocaleDateString()}</h2>{item.medicines.map(m=><p key={m.id}>{m.medicine.labelEn} — {m.dosage}, {m.duration}</p>)}</>}/>}
 export function MedicalRecords(){return <Collection path="/api/patient/medical-records" titleKey="medicalRecords" render={item=><><h2>{new Date(item.visitDate).toLocaleDateString()}</h2><p><strong>Diagnosis:</strong> {item.diagnosis}</p><p><strong>Treatment:</strong> {item.treatment}</p></>}/>}
 function Collection({path,titleKey,render}){const{t}=useTranslation();const{data,error,loading}=useApi(path);return <State loading={loading} error={error}><h1>{t(titleKey)}</h1>{!data?.length?<Empty>{t('noRecords')}</Empty>:data.map(item=><article className="patient-card" key={item.id}>{render(item)}</article>)}</State>}
-export function Profile(){const{t}=useTranslation();const{data,error,loading,reload}=useApi('/api/patient/me');const[form,setForm]=useState(null),[message,setMessage]=useState('');const[saving,setSaving]=useState(false);useEffect(()=>{if(data)setForm({addressStateId:data.addressStateId,addressDetails:data.addressDetails||'',emergencyContact:data.emergencyContact||'',preferredLanguage:data.preferredLanguage})},[data]);async function save(e){e.preventDefault();setSaving(true);try{await apiRequest('/api/patient/me',{method:'PATCH',body:JSON.stringify(form)});setMessage(t('saved'));reload()}finally{setSaving(false)}}return <State loading={loading} error={error}>{form&&<><section className="patient-card"><h1>{t('profile')}</h1><h2>{data.fullNameEn}</h2><p>{data.phone}{data.email?` · ${data.email}`:''}</p><form onSubmit={save}><label className="patient-field">{t('addressState')}<input type="number" min="1" max="18" value={form.addressStateId} onChange={e=>setForm({...form,addressStateId:e.target.value})}/></label><label className="patient-field">{t('addressDetails')}<input value={form.addressDetails} onChange={e=>setForm({...form,addressDetails:e.target.value})}/></label><label className="patient-field">{t('emergencyContact')}<input value={form.emergencyContact} onChange={e=>setForm({...form,emergencyContact:e.target.value})}/></label>{message&&<div className="patient-alert success">{message}</div>}<button className="patient-button" disabled={saving}>{saving?t('loading'):t('save')}</button></form></section><section className="patient-card"><h2>{t('accountSecurity')}</h2><p>{t('phone')}: <StatusBadge status={data.phoneVerified?'CONFIRMED':'PENDING'}/></p>{data.email&&<p>{t('emailOptional')}: <StatusBadge status={data.emailVerified?'CONFIRMED':'PENDING'}/></p>}</section></>}</State>}
+export function Profile(){const{t}=useTranslation();const{data,error,loading,reload}=useApi('/api/patient/me');const[form,setForm]=useState(null),[message,setMessage]=useState('');const[saving,setSaving]=useState(false);useEffect(()=>{if(data)setForm({addressStateId:data.addressStateId,addressDetails:data.addressDetails||'',emergencyContact:data.emergencyContact||'',preferredLanguage:data.preferredLanguage})},[data]);async function save(e){e.preventDefault();setSaving(true);try{await apiRequest('/api/patient/me',{method:'PATCH',body:JSON.stringify(form)});setMessage(t('saved'));reload()}finally{setSaving(false)}}return <State loading={loading} error={error}>{form&&<><section className="patient-card"><h1>{t('profile')}</h1><h2>{data.fullNameEn}</h2><p>{data.phone}{data.email?` · ${data.email}`:''}</p><form onSubmit={save}><label className="patient-field">{t('addressState')}<select
+  value={form.addressStateId || ''}
+  onChange={e=>setForm({...form,addressStateId:Number(e.target.value)})}
+>
+  <option value="">اختر الولاية</option>
+  <option value="1">الخرطوم</option>
+  <option value="2">الجزيرة</option>
+  <option value="3">البحر الأحمر</option>
+  <option value="4">كسلا</option>
+  <option value="5">القضارف</option>
+  <option value="6">سنار</option>
+  <option value="7">النيل الأزرق</option>
+  <option value="8">النيل الأبيض</option>
+  <option value="9">نهر النيل</option>
+  <option value="10">الشمالية</option>
+  <option value="11">غرب كردفان</option>
+  <option value="12">شمال كردفان</option>
+  <option value="13">جنوب كردفان</option>
+  <option value="14">شمال دارفور</option>
+  <option value="15">غرب دارفور</option>
+  <option value="16">جنوب دارفور</option>
+  <option value="17">شرق دارفور</option>
+  <option value="18">وسط دارفور</option>
+</select></label><label className="patient-field">{t('addressDetails')}<input value={form.addressDetails} onChange={e=>setForm({...form,addressDetails:e.target.value})}/></label><label className="patient-field">{t('emergencyContact')}<input value={form.emergencyContact} onChange={e=>setForm({...form,emergencyContact:e.target.value})}/></label>{message&&<div className="patient-alert success">{message}</div>}<button className="patient-button" disabled={saving}>{saving?t('loading'):t('save')}</button></form></section><section className="patient-card"><h2>{t('accountSecurity')}</h2><p>{t('phone')}: <StatusBadge status={data.phoneVerified?'CONFIRMED':'PENDING'}/></p>{data.email&&<p>{t('emailOptional')}: <StatusBadge status={data.emailVerified?'CONFIRMED':'PENDING'}/></p>}</section></>}</State>}
