@@ -4,6 +4,7 @@ import { PatientProfileModal, PostVisitSummaryModal } from '../clinical/Clinical
 import { getWhatsAppLink } from '../reception/clinicData';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import { staffSocket as socket } from '../../services/staffSocket';
+import RoleHero from '../../components/healthcare/RoleHero';
 
 export default function DoctorDashboard({ user, lang, t }) {
   const [queue, setQueue] = useState([]);
@@ -250,6 +251,7 @@ export default function DoctorDashboard({ user, lang, t }) {
   return (
     <div className="dashboard-wrapper">
       <div className="workspace-panel" style={{ padding: '1rem' }}>
+        <RoleHero role="doctor" lang={lang}/>
         <div className="panel-grid-2">
           {/* COLUMN 1: LIVE QUEUE & PATIENT INFO */}
           <div className="panel-column glass-panel" style={{ padding: '1.25rem' }}>

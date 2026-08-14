@@ -98,6 +98,11 @@ async function keyboardProbe(label) {
   report.keyboard.push({ label, focused });
 }
 
+await navigate(`${origin}/patient-login`);
+await shot('reference-patient-login-mobile', 390, 844);
+await navigate(`${origin}/register`);
+await shot('reference-patient-registration-mobile', 390, 844);
+
 await authenticate('qa-reception@example.test');
 await clickText(['د. اختبار سير العمل', 'Dr. QA Workflow']);
 await shot('reception-checked-in-desktop-ar', 1366, 900);
@@ -138,9 +143,21 @@ await keyboardProbe('Admin staff management');
 await shot('admin-staff-management-mobile-ar', 390, 844);
 await toggleToEnglish();
 await shot('admin-staff-management-desktop-en', 1440, 1000);
+await clickText(['Reports & Analytics', 'التقارير والتحليلات']);
+await shot('reference-admin-analytics-desktop', 1440, 1000);
 
 await authenticate('qa-patient@example.test', '/patient/appointments');
 await shot('patient-completed-appointment-mobile', 390, 844);
+await navigate(`${origin}/patient`);
+await shot('reference-patient-dashboard-mobile', 390, 844);
+await shot('reference-patient-dashboard-360', 360, 800);
+await shot('reference-patient-dashboard-desktop', 1366, 900);
+await navigate(`${origin}/patient/doctors`);
+await shot('reference-doctor-directory-mobile', 390, 844);
+await clickText(['Details', 'التفاصيل']);
+await shot('reference-doctor-details-mobile', 390, 844);
+await clickText(['Book appointment', 'حجز موعد طبي جديد']);
+await shot('reference-booking-mobile', 390, 844);
 await navigate(`${origin}/patient/lab-results`);
 await shot('patient-released-lab-result-mobile', 390, 844);
 await navigate(`${origin}/patient/prescriptions`);

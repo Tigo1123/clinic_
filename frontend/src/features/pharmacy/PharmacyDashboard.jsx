@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, FileText, HelpCircle, Sliders, Stethoscope } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
+import RoleHero from '../../components/healthcare/RoleHero';
 
 export default function PharmacyDashboard({ lang, t }) {
   const [prescriptions, setPrescriptions] = useState([]);
@@ -81,6 +82,7 @@ export default function PharmacyDashboard({ lang, t }) {
   return (
     <div className="dashboard-wrapper">
       <div className="workspace-panel" style={{ padding: '1rem' }}>
+        <RoleHero role="pharmacy" lang={lang}/>
         <div className="panel-grid">
           {/* COLUMN 1: ACTIVE RX QUEUE */}
           <div className="panel-column glass-panel" style={{ padding: '1rem' }}>

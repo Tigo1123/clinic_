@@ -4,6 +4,7 @@ import { PatientProfileModal, PostVisitSummaryModal } from '../clinical/Clinical
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import { getWhatsAppLink, SUDANESE_STATES } from './clinicData';
 import { staffSocket as socket } from '../../services/staffSocket';
+import RoleHero from '../../components/healthcare/RoleHero';
 
 export default function ReceptionDashboard({ lang, t }) {
   const [doctors, setDoctors] = useState([]);
@@ -354,6 +355,7 @@ export default function ReceptionDashboard({ lang, t }) {
     <div className="dashboard-wrapper">
       {/* 3 COLUMN GRID WORKSPACE */}
       <div className="workspace-panel" style={{ padding: '1rem' }}>
+        <RoleHero role="reception" lang={lang}/>
         <div className="panel-grid">
           {/* COLUMN 1: DOCTORS ROSTER */}
           <div className="panel-column glass-panel" style={{ padding: '1rem' }}>

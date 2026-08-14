@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, FileSpreadsheet, HelpCircle, Sliders, Stethoscope } from 'lucide-react';
 import { fetchWithAuth } from '../../services/staffApi';
+import RoleHero from '../../components/healthcare/RoleHero';
 
 export default function LaboratoryDashboard({ lang }) {
   const [orders, setOrders] = useState([]);
@@ -60,6 +61,7 @@ export default function LaboratoryDashboard({ lang }) {
   return (
     <div className="dashboard-wrapper">
       <div className="workspace-panel" style={{ padding: '1rem' }}>
+        <RoleHero role="laboratory" lang={lang}/>
         <div className="panel-grid-2">
           {/* COLUMN 1: PENDING ORDERS QUEUE */}
           <div className="panel-column glass-panel" style={{ padding: '1rem' }}>
@@ -163,4 +165,3 @@ export default function LaboratoryDashboard({ lang }) {
     </div>
   );
 }
-

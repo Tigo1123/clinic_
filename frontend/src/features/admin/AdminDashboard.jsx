@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Activity, AlertCircle, Building, Calendar, CheckCircle, DollarSign, Sliders, Stethoscope, Users } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
+import RoleHero from '../../components/healthcare/RoleHero';
 
 export default function AdminDashboard({ lang, t }) {
   const [activeTab, setActiveTab] = useState('profile');
@@ -167,6 +168,7 @@ export default function AdminDashboard({ lang, t }) {
 
       {/* Main Panel Content */}
       <div className="workspace-panel">
+        <RoleHero role="admin" lang={lang}/>
         {activeTab === 'profile' && (
           <div className="glass-panel" style={{ padding: '2rem' }}>
             <h3 style={{ marginBottom: '1.5rem' }}>{lang === 'ar' ? 'إعدادات العيادة العامة' : 'Clinic Global Settings'}</h3>
@@ -474,6 +476,8 @@ export default function AdminDashboard({ lang, t }) {
                   </div>
                 </div>
 
+                <AppointmentTrendChart data={analyticsData.appointmentTrend || []} lang={lang}/>
+
                 {/* 2. Visual Charts & Breakdowns Section */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '2rem' }}>
                   {/* Left Column: Doctor Clinical Volume Breakdown */}
@@ -635,6 +639,12 @@ export default function AdminDashboard({ lang, t }) {
       </div>
     </div>
   );
+}
+
+function AppointmentTrendChart({data,lang}){
+  const width=720,height=190,padding=28,max=Math.max(...data.map(item=>item.count),1);
+  const points=data.map((item,index)=>`${padding+(index*(width-padding*2))/Math.max(data.length-1,1)},${height-padding-(item.count/max)*(height-padding*2)}`).join(' ');
+  return <section className="glass-card analytics-trend" aria-label={lang==='ar'?'اتجاه المواعيد خلال سبعة أيام':'Seven-day appointment trend'}><div className="section-heading-row"><h4><Calendar size={18}/>{lang==='ar'?'اتجاه المواعيد — 7 أيام':'Appointments trend — 7 days'}</h4></div>{data.length?<><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={lang==='ar'?'مخطط خطي لعدد المواعيد الحقيقي يومياً':'Line chart of real daily appointment counts'} preserveAspectRatio="none"><defs><linearGradient id="trend-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#1479ee" stopOpacity=".25"/><stop offset="1" stopColor="#1479ee" stopOpacity="0"/></linearGradient></defs><polyline points={`${padding},${height-padding} ${points} ${width-padding},${height-padding}`} fill="url(#trend-fill)" stroke="none"/><polyline points={points} fill="none" stroke="#1479ee" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/></svg><div className="analytics-trend__labels">{data.map(item=><span key={item.date}><b>{item.count}</b><small>{new Date(`${item.date}T00:00:00`).toLocaleDateString(lang==='ar'?'ar':undefined,{weekday:'short'})}</small></span>)}</div></>:<p>{lang==='ar'?'لا تتوفر بيانات مواعيد.':'No appointment trend data is available.'}</p>}</section>;
 }
 
 /* ==========================================

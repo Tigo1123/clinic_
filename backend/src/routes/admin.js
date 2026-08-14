@@ -99,6 +99,18 @@ router.get('/analytics', authenticate, checkRoles('ADMIN'), async (req, res) => 
     });
 
     const totalRevenueSdg = paidInvoices._sum?.totalAmountSdg ? Number(paidInvoices._sum.totalAmountSdg) : 0;
+    const trendDays = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(now);
+      date.setDate(now.getDate() - (6 - index));
+      return date.toISOString().slice(0, 10);
+    });
+    const trendCounts = await prisma.appointment.groupBy({
+      by: ['appointmentDate'],
+      where: { appointmentDate: { gte: trendDays[0], lte: trendDays[6] } },
+      _count: { id: true }
+    });
+    const trendMap = new Map(trendCounts.map((item) => [item.appointmentDate, item._count.id]));
+    const appointmentTrend = trendDays.map((date) => ({ date, count: trendMap.get(date) || 0 }));
 
     return res.json({
       totalPatients,
@@ -115,6 +127,7 @@ router.get('/analytics', authenticate, checkRoles('ADMIN'), async (req, res) => 
         totalActiveQueue: waitingVisits
       },
       doctorVisits,
+      appointmentTrend,
       financials: {
         totalInvoices,
         totalRevenueSdg
