@@ -6,6 +6,7 @@ import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import { staffSocket as socket } from '../../services/staffSocket';
 import RoleHero from '../../components/healthcare/RoleHero';
 import { clinicDateString } from '../../utils/clinicTime';
+import { apiRequest } from '../../services/apiClient';
 
 export default function DoctorDashboard({ user, lang, t }) {
   const [queue, setQueue] = useState([]);
@@ -112,8 +113,7 @@ export default function DoctorDashboard({ user, lang, t }) {
         setDrugs([]);
       });
 
-    fetch('/api/billing/services')
-      .then((res) => res.ok ? res.json() : [])
+    apiRequest('/api/billing/services')
       .then((data) => setClinicalServices(Array.isArray(data) ? data : []))
       .catch((err) => {
         console.error(err);

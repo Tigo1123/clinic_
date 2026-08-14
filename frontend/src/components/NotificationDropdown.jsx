@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Bell, CheckCheck } from 'lucide-react';
 import { io } from 'socket.io-client';
+import { apiRequest } from '../services/apiClient';
 
 const SOCKET_URL = import.meta.env.VITE_STAFF_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:5000' : window.location.origin);
 let socket;
@@ -14,19 +15,10 @@ export default function NotificationDropdown({ userId, lang = 'ar' }) {
   // Fetch initial notifications
   const fetchNotifications = async () => {
     try {
-      const token = localStorage.getItem('cms_token');
-      if (!token) return;
-
-      const res = await fetch('/api/notifications', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setNotifications(data.notifications || []);
-        setUnreadCount(data.unreadCount || 0);
-      }
+      if (!localStorage.getItem('cms_token')) return;
+      const data = await apiRequest('/api/notifications');
+      setNotifications(data.notifications || []);
+      setUnreadCount(data.unreadCount || 0);
     } catch (err) {
       console.error('Failed to fetch notifications:', err);
     }
@@ -68,19 +60,11 @@ export default function NotificationDropdown({ userId, lang = 'ar' }) {
   // Mark single notification as read
   const markAsRead = async (id) => {
     try {
-      const token = localStorage.getItem('cms_token');
-      const res = await fetch(`/api/notifications/${id}/read`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (res.ok) {
-        setNotifications((prev) =>
-          prev.map((item) => (item.id === id ? { ...item, isRead: true } : item))
-        );
-        setUnreadCount((prev) => Math.max(0, prev - 1));
-      }
+      await apiRequest(`/api/notifications/${id}/read`, { method: 'PATCH' });
+      setNotifications((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, isRead: true } : item))
+      );
+      setUnreadCount((prev) => Math.max(0, prev - 1));
     } catch (err) {
       console.error('Failed to mark notification as read:', err);
     }
@@ -89,17 +73,9 @@ export default function NotificationDropdown({ userId, lang = 'ar' }) {
   // Mark all notifications as read
   const markAllAsRead = async () => {
     try {
-      const token = localStorage.getItem('cms_token');
-      const res = await fetch('/api/notifications/read-all', {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (res.ok) {
-        setNotifications((prev) => prev.map((item) => ({ ...item, isRead: true })));
-        setUnreadCount(0);
-      }
+      await apiRequest('/api/notifications/read-all', { method: 'PATCH' });
+      setNotifications((prev) => prev.map((item) => ({ ...item, isRead: true })));
+      setUnreadCount(0);
     } catch (err) {
       console.error('Failed to mark all notifications as read:', err);
     }

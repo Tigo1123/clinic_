@@ -6,6 +6,7 @@ import { getWhatsAppLink, SUDANESE_STATES } from './clinicData';
 import { staffSocket as socket } from '../../services/staffSocket';
 import RoleHero from '../../components/healthcare/RoleHero';
 import { clinicDateString } from '../../utils/clinicTime';
+import { apiRequest } from '../../services/apiClient';
 
 export default function ReceptionDashboard({ lang, t }) {
   const [doctors, setDoctors] = useState([]);
@@ -103,24 +104,21 @@ export default function ReceptionDashboard({ lang, t }) {
   useEffect(() => {
     fetchPendingAppointments();
 
-    fetch('/api/appointments/doctors')
-      .then((res) => res.ok ? res.json() : [])
+    apiRequest('/api/appointments/doctors')
       .then((data) => setDoctors(Array.isArray(data) ? data : []))
       .catch((err) => {
         console.error(err);
         setDoctors([]);
       });
 
-    fetch('/api/billing/services')
-      .then((res) => res.ok ? res.json() : [])
+    apiRequest('/api/billing/services')
       .then((data) => setClinicalServices(Array.isArray(data) ? data : []))
       .catch((err) => {
         console.error(err);
         setClinicalServices([]);
       });
 
-    fetch('/api/billing/insurance-companies')
-      .then((res) => res.ok ? res.json() : [])
+    apiRequest('/api/billing/insurance-companies')
       .then((data) => setInsuranceCompanies(Array.isArray(data) ? data : []))
       .catch((err) => {
         console.error(err);

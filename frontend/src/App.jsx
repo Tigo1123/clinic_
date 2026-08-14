@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 
 import NotificationDropdown from './components/NotificationDropdown';
-import { apiErrorMessage } from './services/staffApi';
+import { apiRequest } from './services/apiClient';
 import { staffSocket as socket } from './services/staffSocket';
 
 import './App.css';
@@ -138,20 +138,14 @@ function LoginView({ onLogin, t }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/auth/login', {
+      const data = await apiRequest('/api/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
       });
-      const data = await res.json();
-      if (res.ok) {
-        onLogin(data.user, data.token);
-      } else {
-        setErrorMsg(apiErrorMessage(data, 'Login failed.'));
-      }
+      onLogin(data.user, data.token);
     } catch (err) {
       console.error(err);
-      setErrorMsg('Cannot connect to authorization service.');
+      setErrorMsg(err?.status ? err.message : 'Cannot connect to authorization service.');
     }
   };
 
