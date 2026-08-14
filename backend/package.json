@@ -10,12 +10,13 @@
     "dev": "nodemon src/server.js",
     "db:init": "prisma migrate dev --name init",
     "db:seed": "node prisma/seed.js",
+    "seed:staging": "node scripts/seed-staging.js",
     "qa:reset": "node scripts/reset-qa-db.js",
     "qa:workflow": "node scripts/qa-workflow.js",
     "qa:visual-fixtures": "node scripts/seed-qa-visual-states.js",
     "test": "node test/run-tests.js",
     "backup:sqlite": "sh scripts/backup-sqlite.sh",
-    "start:staging": "prisma migrate deploy && node prisma/seed.js && node src/server.js"
+    "start:staging": "prisma migrate deploy && node src/server.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

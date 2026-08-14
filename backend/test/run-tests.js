@@ -23,7 +23,7 @@ const env = {
 for (const [command, args] of [
   ['npx', ['prisma', 'migrate', 'deploy']],
   ['node', ['prisma/seed.js']],
-  ['node', ['--test', '--test-concurrency=1', 'test/clinic-time.test.js', 'test/integration.test.js', 'test/patient.test.js']]
+  ['node', ['--test', '--test-concurrency=1', 'test/clinic-time.test.js', 'test/integration.test.js', 'test/patient.test.js', 'test/seed-security.test.js']]
 ]) {
   const result = spawnSync(command, args, { cwd: backendDir, env, stdio: 'inherit' });
   if (result.status !== 0) process.exit(result.status || 1);

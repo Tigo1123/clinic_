@@ -1,4 +1,5 @@
 import express from 'express';
+import { createHash } from 'node:crypto';
 import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
 import { allowRoles, ROLES } from '../middleware/policies.js';
@@ -121,69 +122,82 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
 router.post('/invoice/:id/payments', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
   const invoiceId = req.params.id;
   const { payments } = req.body; // Array of { amountSdg, paymentMethod, transactionReference }
+  const idempotencyKey = req.get('Idempotency-Key')?.trim();
 
   if (!payments || payments.length === 0) {
     return res.status(400).json({ error: 'Payment rows are required.' });
   }
+  if (!idempotencyKey || idempotencyKey.length < 8 || idempotencyKey.length > 128) {
+    return sendError(res, 400, 'IDEMPOTENCY_KEY_REQUIRED', 'A valid Idempotency-Key header is required for payments.');
+  }
 
+  let requestHash;
   try {
-    const invoice = await prisma.invoice.findUnique({
-      where: { id: invoiceId },
-      include: { insuranceClaim: true, payments: true, refunds: true }
-    });
-
-    if (!invoice) {
-      return res.status(404).json({ error: 'Invoice not found.' });
-    }
-    if (invoice.refunds.length) return sendError(res, 409, 'REFUNDED_INVOICE_LOCKED', 'Payments cannot be added after a refund has been recorded.');
-
-    for (const pay of payments) {
+    const normalizedPayments = payments.map((pay) => {
       const amount = Number(pay.amountSdg);
-      if (!Number.isFinite(amount) || amount <= 0) return sendError(res, 422, 'INVALID_PAYMENT_AMOUNT', 'Payment amounts must be greater than zero.');
-      if (!['CASH', 'CARD', 'BANKAK', 'FAWRY'].includes(pay.paymentMethod)) return sendError(res, 422, 'INVALID_PAYMENT_METHOD', 'Unsupported payment method.');
-    }
+      if (!Number.isFinite(amount) || amount <= 0) throw Object.assign(new Error('Payment amounts must be greater than zero.'), { status: 422, code: 'INVALID_PAYMENT_AMOUNT' });
+      if (!['CASH', 'CARD', 'BANKAK', 'FAWRY'].includes(pay.paymentMethod)) {
+        throw Object.assign(new Error('Unsupported payment method.'), { status: 422, code: 'INVALID_PAYMENT_METHOD' });
+      }
+      return {
+        amountSdg: amount,
+        paymentMethod: pay.paymentMethod,
+        transactionReference: pay.transactionReference?.trim() || null
+      };
+    });
+    requestHash = createHash('sha256').update(JSON.stringify({ invoiceId, payments: normalizedPayments })).digest('hex');
 
-    // Verify transaction references are not already used in DB (deduplication check)
-    for (const pay of payments) {
-      if (pay.transactionReference) {
-        const existingPay = await prisma.payment.findUnique({
-          where: { transactionReference: pay.transactionReference }
-        });
-        if (existingPay) {
-          return res.status(409).json({
-            error: `Payment reference "${pay.transactionReference}" has already been used on another invoice.`
-          });
+    const runPaymentTransaction = () => prisma.$transaction(async (tx) => {
+      const priorOperation = await tx.paymentOperation.findUnique({ where: { idempotencyKey } });
+      if (priorOperation) {
+        if (priorOperation.invoiceId !== invoiceId || priorOperation.requestHash !== requestHash) {
+          throw Object.assign(new Error('Idempotency key was already used for a different payment request.'), { status: 409, code: 'IDEMPOTENCY_KEY_REUSED' });
+        }
+        const replayInvoice = await tx.invoice.findUnique({ where: { id: invoiceId }, include: { payments: true } });
+        const replayPaid = replayInvoice.payments.reduce((sum, payment) => sum + Number(payment.amountSdg), 0);
+        return { ...replayInvoice, totalPaidSdg: replayPaid, remainingBalanceSdg: Math.max(0, Number(replayInvoice.totalAmountSdg) - replayPaid), idempotentReplay: true };
+      }
+
+      const invoice = await tx.invoice.findUnique({ where: { id: invoiceId }, include: { payments: true, refunds: true } });
+      if (!invoice) throw Object.assign(new Error('Invoice not found.'), { status: 404, code: 'INVOICE_NOT_FOUND' });
+      if (invoice.refunds.length) throw Object.assign(new Error('Payments cannot be added after a refund has been recorded.'), { status: 409, code: 'REFUNDED_INVOICE_LOCKED' });
+
+      for (const pay of normalizedPayments) {
+        if (pay.transactionReference) {
+          const existingPay = await tx.payment.findUnique({ where: { transactionReference: pay.transactionReference }, select: { id: true } });
+          if (existingPay) throw Object.assign(new Error('Payment reference has already been used.'), { status: 409, code: 'DUPLICATE_PAYMENT_REFERENCE' });
         }
       }
-    }
 
-    // Record payments in transaction
-    const priorPaidSdg = invoice.payments.reduce((sum, payment) => sum + Number(payment.amountSdg), 0);
-    const newPaidSdg = payments.reduce((acc, curr) => acc + Number(curr.amountSdg), 0);
-    const resultingPaidSdg = priorPaidSdg + newPaidSdg;
-    const invoiceTotal = Number(invoice.totalAmountSdg);
-    if (resultingPaidSdg > invoiceTotal + 0.001) return sendError(res, 409, 'PAYMENT_EXCEEDS_BALANCE', 'Payment exceeds the remaining invoice balance.');
-
-    const result = await prisma.$transaction(async (tx) => {
-      for (const pay of payments) {
-        const amtSdg = parseFloat(pay.amountSdg);
-        const amtUsd = amtSdg / parseFloat(invoice.invoiceExchangeRate);
-
-        await tx.payment.create({
-          data: {
-            invoiceId,
-            amountSdg: amtSdg,
-            amountUsd: amtUsd,
-            paymentMethod: pay.paymentMethod,
-            transactionReference: pay.transactionReference || null,
-            verificationStatus: 'VERIFIED',
-            receivedBy: req.user.id
-          }
-        });
+      const priorPaidSdg = invoice.payments.reduce((sum, payment) => sum + Number(payment.amountSdg), 0);
+      const newPaidSdg = normalizedPayments.reduce((sum, payment) => sum + payment.amountSdg, 0);
+      const resultingPaidSdg = priorPaidSdg + newPaidSdg;
+      const invoiceTotal = Number(invoice.totalAmountSdg);
+      if (resultingPaidSdg > invoiceTotal + 0.001) {
+        throw Object.assign(new Error('Payment exceeds the remaining invoice balance.'), { status: 409, code: 'PAYMENT_EXCEEDS_BALANCE' });
       }
 
-      const invoiceStatus = resultingPaidSdg >= invoiceTotal ? 'PAID' : resultingPaidSdg > 0 ? 'PARTIALLY_PAID' : 'UNPAID';
+      const claimed = await tx.invoice.updateMany({
+        where: { id: invoiceId, ledgerVersion: invoice.ledgerVersion },
+        data: { ledgerVersion: { increment: 1 } }
+      });
+      if (claimed.count !== 1) throw Object.assign(new Error('Invoice ledger changed; retry the payment.'), { status: 409, code: 'PAYMENT_LEDGER_CONFLICT', retryable: true });
 
+      const operation = await tx.paymentOperation.create({ data: { invoiceId, idempotencyKey, requestHash, receivedBy: req.user.id } });
+      for (const pay of normalizedPayments) {
+        await tx.payment.create({ data: {
+          invoiceId,
+          amountSdg: pay.amountSdg,
+          amountUsd: pay.amountSdg / Number(invoice.invoiceExchangeRate),
+          paymentMethod: pay.paymentMethod,
+          transactionReference: pay.transactionReference,
+          verificationStatus: 'VERIFIED',
+          receivedBy: req.user.id,
+          paymentOperationId: operation.id
+        } });
+      }
+
+      const invoiceStatus = resultingPaidSdg >= invoiceTotal ? 'PAID' : 'PARTIALLY_PAID';
       const updatedInvoice = await tx.invoice.update({
         where: { id: invoiceId },
         data: { paymentStatus: invoiceStatus },
@@ -191,11 +205,33 @@ router.post('/invoice/:id/payments', authenticate, allowRoles(ROLES.ADMIN, ROLES
       });
 
       return { ...updatedInvoice, totalPaidSdg: resultingPaidSdg, remainingBalanceSdg: Math.max(0, invoiceTotal - resultingPaidSdg) };
-    });
+    }, { maxWait: 5000, timeout: 10000 });
+
+    let result;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        result = await runPaymentTransaction();
+        break;
+      } catch (error) {
+        const sqliteContention = ['P2028', 'P2034'].includes(error.code) || /database is locked|write conflict/i.test(error.message || '');
+        if (!sqliteContention || attempt === 2) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)));
+      }
+    }
 
     return res.json(result);
 
   } catch (error) {
+    if (error.status && error.code) return sendError(res, error.status, error.code, error.message);
+    if (error.code === 'P2002') {
+      const priorOperation = await prisma.paymentOperation.findUnique({ where: { idempotencyKey } });
+      if (priorOperation?.invoiceId === invoiceId && priorOperation.requestHash === requestHash) {
+        const replayInvoice = await prisma.invoice.findUnique({ where: { id: invoiceId }, include: { payments: true } });
+        const replayPaid = replayInvoice.payments.reduce((sum, payment) => sum + Number(payment.amountSdg), 0);
+        return res.json({ ...replayInvoice, totalPaidSdg: replayPaid, remainingBalanceSdg: Math.max(0, Number(replayInvoice.totalAmountSdg) - replayPaid), idempotentReplay: true });
+      }
+      return sendError(res, 409, 'DUPLICATE_PAYMENT_REFERENCE', 'Payment reference or idempotency key has already been used.');
+    }
     console.error('Record payment error:', error);
     return res.status(500).json({ error: 'Failed to record split payment.' });
   }

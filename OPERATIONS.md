@@ -37,6 +37,11 @@ it on an ephemeral container layer or network filesystem with unsafe locking. Ru
 writer. SQLite WAL may improve read/write overlap, but enable it only after a staging workload,
 backup, and restart test; the current migration history does not force journal mode.
 
+On Render, mount the backend persistent disk at `/data` and set `UPLOAD_DIR=/data/uploads` as
+well as `DATABASE_URL=file:/data/clinic.db`. Confirm both survive a restart and redeploy. A disk
+mount cannot be inferred from application health, so verify it in the Render dashboard. Keep
+only one backend instance while SQLite is in use.
+
 Run `DATABASE_URL=file:/data/clinic.db BACKUP_DIR=/backups npm run backup:sqlite` from a host or
 job that has `sqlite3` and both persistent mounts. The script uses SQLite's online backup API,
 runs integrity and foreign-key checks, creates mode-0600 files, and deletes backups older than

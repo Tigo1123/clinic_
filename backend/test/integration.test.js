@@ -26,6 +26,9 @@ async function login(username, password) {
 }
 
 function auth(role) { return { Authorization: `Bearer ${tokens[role]}` }; }
+function paymentAuth(role, key = `payment-test-${Date.now()}-${++fixtureCounter}`) {
+  return { ...auth(role), 'Idempotency-Key': key };
+}
 
 test('queue socket updates target operational staff rooms only', () => {
   const rooms = [];
@@ -210,10 +213,10 @@ test('billing is restricted and split payments set partial then paid', async () 
   const invoiceResponse = await api.post('/api/billing/invoice').set(auth('reception')).send({ patientId: patient1.id, items: [{ descriptionAr: 'اختبار', descriptionEn: 'Test', qty: 1, unitPriceSdg: 100 }] });
   assert.equal(invoiceResponse.status, 201);
   const id = invoiceResponse.body.invoice.id;
-  const partial = await api.post(`/api/billing/invoice/${id}/payments`).set(auth('reception')).send({ payments: [{ amountSdg: 40, paymentMethod: 'CASH' }] });
+  const partial = await api.post(`/api/billing/invoice/${id}/payments`).set(paymentAuth('reception')).send({ payments: [{ amountSdg: 40, paymentMethod: 'CASH' }] });
   assert.equal(partial.body.paymentStatus, 'PARTIALLY_PAID');
   assert.equal(partial.body.remainingBalanceSdg, 60);
-  const paid = await api.post(`/api/billing/invoice/${id}/payments`).set(auth('reception')).send({ payments: [{ amountSdg: 60, paymentMethod: 'CARD', transactionReference: `TEST-${Date.now()}` }] });
+  const paid = await api.post(`/api/billing/invoice/${id}/payments`).set(paymentAuth('reception')).send({ payments: [{ amountSdg: 60, paymentMethod: 'CARD', transactionReference: `TEST-${Date.now()}` }] });
   assert.equal(paid.body.paymentStatus, 'PAID');
   assert.equal(paid.body.remainingBalanceSdg, 0);
 });
@@ -221,14 +224,51 @@ test('billing is restricted and split payments set partial then paid', async () 
 test('billing rejects zero, negative, and overpayments', async () => {
   const invoice = await prisma.invoice.create({ data: { patientId: patient1.id, totalAmountSdg: 100, totalAmountUsd: 1, invoiceExchangeRate: 100, createdBy: 'test' } });
   for (const amount of [0, -1, 101]) {
-    const response = await api.post(`/api/billing/invoice/${invoice.id}/payments`).set(auth('reception')).send({ payments: [{ amountSdg: amount, paymentMethod: 'CASH' }] });
+    const response = await api.post(`/api/billing/invoice/${invoice.id}/payments`).set(paymentAuth('reception')).send({ payments: [{ amountSdg: amount, paymentMethod: 'CASH' }] });
     assert.notEqual(response.status, 200);
   }
 });
 
+test('payment retries are idempotent and cannot duplicate ledger rows', async () => {
+  const invoice = await prisma.invoice.create({ data: { patientId: patient1.id, totalAmountSdg: 100, totalAmountUsd: 1, invoiceExchangeRate: 100, createdBy: 'test' } });
+  const key = `payment-idempotent-${Date.now()}`;
+  const body = { payments: [{ amountSdg: 40, paymentMethod: 'CASH' }] };
+  const first = await api.post(`/api/billing/invoice/${invoice.id}/payments`).set(paymentAuth('reception', key)).send(body);
+  const replay = await api.post(`/api/billing/invoice/${invoice.id}/payments`).set(paymentAuth('reception', key)).send(body);
+  assert.equal(first.status, 200);
+  assert.equal(replay.status, 200);
+  assert.equal(replay.body.idempotentReplay, true);
+  assert.equal(await prisma.payment.count({ where: { invoiceId: invoice.id } }), 1);
+  assert.equal(Number((await prisma.payment.aggregate({ where: { invoiceId: invoice.id }, _sum: { amountSdg: true } }))._sum.amountSdg), 40);
+});
+
+test('competing payments cannot commit beyond the invoice total', async () => {
+  const invoice = await prisma.invoice.create({ data: { patientId: patient1.id, totalAmountSdg: 100, totalAmountUsd: 1, invoiceExchangeRate: 100, createdBy: 'test' } });
+  const body = { payments: [{ amountSdg: 60, paymentMethod: 'CASH' }] };
+  const [left, right] = await Promise.all([
+    api.post(`/api/billing/invoice/${invoice.id}/payments`).set(paymentAuth('reception', `payment-race-left-${Date.now()}`)).send(body),
+    api.post(`/api/billing/invoice/${invoice.id}/payments`).set(paymentAuth('reception', `payment-race-right-${Date.now()}`)).send(body)
+  ]);
+  assert.deepEqual([left.status, right.status].sort(), [200, 409]);
+  const ledger = await prisma.payment.aggregate({ where: { invoiceId: invoice.id }, _sum: { amountSdg: true } });
+  assert.equal(Number(ledger._sum.amountSdg), 60);
+  const persisted = await prisma.invoice.findUnique({ where: { id: invoice.id } });
+  assert.equal(persisted.paymentStatus, 'PARTIALLY_PAID');
+  assert.equal(persisted.ledgerVersion, 1);
+});
+
+test('payment idempotency keys cannot be reused with a different request', async () => {
+  const invoice = await prisma.invoice.create({ data: { patientId: patient1.id, totalAmountSdg: 100, totalAmountUsd: 1, invoiceExchangeRate: 100, createdBy: 'test' } });
+  const key = `payment-reuse-${Date.now()}`;
+  assert.equal((await api.post(`/api/billing/invoice/${invoice.id}/payments`).set(paymentAuth('reception', key)).send({ payments: [{ amountSdg: 20, paymentMethod: 'CASH' }] })).status, 200);
+  const changed = await api.post(`/api/billing/invoice/${invoice.id}/payments`).set(paymentAuth('reception', key)).send({ payments: [{ amountSdg: 30, paymentMethod: 'CASH' }] });
+  assert.equal(changed.status, 409);
+  assert.equal(changed.body.error.code, 'IDEMPOTENCY_KEY_REUSED');
+});
+
 async function paidInvoice(amount = 100) {
   const invoice = await prisma.invoice.create({ data: { patientId: patient1.id, totalAmountSdg: amount, totalAmountUsd: amount / 100, invoiceExchangeRate: 100, createdBy: 'test' } });
-  const response = await api.post(`/api/billing/invoice/${invoice.id}/payments`).set(auth('reception')).send({ payments: [{ amountSdg: amount, paymentMethod: 'CASH' }] });
+  const response = await api.post(`/api/billing/invoice/${invoice.id}/payments`).set(paymentAuth('reception')).send({ payments: [{ amountSdg: amount, paymentMethod: 'CASH' }] });
   assert.equal(response.status, 200);
   return invoice;
 }

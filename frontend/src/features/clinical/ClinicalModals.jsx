@@ -20,8 +20,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
     setLoading(true);
     setError('');
     try {
-      const backendHost = window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname;
-      const res = await fetchWithAuth(`http://${backendHost}:5000/api/patients/${patientId}/profile`);
+      const res = await fetchWithAuth(`/api/patients/${patientId}/profile`);
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.error || `HTTP ${res.status}: Failed to load profile`);

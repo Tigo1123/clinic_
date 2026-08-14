@@ -4,8 +4,9 @@ datasource db {
 }
 
 generator client {
-  provider = "prisma-client-js"
-  output   = "../src/generated/prisma"
+  provider      = "prisma-client-js"
+  output        = "../src/generated/prisma"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 model User {
@@ -272,21 +273,23 @@ model LabOrderItem {
 }
 
 model Invoice {
-  id                  String          @id @default(uuid())
+  id                  String             @id @default(uuid())
   patientId           String
-  patient             Patient         @relation(fields: [patientId], references: [id])
+  patient             Patient            @relation(fields: [patientId], references: [id])
   appointmentId       String?
-  appointment         Appointment?    @relation(fields: [appointmentId], references: [id])
-  invoiceDate         DateTime        @default(now())
+  appointment         Appointment?       @relation(fields: [appointmentId], references: [id])
+  invoiceDate         DateTime           @default(now())
   totalAmountSdg      Decimal
   totalAmountUsd      Decimal
   invoiceExchangeRate Decimal
-  paymentStatus       String          @default("UNPAID") // UNPAID, PAID, PARTIALLY_PAID, PARTIALLY_REFUNDED, REFUNDED
-  insuranceClaimId    String?         @unique
-  insuranceClaim      InsuranceClaim? @relation(fields: [insuranceClaimId], references: [id])
+  paymentStatus       String             @default("UNPAID") // UNPAID, PAID, PARTIALLY_PAID, PARTIALLY_REFUNDED, REFUNDED
+  ledgerVersion       Int                @default(0)
+  insuranceClaimId    String?            @unique
+  insuranceClaim      InsuranceClaim?    @relation(fields: [insuranceClaimId], references: [id])
   createdBy           String // User UUID
   items               InvoiceItem[]
   payments            Payment[]
+  paymentOperations   PaymentOperation[]
   refunds             Refund[]
 
   @@index([invoiceDate])
@@ -304,16 +307,33 @@ model InvoiceItem {
 }
 
 model Payment {
-  id                   String   @id @default(uuid())
+  id                   String            @id @default(uuid())
   invoiceId            String
-  invoice              Invoice  @relation(fields: [invoiceId], references: [id])
+  invoice              Invoice           @relation(fields: [invoiceId], references: [id])
   amountSdg            Decimal
   amountUsd            Decimal
   paymentMethod        String // CASH, CARD, BANKAK, FAWRY
-  transactionReference String?  @unique
-  verificationStatus   String   @default("VERIFIED") // PENDING_MANUAL, VERIFIED, REJECTED
+  transactionReference String?           @unique
+  verificationStatus   String            @default("VERIFIED") // PENDING_MANUAL, VERIFIED, REJECTED
   receivedBy           String // User UUID
-  createdAt            DateTime @default(now())
+  createdAt            DateTime          @default(now())
+  paymentOperationId   String?
+  paymentOperation     PaymentOperation? @relation(fields: [paymentOperationId], references: [id])
+
+  @@index([paymentOperationId])
+}
+
+model PaymentOperation {
+  id             String    @id @default(uuid())
+  invoiceId      String
+  invoice        Invoice   @relation(fields: [invoiceId], references: [id])
+  idempotencyKey String    @unique
+  requestHash    String
+  receivedBy     String
+  payments       Payment[]
+  createdAt      DateTime  @default(now())
+
+  @@index([invoiceId, createdAt])
 }
 
 model Refund {

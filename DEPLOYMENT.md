@@ -68,6 +68,30 @@ MFA enforcement is not implemented and must not be represented as active.
 5. Start the backend and frontend immutable images; do not run the seed script in production.
 6. Execute `PRODUCTION_CHECKLIST.md` and the non-destructive smoke tests.
 
+Production and normal staging startup run migrations and start the server only. They never seed:
+`npm run start:container` or `npm run start:staging`. If a brand-new non-production staging
+database deliberately needs demo fixtures, run `DEPLOYMENT_ENV=staging ALLOW_STAGING_SEED=true
+npm run seed:staging` once as a separate manual job, then remove `ALLOW_STAGING_SEED`. Never put
+that flag in a persistent Render environment group. Create the first production administrator
+through a separately reviewed one-time bootstrap procedure using a secret supplied at execution
+time, then disable the procedure and rotate the initial password; the repository seed is not a
+production bootstrap mechanism.
+
+## Render SQLite staging checklist
+
+While SQLite is retained, attach one persistent disk to the single backend service at `/data`.
+Use `DATABASE_URL=file:/data/clinic.db` and `UPLOAD_DIR=/data/uploads` so both mutable stores are
+beneath that mount. Create `/data/uploads` with write permission for the runtime user. Do not
+scale beyond one backend instance and do not run overlapping deploys/writers.
+
+Before accepting a deployment, verify in the Render dashboard and with a controlled staging
+record that the disk is attached at `/data`, both paths are writable, and the record plus upload
+survive a process restart and a redeploy. Schedule SQLite online backups and upload snapshots to
+encrypted off-instance storage; alert on failure/missed runs and disk capacity. Restore a backup
+and its matching uploads into an isolated service, run integrity/foreign-key checks and health,
+and record the drill date. Instance replacement without the correctly attached disk loses local
+data; deploy only after a verified backup and avoid changing the disk mount path.
+
 The compose file is a deployment reference and requires secrets through the environment. Its
 named volumes persist SQLite and uploads. Production should pin image digests and put an HTTPS
 proxy in front of port 8080.

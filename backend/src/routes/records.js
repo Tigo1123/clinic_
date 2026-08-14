@@ -484,8 +484,6 @@ function safeDecryptField(encryptedVal) {
  */
 router.get('/:id/summary', authenticate, allowRoles(ROLES.DOCTOR), async (req, res) => {
   const targetId = req.params.id;
-  console.log(`[GET /api/records/:id/summary] Received request for ID: "${targetId}"`);
-
   if (!targetId || targetId === 'undefined' || targetId === 'null') {
     return res.status(400).json({ error: 'Record ID or Appointment ID is required.' });
   }

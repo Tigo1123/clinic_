@@ -38,6 +38,7 @@ export default function ReceptionDashboard({ lang, t }) {
 
   // Payment Allocation
   const [paymentRows, setPaymentRows] = useState([{ amountSdg: '', paymentMethod: 'CASH', transactionReference: '' }]);
+  const [billingSubmitting, setBillingSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -151,8 +152,7 @@ export default function ReceptionDashboard({ lang, t }) {
   }, [refreshDoctorQueue]);
 
   useEffect(() => {
-    const handleQueueUpdate = (data) => {
-      console.log('[Socket.io] Queue update received in Receptionist:', data);
+    const handleQueueUpdate = () => {
       refreshDoctorQueue();
       fetchPendingAppointments();
     };
@@ -278,6 +278,7 @@ export default function ReceptionDashboard({ lang, t }) {
   };
 
   const handleCreateInvoice = async () => {
+    if (billingSubmitting) return;
     setErrorMsg('');
     setSuccessMsg('');
     if (addedServices.length === 0 || !billingPatient) {
@@ -285,6 +286,7 @@ export default function ReceptionDashboard({ lang, t }) {
       return;
     }
 
+    setBillingSubmitting(true);
     try {
       const res = await fetchWithAuth('/api/billing/invoice', {
         method: 'POST',
@@ -304,6 +306,7 @@ export default function ReceptionDashboard({ lang, t }) {
         // Record split payments
         const paymentRes = await fetchWithAuth(`/api/billing/invoice/${data.invoice.id}/payments`, {
           method: 'POST',
+          headers: { 'Idempotency-Key': crypto.randomUUID() },
           body: JSON.stringify({
             payments: paymentRows.map((p) => ({
               amountSdg: parseFloat(p.amountSdg),
@@ -328,6 +331,8 @@ export default function ReceptionDashboard({ lang, t }) {
     } catch (err) {
       console.error(err);
       setErrorMsg('Failed to process billing checkout.');
+    } finally {
+      setBillingSubmitting(false);
     }
   };
 
@@ -836,8 +841,8 @@ export default function ReceptionDashboard({ lang, t }) {
                       </button>
                     </div>
 
-                    <button className="btn btn-primary" style={{ width: '100%', marginTop: '1.5rem' }} onClick={handleCreateInvoice}>
-                      {lang === 'ar' ? 'إصدار الفاتورة وتأكيد الدفع' : 'Checkout & Print Invoice'}
+                    <button className="btn btn-primary" style={{ width: '100%', marginTop: '1.5rem' }} onClick={handleCreateInvoice} disabled={billingSubmitting}>
+                      {billingSubmitting ? (lang === 'ar' ? 'جاري المعالجة...' : 'Processing...') : (lang === 'ar' ? 'إصدار الفاتورة وتأكيد الدفع' : 'Checkout & Print Invoice')}
                     </button>
                   </div>
                 )}

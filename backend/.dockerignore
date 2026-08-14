@@ -5,4 +5,5 @@ prisma/*.db-*
 uploads
 test
 coverage
+src/generated/prisma
 npm-debug.log*

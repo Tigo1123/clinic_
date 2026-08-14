@@ -91,7 +91,6 @@ export default function DoctorDashboard({ user, lang, t }) {
 
   useEffect(() => {
     const handleQueueUpdate = (data) => {
-      console.log('[Socket.io] Queue update received in Doctor:', data);
       if (!data || !data.doctorId || data.doctorId === user.doctorId || data.targetDoctorId === user.doctorId) {
         fetchDoctorQueue();
       }
@@ -391,7 +390,6 @@ export default function DoctorDashboard({ user, lang, t }) {
                                     style={{ padding: '2px 6px', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '4px' }}
                                     onClick={() => {
                                       const targetId = rec.id || rec.recordId || rec.appointmentId;
-                                      console.log('[DoctorDashboard] Opening Visit Summary for rec:', targetId, rec);
                                       setActiveSummaryId(targetId);
                                     }}
                                   >
