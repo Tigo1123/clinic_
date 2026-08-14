@@ -7,8 +7,13 @@ import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { allowRoles, ROLES } from '../middleware/policies.js';
 import { sendError } from '../utils/apiError.js';
+import rateLimit from 'express-rate-limit';
+import { rateLimits } from '../config.js';
+import crypto from 'crypto';
 
 const router = express.Router();
+const otpLimiter = rateLimit({ windowMs: rateLimits.windowMs, limit: rateLimits.verification, standardHeaders: 'draft-7', legacyHeaders: false });
+const developmentOtps = new Map();
 
 /**
  * GET /api/appointments/slots
@@ -86,15 +91,16 @@ router.get('/slots', validate(z.object({ doctorId: z.string().uuid(), date: z.st
  * POST /api/appointments/otp/request
  * Mock endpoint to send OTP code to patient via SMS/WhatsApp.
  */
-router.post('/otp/request', async (req, res) => {
+router.post('/otp/request', otpLimiter, async (req, res) => {
+  if (process.env.NODE_ENV === 'production') return sendError(res, 503, 'SMS_PROVIDER_UNAVAILABLE', 'SMS verification is not configured. Use an authenticated patient account to book.');
   const { phone } = req.body;
   if (!phone) {
     return res.status(400).json({ error: 'Phone number is required.' });
   }
 
-  // Simulate gateway send
-  console.log(`[SMS/WhatsApp Gateway] Sent OTP 1234 to phone: ${phone}`);
-  return res.json({ success: true, message: 'OTP sent successfully.' });
+  const code = String(crypto.randomInt(100000, 1000000));
+  developmentOtps.set(phone, { code, expiresAt: Date.now() + 10 * 60 * 1000 });
+  return res.json({ success: true, message: 'Development verification code generated.', developmentCode: code });
 });
 
 /**
@@ -105,8 +111,9 @@ router.post('/book', validate(z.object({
   doctorId: z.string().uuid(), appointmentDate: z.string().regex(datePattern), appointmentTime: z.string().regex(timePattern),
   fullNameAr: z.string().trim().min(2).max(150), fullNameEn: z.string().trim().min(2).max(150),
   gender: z.enum(['MALE', 'FEMALE']), dateOfBirth: z.string().regex(datePattern), nationalId: z.string().trim().max(30).optional(),
-  phone: z.string().trim().min(7).max(20), addressStateId: z.coerce.number().int().min(1).max(18), otpCode: z.string().length(4)
+  phone: z.string().trim().min(7).max(20), addressStateId: z.coerce.number().int().min(1).max(18), otpCode: z.string().length(6)
 })), async (req, res) => {
+  if (process.env.NODE_ENV === 'production') return sendError(res, 503, 'PUBLIC_BOOKING_VERIFICATION_UNAVAILABLE', 'Public OTP booking is unavailable. Use an authenticated patient account to book.');
   const {
     doctorId,
     appointmentDate,
@@ -121,8 +128,8 @@ router.post('/book', validate(z.object({
     otpCode
   } = req.body;
 
-  // Validate OTP code (mock validation: code must be '1234')
-  if (otpCode !== '1234') {
+  const issuedOtp = developmentOtps.get(phone);
+  if (!issuedOtp || issuedOtp.expiresAt <= Date.now() || otpCode !== issuedOtp.code) {
     return res.status(400).json({ error: 'Incorrect verification code. Please try again.' });
   }
 

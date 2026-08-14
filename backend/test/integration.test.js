@@ -4,6 +4,7 @@ import request from 'supertest';
 import bcrypt from 'bcryptjs';
 import prisma from '../src/db.js';
 import { app, httpServer } from '../src/server.js';
+import { validateEnvironment } from '../src/config.js';
 
 const api = request(app);
 const tokens = {};
@@ -60,6 +61,23 @@ test('staff login rejects invalid credentials', async () => {
 test('admin can list staff and pharmacist cannot', async () => {
   assert.equal((await api.get('/api/auth/users').set(auth('admin'))).status, 200);
   assert.equal((await api.get('/api/auth/users').set(auth('pharmacy'))).status, 403);
+});
+
+test('staff status response never exposes password hash', async () => {
+  const response = await api.put(`/api/auth/users/${tokens.admin ? (await prisma.user.findUnique({ where: { username: 'recep@cms.com' } })).id : ''}/status`).set(auth('admin')).send({ status: 'ACTIVE' });
+  assert.equal(response.status, 200);
+  assert.equal(Object.hasOwn(response.body, 'passwordHash'), false);
+});
+
+test('production environment validation rejects insecure secrets and wildcard CORS', () => {
+  const previous = { ...process.env };
+  try {
+    Object.assign(process.env, { NODE_ENV: 'production', DATABASE_URL: 'file:/data/clinic.db', JWT_SECRET: 'secret', MEDICAL_ENCRYPTION_KEY: 'secret', CORS_ALLOWED_ORIGINS: '*', VERIFICATION_PROVIDER: 'disabled' });
+    assert.throws(() => validateEnvironment(), /Invalid environment configuration/);
+  } finally {
+    for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
+    Object.assign(process.env, previous);
+  }
 });
 
 test('patient search is limited to reception and admin', async () => {
@@ -171,13 +189,13 @@ test('billing rejects zero, negative, and overpayments', async () => {
 
 test('appointments reject past dates and invalid slots', async () => {
   assert.equal((await api.get(`/api/appointments/slots?doctorId=${doctor1.id}&date=2020-01-01`)).status, 422);
-  const response = await api.post('/api/appointments/book').send(bookingPayload('2030-01-06', '03:00', '0991000010'));
+  const response = await api.post('/api/appointments/book').send(await bookingPayload('2030-01-06', '03:00', '0991000010'));
   assert.equal(response.status, 422);
 });
 
 test('concurrent booking allows exactly one reservation per active doctor slot', async () => {
   const date = '2030-01-13';
-  const payload = bookingPayload(date, '10:00', '0991000011');
+  const payload = await bookingPayload(date, '10:00', '0991000011');
   const responses = await Promise.all([api.post('/api/appointments/book').send(payload), api.post('/api/appointments/book').send(payload)]);
   assert.deepEqual(responses.map((r) => r.status).sort(), [201, 409]);
 });
@@ -202,6 +220,8 @@ async function createPrescriptionFixture() {
   return { rx, item: rx.prescribedDrugs[0], early, late };
 }
 
-function bookingPayload(date, time, phone) {
-  return { doctorId: doctor1.id, appointmentDate: date, appointmentTime: time, fullNameAr: 'مريض حجز', fullNameEn: 'Booking Patient', gender: 'MALE', dateOfBirth: '1990-01-01', phone, addressStateId: 1, otpCode: '1234' };
+async function bookingPayload(date, time, phone) {
+  const otp = await api.post('/api/appointments/otp/request').send({ phone });
+  assert.equal(otp.status, 200);
+  return { doctorId: doctor1.id, appointmentDate: date, appointmentTime: time, fullNameAr: 'مريض حجز', fullNameEn: 'Booking Patient', gender: 'MALE', dateOfBirth: '1990-01-01', phone, addressStateId: 1, otpCode: otp.body.developmentCode };
 }

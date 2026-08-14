@@ -247,10 +247,7 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang }) {
     setLoading(true);
     setErrorDetails('');
     try {
-      const backendHost = window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname;
-      const targetUrl = `http://${backendHost}:5000/api/records/${idToFetch}/summary`;
-      console.log('[PostVisitSummaryModal] Fetching absolute URL:', targetUrl);
-      const res = await fetchWithAuth(targetUrl);
+      const res = await fetchWithAuth(`/api/records/${idToFetch}/summary`);
       const contentType = res.headers.get('content-type') || '';
       if (!res.ok) {
         if (contentType.includes('application/json')) {
@@ -267,9 +264,7 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang }) {
       }
       const data = await res.json();
       setSummary(data);
-      if (data.patient?.phone) {
-        setCustomEmail(`${data.patient.phone}@patient.cms.local`);
-      }
+      setCustomEmail('');
     } catch (err) {
       console.error('Error fetching summary:', err);
       setErrorDetails(err.message || 'Network connection failed.');

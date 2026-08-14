@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Bell, CheckCheck } from 'lucide-react';
 import { io } from 'socket.io-client';
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+const SOCKET_URL = import.meta.env.VITE_STAFF_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:5000' : window.location.origin);
 let socket;
 
 export default function NotificationDropdown({ userId, lang = 'ar' }) {

@@ -1,4 +1,6 @@
 backend/.env
+backend/.env.*
+!backend/.env.example
 backend/prisma/*.db-journal
 backend/prisma/*.db-wal
 backend/prisma/*.db-shm
@@ -6,6 +8,10 @@ backend/prisma/test.db
 backend/prisma/qa.db
 backend/.env.qa
 backend/uploads/
+backend/backups/
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
 node_modules/
 backend/src/generated/
 dist/

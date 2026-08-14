@@ -9,10 +9,10 @@ import { allowRoles, ROLES } from '../middleware/policies.js';
 import { sendError } from '../utils/apiError.js';
 
 const router = express.Router();
-const uploadDir = path.join(process.cwd(), 'uploads');
+const uploadDir = path.resolve(process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads'));
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: Number(process.env.UPLOAD_MAX_BYTES || 10 * 1024 * 1024), files: 1 } });
 const signatures = [
   { mime: 'image/jpeg', ext: '.jpg', matches: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
   { mime: 'image/png', ext: '.png', matches: (b) => b.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) },

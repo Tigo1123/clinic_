@@ -633,7 +633,8 @@ router.post('/:id/send-summary', authenticate, allowRoles(ROLES.DOCTOR), async (
       return res.status(404).json({ error: 'Visit medical record not found.' });
     }
 
-    const recipientEmail = email || `${record.patient.phone}@patient.cms.local`;
+    if (!email || !z.string().email().safeParse(email).success) return sendError(res, 422, 'VALID_EMAIL_REQUIRED', 'A valid patient email address is required.');
+    const recipientEmail = email;
     const diagnosis = decrypt(record.diagnosisEncrypted);
     const treatment = decrypt(record.treatmentEncrypted);
     const vitals = JSON.parse(record.vitalSignsJson || '{}');
@@ -674,14 +675,15 @@ router.post('/:id/send-summary', authenticate, allowRoles(ROLES.DOCTOR), async (
       </div>
     `;
 
-    await sendEmail({
+    const delivery = await sendEmail({
       to: recipientEmail,
       subject: `Post-Visit Summary - Al-Shifa Medical Center`,
       text: `Visit summary for ${record.patient.fullNameEn}. Diagnosis: ${diagnosis}. Treatment: ${treatment}`,
       html: htmlContent
     });
 
-    return res.json({ success: true, message: `Post-visit summary emailed successfully to ${recipientEmail}.` });
+    if (!delivery) return sendError(res, 503, 'EMAIL_DELIVERY_FAILED', 'Post-visit summary could not be delivered.');
+    return res.json({ success: true, message: 'Post-visit summary emailed successfully.' });
 
   } catch (error) {
     console.error('Email visit summary error:', error);

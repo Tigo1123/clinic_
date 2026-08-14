@@ -22,6 +22,6 @@ export function errorHandler(err, req, res, next) {
   if (err instanceof ApiError) {
     return sendError(res, err.status, err.code, err.message, err.details);
   }
-  console.error('Unhandled runtime error:', err);
+  console.error(JSON.stringify({ timestamp: new Date().toISOString(), level: 'ERROR', event: 'http.unhandled_error', requestId: req.id, method: req.method, path: req.path, error: { name: err?.name, message: err?.message } }));
   return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'An unexpected server error occurred.');
 }

@@ -1,24 +1,23 @@
 import nodemailer from 'nodemailer';
 import prisma from '../db.js';
+import { logger } from './logger.js';
 
-// Transporter configuration for Nodemailer
-// Set up via environment variables: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.ethereal.email',
-  port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: process.env.SMTP_SECURE === 'true', // true for 465, false for other ports
-  auth: {
-    user: process.env.SMTP_USER || 'mock-user@ethereal.email',
-    pass: process.env.SMTP_PASS || 'mock-password'
-  }
-});
+function smtpTransport() {
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS || !process.env.SMTP_FROM) return null;
+  return nodemailer.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: process.env.SMTP_SECURE === 'true', auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }, connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS || 10000) });
+}
 
 /**
  * Sends a real or mock email.
  */
 export async function sendEmail({ to, subject, text, html }) {
   if (process.env.NOTIFICATIONS_DISABLED === 'true') return { messageId: 'notifications-disabled' };
-  const fromEmail = process.env.SMTP_FROM || '"Al-Shifa Medical Center" <no-reply@alshifaclinic.com>';
+  const transporter = smtpTransport();
+  if (!transporter) {
+    logger.warn('email.not_configured');
+    return null;
+  }
+  const fromEmail = process.env.SMTP_FROM;
   
   try {
     // If running in development and Ethereal fallback is used, it logs a link
@@ -30,14 +29,14 @@ export async function sendEmail({ to, subject, text, html }) {
       html
     });
 
-    console.log(`[Email Notification] Sent to ${to}. Message ID: ${info.messageId}`);
+    logger.info('email.sent', { messageId: info.messageId });
     
     // Log to NotificationLog model in DB
     await prisma.notificationLog.create({
       data: {
         recipientPhone: to, // Using email in phone field as general recipient string
         messageType: 'EMAIL',
-        messageBody: `Subject: ${subject} | ${text || 'HTML Body'}`,
+        messageBody: `Subject: ${subject}`,
         language: 'en',
         status: 'SENT'
       }
@@ -45,14 +44,14 @@ export async function sendEmail({ to, subject, text, html }) {
 
     return info;
   } catch (error) {
-    console.error(`[Email Notification Error] Failed to send email to ${to}:`, error);
+    logger.error('email.failed', { error });
     
     // Log failed delivery attempt
     await prisma.notificationLog.create({
       data: {
         recipientPhone: to,
         messageType: 'EMAIL',
-        messageBody: `FAILED | Subject: ${subject} | ${text || 'HTML Body'}`,
+        messageBody: `FAILED | Subject: ${subject}`,
         language: 'en',
         status: 'FAILED'
       }
@@ -66,42 +65,10 @@ export async function sendEmail({ to, subject, text, html }) {
  * Sends a real or mock SMS.
  */
 export async function sendSMS({ to, body, language = 'en' }) {
-  if (process.env.NOTIFICATIONS_DISABLED === 'true') return true;
-  try {
-    // In production, you would place Twilio / local Sudanese SMS Gateway API calls here
-    // Example Twilio snippet:
-    // const twilioClient = new Twilio(accountSid, authToken);
-    // await twilioClient.messages.create({ body, to, from });
-    
-    console.log(`[SMS Notification] Sent to ${to} (${language.toUpperCase()}): "${body}"`);
-    
-    // Update or insert notification logs
-    await prisma.notificationLog.create({
-      data: {
-        recipientPhone: to,
-        messageType: 'SMS',
-        messageBody: body,
-        language,
-        status: 'SENT'
-      }
-    });
-
-    return true;
-  } catch (error) {
-    console.error(`[SMS Notification Error] Failed to send SMS to ${to}:`, error);
-    
-    await prisma.notificationLog.create({
-      data: {
-        recipientPhone: to,
-        messageType: 'SMS',
-        messageBody: `FAILED | ${body}`,
-        language,
-        status: 'FAILED'
-      }
-    });
-    
-    return false;
-  }
+  if (process.env.NOTIFICATIONS_DISABLED === 'true') return false;
+  logger.warn('sms.provider_unavailable');
+  await prisma.notificationLog.create({ data: { recipientPhone: to, messageType: 'SMS', messageBody: 'SMS provider unavailable', language, status: 'FAILED', lastAttempt: new Date() } });
+  return false;
 }
 
 /**
@@ -138,7 +105,7 @@ export async function sendBookingConfirmation(appointment) {
   }
 
   // If patient has an email (or mock recipient), send confirmation email
-  const recipientEmail = patient?.email || (patientPhone ? `${patientPhone}@patient.cms.local` : null);
+  const recipientEmail = patient?.email || null;
   if (recipientEmail) {
     const emailSubject = `Appointment Request Pending - Al-Shifa Medical Center`;
     const emailHtml = `
@@ -205,4 +172,3 @@ export async function sendStatusUpdateNotification(appointment, status) {
 
   return { messageAr, messageEn, whatsAppLinkAr, whatsAppLinkEn };
 }
-

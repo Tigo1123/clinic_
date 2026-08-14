@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import helmet from 'helmet';
+import crypto from 'crypto';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
@@ -17,14 +19,16 @@ import patientAuthRoutes from './routes/patientAuth.js';
 import patientSelfRoutes from './routes/patient.js';
 import { errorHandler, notFoundHandler } from './utils/apiError.js';
 import { fileURLToPath } from 'url';
+import { validateEnvironment } from './config.js';
+import { logger } from './utils/logger.js';
 
 // Load environment configuration
 dotenv.config();
+const environment = validateEnvironment();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || 'http://localhost:5173')
-  .split(',').map((origin) => origin.trim()).filter(Boolean);
+const allowedOrigins = environment.allowedOrigins;
 const corsOptions = {
   origin(origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
@@ -44,11 +48,13 @@ const io = new Server(httpServer, {
   }
 });
 
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   try {
     const token = socket.handshake.auth?.token;
     if (!token || !process.env.JWT_SECRET) return next(new Error('Authentication required.'));
     socket.user = jwt.verify(token, process.env.JWT_SECRET);
+    const activeUser = await prisma.user.findUnique({ where: { id: socket.user.id }, select: { status: true, role: true } });
+    if (!activeUser || activeUser.status !== 'ACTIVE' || activeUser.role !== socket.user.role) return next(new Error('Session is no longer active.'));
     return next();
   } catch (error) {
     return next(new Error('Invalid or expired token.'));
@@ -59,37 +65,52 @@ io.use((socket, next) => {
 app.set('io', io);
 
 io.on('connection', (socket) => {
-  console.log(`[Socket.io] Client connected: ${socket.id}`);
+  logger.info('socket.connected', { socketId: socket.id, userId: socket.user.id });
 
   socket.join(`user_${socket.user.id}`);
 
   socket.on('disconnect', () => {
-    console.log(`[Socket.io] Client disconnected: ${socket.id}`);
+    logger.info('socket.disconnected', { socketId: socket.id, userId: socket.user.id });
   });
 });
 
 // Enable CORS for frontend requests
 app.use(cors(corsOptions));
+app.disable('x-powered-by');
+app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : false);
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginResourcePolicy: { policy: 'same-site' },
+  hsts: environment.production ? { maxAge: 31536000, includeSubDomains: true } : false,
+  referrerPolicy: { policy: 'no-referrer' }
+}));
+app.use((req, res, next) => {
+  req.id = req.get('x-request-id') || crypto.randomUUID();
+  res.setHeader('X-Request-ID', req.id);
+  const startedAt = Date.now();
+  res.on('finish', () => logger.info('http.request', { requestId: req.id, method: req.method, path: req.path, status: res.statusCode, durationMs: Date.now() - startedAt, userId: req.user?.id }));
+  next();
+});
 
 // Parse incoming request payloads
 app.use(express.json());
 
 // Heartbeat Health Check
-app.get('/api/health', async (req, res) => {
+app.get('/api/health/live', (req, res) => res.json({ status: 'alive' }));
+app.get(['/api/health', '/api/health/ready'], async (req, res) => {
   try {
     // Basic DB ping to ensure connection works
     await prisma.$queryRaw`SELECT 1`;
     return res.json({
       status: 'healthy',
       database: 'connected',
-      timestamp: new Date()
+      timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error('Health check database error:', error);
-    return res.status(500).json({
+    logger.error('health.database_failed', { requestId: req.id, error });
+    return res.status(503).json({
       status: 'unhealthy',
-      database: 'disconnected',
-      error: error.message
+      database: 'disconnected'
     });
   }
 });
@@ -115,14 +136,30 @@ app.use(errorHandler);
 // Launch listening loop
 export function startServer(port = PORT) {
   return httpServer.listen(port, () => {
-  console.log(`==================================================`);
-  console.log(` CMS SERVER RUNNING IN KHARTOUM TIME ZONE (GMT+2) `);
-  console.log(` Local Server URL: http://localhost:${PORT}      `);
-  console.log(`==================================================`);
+    logger.info('server.started', { port: Number(port), environment: process.env.NODE_ENV || 'development' });
   });
 }
 
+let shuttingDown = false;
+export async function shutdown(signal = 'manual') {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info('server.shutdown_started', { signal });
+  io.close();
+  if (httpServer.listening) await new Promise((resolve) => httpServer.close(resolve));
+  await prisma.$disconnect();
+  logger.info('server.shutdown_complete', { signal });
+}
+
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(new URL(`file://${process.argv[1]}`));
-if (isMain) startServer();
+if (isMain) {
+  startServer();
+  for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, () => {
+    shutdown(signal).then(() => process.exit(0)).catch((error) => {
+      logger.error('server.shutdown_failed', { signal, error });
+      process.exit(1);
+    });
+  });
+}
 
 export { app, httpServer, io };

@@ -8,12 +8,16 @@ import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { sendError } from '../utils/apiError.js';
 import { normalizeEmail, normalizePhone } from '../utils/identity.js';
+import { rateLimits } from '../config.js';
+import { logger } from '../utils/logger.js';
+
+const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
 
 const router = express.Router();
 const STAFF_ROLES = ['ADMIN', 'RECEPTIONIST', 'DOCTOR', 'PHARMACIST', 'LAB_TECH'];
 const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: process.env.NODE_ENV === 'test' ? 100 : 10,
+  windowMs: rateLimits.windowMs,
+  limit: rateLimits.login,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   handler: (req, res) => sendError(res, 429, 'LOGIN_RATE_LIMITED', 'Too many login attempts. Please try again later.')
@@ -43,17 +47,20 @@ router.post('/login', loginLimiter, validate(z.object({
     ] } });
 
     if (!user) {
+      logger.security('auth.login_failed', { requestId: req.id, reason: 'invalid_credentials', ip: req.ip });
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
 
     // 2. Check account status
     if (user.status !== 'ACTIVE') {
+      logger.security('auth.login_blocked', { requestId: req.id, userId: user.id, reason: 'inactive', ip: req.ip });
       return res.status(403).json({ error: 'Your account is deactivated. Contact Admin.' });
     }
 
     // 3. Verify password
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     if (!isPasswordValid) {
+      logger.security('auth.login_failed', { requestId: req.id, userId: user.id, reason: 'invalid_credentials', ip: req.ip });
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
 
@@ -74,10 +81,11 @@ router.post('/login', loginLimiter, validate(z.object({
         doctorId: doctorDetails ? doctorDetails.id : null
       },
       process.env.JWT_SECRET,
-      { expiresIn: '8h' }
+      { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
     );
 
     // 6. Return response
+    logger.security('auth.login_succeeded', { requestId: req.id, userId: user.id, role: user.role, ip: req.ip });
     return res.json({
       token,
       user: {
@@ -170,7 +178,7 @@ router.post('/users', authenticate, checkRoles('ADMIN'), validate(z.object({
       return res.status(409).json({ error: 'Username is already registered.' });
     }
 
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(password, bcryptRounds);
 
     const newUser = await prisma.user.create({
       data: {
@@ -241,7 +249,8 @@ router.put('/users/:id/status', authenticate, checkRoles('ADMIN'), validate(z.ob
   try {
     const updated = await prisma.user.update({
       where: { id: req.params.id },
-      data: { status }
+      data: { status },
+      select: { id: true, username: true, role: true, status: true, preferredLanguage: true, createdAt: true }
     });
 
     await prisma.tenantAuditLog.create({

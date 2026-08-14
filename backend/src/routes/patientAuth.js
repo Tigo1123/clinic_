@@ -10,10 +10,15 @@ import { validate } from '../middleware/validate.js';
 import { normalizeEmail, normalizePhone } from '../utils/identity.js';
 import { createVerificationChallenge, consumeVerificationChallenge } from '../services/verification.js';
 import { ApiError, sendError } from '../utils/apiError.js';
+import { rateLimits } from '../config.js';
 
 const router = express.Router();
-const verificationLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: process.env.NODE_ENV === 'test' ? 100 : 10, standardHeaders: 'draft-7', legacyHeaders: false });
+const limiter = (limit) => rateLimit({ windowMs: rateLimits.windowMs, limit, standardHeaders: 'draft-7', legacyHeaders: false, handler: (req, res) => sendError(res, 429, 'RATE_LIMITED', 'Too many attempts. Please try again later.') });
+const registrationLimiter = limiter(rateLimits.registration);
+const verificationLimiter = limiter(rateLimits.verification);
+const claimLimiter = limiter(rateLimits.claim);
 const passwordSchema = z.string().min(10).max(200).regex(/[A-Z]/, 'Password requires an uppercase letter.').regex(/[a-z]/, 'Password requires a lowercase letter.').regex(/\d/, 'Password requires a number.');
+const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
 
 async function audit(userId, action, details, req) {
   await prisma.tenantAuditLog.create({ data: { userId, action, details, ipAddress: req.ip || 'unknown' } });
@@ -24,7 +29,7 @@ async function matchingPatients(phoneNormalized, dateOfBirth) {
   return candidates.filter((patient) => normalizePhone(patient.phone) === phoneNormalized);
 }
 
-router.post('/register', verificationLimiter, validate(z.object({
+router.post('/register', registrationLimiter, validate(z.object({
   fullName: z.string().trim().min(2).max(150), fullNameAr: z.string().trim().min(2).max(150).optional(),
   fullNameEn: z.string().trim().min(2).max(150).optional(), phone: z.string().trim().min(7).max(30),
   email: z.string().trim().email().max(254).optional(), dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -38,7 +43,7 @@ router.post('/register', verificationLimiter, validate(z.object({
     if (req.body.dateOfBirth >= new Date().toISOString().slice(0, 10)) return sendError(res, 422, 'INVALID_DATE_OF_BIRTH', 'Date of birth must be in the past.');
     if (await prisma.user.findUnique({ where: { phoneNormalized } })) return sendError(res, 409, 'PHONE_ALREADY_REGISTERED', 'An account already exists for this phone number.');
     if (email && await prisma.user.findUnique({ where: { email } })) return sendError(res, 409, 'EMAIL_ALREADY_REGISTERED', 'An account already exists for this email.');
-    const passwordHash = await bcrypt.hash(req.body.password, 10);
+    const passwordHash = await bcrypt.hash(req.body.password, bcryptRounds);
     const user = await prisma.$transaction(async (tx) => {
       const created = await tx.user.create({ data: {
         username: email || phoneNormalized, email, phoneNormalized, passwordHash, role: ROLES.PATIENT,
@@ -52,7 +57,10 @@ router.post('/register', verificationLimiter, validate(z.object({
       return created;
     });
     createdUserId = user.id;
-    const { challenge, developmentCode } = await createVerificationChallenge(user, 'PHONE', phoneNormalized);
+    const verificationType = process.env.VERIFICATION_PROVIDER === 'email' ? 'EMAIL' : 'PHONE';
+    const verificationTarget = verificationType === 'EMAIL' ? email : phoneNormalized;
+    if (!verificationTarget) throw new ApiError(422, 'VERIFICATION_TARGET_MISSING', 'Email is required when email verification is configured.');
+    const { challenge, developmentCode } = await createVerificationChallenge(user, verificationType, verificationTarget);
     await audit(user.id, 'PATIENT_ACCOUNT_REGISTRATION', 'Patient online account registration started.', req);
     return res.status(201).json({ state: 'VERIFICATION_REQUIRED', userId: user.id, challengeId: challenge.id, ...(developmentCode ? { developmentCode } : {}) });
   } catch (error) {
@@ -101,7 +109,7 @@ router.post('/verification/request', verificationLimiter, authenticate, allowRol
   } catch (error) { next(error); }
 });
 
-router.post('/claim', authenticate, allowRoles(ROLES.PATIENT), validate(z.object({ code: z.string().min(6).max(20), dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })), async (req, res, next) => {
+router.post('/claim', claimLimiter, authenticate, allowRoles(ROLES.PATIENT), validate(z.object({ code: z.string().min(6).max(20), dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })), async (req, res, next) => {
   try {
     if (await prisma.patient.findUnique({ where: { userId: req.user.id } })) return sendError(res, 409, 'PATIENT_ALREADY_LINKED', 'Account is already linked to a patient record.');
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
