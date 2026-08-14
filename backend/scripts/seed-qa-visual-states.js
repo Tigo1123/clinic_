@@ -1,8 +1,7 @@
 import { PrismaClient } from '../src/generated/prisma/index.js';
+import { assertIsolatedPostgres } from './assert-isolated-postgres.js';
 
-if (process.env.NODE_ENV === 'production' || process.env.DATABASE_URL !== 'file:./qa.db') {
-  throw new Error('Visual QA fixture seed refused outside the isolated qa.db environment.');
-}
+assertIsolatedPostgres({ purpose: 'Visual QA fixture seed', requiredDatabaseFragment: 'qa', requiredSchemaPrefix: 'qa_' });
 if (!process.env.QA_MEDICAL_ENCRYPTION_KEY || process.env.QA_MEDICAL_ENCRYPTION_KEY.length < 32) {
   throw new Error('QA_MEDICAL_ENCRYPTION_KEY of at least 32 characters is required for visual QA fixtures.');
 }

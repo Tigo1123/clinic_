@@ -1,9 +1,8 @@
 import bcrypt from 'bcryptjs';
 import { PrismaClient } from '../src/generated/prisma/index.js';
+import { assertIsolatedPostgres } from './assert-isolated-postgres.js';
 
-if (process.env.NODE_ENV === 'production' || process.env.DATABASE_URL !== 'file:./qa.db') {
-  throw new Error('QA seed refused outside the isolated qa.db environment.');
-}
+assertIsolatedPostgres({ purpose: 'QA seed', requiredDatabaseFragment: 'qa', requiredSchemaPrefix: 'qa_' });
 if (!process.env.QA_PASSWORD || process.env.QA_PASSWORD.length < 12) {
   throw new Error('QA_PASSWORD must contain at least 12 characters.');
 }

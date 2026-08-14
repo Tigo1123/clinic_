@@ -1,8 +1,8 @@
 # Clinic / Hospital Management System
 
-The repository contains an Express/Prisma backend and React/Vite frontend. Development uses
-SQLite; the initial production deployment profile is a single backend instance with SQLite
-and persistent database/upload volumes.
+The repository contains an Express/Prisma backend and React/Vite frontend. The active database
+provider is PostgreSQL. Development, test, staging, and production must use separate databases
+or tightly isolated schemas; uploads use independent durable storage.
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for deployment prerequisites and [OPERATIONS.md](OPERATIONS.md)
 for backup, restore, monitoring, rollback, and incident procedures. Never commit `.env` files,

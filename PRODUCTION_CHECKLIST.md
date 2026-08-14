@@ -2,7 +2,8 @@
 
 - [ ] Staging matches database engine, proxy, volumes, and verification behavior
 - [ ] Independent JWT and medical-encryption secrets generated and stored securely
-- [ ] Production SQLite and upload volumes are persistent, encrypted, writable, and monitored
+- [ ] Managed PostgreSQL connectivity, encryption, backups, restore, capacity, and alerts are verified
+- [ ] Upload storage is durable, encrypted, writable, backed up, and monitored
 - [ ] `CORS_ALLOWED_ORIGINS` contains only exact HTTPS frontend origins
 - [ ] `CLINIC_TIME_ZONE` is a valid IANA timezone and matches frontend `VITE_CLINIC_TIME_ZONE`
 - [ ] Email verification SMTP tested with an approved staging inbox

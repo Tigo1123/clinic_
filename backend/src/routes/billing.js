@@ -213,8 +213,8 @@ router.post('/invoice/:id/payments', authenticate, allowRoles(ROLES.ADMIN, ROLES
         result = await runPaymentTransaction();
         break;
       } catch (error) {
-        const sqliteContention = ['P2028', 'P2034'].includes(error.code) || /database is locked|write conflict/i.test(error.message || '');
-        if (!sqliteContention || attempt === 2) throw error;
+        const transactionContention = ['P2028', 'P2034'].includes(error.code) || /database is locked|write conflict|deadlock|serialization/i.test(error.message || '');
+        if (!transactionContention || attempt === 2) throw error;
         await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)));
       }
     }
@@ -284,6 +284,12 @@ router.post('/invoice/:id/refund', authenticate, allowRoles(ROLES.ADMIN, ROLES.R
       const refundableSdg = paidSdg - previouslyRefundedSdg;
       if (paidSdg <= 0) throw Object.assign(new Error('No paid funds are available to refund.'), { status: 409, code: 'NO_PAID_FUNDS' });
       if (amountSdg > refundableSdg + 0.001) throw Object.assign(new Error('Refund exceeds the paid amount still available.'), { status: 409, code: 'REFUND_EXCEEDS_PAID_AMOUNT' });
+
+      const claimed = await tx.invoice.updateMany({
+        where: { id: invoice.id, ledgerVersion: financial.ledgerVersion },
+        data: { ledgerVersion: { increment: 1 } }
+      });
+      if (claimed.count !== 1) throw Object.assign(new Error('Invoice ledger changed; retry the refund.'), { status: 409, code: 'REFUND_LEDGER_CONFLICT' });
 
       const refund = await tx.refund.create({ data: {
         invoiceId: invoice.id,

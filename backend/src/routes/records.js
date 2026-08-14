@@ -319,19 +319,21 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
             throw new Error(`Insufficient stock in batch ${batch.batchNumber}.`);
           }
 
-          await tx.inventoryBatch.update({
-            where: { id: batchId },
-            data: { qtyOnHand: { decrement: qtyToDispense } }
+          const batchClaim = await tx.inventoryBatch.updateMany({
+            where: { id: batchId, qtyOnHand: batch.qtyOnHand, ledgerVersion: batch.ledgerVersion },
+            data: { qtyOnHand: { decrement: qtyToDispense }, ledgerVersion: { increment: 1 } }
           });
+          if (batchClaim.count !== 1) throw new Error('Inventory changed concurrently. Reload and retry dispensing.');
         } else {
           throw new Error('An eligible FEFO inventory batch is required.');
         }
 
         const newQtyDispensed = prescribedDrug.qtyDispensed + qtyToDispense;
-        await tx.prescribedDrug.update({
-          where: { id: prescribedDrugId },
-          data: { qtyDispensed: newQtyDispensed }
+        const prescriptionClaim = await tx.prescribedDrug.updateMany({
+          where: { id: prescribedDrugId, qtyDispensed: prescribedDrug.qtyDispensed, ledgerVersion: prescribedDrug.ledgerVersion },
+          data: { qtyDispensed: newQtyDispensed, ledgerVersion: { increment: 1 } }
         });
+        if (prescriptionClaim.count !== 1) throw new Error('Prescription changed concurrently. Reload and retry dispensing.');
 
         if (newQtyDispensed < prescribedDrug.qtyPrescribed) {
           allFilled = false;
@@ -350,7 +352,7 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
     console.error('Dispense prescription error:', error);
     const knownValidation = [
       'positive whole number', 'does not belong', 'exceeds the remaining',
-      'earlier expiry', 'eligible FEFO', 'not found'
+      'earlier expiry', 'eligible FEFO', 'not found', 'changed concurrently'
     ].some((fragment) => error.message?.includes(fragment));
     if (knownValidation) return sendError(res, 422, 'DISPENSING_VALIDATION_FAILED', error.message);
     if (error.message?.includes('Insufficient stock')) return sendError(res, 409, 'INSUFFICIENT_STOCK', error.message);

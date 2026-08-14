@@ -26,7 +26,7 @@ export function validateEnvironment() {
   const origins = csv(process.env.CORS_ALLOWED_ORIGINS);
   const clinicTimeZone = process.env.CLINIC_TIME_ZONE || (production ? '' : DEFAULT_CLINIC_TIME_ZONE);
 
-  if (!databaseUrl || !/^(file:|postgres(?:ql)?:\/\/)/.test(databaseUrl)) errors.push('DATABASE_URL must be a valid Prisma SQLite or PostgreSQL URL.');
+  if (!databaseUrl || !/^postgres(?:ql)?:\/\//.test(databaseUrl)) errors.push('DATABASE_URL must be a valid PostgreSQL URL.');
   if (!jwtSecret) errors.push('JWT_SECRET is required.');
   if (!encryptionKey) errors.push('MEDICAL_ENCRYPTION_KEY is required.');
   if (!clinicTimeZone) errors.push('CLINIC_TIME_ZONE is required in production.');

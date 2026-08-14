@@ -15,7 +15,7 @@
     "qa:workflow": "node scripts/qa-workflow.js",
     "qa:visual-fixtures": "node scripts/seed-qa-visual-states.js",
     "test": "node test/run-tests.js",
-    "backup:sqlite": "sh scripts/backup-sqlite.sh",
+    "backup:postgres": "sh scripts/backup-postgres.sh",
     "start:staging": "prisma migrate deploy && node src/server.js"
   },
   "dependencies": {

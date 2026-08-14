@@ -89,7 +89,7 @@ test('staff status response never exposes password hash', async () => {
 test('production environment validation rejects insecure secrets and wildcard CORS', () => {
   const previous = { ...process.env };
   try {
-    Object.assign(process.env, { NODE_ENV: 'production', DATABASE_URL: 'file:/data/clinic.db', JWT_SECRET: 'secret', MEDICAL_ENCRYPTION_KEY: 'secret', CORS_ALLOWED_ORIGINS: '*', VERIFICATION_PROVIDER: 'disabled' });
+    Object.assign(process.env, { NODE_ENV: 'production', DATABASE_URL: 'postgresql://clinic.invalid/clinic', JWT_SECRET: 'secret', MEDICAL_ENCRYPTION_KEY: 'secret', CORS_ALLOWED_ORIGINS: '*', VERIFICATION_PROVIDER: 'disabled' });
     assert.throws(() => validateEnvironment(), /Invalid environment configuration/);
   } finally {
     for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
@@ -99,7 +99,7 @@ test('production environment validation rejects insecure secrets and wildcard CO
 
 test('production environment requires a valid explicit clinic IANA timezone', () => {
   const previous = { ...process.env };
-  const secure = { NODE_ENV: 'production', DATABASE_URL: 'file:/data/clinic.db', JWT_SECRET: 'a-secure-jwt-secret-that-is-longer-than-32', MEDICAL_ENCRYPTION_KEY: 'a-distinct-medical-key-that-is-over-32-chars', CORS_ALLOWED_ORIGINS: 'https://clinic.example', VERIFICATION_PROVIDER: 'disabled' };
+  const secure = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://clinic.invalid/clinic', JWT_SECRET: 'a-secure-jwt-secret-that-is-longer-than-32', MEDICAL_ENCRYPTION_KEY: 'a-distinct-medical-key-that-is-over-32-chars', CORS_ALLOWED_ORIGINS: 'https://clinic.example', VERIFICATION_PROVIDER: 'disabled' };
   try {
     Object.assign(process.env, secure);
     delete process.env.CLINIC_TIME_ZONE;

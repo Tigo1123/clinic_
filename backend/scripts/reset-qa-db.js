@@ -1,16 +1,14 @@
-import fs from 'fs';
 import path from 'path';
 import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { PrismaClient } from '../src/generated/prisma/index.js';
+import { assertIsolatedPostgres } from './assert-isolated-postgres.js';
 
 const backendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const qaDatabase = path.join(backendDir, 'prisma', 'qa.db');
-
-if (process.env.NODE_ENV === 'production' || process.env.DATABASE_URL !== 'file:./qa.db') {
-  throw new Error('QA reset refused: set NODE_ENV=qa and DATABASE_URL=file:./qa.db.');
-}
-
-fs.rmSync(qaDatabase, { force: true });
+const { schema } = assertIsolatedPostgres({ purpose: 'QA reset', requiredDatabaseFragment: 'qa', requiredSchemaPrefix: 'qa_' });
+const prisma = new PrismaClient();
+await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+await prisma.$disconnect();
 
 for (const [command, args] of [
   ['npx', ['prisma', 'migrate', 'deploy']],
@@ -21,4 +19,4 @@ for (const [command, args] of [
   if (result.status !== 0) process.exit(result.status || 1);
 }
 
-console.log(`QA database recreated at ${qaDatabase}`);
+console.log(`Isolated PostgreSQL QA schema recreated: ${schema}`);

@@ -1,5 +1,5 @@
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -180,6 +180,7 @@ model PrescribedDrug {
   instructionsEn String
   qtyPrescribed  Int
   qtyDispensed   Int           @default(0)
+  ledgerVersion  Int           @default(0)
 }
 
 model InventoryBatch {
@@ -190,6 +191,7 @@ model InventoryBatch {
   expiryDate      String // YYYY-MM-DD
   qtyOnHand       Int
   minReorderLevel Int           @default(10)
+  ledgerVersion   Int           @default(0)
 
   @@index([expiryDate])
 }

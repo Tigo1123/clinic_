@@ -9,6 +9,20 @@ on:
 jobs:
   test-and-lint:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: clinic_test
+          POSTGRES_USER: clinic_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U clinic_test -d clinic_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -25,7 +39,7 @@ jobs:
       - name: Test Backend
         env:
           NODE_ENV: test
-          DATABASE_URL: file:./test.db
+          TEST_DATABASE_URL: postgresql://clinic_test@127.0.0.1:5432/clinic_test
           JWT_SECRET: ci-only-jwt-secret-that-is-long-and-not-production
           MEDICAL_ENCRYPTION_KEY: ci-only-medical-key-that-is-long-and-not-production
           CORS_ALLOWED_ORIGINS: http://localhost:5173

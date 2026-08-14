@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import { PrismaClient } from '../src/generated/prisma/index.js';
+import { assertIsolatedPostgres } from './assert-isolated-postgres.js';
 
-if (process.env.NODE_ENV === 'production' || process.env.DATABASE_URL !== 'file:./qa.db') {
-  throw new Error('QA workflow refused outside the isolated qa.db environment.');
-}
+assertIsolatedPostgres({ purpose: 'QA workflow', requiredDatabaseFragment: 'qa', requiredSchemaPrefix: 'qa_' });
 if (!process.env.QA_PASSWORD) throw new Error('QA_PASSWORD is required.');
 
 const prisma = new PrismaClient();
