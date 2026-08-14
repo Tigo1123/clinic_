@@ -5,10 +5,11 @@ import { getWhatsAppLink } from '../reception/clinicData';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import { staffSocket as socket } from '../../services/staffSocket';
 import RoleHero from '../../components/healthcare/RoleHero';
+import { clinicDateString } from '../../utils/clinicTime';
 
 export default function DoctorDashboard({ user, lang, t }) {
   const [queue, setQueue] = useState([]);
-  const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
+  const [filterDate, setFilterDate] = useState(clinicDateString());
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [selectedAppointmentId, setSelectedAppointmentId] = useState('');
 
@@ -29,6 +30,7 @@ export default function DoctorDashboard({ user, lang, t }) {
   const [selectedDrug, setSelectedDrug] = useState('');
   const [dosage, setDosage] = useState('');
   const [duration, setDuration] = useState('');
+  const [quantity, setQuantity] = useState('');
   const [instrAr, setInstrAr] = useState('');
   const [instrEn, setInstrEn] = useState('');
   const [prescribedItems, setPrescribedItems] = useState([]);
@@ -172,7 +174,8 @@ export default function DoctorDashboard({ user, lang, t }) {
   };
 
   const handleAddDrugToRx = () => {
-    if (!selectedDrug || !dosage || !duration) return;
+    const parsedQuantity = Number(quantity);
+    if (!selectedDrug || !dosage || !duration || !Number.isInteger(parsedQuantity) || parsedQuantity <= 0) return;
     const drugObj = drugs.find((d) => d.id === selectedDrug);
     setPrescribedItems([
       ...prescribedItems,
@@ -184,12 +187,13 @@ export default function DoctorDashboard({ user, lang, t }) {
         duration,
         instructionsAr: instrAr,
         instructionsEn: instrEn,
-        qtyPrescribed: 15 // Mock prescribed total quantity
+        qtyPrescribed: parsedQuantity
       }
     ]);
     setSelectedDrug('');
     setDosage('');
     setDuration('');
+    setQuantity('');
     setInstrAr('');
     setInstrEn('');
   };
@@ -596,6 +600,16 @@ export default function DoctorDashboard({ user, lang, t }) {
 
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.75rem' }}>
                         <input
+                          type="number"
+                          min="1"
+                          step="1"
+                          placeholder={lang === 'ar' ? 'الكمية' : 'Quantity'}
+                          aria-label={lang === 'ar' ? 'الكمية الموصوفة' : 'Prescribed quantity'}
+                          className="form-input"
+                          value={quantity}
+                          onChange={(e) => setQuantity(e.target.value)}
+                        />
+                        <input
                           type="text"
                           placeholder="Instructions (Arabic)"
                           className="form-input"
@@ -622,6 +636,7 @@ export default function DoctorDashboard({ user, lang, t }) {
                               <th>Drug</th>
                               <th>Dosage</th>
                               <th>Duration</th>
+                              <th>{lang === 'ar' ? 'الكمية' : 'Quantity'}</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -630,6 +645,7 @@ export default function DoctorDashboard({ user, lang, t }) {
                                 <td>{lang === 'ar' ? item.nameAr : item.nameEn}</td>
                                 <td>{item.dosage}</td>
                                 <td>{item.duration}</td>
+                                <td>{item.qtyPrescribed}</td>
                               </tr>
                             ))}
                           </tbody>

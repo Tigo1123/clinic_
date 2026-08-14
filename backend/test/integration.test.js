@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import prisma from '../src/db.js';
 import { app, httpServer } from '../src/server.js';
 import { validateEnvironment } from '../src/config.js';
+import { emitQueueUpdate } from '../src/utils/socketEvents.js';
 
 const api = request(app);
 const tokens = {};
@@ -25,6 +26,19 @@ async function login(username, password) {
 }
 
 function auth(role) { return { Authorization: `Bearer ${tokens[role]}` }; }
+
+test('queue socket updates target operational staff rooms only', () => {
+  const rooms = [];
+  let emitted;
+  const io = {
+    to(room) { rooms.push(room); return this; },
+    emit(event, payload) { emitted = { event, payload }; }
+  };
+  emitQueueUpdate(io, { type: 'STATUS_UPDATE' }, ['doctor-1', 'doctor-1']);
+  assert.deepEqual(rooms, ['role_ADMIN', 'role_RECEPTIONIST', 'doctor_doctor-1']);
+  assert.deepEqual(emitted, { event: 'queueUpdated', payload: { type: 'STATUS_UPDATE' } });
+  assert.ok(!rooms.some((room) => room.startsWith('user_') || room === 'role_PATIENT'));
+});
 
 before(async () => {
   tokens.admin = await login('admin@cms.com', 'Admin@123');
@@ -78,6 +92,31 @@ test('production environment validation rejects insecure secrets and wildcard CO
     for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
     Object.assign(process.env, previous);
   }
+});
+
+test('production environment requires a valid explicit clinic IANA timezone', () => {
+  const previous = { ...process.env };
+  const secure = { NODE_ENV: 'production', DATABASE_URL: 'file:/data/clinic.db', JWT_SECRET: 'a-secure-jwt-secret-that-is-longer-than-32', MEDICAL_ENCRYPTION_KEY: 'a-distinct-medical-key-that-is-over-32-chars', CORS_ALLOWED_ORIGINS: 'https://clinic.example', VERIFICATION_PROVIDER: 'disabled' };
+  try {
+    Object.assign(process.env, secure);
+    delete process.env.CLINIC_TIME_ZONE;
+    assert.throws(() => validateEnvironment(), /CLINIC_TIME_ZONE is required/);
+    process.env.CLINIC_TIME_ZONE = 'Not/A_Real_Zone';
+    assert.throws(() => validateEnvironment(), /valid IANA timezone/);
+    process.env.CLINIC_TIME_ZONE = 'Africa/Khartoum';
+    assert.equal(validateEnvironment().clinicTimeZone, 'Africa/Khartoum');
+  } finally {
+    for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
+    Object.assign(process.env, previous);
+  }
+});
+
+test('untrusted browser origins receive a safe CORS rejection with security headers', async () => {
+  const response = await api.get('/api/health').set('Origin', 'https://untrusted.example');
+  assert.equal(response.status, 403);
+  assert.equal(response.body.error.code, 'CORS_ORIGIN_FORBIDDEN');
+  assert.equal(response.headers['x-content-type-options'], 'nosniff');
+  assert.ok(response.headers['x-request-id']);
 });
 
 test('patient search is limited to reception and admin', async () => {
@@ -187,10 +226,87 @@ test('billing rejects zero, negative, and overpayments', async () => {
   }
 });
 
+async function paidInvoice(amount = 100) {
+  const invoice = await prisma.invoice.create({ data: { patientId: patient1.id, totalAmountSdg: amount, totalAmountUsd: amount / 100, invoiceExchangeRate: 100, createdBy: 'test' } });
+  const response = await api.post(`/api/billing/invoice/${invoice.id}/payments`).set(auth('reception')).send({ payments: [{ amountSdg: amount, paymentMethod: 'CASH' }] });
+  assert.equal(response.status, 200);
+  return invoice;
+}
+
+test('refund ledger records partial and full reversals with audit history', async () => {
+  const invoice = await paidInvoice(100);
+  const partialRef = `REF-PARTIAL-${Date.now()}`;
+  const partial = await api.post(`/api/billing/invoice/${invoice.id}/refund`).set(auth('reception')).send({ amountSdg: 40, refundMethod: 'CARD', transactionReference: partialRef, reason: 'Patient request' });
+  assert.equal(partial.status, 201);
+  assert.equal(partial.body.invoice.paymentStatus, 'PARTIALLY_REFUNDED');
+  assert.equal(partial.body.refundedSdg, 40);
+  assert.equal(partial.body.netCollectedSdg, 60);
+  assert.equal(partial.body.refundableSdg, 60);
+  assert.equal(partial.body.remainingBalanceSdg, 40);
+  assert.equal(Number(partial.body.refund.amountUsd), 0.4);
+  const full = await api.post(`/api/billing/invoice/${invoice.id}/refund`).set(auth('reception')).send({ amountSdg: 60, refundMethod: 'CASH' });
+  assert.equal(full.status, 201);
+  assert.equal(full.body.invoice.paymentStatus, 'REFUNDED');
+  assert.equal(full.body.netCollectedSdg, 0);
+  assert.equal(full.body.remainingBalanceSdg, 100);
+  assert.equal((await prisma.payment.count({ where: { invoiceId: invoice.id } })), 1);
+  assert.equal((await prisma.refund.count({ where: { invoiceId: invoice.id } })), 2);
+  assert.equal((await prisma.tenantAuditLog.count({ where: { action: 'INVOICE_REFUND', details: { contains: invoice.id } } })), 2);
+});
+
+test('refund validation rejects invalid, excessive, duplicate, and unauthorized reversals', async () => {
+  const invoice = await paidInvoice(100);
+  for (const amount of [0, -1, 101]) {
+    const response = await api.post(`/api/billing/invoice/${invoice.id}/refund`).set(auth('reception')).send({ amountSdg: amount, refundMethod: 'CASH' });
+    assert.notEqual(response.status, 201);
+  }
+  assert.equal((await api.post(`/api/billing/invoice/${invoice.id}/refund`).set(auth('pharmacy')).send({ amountSdg: 10, refundMethod: 'CASH' })).status, 403);
+  const reference = `REF-DUP-${Date.now()}`;
+  assert.equal((await api.post(`/api/billing/invoice/${invoice.id}/refund`).set(auth('admin')).send({ amountSdg: 30, refundMethod: 'BANKAK', transactionReference: reference })).status, 201);
+  const other = await paidInvoice(100);
+  const duplicate = await api.post(`/api/billing/invoice/${other.id}/refund`).set(auth('reception')).send({ amountSdg: 10, refundMethod: 'BANKAK', transactionReference: reference });
+  assert.equal(duplicate.status, 409);
+  assert.equal(duplicate.body.error.code, 'DUPLICATE_REFUND_REFERENCE');
+  const paymentReference = `PAYMENT-REF-${Date.now()}`;
+  const paymentReferencedInvoice = await prisma.invoice.create({ data: { patientId: patient1.id, totalAmountSdg: 20, totalAmountUsd: 0.2, invoiceExchangeRate: 100, createdBy: 'test', payments: { create: { amountSdg: 20, amountUsd: 0.2, paymentMethod: 'CARD', transactionReference: paymentReference, receivedBy: (await prisma.user.findUnique({ where: { username: 'recep@cms.com' } })).id } } } });
+  const paymentReferenceReuse = await api.post(`/api/billing/invoice/${paymentReferencedInvoice.id}/refund`).set(auth('reception')).send({ amountSdg: 5, refundMethod: 'CARD', transactionReference: paymentReference });
+  assert.equal(paymentReferenceReuse.status, 409);
+  const exceedsRemainder = await api.post(`/api/billing/invoice/${invoice.id}/refund`).set(auth('reception')).send({ amountSdg: 71, refundMethod: 'CASH' });
+  assert.equal(exceedsRemainder.status, 409);
+  assert.equal(exceedsRemainder.body.error.code, 'REFUND_EXCEEDS_PAID_AMOUNT');
+});
+
+test('refund cannot be recorded against an invoice with no paid funds', async () => {
+  const invoice = await prisma.invoice.create({ data: { patientId: patient1.id, totalAmountSdg: 100, totalAmountUsd: 1, invoiceExchangeRate: 100, createdBy: 'test' } });
+  const response = await api.post(`/api/billing/invoice/${invoice.id}/refund`).set(auth('reception')).send({ amountSdg: 10, refundMethod: 'CASH' });
+  assert.equal(response.status, 409);
+  assert.equal(response.body.error.code, 'NO_PAID_FUNDS');
+});
+
+test('billing analytics never fabricates empty operational metrics', async () => {
+  const response = await api.get('/api/billing/analytics').set(auth('admin'));
+  assert.equal(response.status, 200);
+  assert.equal(response.body.averageWaitTimeMinutes, null);
+  assert.deepEqual(response.body.waitTimeTrend, []);
+  assert.ok(response.body.dailyRevenueTrend.every((item) => Number.isFinite(item.amount) && item.amount >= 0));
+  assert.ok(response.body.monthlyRevenueTrend.every((item) => Number.isFinite(item.amount) && item.amount >= 0));
+});
+
 test('appointments reject past dates and invalid slots', async () => {
   assert.equal((await api.get(`/api/appointments/slots?doctorId=${doctor1.id}&date=2020-01-01`)).status, 422);
   const response = await api.post('/api/appointments/book').send(await bookingPayload('2030-01-06', '03:00', '0991000010'));
   assert.equal(response.status, 422);
+});
+
+test('emergency override and transfer cannot reopen terminal appointments', async () => {
+  const completed = await prisma.appointment.create({ data: { patientId: patient1.id, doctorId: doctor1.id, appointmentDate: '2031-01-06', appointmentTime: '11:30', status: 'COMPLETED' } });
+  const override = await api.post(`/api/appointments/${completed.id}/override`).set(auth('reception')).send({ justification: 'Verified audit emergency justification' });
+  assert.equal(override.status, 409);
+  assert.equal(override.body.error.code, 'OVERRIDE_INVALID_STATE');
+  const transfer = await api.post(`/api/appointments/${completed.id}/transfer`).set(auth('reception')).send({ targetDoctorId: doctor2.id });
+  assert.equal(transfer.status, 409);
+  assert.equal(transfer.body.error.code, 'TRANSFER_INVALID_STATE');
+  assert.equal((await prisma.appointment.findUnique({ where: { id: completed.id } })).status, 'COMPLETED');
 });
 
 test('concurrent booking allows exactly one reservation per active doctor slot', async () => {
@@ -206,6 +322,15 @@ test('debug notification endpoint is absent', async () => {
 
 test('legacy static attachment URL is not exposed', async () => {
   assert.equal((await api.get('/uploads/secret.pdf')).status, 404);
+});
+
+test('oversize uploads return a safe 413 validation response', async () => {
+  const response = await api.post('/api/upload')
+    .set(auth('doctor'))
+    .attach('file', Buffer.alloc(10 * 1024 * 1024 + 1), { filename: 'oversize.png', contentType: 'image/png' });
+  assert.equal(response.status, 413);
+  assert.equal(response.body.error.code, 'FILE_TOO_LARGE');
+  assert.equal(JSON.stringify(response.body).includes('MulterError'), false);
 });
 
 async function createPrescriptionFixture() {

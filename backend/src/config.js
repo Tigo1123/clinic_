@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { DEFAULT_CLINIC_TIME_ZONE, isValidClinicTimeZone } from './utils/clinicTime.js';
 
 const INSECURE_SECRETS = new Set([
   'secret', 'changeme', 'development-secret',
@@ -23,10 +24,13 @@ export function validateEnvironment() {
   const jwtSecret = process.env.JWT_SECRET;
   const encryptionKey = process.env.MEDICAL_ENCRYPTION_KEY;
   const origins = csv(process.env.CORS_ALLOWED_ORIGINS);
+  const clinicTimeZone = process.env.CLINIC_TIME_ZONE || (production ? '' : DEFAULT_CLINIC_TIME_ZONE);
 
   if (!databaseUrl || !/^(file:|postgres(?:ql)?:\/\/)/.test(databaseUrl)) errors.push('DATABASE_URL must be a valid Prisma SQLite or PostgreSQL URL.');
   if (!jwtSecret) errors.push('JWT_SECRET is required.');
   if (!encryptionKey) errors.push('MEDICAL_ENCRYPTION_KEY is required.');
+  if (!clinicTimeZone) errors.push('CLINIC_TIME_ZONE is required in production.');
+  else if (!isValidClinicTimeZone(clinicTimeZone)) errors.push('CLINIC_TIME_ZONE must be a valid IANA timezone.');
 
   if (production) {
     if (!jwtSecret || jwtSecret.length < 32 || INSECURE_SECRETS.has(jwtSecret.toLowerCase())) errors.push('JWT_SECRET must be a unique secret of at least 32 characters.');
@@ -43,7 +47,7 @@ export function validateEnvironment() {
   }
 
   if (errors.length) throw new Error(`Invalid environment configuration:\n- ${[...new Set(errors)].join('\n- ')}`);
-  return { production, allowedOrigins: origins.length ? origins : ['http://localhost:5173'] };
+  return { production, allowedOrigins: origins.length ? origins : ['http://localhost:5173'], clinicTimeZone };
 }
 
 export const rateLimits = {

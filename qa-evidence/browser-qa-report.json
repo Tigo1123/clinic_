@@ -258,7 +258,7 @@
       "width": 390,
       "height": 844,
       "layout": {
-        "url": "/patient/doctors/8d1efc82-3ee5-4428-ae1d-61b34768e334",
+        "url": "/patient/doctors/2014a32a-7847-4263-8a28-b4aa6e1ffb2b",
         "width": 390,
         "scrollWidth": 390,
         "dir": "",
@@ -272,7 +272,7 @@
       "width": 390,
       "height": 844,
       "layout": {
-        "url": "/patient/book/8d1efc82-3ee5-4428-ae1d-61b34768e334",
+        "url": "/patient/book/2014a32a-7847-4263-8a28-b4aa6e1ffb2b",
         "width": 390,
         "scrollWidth": 390,
         "dir": "",
@@ -506,7 +506,7 @@
     },
     {
       "name": "reference-doctor-details-mobile",
-      "url": "/patient/doctors/8d1efc82-3ee5-4428-ae1d-61b34768e334",
+      "url": "/patient/doctors/2014a32a-7847-4263-8a28-b4aa6e1ffb2b",
       "width": 390,
       "scrollWidth": 390,
       "dir": "",
@@ -516,7 +516,7 @@
     },
     {
       "name": "reference-booking-mobile",
-      "url": "/patient/book/8d1efc82-3ee5-4428-ae1d-61b34768e334",
+      "url": "/patient/book/2014a32a-7847-4263-8a28-b4aa6e1ffb2b",
       "width": 390,
       "scrollWidth": 390,
       "dir": "",

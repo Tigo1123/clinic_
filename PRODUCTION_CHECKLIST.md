@@ -4,6 +4,7 @@
 - [ ] Independent JWT and medical-encryption secrets generated and stored securely
 - [ ] Production SQLite and upload volumes are persistent, encrypted, writable, and monitored
 - [ ] `CORS_ALLOWED_ORIGINS` contains only exact HTTPS frontend origins
+- [ ] `CLINIC_TIME_ZONE` is a valid IANA timezone and matches frontend `VITE_CLINIC_TIME_ZONE`
 - [ ] Email verification SMTP tested with an approved staging inbox
 - [ ] SMS-dependent product expectations disabled or accepted (SMS is not production-ready)
 - [ ] Database and uploads backed up together; isolated restore drill passes

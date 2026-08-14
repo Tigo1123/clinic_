@@ -17,7 +17,7 @@ import adminRoutes from './routes/admin.js';
 import notificationRoutes from './routes/notifications.js';
 import patientAuthRoutes from './routes/patientAuth.js';
 import patientSelfRoutes from './routes/patient.js';
-import { errorHandler, notFoundHandler } from './utils/apiError.js';
+import { ApiError, errorHandler, notFoundHandler } from './utils/apiError.js';
 import { fileURLToPath } from 'url';
 import { validateEnvironment } from './config.js';
 import { logger } from './utils/logger.js';
@@ -32,7 +32,7 @@ const allowedOrigins = environment.allowedOrigins;
 const corsOptions = {
   origin(origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-    return callback(new Error('Origin is not allowed by CORS policy.'));
+    return callback(new ApiError(403, 'CORS_ORIGIN_FORBIDDEN', 'Request origin is not allowed.'));
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
 };
@@ -68,14 +68,14 @@ io.on('connection', (socket) => {
   logger.info('socket.connected', { socketId: socket.id, userId: socket.user.id });
 
   socket.join(`user_${socket.user.id}`);
+  socket.join(`role_${socket.user.role}`);
+  if (socket.user.doctorId) socket.join(`doctor_${socket.user.doctorId}`);
 
   socket.on('disconnect', () => {
     logger.info('socket.disconnected', { socketId: socket.id, userId: socket.user.id });
   });
 });
 
-// Enable CORS for frontend requests
-app.use(cors(corsOptions));
 app.disable('x-powered-by');
 app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : false);
 app.use(helmet({
@@ -91,6 +91,9 @@ app.use((req, res, next) => {
   res.on('finish', () => logger.info('http.request', { requestId: req.id, method: req.method, path: req.path, status: res.statusCode, durationMs: Date.now() - startedAt, userId: req.user?.id }));
   next();
 });
+
+// Enable CORS for frontend requests after common security and correlation headers.
+app.use(cors(corsOptions));
 
 // Parse incoming request payloads
 app.use(express.json());

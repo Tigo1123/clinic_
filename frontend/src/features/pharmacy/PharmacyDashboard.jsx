@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, FileText, HelpCircle, Sliders, Stethoscope } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import RoleHero from '../../components/healthcare/RoleHero';
+import { clinicDateString } from '../../utils/clinicTime';
 
 export default function PharmacyDashboard({ lang, t }) {
   const [prescriptions, setPrescriptions] = useState([]);
@@ -49,7 +50,7 @@ export default function PharmacyDashboard({ lang, t }) {
     setSuccessMsg('');
     const items = rx.prescribedDrugs.map((item) => {
       // Select the eligible batch with the earliest expiry (FEFO).
-      const today = new Date().toISOString().slice(0, 10);
+      const today = clinicDateString();
       const batch = [...(item.drug.inventoryBatches || [])]
         .filter((candidate) => candidate.qtyOnHand > 0 && candidate.expiryDate >= today)
         .sort((a, b) => a.expiryDate.localeCompare(b.expiryDate) || a.batchNumber.localeCompare(b.batchNumber))[0];

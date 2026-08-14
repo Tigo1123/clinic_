@@ -6,6 +6,7 @@ import { allowRoles, doctorHasPatientAccess, ROLES } from '../middleware/policie
 import { sendError } from '../utils/apiError.js';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
+import { getClinicDateString } from '../utils/clinicTime.js';
 
 const router = express.Router();
 
@@ -74,7 +75,7 @@ router.post('/', authenticate, checkRoles('ADMIN', 'RECEPTIONIST'), validate(z.o
   }
 
   const finalEmergencyContact = emergencyContact || 'Self';
-  if (dateOfBirth >= new Date().toISOString().slice(0, 10)) {
+  if (dateOfBirth >= getClinicDateString()) {
     return sendError(res, 422, 'INVALID_DATE_OF_BIRTH', 'Date of birth must be in the past.');
   }
 

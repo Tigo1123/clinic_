@@ -8,6 +8,7 @@ services:
       - "5000:5000"
     environment:
       NODE_ENV: production
+      CLINIC_TIME_ZONE: ${CLINIC_TIME_ZONE:?CLINIC_TIME_ZONE is required}
       PORT: 5000
       DATABASE_URL: file:/data/clinic.db
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
@@ -36,6 +37,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_CLINIC_TIME_ZONE: ${CLINIC_TIME_ZONE:?CLINIC_TIME_ZONE is required}
     container_name: cms-frontend
     ports:
       - "8080:8080"

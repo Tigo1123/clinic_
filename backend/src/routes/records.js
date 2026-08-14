@@ -7,6 +7,8 @@ import { allowRoles, ROLES, doctorHasPatientAccess } from '../middleware/policie
 import { sendError } from '../utils/apiError.js';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
+import { emitQueueUpdate } from '../utils/socketEvents.js';
+import { getClinicDateString } from '../utils/clinicTime.js';
 
 const router = express.Router();
 
@@ -164,9 +166,7 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
 
     // Emit WebSocket update
     const io = req.app.get('io');
-    if (io) {
-      io.emit('queueUpdated', { type: 'CONSULTATION_COMPLETE', appointmentId, patientId, doctorId });
-    }
+    emitQueueUpdate(io, { type: 'CONSULTATION_COMPLETE', appointmentId, doctorId }, [doctorId]);
 
     return res.status(201).json({
       success: true,
@@ -310,7 +310,7 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
           if (batch.drugId !== prescribedDrug.drugId) throw new Error('Inventory batch does not belong to the prescribed drug.');
 
           const earliestBatch = await tx.inventoryBatch.findFirst({
-            where: { drugId: prescribedDrug.drugId, qtyOnHand: { gt: 0 }, expiryDate: { gte: new Date().toISOString().slice(0, 10) } },
+            where: { drugId: prescribedDrug.drugId, qtyOnHand: { gt: 0 }, expiryDate: { gte: getClinicDateString() } },
             orderBy: [{ expiryDate: 'asc' }, { batchNumber: 'asc' }]
           });
           if (earliestBatch && earliestBatch.id !== batch.id) throw new Error('A batch with an earlier expiry must be dispensed first (FEFO).');

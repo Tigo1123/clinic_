@@ -1,6 +1,7 @@
 import express from 'express';
 import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
+import { clinicDateSequence, clinicMonthBounds } from '../utils/clinicTime.js';
 
 const router = express.Router();
 
@@ -16,7 +17,7 @@ router.get('/analytics', authenticate, checkRoles('ADMIN'), async (req, res) => 
 
     // 2. Monthly Visits (Visits logged in current calendar month)
     const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const { start: startOfMonth } = clinicMonthBounds(now);
     const monthlyVisits = await prisma.medicalRecord.count({
       where: {
         visitDate: {
@@ -93,17 +94,12 @@ router.get('/analytics', authenticate, checkRoles('ADMIN'), async (req, res) => 
 
     // 6. Financial Summary (Total Revenues & Invoices)
     const totalInvoices = await prisma.invoice.count();
-    const paidInvoices = await prisma.invoice.aggregate({
-      where: { paymentStatus: 'PAID' },
-      _sum: { totalAmountSdg: true }
-    });
-
-    const totalRevenueSdg = paidInvoices._sum?.totalAmountSdg ? Number(paidInvoices._sum.totalAmountSdg) : 0;
-    const trendDays = Array.from({ length: 7 }, (_, index) => {
-      const date = new Date(now);
-      date.setDate(now.getDate() - (6 - index));
-      return date.toISOString().slice(0, 10);
-    });
+    const [paymentTotals, refundTotals] = await Promise.all([
+      prisma.payment.aggregate({ _sum: { amountSdg: true } }),
+      prisma.refund.aggregate({ _sum: { amountSdg: true } })
+    ]);
+    const totalRevenueSdg = Number(paymentTotals._sum.amountSdg || 0) - Number(refundTotals._sum.amountSdg || 0);
+    const trendDays = clinicDateSequence(7, now);
     const trendCounts = await prisma.appointment.groupBy({
       by: ['appointmentDate'],
       where: { appointmentDate: { gte: trendDays[0], lte: trendDays[6] } },

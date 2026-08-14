@@ -10,6 +10,8 @@ import { sendError } from '../utils/apiError.js';
 import rateLimit from 'express-rate-limit';
 import { rateLimits } from '../config.js';
 import crypto from 'crypto';
+import { emitQueueUpdate } from '../utils/socketEvents.js';
+import { configuredSlots, DATE_PATTERN, TIME_PATTERN, todayString } from '../utils/scheduling.js';
 
 const router = express.Router();
 const otpLimiter = rateLimit({ windowMs: rateLimits.windowMs, limit: rateLimits.verification, standardHeaders: 'draft-7', legacyHeaders: false });
@@ -19,8 +21,6 @@ const developmentOtps = new Map();
  * GET /api/appointments/slots
  * Generates and returns available time slots for a doctor on a specific date (YYYY-MM-DD).
  */
-const datePattern = /^\d{4}-\d{2}-\d{2}$/;
-const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
 const appointmentStatuses = ['PENDING', 'SCHEDULED', 'CONFIRMED', 'CHECKED_IN', 'IN_CONSULTATION', 'COMPLETED', 'CANCELLED', 'NO_SHOW'];
 const transitions = {
   PENDING: ['CONFIRMED', 'CANCELLED'], SCHEDULED: ['CHECKED_IN', 'CANCELLED', 'NO_SHOW'],
@@ -28,25 +28,7 @@ const transitions = {
   IN_CONSULTATION: ['COMPLETED'], COMPLETED: [], CANCELLED: [], NO_SHOW: []
 };
 
-function todayString() { return new Date().toISOString().slice(0, 10); }
-
-function configuredSlots(doctor, date) {
-  const parsed = new Date(`${date}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return [];
-  const dayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][parsed.getDay()];
-  const dayConfig = JSON.parse(doctor.weeklySchedule).find((item) => item.day.toLowerCase() === dayName.toLowerCase());
-  if (!dayConfig || dayConfig.slotDurationInMinutes <= 0) return [];
-  const slots = [];
-  let current = new Date(`${date}T${dayConfig.startTime}:00`);
-  const end = new Date(`${date}T${dayConfig.endTime}:00`);
-  while (current < end) {
-    slots.push(current.toTimeString().substring(0, 5));
-    current = new Date(current.getTime() + dayConfig.slotDurationInMinutes * 60000);
-  }
-  return slots;
-}
-
-router.get('/slots', validate(z.object({ doctorId: z.string().uuid(), date: z.string().regex(datePattern) }), 'query'), async (req, res) => {
+router.get('/slots', validate(z.object({ doctorId: z.string().uuid(), date: z.string().regex(DATE_PATTERN) }), 'query'), async (req, res) => {
   const { doctorId, date } = req.query;
 
   if (date < todayString()) return sendError(res, 422, 'APPOINTMENT_DATE_IN_PAST', 'Past appointment dates are not allowed.');
@@ -108,9 +90,9 @@ router.post('/otp/request', otpLimiter, async (req, res) => {
  * Public patient booking submission. Handles verification check & rate limit check (2 per day per phone).
  */
 router.post('/book', validate(z.object({
-  doctorId: z.string().uuid(), appointmentDate: z.string().regex(datePattern), appointmentTime: z.string().regex(timePattern),
+  doctorId: z.string().uuid(), appointmentDate: z.string().regex(DATE_PATTERN), appointmentTime: z.string().regex(TIME_PATTERN),
   fullNameAr: z.string().trim().min(2).max(150), fullNameEn: z.string().trim().min(2).max(150),
-  gender: z.enum(['MALE', 'FEMALE']), dateOfBirth: z.string().regex(datePattern), nationalId: z.string().trim().max(30).optional(),
+  gender: z.enum(['MALE', 'FEMALE']), dateOfBirth: z.string().regex(DATE_PATTERN), nationalId: z.string().trim().max(30).optional(),
   phone: z.string().trim().min(7).max(20), addressStateId: z.coerce.number().int().min(1).max(18), otpCode: z.string().length(6)
 })), async (req, res) => {
   if (process.env.NODE_ENV === 'production') return sendError(res, 503, 'PUBLIC_BOOKING_VERIFICATION_UNAVAILABLE', 'Public OTP booking is unavailable. Use an authenticated patient account to book.');
@@ -217,9 +199,7 @@ router.post('/book', validate(z.object({
 
     // Emit WebSocket update & notify receptionists in real-time
     const io = req.app.get('io');
-    if (io) {
-      io.emit('queueUpdated', { type: 'BOOKING_PENDING', appointmentId: appointment.id, doctorId });
-    }
+    emitQueueUpdate(io, { type: 'BOOKING_PENDING', appointmentId: appointment.id, doctorId }, [doctorId]);
 
     // Query receptionists and admin users to send target notifications
     try {
@@ -294,7 +274,7 @@ router.get('/pending', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST)
  */
 router.get('/queue/:doctorId', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.DOCTOR), async (req, res) => {
   const doctorId = req.params.doctorId;
-  const targetDate = req.query.date || new Date().toISOString().substring(0, 10); // YYYY-MM-DD
+  const targetDate = req.query.date || todayString();
 
   try {
     if (req.user.role === ROLES.DOCTOR && req.user.doctorId !== doctorId) {
@@ -367,9 +347,7 @@ router.put('/:id/status', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONI
 
     // Emit WebSocket update
     const io = req.app.get('io');
-    if (io) {
-      io.emit('queueUpdated', { type: 'STATUS_UPDATE', appointmentId: appointment.id, status, doctorId: appointment.doctorId });
-    }
+    emitQueueUpdate(io, { type: 'STATUS_UPDATE', appointmentId: appointment.id, status, doctorId: appointment.doctorId }, [appointment.doctorId]);
 
     return res.json({
       ...appointment,
@@ -389,8 +367,8 @@ router.put('/:id/status', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONI
 router.post('/:id/override', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
   const { justification } = req.body;
 
-  if (!justification) {
-    return res.status(400).json({ error: 'Override justification is required.' });
+  if (typeof justification !== 'string' || justification.trim().length < 20) {
+    return sendError(res, 422, 'OVERRIDE_JUSTIFICATION_REQUIRED', 'Emergency override justification must contain at least 20 characters.');
   }
 
   try {
@@ -400,6 +378,12 @@ router.post('/:id/override', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTI
 
     if (!appointment) {
       return res.status(404).json({ error: 'Appointment not found.' });
+    }
+    if (!['PENDING', 'SCHEDULED', 'CONFIRMED', 'CHECKED_IN'].includes(appointment.status)) {
+      return sendError(res, 409, 'OVERRIDE_INVALID_STATE', `Emergency override is not allowed from ${appointment.status}.`);
+    }
+    if (await prisma.emergencyOverride.findUnique({ where: { appointmentId: appointment.id } })) {
+      return sendError(res, 409, 'OVERRIDE_ALREADY_APPLIED', 'An emergency override already exists for this appointment.');
     }
 
     // Update status to Checked In (if not already) and create Override log
@@ -411,7 +395,7 @@ router.post('/:id/override', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTI
       prisma.emergencyOverride.create({
         data: {
           appointmentId: req.params.id,
-          justification,
+          justification: justification.trim(),
           authorizedById: req.user.id
         }
       }),
@@ -419,7 +403,7 @@ router.post('/:id/override', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTI
         data: {
           userId: req.user.id,
           action: 'QUEUE_EMERGENCY_OVERRIDE',
-          details: `Emergency override requested for Appointment ${req.params.id}. Justification: ${justification}`,
+          details: `Emergency override requested for Appointment ${req.params.id}. Justification: ${justification.trim()}`,
           ipAddress: req.ip || '127.0.0.1'
         }
       })
@@ -427,9 +411,7 @@ router.post('/:id/override', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTI
 
     // Emit WebSocket update
     const io = req.app.get('io');
-    if (io) {
-      io.emit('queueUpdated', { type: 'OVERRIDE', appointmentId: req.params.id, doctorId: appointment.doctorId });
-    }
+    emitQueueUpdate(io, { type: 'OVERRIDE', appointmentId: req.params.id, doctorId: appointment.doctorId }, [appointment.doctorId]);
 
     return res.json({ success: true, message: 'Emergency queue override applied successfully.' });
   } catch (error) {
@@ -456,6 +438,7 @@ router.post('/:id/transfer', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTI
     ]);
     if (!appointment) return sendError(res, 404, 'APPOINTMENT_NOT_FOUND', 'Appointment not found.');
     if (!targetDoctor) return sendError(res, 404, 'DOCTOR_NOT_FOUND', 'Target doctor is not active.');
+    if (appointment.status !== 'CHECKED_IN') return sendError(res, 409, 'TRANSFER_INVALID_STATE', 'Only checked-in appointments can be transferred.');
     if (!configuredSlots(targetDoctor, appointment.appointmentDate).includes(appointment.appointmentTime)) {
       return sendError(res, 409, 'TARGET_DOCTOR_UNAVAILABLE', 'Target doctor is not scheduled for this appointment slot.');
     }
@@ -484,9 +467,7 @@ router.post('/:id/transfer', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTI
 
     // Emit WebSocket update
     const io = req.app.get('io');
-    if (io) {
-      io.emit('queueUpdated', { type: 'TRANSFER', appointmentId: req.params.id, targetDoctorId });
-    }
+    emitQueueUpdate(io, { type: 'TRANSFER', appointmentId: req.params.id, targetDoctorId }, [appointment.doctorId, targetDoctorId]);
 
     return res.json({ success: true, message: 'Patient transferred internally successfully.' });
   } catch (error) {

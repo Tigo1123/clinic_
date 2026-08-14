@@ -11,6 +11,7 @@ import { normalizeEmail, normalizePhone } from '../utils/identity.js';
 import { createVerificationChallenge, consumeVerificationChallenge } from '../services/verification.js';
 import { ApiError, sendError } from '../utils/apiError.js';
 import { rateLimits } from '../config.js';
+import { getClinicDateString } from '../utils/clinicTime.js';
 
 const router = express.Router();
 const limiter = (limit) => rateLimit({ windowMs: rateLimits.windowMs, limit, standardHeaders: 'draft-7', legacyHeaders: false, handler: (req, res) => sendError(res, 429, 'RATE_LIMITED', 'Too many attempts. Please try again later.') });
@@ -40,7 +41,7 @@ router.post('/register', registrationLimiter, validate(z.object({
     const phoneNormalized = normalizePhone(req.body.phone);
     const email = normalizeEmail(req.body.email);
     if (!phoneNormalized) return sendError(res, 422, 'PHONE_INVALID', 'Phone number is invalid.');
-    if (req.body.dateOfBirth >= new Date().toISOString().slice(0, 10)) return sendError(res, 422, 'INVALID_DATE_OF_BIRTH', 'Date of birth must be in the past.');
+    if (req.body.dateOfBirth >= getClinicDateString()) return sendError(res, 422, 'INVALID_DATE_OF_BIRTH', 'Date of birth must be in the past.');
     if (await prisma.user.findUnique({ where: { phoneNormalized } })) return sendError(res, 409, 'PHONE_ALREADY_REGISTERED', 'An account already exists for this phone number.');
     if (email && await prisma.user.findUnique({ where: { email } })) return sendError(res, 409, 'EMAIL_ALREADY_REGISTERED', 'An account already exists for this email.');
     const passwordHash = await bcrypt.hash(req.body.password, bcryptRounds);

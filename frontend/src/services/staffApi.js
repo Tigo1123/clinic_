@@ -8,9 +8,8 @@ export async function fetchWithAuth(url, options = {}) {
   let targetUrl = url;
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
     const cleanPath = url.startsWith('/') ? url : `/${url}`;
-    const configuredBase = import.meta.env.VITE_STAFF_API_URL;
-    const backendHost = window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname;
-    targetUrl = `${configuredBase || `http://${backendHost}:5000`}${cleanPath}`;
+    const configuredBase = import.meta.env.VITE_STAFF_API_URL || import.meta.env.VITE_API_BASE_URL || '';
+    targetUrl = `${configuredBase.replace(/\/$/, '')}${cleanPath}`;
   }
   const response = await fetch(targetUrl, { ...options, headers });
   if (response.status === 401) {

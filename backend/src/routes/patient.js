@@ -7,6 +7,7 @@ import { validate } from '../middleware/validate.js';
 import { sendError } from '../utils/apiError.js';
 import { configuredSlots, DATE_PATTERN, TIME_PATTERN, todayString } from '../utils/scheduling.js';
 import { decrypt } from '../utils/encryption.js';
+import { cancellationCutoffReached } from '../utils/clinicTime.js';
 
 const router = express.Router();
 router.use(authenticate, allowRoles(ROLES.PATIENT), requireOwnedPatient);
@@ -97,7 +98,7 @@ router.post('/appointments/:id/cancel', async (req, res) => {
   if (!appointment) return sendError(res, 404, 'APPOINTMENT_NOT_FOUND', 'Appointment not found.');
   if (!['PENDING', 'SCHEDULED', 'CONFIRMED'].includes(appointment.status)) return sendError(res, 409, 'APPOINTMENT_CANNOT_BE_CANCELLED', 'Appointment can no longer be cancelled.');
   const cutoffHours = Number(process.env.PATIENT_CANCELLATION_CUTOFF_HOURS || 2);
-  if (new Date(`${appointment.appointmentDate}T${appointment.appointmentTime}:00`).getTime() - Date.now() < cutoffHours * 3600000) return sendError(res, 409, 'CANCELLATION_CUTOFF_REACHED', 'Appointment cancellation cutoff has passed.');
+  if (cancellationCutoffReached(appointment.appointmentDate, appointment.appointmentTime, cutoffHours)) return sendError(res, 409, 'CANCELLATION_CUTOFF_REACHED', 'Appointment cancellation cutoff has passed.');
   await prisma.appointment.update({ where: { id: appointment.id }, data: { status: 'CANCELLED' } });
   await audit(req, 'PATIENT_APPOINTMENT_CANCELLED', `Patient cancelled appointment ${appointment.id}.`);
   return res.json({ success: true });

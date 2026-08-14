@@ -1,5 +1,27 @@
 # Operations runbook
 
+## Financial reversals
+
+Refunds are append-only `Refund` ledger rows associated with their invoice and operator.
+Never delete or rewrite historical `Payment` or `Refund` rows. `PARTIALLY_REFUNDED` means some
+received funds were reversed; `REFUNDED` means all received funds were reversed. External
+refund references are unique, and each reversal also creates an audit entry.
+
+## Clinic time
+
+Set `CLINIC_TIME_ZONE` to the clinic IANA timezone on every backend instance and
+`VITE_CLINIC_TIME_ZONE` to the same value at frontend build time. Container/server `TZ` does
+not define business time. Appointment date/time strings are clinic-local calendar values;
+`createdAt` and other event timestamps remain UTC. Cancellation is blocked exactly at the
+configured cutoff and thereafter.
+
+## Known development-data exceptions
+
+The pre-deployment audit found two historical invoice/payment inconsistencies in `dev.db`.
+They are intentionally not auto-reconciled because rewriting financial history requires an
+approved data-correction procedure. Staging must start from fresh non-real data, so these two
+development-only rows are not staging blockers.
+
 ## Health and shutdown
 
 `GET /api/health/live` reports process liveness. `GET /api/health/ready` (and compatibility

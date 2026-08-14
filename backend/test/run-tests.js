@@ -10,6 +10,7 @@ fs.rmSync(testDb, { force: true });
 const env = {
   ...process.env,
   NODE_ENV: 'test',
+  CLINIC_TIME_ZONE: 'Africa/Khartoum',
   DATABASE_URL: 'file:./test.db',
   JWT_SECRET: 'test-jwt-secret-at-least-thirty-two-characters',
   MEDICAL_ENCRYPTION_KEY: 'test-medical-key-separate-at-least-thirty-two',
@@ -22,7 +23,7 @@ const env = {
 for (const [command, args] of [
   ['npx', ['prisma', 'migrate', 'deploy']],
   ['node', ['prisma/seed.js']],
-  ['node', ['--test', '--test-concurrency=1', 'test/integration.test.js', 'test/patient.test.js']]
+  ['node', ['--test', '--test-concurrency=1', 'test/clinic-time.test.js', 'test/integration.test.js', 'test/patient.test.js']]
 ]) {
   const result = spawnSync(command, args, { cwd: backendDir, env, stdio: 'inherit' });
   if (result.status !== 0) process.exit(result.status || 1);

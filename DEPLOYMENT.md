@@ -15,7 +15,8 @@ enables HSTS only in production; do not expose the backend directly to the Inter
 ## Production environment
 
 Required: `NODE_ENV=production`, `DATABASE_URL`, `JWT_SECRET`, `MEDICAL_ENCRYPTION_KEY`,
-`CORS_ALLOWED_ORIGINS`, `VERIFICATION_PROVIDER`, `UPLOAD_DIR`. Generate independent secrets
+`CLINIC_TIME_ZONE`, `CORS_ALLOWED_ORIGINS`, `VERIFICATION_PROVIDER`, `UPLOAD_DIR`. The clinic
+timezone must be a valid IANA name such as `Africa/Khartoum`. Generate independent secrets
 with at least 32 random characters and store them in the deployment secret manager.
 
 For email verification, set `VERIFICATION_PROVIDER=email`, `SMTP_HOST`, `SMTP_PORT`,
@@ -27,8 +28,9 @@ Optional operational settings: `PORT`, `TRUST_PROXY`, `PHONE_DEFAULT_COUNTRY`,
 `UPLOAD_MAX_BYTES`, `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_LOGIN_MAX`,
 `RATE_LIMIT_REGISTRATION_MAX`, `RATE_LIMIT_VERIFICATION_MAX`, and `RATE_LIMIT_CLAIM_MAX`.
 
-Frontend production variables are baked at build time: `VITE_API_BASE_URL` and
-`VITE_STAFF_SOCKET_URL`. Leave both blank for the supplied same-origin Nginx configuration.
+Frontend production variables are baked at build time: `VITE_API_BASE_URL`,
+`VITE_STAFF_SOCKET_URL`, and `VITE_CLINIC_TIME_ZONE`. The frontend timezone must match
+`CLINIC_TIME_ZONE`. Leave the two origin variables blank for the supplied same-origin Nginx configuration.
 `VITE_PROXY_TARGET` is development-only.
 
 Environment separation:
@@ -41,7 +43,7 @@ Environment separation:
 | production | persistent `/data/clinic.db` | `email` or fail-safe `disabled` | secret manager and exact HTTPS origins |
 
 The server rejects missing/weak production secrets, wildcard/non-HTTPS CORS, invalid database
-URLs, development verification, and incomplete SMTP configuration without printing values.
+URLs, an absent/invalid production clinic timezone, development verification, and incomplete SMTP configuration without printing values.
 
 ## Authentication posture
 

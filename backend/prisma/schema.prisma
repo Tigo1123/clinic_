@@ -9,25 +9,26 @@ generator client {
 }
 
 model User {
-  id                 String     @id @default(uuid())
-  username           String     @unique
-  passwordHash       String
-  role               String     // ADMIN, RECEPTIONIST, DOCTOR, PHARMACIST, LAB_TECH
-  status             String     @default("ACTIVE") // ACTIVE, INACTIVE
-  lastPasswordChange DateTime?
-  mfaSecret          String?
-  mfaEnabled         Boolean    @default(false)
-  preferredLanguage  String     @default("ar") // ar, en
-  createdAt          DateTime   @default(now())
-  doctor             Doctor?
-  email              String?    @unique
-  phoneNormalized    String?    @unique
-  emailVerifiedAt    DateTime?
-  phoneVerifiedAt    DateTime?
-  patient            Patient?
-  verificationChallenges VerificationChallenge[]
-  issuedClaimCodes   PatientClaimCode[] @relation("ClaimCodeIssuer")
+  id                         String                  @id @default(uuid())
+  username                   String                  @unique
+  passwordHash               String
+  role                       String // ADMIN, RECEPTIONIST, DOCTOR, PHARMACIST, LAB_TECH
+  status                     String                  @default("ACTIVE") // ACTIVE, INACTIVE
+  lastPasswordChange         DateTime?
+  mfaSecret                  String?
+  mfaEnabled                 Boolean                 @default(false)
+  preferredLanguage          String                  @default("ar") // ar, en
+  createdAt                  DateTime                @default(now())
+  doctor                     Doctor?
+  email                      String?                 @unique
+  phoneNormalized            String?                 @unique
+  emailVerifiedAt            DateTime?
+  phoneVerifiedAt            DateTime?
+  patient                    Patient?
+  verificationChallenges     VerificationChallenge[]
+  issuedClaimCodes           PatientClaimCode[]      @relation("ClaimCodeIssuer")
   pendingPatientRegistration PatientRegistration?
+  processedRefunds           Refund[]                @relation("RefundOperator")
 }
 
 model State {
@@ -38,16 +39,16 @@ model State {
 }
 
 model Doctor {
-  id              String           @id @default(uuid())
-  userId          String           @unique
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              String          @id @default(uuid())
+  userId          String          @unique
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   fullNameAr      String
   fullNameEn      String
   specialtyAr     String
   specialtyEn     String
   consultationFee Decimal
-  weeklySchedule  String           // JSON config of slots & hours
-  status          String           @default("ACTIVE") // ACTIVE, INACTIVE
+  weeklySchedule  String // JSON config of slots & hours
+  status          String          @default("ACTIVE") // ACTIVE, INACTIVE
   appointments    Appointment[]
   medicalRecords  MedicalRecord[]
   prescriptions   Prescription[]
@@ -55,31 +56,31 @@ model Doctor {
 }
 
 model Patient {
-  id               String           @id @default(uuid())
-  fullNameAr       String
-  fullNameEn       String
-  gender           String           // MALE, FEMALE
-  dateOfBirth      String           // YYYY-MM-DD
-  nationalId       String?          @unique
-  phone            String
-  addressStateId   Int
-  addressState     State            @relation(fields: [addressStateId], references: [id])
-  addressDetails   String?
-  emergencyContact String
-  status           String           @default("ACTIVE") // ACTIVE, ARCHIVED
-  createdAt        DateTime         @default(now())
+  id                       String             @id @default(uuid())
+  fullNameAr               String
+  fullNameEn               String
+  gender                   String // MALE, FEMALE
+  dateOfBirth              String // YYYY-MM-DD
+  nationalId               String?            @unique
+  phone                    String
+  addressStateId           Int
+  addressState             State              @relation(fields: [addressStateId], references: [id])
+  addressDetails           String?
+  emergencyContact         String
+  status                   String             @default("ACTIVE") // ACTIVE, ARCHIVED
+  createdAt                DateTime           @default(now())
   nationalIdAttachmentPath String?
   insuranceAttachmentPath  String?
-  appointments     Appointment[]
-  medicalRecords   MedicalRecord[]
-  consents         Consent[]
-  prescriptions    Prescription[]
-  labOrders        LabOrder[]
-  invoices         Invoice[]
-  insuranceClaims  InsuranceClaim[]
-  userId           String?          @unique
-  user             User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
-  claimCodes       PatientClaimCode[]
+  appointments             Appointment[]
+  medicalRecords           MedicalRecord[]
+  consents                 Consent[]
+  prescriptions            Prescription[]
+  labOrders                LabOrder[]
+  invoices                 Invoice[]
+  insuranceClaims          InsuranceClaim[]
+  userId                   String?            @unique
+  user                     User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  claimCodes               PatientClaimCode[]
 
   @@index([phone])
 }
@@ -90,8 +91,8 @@ model Appointment {
   patient           Patient            @relation(fields: [patientId], references: [id])
   doctorId          String
   doctor            Doctor             @relation(fields: [doctorId], references: [id])
-  appointmentDate   String             // YYYY-MM-DD
-  appointmentTime   String             // HH:MM
+  appointmentDate   String // YYYY-MM-DD
+  appointmentTime   String // HH:MM
   status            String             @default("SCHEDULED") // SCHEDULED, CHECKED_IN, IN_CONSULTATION, COMPLETED, CANCELLED, NO_SHOW
   createdAt         DateTime           @default(now())
   medicalRecord     MedicalRecord?
@@ -103,12 +104,12 @@ model Appointment {
 }
 
 model EmergencyOverride {
-  id            String      @id @default(uuid())
-  appointmentId String      @unique
-  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
-  justification String
+  id             String      @id @default(uuid())
+  appointmentId  String      @unique
+  appointment    Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  justification  String
   authorizedById String
-  timestamp     DateTime    @default(now())
+  timestamp      DateTime    @default(now())
 }
 
 model MedicalRecord {
@@ -123,7 +124,7 @@ model MedicalRecord {
   symptomsEncrypted      String
   diagnosisEncrypted     String
   treatmentEncrypted     String
-  vitalSignsJson         String         // JSON keys: blood_pressure, heart_rate, temperature, weight
+  vitalSignsJson         String // JSON keys: blood_pressure, heart_rate, temperature, weight
   clinicalNotesEncrypted String
   attachmentPath         String?
   prescriptions          Prescription[]
@@ -131,15 +132,15 @@ model MedicalRecord {
 }
 
 model Consent {
-  id                 String    @id @default(uuid())
+  id                 String   @id @default(uuid())
   patientId          String
-  patient            Patient   @relation(fields: [patientId], references: [id])
-  consentType        String    // EMR_ACCESS, TREATMENT, PROCEDURE
+  patient            Patient  @relation(fields: [patientId], references: [id])
+  consentType        String // EMR_ACCESS, TREATMENT, PROCEDURE
   signatureSvg       String?
-  otpVerified        Boolean   @default(false)
+  otpVerified        Boolean  @default(false)
   guardianName       String?
   guardianNationalId String?
-  timestamp          DateTime  @default(now())
+  timestamp          DateTime @default(now())
 }
 
 model Prescription {
@@ -156,7 +157,7 @@ model Prescription {
 }
 
 model DrugFormulary {
-  id               String            @id @default(uuid())
+  id               String           @id @default(uuid())
   labelAr          String
   labelEn          String
   genericName      String
@@ -167,9 +168,9 @@ model DrugFormulary {
 }
 
 model PrescribedDrug {
-  id             String       @id @default(uuid())
+  id             String        @id @default(uuid())
   prescriptionId String
-  prescription   Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+  prescription   Prescription  @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
   drugId         String
   drug           DrugFormulary @relation(fields: [drugId], references: [id])
   dosage         String
@@ -177,7 +178,7 @@ model PrescribedDrug {
   instructionsAr String
   instructionsEn String
   qtyPrescribed  Int
-  qtyDispensed   Int          @default(0)
+  qtyDispensed   Int           @default(0)
 }
 
 model InventoryBatch {
@@ -185,7 +186,7 @@ model InventoryBatch {
   drugId          String
   drug            DrugFormulary @relation(fields: [drugId], references: [id])
   batchNumber     String
-  expiryDate      String        // YYYY-MM-DD
+  expiryDate      String // YYYY-MM-DD
   qtyOnHand       Int
   minReorderLevel Int           @default(10)
 
@@ -198,21 +199,21 @@ model ClinicalService {
   labelEn       String
   baseFeeSdg    Decimal
   baseFeeUsd    Decimal
-  category      String         // CONSULTATION, LABORATORY, RADIOLOGY, CLINICAL_PROCEDURE
+  category      String // CONSULTATION, LABORATORY, RADIOLOGY, CLINICAL_PROCEDURE
   labOrderItems LabOrderItem[]
 }
 
 model LabOrder {
-  id              String         @id @default(uuid())
-  medicalRecordId String
-  medicalRecord   MedicalRecord  @relation(fields: [medicalRecordId], references: [id])
-  patientId       String
-  patient         Patient        @relation(fields: [patientId], references: [id])
-  doctorId        String
-  doctor          Doctor         @relation(fields: [doctorId], references: [id])
-  orderDate       DateTime       @default(now())
-  status          String         @default("PENDING_BILLING") // PENDING_BILLING, PAID, SAMPLE_COLLECTED, COMPLETED
-  items           LabOrderItem[]
+  id                  String         @id @default(uuid())
+  medicalRecordId     String
+  medicalRecord       MedicalRecord  @relation(fields: [medicalRecordId], references: [id])
+  patientId           String
+  patient             Patient        @relation(fields: [patientId], references: [id])
+  doctorId            String
+  doctor              Doctor         @relation(fields: [doctorId], references: [id])
+  orderDate           DateTime       @default(now())
+  status              String         @default("PENDING_BILLING") // PENDING_BILLING, PAID, SAMPLE_COLLECTED, COMPLETED
+  items               LabOrderItem[]
   releasedToPatientAt DateTime?
 }
 
@@ -271,32 +272,33 @@ model LabOrderItem {
 }
 
 model Invoice {
-  id                   String          @id @default(uuid())
-  patientId            String
-  patient              Patient         @relation(fields: [patientId], references: [id])
-  appointmentId        String?
-  appointment          Appointment?    @relation(fields: [appointmentId], references: [id])
-  invoiceDate          DateTime        @default(now())
-  totalAmountSdg       Decimal
-  totalAmountUsd       Decimal
-  invoiceExchangeRate  Decimal
-  paymentStatus        String          @default("UNPAID") // UNPAID, PAID, PARTIALLY_PAID, REFUNDED
-  insuranceClaimId     String?         @unique
-  insuranceClaim       InsuranceClaim? @relation(fields: [insuranceClaimId], references: [id])
-  createdBy            String          // User UUID
-  items                InvoiceItem[]
-  payments             Payment[]
+  id                  String          @id @default(uuid())
+  patientId           String
+  patient             Patient         @relation(fields: [patientId], references: [id])
+  appointmentId       String?
+  appointment         Appointment?    @relation(fields: [appointmentId], references: [id])
+  invoiceDate         DateTime        @default(now())
+  totalAmountSdg      Decimal
+  totalAmountUsd      Decimal
+  invoiceExchangeRate Decimal
+  paymentStatus       String          @default("UNPAID") // UNPAID, PAID, PARTIALLY_PAID, PARTIALLY_REFUNDED, REFUNDED
+  insuranceClaimId    String?         @unique
+  insuranceClaim      InsuranceClaim? @relation(fields: [insuranceClaimId], references: [id])
+  createdBy           String // User UUID
+  items               InvoiceItem[]
+  payments            Payment[]
+  refunds             Refund[]
 
   @@index([invoiceDate])
 }
 
 model InvoiceItem {
-  id            String   @id @default(uuid())
+  id            String  @id @default(uuid())
   invoiceId     String
-  invoice       Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice       Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   descriptionAr String
   descriptionEn String
-  qty           Int      @default(1)
+  qty           Int     @default(1)
   unitPriceSdg  Decimal
   unitPriceUsd  Decimal
 }
@@ -307,11 +309,27 @@ model Payment {
   invoice              Invoice  @relation(fields: [invoiceId], references: [id])
   amountSdg            Decimal
   amountUsd            Decimal
-  paymentMethod        String   // CASH, CARD, BANKAK, FAWRY
+  paymentMethod        String // CASH, CARD, BANKAK, FAWRY
   transactionReference String?  @unique
   verificationStatus   String   @default("VERIFIED") // PENDING_MANUAL, VERIFIED, REJECTED
-  receivedBy           String   // User UUID
+  receivedBy           String // User UUID
   createdAt            DateTime @default(now())
+}
+
+model Refund {
+  id                   String   @id @default(uuid())
+  invoiceId            String
+  invoice              Invoice  @relation(fields: [invoiceId], references: [id])
+  amountSdg            Decimal
+  amountUsd            Decimal
+  refundMethod         String // CASH, CARD, BANKAK, FAWRY
+  transactionReference String?  @unique
+  reason               String?
+  processedBy          String
+  operator             User     @relation("RefundOperator", fields: [processedBy], references: [id])
+  createdAt            DateTime @default(now())
+
+  @@index([invoiceId, createdAt])
 }
 
 model InsuranceCompany {
@@ -340,7 +358,7 @@ model InsuranceClaim {
 model NotificationLog {
   id             String    @id @default(uuid())
   recipientPhone String
-  messageType    String    // BOOKING_CONFIRM, CANCELLATION, REMINDER, RESULTS_READY
+  messageType    String // BOOKING_CONFIRM, CANCELLATION, REMINDER, RESULTS_READY
   messageBody    String
   language       String    @default("ar") // ar, en
   status         String    @default("QUEUED") // QUEUED, SENT, DELIVERED, FAILED

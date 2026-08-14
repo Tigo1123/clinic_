@@ -5,6 +5,7 @@ import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import { getWhatsAppLink, SUDANESE_STATES } from './clinicData';
 import { staffSocket as socket } from '../../services/staffSocket';
 import RoleHero from '../../components/healthcare/RoleHero';
+import { clinicDateString } from '../../utils/clinicTime';
 
 export default function ReceptionDashboard({ lang, t }) {
   const [doctors, setDoctors] = useState([]);
@@ -41,8 +42,9 @@ export default function ReceptionDashboard({ lang, t }) {
 
   // Shift cash ledger
   const [physicalCash, setPhysicalCash] = useState('');
+  const [expectedCash, setExpectedCash] = useState('');
   const [reconcileResult, setReconcileResult] = useState(null);
-  const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
+  const [filterDate, setFilterDate] = useState(clinicDateString());
   const [activeSummaryId, setActiveSummaryId] = useState(null);
   const [viewingProfilePatientId, setViewingProfilePatientId] = useState(null);
 
@@ -337,7 +339,7 @@ export default function ReceptionDashboard({ lang, t }) {
       const res = await fetchWithAuth('/api/billing/shift/reconcile', {
         method: 'POST',
         body: JSON.stringify({
-          expectedAmountSdg: 150000.0, // Mock shift expectations
+          expectedAmountSdg: parseFloat(expectedCash),
           actualAmountSdg: parseFloat(physicalCash),
           note: 'Daily receptionist shift reconciliation close'
         })
@@ -848,9 +850,24 @@ export default function ReceptionDashboard({ lang, t }) {
             {activeTab === 'reconcile' && (
               <form onSubmit={handleReconcileShift} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <div className="form-group">
+                  <label className="form-label">{lang === 'ar' ? 'المبلغ المتوقع بالصندوق (SDG)' : 'Expected Cash in Register (SDG)'}</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    required
+                    className="form-input"
+                    placeholder={lang === 'ar' ? 'أدخل المبلغ المتوقع' : 'Enter expected cash amount'}
+                    value={expectedCash}
+                    onChange={(e) => setExpectedCash(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
                   <label className="form-label">{lang === 'ar' ? 'المبلغ الفعلي بالصندوق (SDG)' : 'Actual Cash in Register (SDG)'}</label>
                   <input
                     type="number"
+                    min="0"
+                    step="0.01"
                     required
                     className="form-input"
                     placeholder="Enter cash amount"

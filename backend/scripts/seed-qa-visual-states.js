@@ -1,9 +1,13 @@
 import { PrismaClient } from '../src/generated/prisma/index.js';
-import { encrypt } from '../src/utils/encryption.js';
 
 if (process.env.NODE_ENV === 'production' || process.env.DATABASE_URL !== 'file:./qa.db') {
   throw new Error('Visual QA fixture seed refused outside the isolated qa.db environment.');
 }
+if (!process.env.QA_MEDICAL_ENCRYPTION_KEY || process.env.QA_MEDICAL_ENCRYPTION_KEY.length < 32) {
+  throw new Error('QA_MEDICAL_ENCRYPTION_KEY of at least 32 characters is required for visual QA fixtures.');
+}
+process.env.MEDICAL_ENCRYPTION_KEY = process.env.QA_MEDICAL_ENCRYPTION_KEY;
+const { encrypt } = await import('../src/utils/encryption.js');
 
 const prisma = new PrismaClient();
 try {

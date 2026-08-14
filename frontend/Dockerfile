@@ -1,6 +1,9 @@
 # Use official Node.js image as base
 FROM node:22-alpine AS build
 
+ARG VITE_CLINIC_TIME_ZONE=Africa/Khartoum
+ENV VITE_CLINIC_TIME_ZONE=${VITE_CLINIC_TIME_ZONE}
+
 # Set working directory
 WORKDIR /app
 

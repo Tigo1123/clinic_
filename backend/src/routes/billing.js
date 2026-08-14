@@ -3,6 +3,7 @@ import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
 import { allowRoles, ROLES } from '../middleware/policies.js';
 import { sendError } from '../utils/apiError.js';
+import { clinicDateSequence, clinicMonthBounds, getClinicDateString, instantToClinicDateString } from '../utils/clinicTime.js';
 
 const router = express.Router();
 
@@ -128,12 +129,13 @@ router.post('/invoice/:id/payments', authenticate, allowRoles(ROLES.ADMIN, ROLES
   try {
     const invoice = await prisma.invoice.findUnique({
       where: { id: invoiceId },
-      include: { insuranceClaim: true, payments: true }
+      include: { insuranceClaim: true, payments: true, refunds: true }
     });
 
     if (!invoice) {
       return res.status(404).json({ error: 'Invoice not found.' });
     }
+    if (invoice.refunds.length) return sendError(res, 409, 'REFUNDED_INVOICE_LOCKED', 'Payments cannot be added after a refund has been recorded.');
 
     for (const pay of payments) {
       const amount = Number(pay.amountSdg);
@@ -201,10 +203,16 @@ router.post('/invoice/:id/payments', authenticate, allowRoles(ROLES.ADMIN, ROLES
 
 /**
  * POST /api/billing/invoice/:id/refund
- * Voids invoice. Implements refund lockout rules.
+ * Records an append-only refund and updates the invoice's derived refund status.
  * Refunds are disabled if patient has started consultation or completed visit.
  */
 router.post('/invoice/:id/refund', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
+  const amountSdg = Number(req.body.amountSdg);
+  const { refundMethod, transactionReference, reason } = req.body;
+  if (!Number.isFinite(amountSdg) || amountSdg <= 0) return sendError(res, 422, 'INVALID_REFUND_AMOUNT', 'Refund amount must be greater than zero.');
+  if (!['CASH', 'CARD', 'BANKAK', 'FAWRY'].includes(refundMethod)) return sendError(res, 422, 'INVALID_REFUND_METHOD', 'Unsupported refund method.');
+  if (transactionReference !== undefined && (typeof transactionReference !== 'string' || !transactionReference.trim())) return sendError(res, 422, 'INVALID_REFUND_REFERENCE', 'Refund reference must be a non-empty string.');
+  if (reason !== undefined && (typeof reason !== 'string' || reason.trim().length > 500)) return sendError(res, 422, 'INVALID_REFUND_REASON', 'Refund reason must be at most 500 characters.');
   try {
     const invoice = await prisma.invoice.findUnique({
       where: { id: req.params.id },
@@ -213,6 +221,14 @@ router.post('/invoice/:id/refund', authenticate, allowRoles(ROLES.ADMIN, ROLES.R
 
     if (!invoice) {
       return res.status(404).json({ error: 'Invoice not found.' });
+    }
+    if (transactionReference) {
+      const normalizedReference = transactionReference.trim();
+      const [paymentReference, refundReference] = await Promise.all([
+        prisma.payment.findUnique({ where: { transactionReference: normalizedReference }, select: { id: true } }),
+        prisma.refund.findUnique({ where: { transactionReference: normalizedReference }, select: { id: true } })
+      ]);
+      if (paymentReference || refundReference) return sendError(res, 409, 'DUPLICATE_REFUND_REFERENCE', 'Transaction reference has already been used.');
     }
 
     // Refund Locker Check: If appointment is in consultation or completed, block it
@@ -225,25 +241,47 @@ router.post('/invoice/:id/refund', authenticate, allowRoles(ROLES.ADMIN, ROLES.R
       }
     }
 
-    // Refund permitted: Update invoice status
-    const updatedInvoice = await prisma.invoice.update({
-      where: { id: req.params.id },
-      data: { paymentStatus: 'REFUNDED' }
-    });
+    const result = await prisma.$transaction(async (tx) => {
+      const financial = await tx.invoice.findUnique({ where: { id: invoice.id }, include: { payments: true, refunds: true } });
+      const paidSdg = financial.payments.reduce((sum, payment) => sum + Number(payment.amountSdg), 0);
+      const previouslyRefundedSdg = financial.refunds.reduce((sum, refund) => sum + Number(refund.amountSdg), 0);
+      const refundableSdg = paidSdg - previouslyRefundedSdg;
+      if (paidSdg <= 0) throw Object.assign(new Error('No paid funds are available to refund.'), { status: 409, code: 'NO_PAID_FUNDS' });
+      if (amountSdg > refundableSdg + 0.001) throw Object.assign(new Error('Refund exceeds the paid amount still available.'), { status: 409, code: 'REFUND_EXCEEDS_PAID_AMOUNT' });
 
-    // Log action
-    await prisma.tenantAuditLog.create({
-      data: {
+      const refund = await tx.refund.create({ data: {
+        invoiceId: invoice.id,
+        amountSdg,
+        amountUsd: amountSdg / Number(financial.invoiceExchangeRate),
+        refundMethod,
+        transactionReference: transactionReference?.trim() || null,
+        reason: reason?.trim() || null,
+        processedBy: req.user.id
+      } });
+      const totalRefundedSdg = previouslyRefundedSdg + amountSdg;
+      const paymentStatus = totalRefundedSdg >= paidSdg - 0.001 ? 'REFUNDED' : 'PARTIALLY_REFUNDED';
+      const updatedInvoice = await tx.invoice.update({ where: { id: invoice.id }, data: { paymentStatus } });
+      await tx.tenantAuditLog.create({ data: {
         userId: req.user.id,
         action: 'INVOICE_REFUND',
-        details: `Refunded invoice ID ${req.params.id} for Patient ${invoice.patientId}`,
+        details: `Refund ${refund.id} recorded for invoice ${invoice.id}; amount ${amountSdg} SDG; method ${refundMethod}.`,
         ipAddress: req.ip || '127.0.0.1'
-      }
+      } });
+      return {
+        invoice: updatedInvoice,
+        refund,
+        paidSdg,
+        refundedSdg: totalRefundedSdg,
+        netCollectedSdg: paidSdg - totalRefundedSdg,
+        refundableSdg: Math.max(0, paidSdg - totalRefundedSdg),
+        remainingBalanceSdg: Math.max(0, Number(financial.totalAmountSdg) - (paidSdg - totalRefundedSdg))
+      };
     });
-
-    return res.json(updatedInvoice);
+    return res.status(201).json(result);
 
   } catch (error) {
+    if (error.status && error.code) return sendError(res, error.status, error.code, error.message);
+    if (error.code === 'P2002') return sendError(res, 409, 'DUPLICATE_REFUND_REFERENCE', 'Refund transaction reference has already been used.');
     console.error('Invoice refund error:', error);
     return res.status(500).json({ error: 'Failed to process invoice refund.' });
   }
@@ -318,18 +356,24 @@ router.get('/insurance-companies', async (req, res) => {
 router.get('/analytics', authenticate, checkRoles('ADMIN'), async (req, res) => {
   try {
     // 1. Revenue calculations
-    const payments = await prisma.payment.findMany();
+    const [payments, refunds] = await Promise.all([prisma.payment.findMany(), prisma.refund.findMany()]);
     let totalSdg = 0;
     let totalUsd = 0;
     const methodBreakdown = { CASH: 0, BANKAK: 0, FAWRY: 0, INSURANCE: 0 };
 
     payments.forEach(p => {
-      totalSdg += p.amountSdg || 0;
-      totalUsd += p.amountUsd || 0;
+      totalSdg += Number(p.amountSdg || 0);
+      totalUsd += Number(p.amountUsd || 0);
       const method = p.paymentMethod || 'CASH';
       if (methodBreakdown[method] !== undefined) {
-        methodBreakdown[method] += p.amountSdg || 0;
+        methodBreakdown[method] += Number(p.amountSdg || 0);
       }
+    });
+    refunds.forEach((refund) => {
+      const amount = Number(refund.amountSdg);
+      totalSdg -= amount;
+      totalUsd -= Number(refund.amountUsd);
+      if (methodBreakdown[refund.refundMethod] !== undefined) methodBreakdown[refund.refundMethod] -= amount;
     });
 
     // 2. Doctor workload
@@ -376,7 +420,7 @@ router.get('/analytics', authenticate, checkRoles('ADMIN'), async (req, res) => 
       .slice(0, 5);
 
     // 4. Patients Seen Today
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getClinicDateString();
     const patientsSeenToday = await prisma.appointment.count({
       where: {
         appointmentDate: todayStr,
@@ -384,58 +428,35 @@ router.get('/analytics', authenticate, checkRoles('ADMIN'), async (req, res) => 
       }
     });
 
-    // 5. Daily and Monthly Revenue Trends
-    // Aggregate past payments by day/month or fallback to sample indicators
-    const last7Days = Array.from({ length: 7 }).map((_, i) => {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      return d.toISOString().split('T')[0];
-    }).reverse();
+    // 5. Daily and Monthly Revenue Trends from recorded payments only.
+    const last7Days = clinicDateSequence(7);
 
     const dailyRevenueTrend = last7Days.map(date => {
       const dayTotal = payments
-        .filter(p => p.createdAt.toISOString().split('T')[0] === date)
+        .filter(p => instantToClinicDateString(p.createdAt) === date)
         .reduce((sum, p) => sum + parseFloat(p.amountSdg), 0);
-      // fallback to visual baseline indicators if database table is fresh
+      const refundTotal = refunds.filter((refund) => instantToClinicDateString(refund.createdAt) === date).reduce((sum, refund) => sum + Number(refund.amountSdg), 0);
       return {
         date,
-        amount: dayTotal > 0 ? dayTotal : Math.floor(100000 + Math.random() * 80000)
+        amount: dayTotal - refundTotal
       };
     });
 
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const currentMonthIdx = new Date().getMonth();
-    const last6Months = Array.from({ length: 6 }).map((_, i) => {
-      const idx = (currentMonthIdx - 5 + i + 12) % 12;
-      return months[idx];
+    const last6Months = Array.from({ length: 6 }, (_, index) => {
+      return clinicMonthBounds(new Date(), index - 5);
     });
 
-    const monthlyRevenueTrend = last6Months.map((month, i) => {
-      // Simulate historical trends based on total revenue or fallback to visual indicator
-      const base = 2500000 + i * 400000;
+    const monthlyRevenueTrend = last6Months.map(({ start, end, label }) => {
       return {
-        month,
-        amount: totalSdg > 0 ? Math.floor((totalSdg / 12) + (Math.random() * 200000)) : base
+        month: label,
+        amount: payments.filter((payment) => payment.createdAt >= start && payment.createdAt < end).reduce((sum, payment) => sum + Number(payment.amountSdg), 0)
+          - refunds.filter((refund) => refund.createdAt >= start && refund.createdAt < end).reduce((sum, refund) => sum + Number(refund.amountSdg), 0)
       };
     });
 
-    // 6. Average Wait Times (Simulated based on load or active waiting counts)
-    const activeWaitCount = await prisma.appointment.count({
-      where: {
-        appointmentDate: todayStr,
-        status: 'CHECKED_IN'
-      }
-    });
-    const baseWaitTime = 12 + (activeWaitCount * 3);
-    const averageWaitTimeMinutes = baseWaitTime > 45 ? 45 : baseWaitTime;
-
-    const waitTimeTrend = [
-      { time: '09:00', wait: Math.floor(10 + Math.random() * 5) },
-      { time: '11:00', wait: Math.floor(18 + Math.random() * 7) },
-      { time: '13:00', wait: Math.floor(25 + Math.random() * 8) },
-      { time: '15:00', wait: Math.floor(15 + Math.random() * 5) },
-      { time: '17:00', wait: Math.floor(12 + Math.random() * 4) }
-    ];
+    // Wait-time history is not recorded by the current schema; never fabricate it.
+    const averageWaitTimeMinutes = null;
+    const waitTimeTrend = [];
 
     return res.json({
       revenue: {
@@ -445,7 +466,7 @@ router.get('/analytics', authenticate, checkRoles('ADMIN'), async (req, res) => 
       },
       doctorWorkload: doctorMetrics,
       topDispensedDrugs: topDrugs,
-      patientsSeenToday: patientsSeenToday || Math.floor(8 + Math.random() * 6),
+      patientsSeenToday,
       averageWaitTimeMinutes,
       dailyRevenueTrend,
       monthlyRevenueTrend,
