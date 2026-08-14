@@ -14,7 +14,8 @@
     "qa:workflow": "node scripts/qa-workflow.js",
     "qa:visual-fixtures": "node scripts/seed-qa-visual-states.js",
     "test": "node test/run-tests.js",
-    "backup:sqlite": "sh scripts/backup-sqlite.sh"
+    "backup:sqlite": "sh scripts/backup-sqlite.sh",
+    "start:staging": "prisma migrate deploy && node prisma/seed.js && node src/server.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
