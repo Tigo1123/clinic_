@@ -128,15 +128,44 @@ export default function DoctorDashboard({ user, lang, t }) {
       });
   };
 
-  const handlePatientSelect = (appt) => {
-    setSelectedPatient(appt.patient);
-    setSelectedAppointmentId(appt.id);
-    fetchPatientHistory(appt.patient.id);
-    // Auto status change to IN_CONSULTATION
-    fetchWithAuth(`/api/appointments/${appt.id}/status`, {
-      method: 'PUT',
-      body: JSON.stringify({ status: 'IN_CONSULTATION' })
-    }).then(() => fetchDoctorQueue());
+  const handlePatientSelect = async (appt) => {
+    setErrorMsg('');
+
+    try {
+      const res = await fetchWithAuth(`/api/appointments/${appt.id}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: 'IN_CONSULTATION' })
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const message =
+          typeof data.error === 'object'
+            ? data.error.message
+            : data.error;
+
+        setErrorMsg(
+          message ||
+            (lang === 'ar'
+              ? 'تعذر بدء الكشف الطبي لهذا الموعد.'
+              : 'Unable to start consultation for this appointment.')
+        );
+        return;
+      }
+
+      setSelectedPatient(appt.patient);
+      setSelectedAppointmentId(appt.id);
+      fetchPatientHistory(appt.patient.id);
+      fetchDoctorQueue();
+    } catch (err) {
+      console.error(err);
+      setErrorMsg(
+        lang === 'ar'
+          ? 'حدث خطأ أثناء بدء الكشف الطبي.'
+          : 'An error occurred while starting the consultation.'
+      );
+    }
   };
 
 
@@ -579,6 +608,7 @@ export default function DoctorDashboard({ user, lang, t }) {
                           <select
                             className="form-input"
                             value={selectedDrug}
+                            disabled={Boolean(customDrugName.trim())}
                             onChange={(e) => {
                               setSelectedDrug(e.target.value);
                               if (e.target.value) setCustomDrugName('');
@@ -609,6 +639,7 @@ export default function DoctorDashboard({ user, lang, t }) {
                           <input
                             type="text"
                             className="form-input"
+                            disabled={Boolean(selectedDrug)}
                             placeholder={
                               lang === 'ar'
                                 ? 'اكتب اسم الدواء يدويًا'
@@ -620,6 +651,18 @@ export default function DoctorDashboard({ user, lang, t }) {
                               if (e.target.value) setSelectedDrug('');
                             }}
                           />
+
+                          <div
+                            style={{
+                              fontSize: '0.68rem',
+                              opacity: 0.7,
+                              marginTop: '5px'
+                            }}
+                          >
+                            {lang === 'ar'
+                              ? 'استخدم اختيار الدواء أو الكتابة اليدوية، وليس الاثنين معًا.'
+                              : 'Use either the medication list or manual entry, not both.'}
+                          </div>
                         </div>
 
                         <div>
