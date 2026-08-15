@@ -503,6 +503,41 @@ export default function DoctorDashboard({ user, lang, t }) {
                         <Sliders size={16} color="var(--primary)" />
                         {lang === 'ar' ? 'الوصفة الطبية السريعة' : 'Rapid Prescription Builder'}
                       </h4>
+                      <div style={{ marginBottom: '0.75rem' }}>
+                        <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>
+                          {lang === 'ar' ? 'نماذج أدوية سريعة:' : 'Quick Medications:'}
+                        </span>
+
+                        <div
+                          style={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: '0.25rem',
+                            marginTop: '0.35rem'
+                          }}
+                        >
+                          {drugs.slice(0, 10).map((drug) => (
+                            <button
+                              key={drug.id}
+                              type="button"
+                              className="btn btn-secondary"
+                              style={{
+                                padding: '3px 8px',
+                                fontSize: '0.7rem',
+                                textTransform: 'none',
+                                background:
+                                  selectedDrug === drug.id
+                                    ? 'rgba(0,120,255,0.15)'
+                                    : 'rgba(255,255,255,0.05)'
+                              }}
+                              onClick={() => setSelectedDrug(drug.id)}
+                            >
+                              {lang === 'ar' ? drug.labelAr : drug.labelEn}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
                       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: '0.5rem' }}>
                         <select className="form-input" value={selectedDrug} onChange={(e) => setSelectedDrug(e.target.value)}>
                           <option value="">{lang === 'ar' ? 'اختر الدواء...' : 'Medication...'}</option>
