@@ -731,8 +731,28 @@ export default function ReceptionDashboard({ lang, t }) {
 
                 {billingPatient && (
                   <div className="glass-panel" style={{ padding: '0.75rem', fontSize: '0.9rem' }}>
-                    <strong>{lang === 'ar' ? 'العميل المختار:' : 'Selected Client:'}</strong>{' '}
-                    {lang === 'ar' ? billingPatient.fullNameAr : billingPatient.fullNameEn}
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: '0.75rem',
+                        flexWrap: 'wrap'
+                      }}
+                    >
+                      <div>
+                        <strong>{lang === 'ar' ? 'العميل المختار:' : 'Selected Client:'}</strong>{' '}
+                        {lang === 'ar' ? billingPatient.fullNameAr : billingPatient.fullNameEn}
+                      </div>
+
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => setViewingProfilePatientId(billingPatient.id)}
+                      >
+                        {lang === 'ar' ? 'فتح ملف المريض' : 'Open Patient Profile'}
+                      </button>
+                    </div>
                   </div>
                 )}
 

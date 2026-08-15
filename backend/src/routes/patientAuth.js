@@ -94,8 +94,49 @@ router.post('/verify', verificationLimiter, validate(z.object({ challengeId: z.s
       await audit(challenge.userId, 'PATIENT_RECORD_CREATED', `Created patient record ${patient.id} for verified account.`, req);
       return res.json({ state: 'CLAIMED' });
     }
-    if (matches.length === 1) return res.json({ state: 'MATCH_REQUIRES_VERIFICATION' });
-    await audit(challenge.userId, 'PATIENT_CLAIM_AMBIGUOUS', 'Multiple patient records matched verified identity and date of birth.', req);
+    if (matches.length === 1) {
+      const matchedPatient = matches[0];
+
+      // Auto-link only when the matching patient record is still unclaimed.
+      // The match is already constrained by normalized phone + date of birth.
+      const linked = await prisma.patient.updateMany({
+        where: {
+          id: matchedPatient.id,
+          userId: null
+        },
+        data: {
+          userId: challenge.userId
+        }
+      });
+
+      if (linked.count !== 1) {
+        await audit(
+          challenge.userId,
+          'PATIENT_AUTO_LINK_CONFLICT',
+          'Matching patient record could not be auto-linked because ownership changed.',
+          req
+        );
+
+        return res.json({ state: 'MANUAL_REVIEW_REQUIRED' });
+      }
+
+      await audit(
+        challenge.userId,
+        'PATIENT_RECORD_AUTO_LINKED',
+        `Automatically linked verified account to existing patient record ${matchedPatient.id}.`,
+        req
+      );
+
+      return res.json({ state: 'CLAIMED' });
+    }
+
+    await audit(
+      challenge.userId,
+      'PATIENT_CLAIM_AMBIGUOUS',
+      'Multiple patient records matched verified identity and date of birth.',
+      req
+    );
+
     return res.json({ state: 'AMBIGUOUS_MATCH' });
   } catch (error) { next(error); }
 });

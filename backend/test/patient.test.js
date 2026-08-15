@@ -99,16 +99,48 @@ test('verification code is single-use', async () => {
   assert.equal(reused.body.error.code, 'VERIFICATION_INVALID');
 });
 
-test('existing patient requires claim code and wrong DOB/code are rejected', async () => {
-  const existing = await prisma.patient.create({ data: { fullNameAr: 'موجود', fullNameEn: 'Existing', gender: 'FEMALE', dateOfBirth: '1985-05-05', phone: '+250788100020', addressStateId: 1, emergencyContact: 'Self' } });
-  const registration = await register('+250788100020', 'claim@example.com', { dateOfBirth: '1985-05-05', gender: 'FEMALE' });
-  const verification = await api.post('/api/patient-auth/verify').send({ challengeId: registration.body.challengeId, code: registration.body.developmentCode });
-  assert.equal(verification.body.state, 'MATCH_REQUIRES_VERIFICATION');
+test('unique existing patient is automatically linked after verification', async () => {
+  const existing = await prisma.patient.create({
+    data: {
+      fullNameAr: 'موجود',
+      fullNameEn: 'Existing',
+      gender: 'FEMALE',
+      dateOfBirth: '1985-05-05',
+      phone: '+250788100020',
+      addressStateId: 1,
+      emergencyContact: 'Self'
+    }
+  });
+
+  const registration = await register(
+    '+250788100020',
+    'claim@example.com',
+    { dateOfBirth: '1985-05-05', gender: 'FEMALE' }
+  );
+
+  const verification = await api.post('/api/patient-auth/verify').send({
+    challengeId: registration.body.challengeId,
+    code: registration.body.developmentCode
+  });
+
+  assert.equal(verification.status, 200);
+  assert.equal(verification.body.state, 'CLAIMED');
+
+  const linkedPatient = await prisma.patient.findUnique({
+    where: { id: existing.id }
+  });
+
+  assert.equal(linkedPatient.userId, registration.body.userId);
+
   const session = await login('+250788100020');
-  const issued = await api.post(`/api/patient-auth/claims/${existing.id}/code`).set(auth(receptionToken));
-  assert.equal((await api.post('/api/patient-auth/claim').set(auth(session.body.token)).send({ code: issued.body.code, dateOfBirth: '1980-01-01' })).body.state, 'MANUAL_REVIEW_REQUIRED');
-  assert.equal((await api.post('/api/patient-auth/claim').set(auth(session.body.token)).send({ code: 'WRONGCODE', dateOfBirth: '1985-05-05' })).status, 422);
-  assert.equal((await api.post('/api/patient-auth/claim').set(auth(session.body.token)).send({ code: issued.body.code, dateOfBirth: '1985-05-05' })).body.state, 'CLAIMED');
+  assert.equal(session.status, 200);
+
+  const profile = await api
+    .get('/api/patient/me')
+    .set(auth(session.body.token));
+
+  assert.equal(profile.status, 200);
+  assert.equal(profile.body.id, existing.id);
 });
 
 test('ambiguous existing match is never automatically claimed', async () => {
@@ -118,16 +150,45 @@ test('ambiguous existing match is never automatically claimed', async () => {
   assert.equal(response.body.state, 'AMBIGUOUS_MATCH');
 });
 
-test('two concurrent claims can link an existing patient only once', async () => {
-  const existing = await prisma.patient.create({ data: { fullNameAr: 'سباق', fullNameEn: 'Claim Race', gender: 'MALE', dateOfBirth: '1983-03-03', phone: '+250788100022', addressStateId: 1, emergencyContact: 'Self' } });
-  const registration = await register('+250788100022', 'claim-race@example.com', { dateOfBirth: '1983-03-03' });
-  await api.post('/api/patient-auth/verify').send({ challengeId: registration.body.challengeId, code: registration.body.developmentCode });
-  const session = await login('+250788100022');
-  const issued = await api.post(`/api/patient-auth/claims/${existing.id}/code`).set(auth(receptionToken));
-  const payload = { code: issued.body.code, dateOfBirth: '1983-03-03' };
-  const responses = await Promise.all([api.post('/api/patient-auth/claim').set(auth(session.body.token)).send(payload), api.post('/api/patient-auth/claim').set(auth(session.body.token)).send(payload)]);
-  assert.deepEqual(responses.map((response) => response.status).sort(), [200, 409]);
-  assert.equal((await prisma.patient.findUnique({ where: { id: existing.id } })).userId, session.body.user.id);
+test('auto-link assigns an existing patient to only one verified account', async () => {
+  const existing = await prisma.patient.create({
+    data: {
+      fullNameAr: 'سباق',
+      fullNameEn: 'Auto Link Race',
+      gender: 'MALE',
+      dateOfBirth: '1983-03-03',
+      phone: '+250788100022',
+      addressStateId: 1,
+      emergencyContact: 'Self'
+    }
+  });
+
+  const registration = await register(
+    '+250788100022',
+    'claim-race@example.com',
+    { dateOfBirth: '1983-03-03' }
+  );
+
+  const verification = await api.post('/api/patient-auth/verify').send({
+    challengeId: registration.body.challengeId,
+    code: registration.body.developmentCode
+  });
+
+  assert.equal(verification.status, 200);
+  assert.equal(verification.body.state, 'CLAIMED');
+
+  const linked = await prisma.patient.findUnique({
+    where: { id: existing.id }
+  });
+
+  assert.equal(linked.userId, registration.body.userId);
+
+  const issued = await api
+    .post(`/api/patient-auth/claims/${existing.id}/code`)
+    .set(auth(receptionToken));
+
+  assert.equal(issued.status, 409);
+  assert.equal(issued.body.error.code, 'PATIENT_ALREADY_CLAIMED');
 });
 
 test('patient A gets own profile and cannot address patient B through staff API', async () => {

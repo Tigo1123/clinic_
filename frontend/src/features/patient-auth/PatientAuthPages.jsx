@@ -243,7 +243,40 @@ payload.phone = `${payload.countryCode}${localPhone}`;
 delete payload.countryCode;
 
 const data=await apiRequest('/api/patient-auth/register',{method:'POST',body:JSON.stringify(payload)});setChallenge(data)}catch(requestError){const details=Array.isArray(requestError.details)?requestError.details:[];if(details.length){const fields={};for(const detail of details)fields[detail.field]=friendlyValidation(detail.field,detail.message,t);setFieldErrors(fields)}else setError(requestError.message)}finally{setLoading(false)}}
-  async function verify(event){event.preventDefault();setLoading(true);setError('');try{const data=await apiRequest('/api/patient-auth/verify',{method:'POST',body:JSON.stringify({challengeId:challenge.challengeId,code})});navigate('/patient-login',{state:{message:data.state==='MATCH_REQUIRES_VERIFICATION'?t('claimAfterLogin'):t('accountVerified')}})}catch(requestError){setError(requestError.message)}finally{setLoading(false)}}
+  async function verify(event){
+    event.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try{
+      const data = await apiRequest('/api/patient-auth/verify',{
+        method:'POST',
+        body:JSON.stringify({
+          challengeId:challenge.challengeId,
+          code
+        })
+      });
+
+      let message = t('accountVerified');
+
+      if(data.state === 'CLAIMED'){
+        message = t('accountLinked');
+      }else if(
+        data.state === 'MANUAL_REVIEW_REQUIRED' ||
+        data.state === 'AMBIGUOUS_MATCH'
+      ){
+        message = t('manualReviewRequired');
+      }
+
+      navigate('/patient-login',{
+        state:{message}
+      });
+    }catch(requestError){
+      setError(requestError.message);
+    }finally{
+      setLoading(false);
+    }
+  }
 async function resendVerification(){
   setLoading(true);
   setError('');

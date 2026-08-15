@@ -351,6 +351,7 @@ router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTION
 
     const profileData = {
       id: patient.id,
+      portalLinked: Boolean(patient.userId),
       fullNameAr: patient.fullNameAr,
       fullNameEn: patient.fullNameEn,
       gender: patient.gender,
