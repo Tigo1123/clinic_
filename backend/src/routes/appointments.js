@@ -21,11 +21,17 @@ const developmentOtps = new Map();
  * GET /api/appointments/slots
  * Generates and returns available time slots for a doctor on a specific date (YYYY-MM-DD).
  */
-const appointmentStatuses = ['PENDING', 'SCHEDULED', 'CONFIRMED', 'CHECKED_IN', 'IN_CONSULTATION', 'COMPLETED', 'CANCELLED', 'NO_SHOW'];
+const appointmentStatuses = ['PENDING', 'SCHEDULED', 'CONFIRMED', 'CHECKED_IN', 'IN_CONSULTATION', 'WAITING_LAB', 'COMPLETED', 'CANCELLED', 'NO_SHOW'];
 const transitions = {
-  PENDING: ['CONFIRMED', 'CANCELLED'], SCHEDULED: ['CHECKED_IN', 'CANCELLED', 'NO_SHOW'],
-  CONFIRMED: ['CHECKED_IN', 'CANCELLED', 'NO_SHOW'], CHECKED_IN: ['IN_CONSULTATION', 'CANCELLED', 'NO_SHOW'],
-  IN_CONSULTATION: ['COMPLETED'], COMPLETED: [], CANCELLED: [], NO_SHOW: []
+  PENDING: ['CONFIRMED', 'CANCELLED'],
+  SCHEDULED: ['CHECKED_IN', 'CANCELLED', 'NO_SHOW'],
+  CONFIRMED: ['CHECKED_IN', 'CANCELLED', 'NO_SHOW'],
+  CHECKED_IN: ['IN_CONSULTATION', 'CANCELLED', 'NO_SHOW'],
+  IN_CONSULTATION: ['WAITING_LAB', 'COMPLETED'],
+  WAITING_LAB: ['IN_CONSULTATION'],
+  COMPLETED: [],
+  CANCELLED: [],
+  NO_SHOW: []
 };
 
 router.get('/slots', validate(z.object({ doctorId: z.string().uuid(), date: z.string().regex(DATE_PATTERN) }), 'query'), async (req, res) => {

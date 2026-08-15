@@ -169,10 +169,16 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
         }
       }
 
-      // d. Update appointment status to COMPLETED
+      // d. If laboratory/radiology work was ordered, keep the visit open
+      // until all results are available. Otherwise complete the visit now.
+      const nextAppointmentStatus =
+        orderedServices && orderedServices.length > 0
+          ? 'WAITING_LAB'
+          : 'COMPLETED';
+
       await tx.appointment.update({
         where: { id: appointmentId },
-        data: { status: 'COMPLETED' }
+        data: { status: nextAppointmentStatus }
       });
 
       return { record, prescription, labOrder };
@@ -195,6 +201,220 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
     return res.status(500).json({ error: 'Failed to save EMR consultation record.' });
   }
 });
+
+
+/**
+ * PUT /api/records/:id/finalize
+ * Finalizes an existing consultation after laboratory results are ready.
+ * Updates the SAME MedicalRecord and optionally creates the final prescription.
+ */
+router.put('/:id/finalize', authenticate, checkRoles('DOCTOR'), validate(z.object({
+  diagnosis: z.string().trim().min(1).max(5000),
+  treatment: z.string().max(5000).optional(),
+  clinicalNotes: z.string().max(10000).optional(),
+  vitalSigns: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
+  prescribedDrugs: z.array(
+    z.object({
+      drugId: z.string().uuid().optional(),
+      customDrugName: z.string().trim().min(1).max(200).optional(),
+      dosage: z.string().min(1).max(200),
+      duration: z.string().min(1).max(200),
+      instructionsAr: z.string().max(1000).optional(),
+      instructionsEn: z.string().max(1000).optional(),
+      qtyPrescribed: z.coerce.number().int().positive()
+    }).refine(
+      (drug) => Boolean(drug.drugId) !== Boolean(drug.customDrugName),
+      { message: 'Provide either drugId or customDrugName, but not both.' }
+    )
+  ).max(50).optional()
+})), async (req, res) => {
+  const recordId = req.params.id;
+  const {
+    diagnosis,
+    treatment,
+    clinicalNotes,
+    vitalSigns,
+    prescribedDrugs
+  } = req.body;
+
+  let doctorId = req.user.doctorId;
+
+  if (!doctorId && req.user.role === 'DOCTOR') {
+    const doctor = await prisma.doctor.findUnique({
+      where: { userId: req.user.id }
+    });
+
+    doctorId = doctor?.id || null;
+  }
+
+  if (!doctorId) {
+    return sendError(
+      res,
+      403,
+      'DOCTOR_PROFILE_REQUIRED',
+      'A registered doctor profile is required.'
+    );
+  }
+
+  try {
+    const record = await prisma.medicalRecord.findUnique({
+      where: { id: recordId },
+      include: {
+        appointment: true,
+        labOrders: true
+      }
+    });
+
+    if (!record) {
+      return sendError(
+        res,
+        404,
+        'MEDICAL_RECORD_NOT_FOUND',
+        'Medical record not found.'
+      );
+    }
+
+    if (record.doctorId !== doctorId) {
+      return sendError(
+        res,
+        403,
+        'RECORD_ACCESS_FORBIDDEN',
+        'This medical record does not belong to the authenticated doctor.'
+      );
+    }
+
+    if (record.appointment.status !== 'IN_CONSULTATION') {
+      return sendError(
+        res,
+        409,
+        'CONSULTATION_STATUS_INVALID',
+        'The appointment must be in consultation before the visit can be finalized.'
+      );
+    }
+
+    if (record.labOrders.length > 0) {
+      const incompleteLabOrder = record.labOrders.some(
+        (order) => order.status !== 'COMPLETED'
+      );
+
+      if (incompleteLabOrder) {
+        return sendError(
+          res,
+          409,
+          'LAB_RESULTS_NOT_READY',
+          'All laboratory results must be completed before finalizing the visit.'
+        );
+      }
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const updatedRecord = await tx.medicalRecord.update({
+        where: { id: record.id },
+        data: {
+          diagnosisEncrypted: encrypt(diagnosis),
+          treatmentEncrypted: encrypt(treatment || ''),
+          clinicalNotesEncrypted: encrypt(clinicalNotes || ''),
+          ...(vitalSigns
+            ? { vitalSignsJson: JSON.stringify(vitalSigns) }
+            : {})
+        }
+      });
+
+      let prescription = null;
+
+      if (prescribedDrugs && prescribedDrugs.length > 0) {
+        prescription = await tx.prescription.create({
+          data: {
+            medicalRecordId: record.id,
+            patientId: record.patientId,
+            doctorId,
+            status: 'ACTIVE'
+          }
+        });
+
+        for (const drug of prescribedDrugs) {
+          await tx.prescribedDrug.create({
+            data: {
+              prescriptionId: prescription.id,
+              drugId: drug.drugId || null,
+              customDrugName: drug.customDrugName || null,
+              dosage: drug.dosage,
+              duration: drug.duration,
+              instructionsAr: drug.instructionsAr || '',
+              instructionsEn: drug.instructionsEn || '',
+              qtyPrescribed: Number(drug.qtyPrescribed)
+            }
+          });
+        }
+      }
+
+      const completedAppointment = await tx.appointment.updateMany({
+        where: {
+          id: record.appointmentId,
+          status: 'IN_CONSULTATION'
+        },
+        data: {
+          status: 'COMPLETED'
+        }
+      });
+
+      if (completedAppointment.count !== 1) {
+        throw new Error(
+          'Appointment status changed before the consultation could be finalized.'
+        );
+      }
+
+      return {
+        record: updatedRecord,
+        prescription
+      };
+    });
+
+    const io = req.app.get('io');
+
+    emitQueueUpdate(
+      io,
+      {
+        type: 'CONSULTATION_FINALIZED',
+        appointmentId: record.appointmentId,
+        doctorId
+      },
+      [doctorId]
+    );
+
+    return res.json({
+      success: true,
+      message: 'Consultation finalized successfully.',
+      recordId: result.record.id,
+      record: result.record,
+      prescription: result.prescription
+    });
+
+  } catch (error) {
+    console.error('Finalize consultation error:', error);
+
+    if (
+      error.message?.includes(
+        'Appointment status changed before the consultation could be finalized'
+      )
+    ) {
+      return sendError(
+        res,
+        409,
+        'CONSULTATION_FINALIZE_CONFLICT',
+        error.message
+      );
+    }
+
+    return sendError(
+      res,
+      500,
+      'CONSULTATION_FINALIZE_FAILED',
+      'Failed to finalize consultation.'
+    );
+  }
+});
+
 
 /**
  * POST /api/records/bypass
@@ -447,9 +667,30 @@ router.put('/lab-orders/items/:id/results', authenticate, allowRoles(ROLES.LAB_T
     });
 
     if (remainingItems === 0) {
-      await prisma.labOrder.update({
-        where: { id: orderId },
-        data: { status: 'COMPLETED' }
+      await prisma.$transaction(async (tx) => {
+        const completedOrder = await tx.labOrder.update({
+          where: { id: orderId },
+          data: { status: 'COMPLETED' },
+          include: {
+            medicalRecord: {
+              select: {
+                appointmentId: true
+              }
+            }
+          }
+        });
+
+        if (completedOrder.medicalRecord?.appointmentId) {
+          await tx.appointment.updateMany({
+            where: {
+              id: completedOrder.medicalRecord.appointmentId,
+              status: 'WAITING_LAB'
+            },
+            data: {
+              status: 'IN_CONSULTATION'
+            }
+          });
+        }
       });
     } else {
       await prisma.labOrder.update({

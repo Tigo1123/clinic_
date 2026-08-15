@@ -19,6 +19,11 @@ export default function DoctorDashboard({ user, lang, t }) {
   const [activeSummaryId, setActiveSummaryId] = useState(null);
   const [viewingProfilePatientId, setViewingProfilePatientId] = useState(null);
 
+  // Lab-return / consultation finalization
+  const [isFinalizingVisit, setIsFinalizingVisit] = useState(false);
+  const [currentRecordId, setCurrentRecordId] = useState(null);
+  const [currentLabResults, setCurrentLabResults] = useState([]);
+
   // Consult records entry
   const [symptoms, setSymptoms] = useState('');
   const [diagnosis, setDiagnosis] = useState('');
@@ -130,40 +135,113 @@ export default function DoctorDashboard({ user, lang, t }) {
 
   const handlePatientSelect = async (appt) => {
     setErrorMsg('');
+    setSuccessMsg('');
+
+    // The doctor must not reopen a patient while the laboratory is still working.
+    if (appt.status === 'WAITING_LAB') {
+      setErrorMsg(
+        lang === 'ar'
+          ? 'هذا المريض بانتظار نتائج المختبر. سيتم إعادته للطبيب تلقائيًا بعد اكتمال النتائج.'
+          : 'This patient is waiting for laboratory results. The visit will return automatically when the results are complete.'
+      );
+      return;
+    }
 
     try {
-      const res = await fetchWithAuth(`/api/appointments/${appt.id}/status`, {
-        method: 'PUT',
-        body: JSON.stringify({ status: 'IN_CONSULTATION' })
-      });
+      // A checked-in patient is starting consultation for the first time.
+      if (appt.status === 'CHECKED_IN') {
+        const statusRes = await fetchWithAuth(`/api/appointments/${appt.id}/status`, {
+          method: 'PUT',
+          body: JSON.stringify({ status: 'IN_CONSULTATION' })
+        });
 
-      const data = await res.json().catch(() => ({}));
+        const statusData = await statusRes.json().catch(() => ({}));
 
-      if (!res.ok) {
-        const message =
-          typeof data.error === 'object'
-            ? data.error.message
-            : data.error;
+        if (!statusRes.ok) {
+          const message =
+            typeof statusData.error === 'object'
+              ? statusData.error.message
+              : statusData.error;
 
-        setErrorMsg(
-          message ||
-            (lang === 'ar'
-              ? 'تعذر بدء الكشف الطبي لهذا الموعد.'
-              : 'Unable to start consultation for this appointment.')
-        );
-        return;
+          setErrorMsg(
+            message ||
+              (lang === 'ar'
+                ? 'تعذر بدء الكشف الطبي لهذا الموعد.'
+                : 'Unable to start consultation for this appointment.')
+          );
+          return;
+        }
+      }
+
+      // If the appointment is already IN_CONSULTATION, check whether a
+      // MedicalRecord already exists. If it does, this is normally a
+      // patient returning after laboratory results.
+      let existingSummary = null;
+
+      if (appt.status === 'IN_CONSULTATION') {
+        const summaryRes = await fetchWithAuth(`/api/records/${appt.id}/summary`);
+
+        if (summaryRes.ok) {
+          existingSummary = await summaryRes.json();
+        } else if (summaryRes.status !== 404) {
+          const summaryError = await summaryRes.json().catch(() => ({}));
+
+          throw new Error(
+            typeof summaryError.error === 'object'
+              ? summaryError.error.message
+              : summaryError.error || 'Failed to load consultation.'
+          );
+        }
       }
 
       setSelectedPatient(appt.patient);
       setSelectedAppointmentId(appt.id);
       fetchPatientHistory(appt.patient.id);
+
+      if (existingSummary) {
+        setIsFinalizingVisit(true);
+        setCurrentRecordId(existingSummary.id);
+        setCurrentLabResults(existingSummary.labOrders || []);
+
+        setSymptoms(existingSummary.symptoms || '');
+        setDiagnosis(existingSummary.diagnosis || '');
+        setTreatment(existingSummary.treatment || '');
+        setClinicalNotes(existingSummary.clinicalNotes || '');
+
+        if (existingSummary.vitals) {
+          setVitals({
+            blood_pressure: existingSummary.vitals.blood_pressure || '',
+            heart_rate: existingSummary.vitals.heart_rate || '',
+            temperature: existingSummary.vitals.temperature || '',
+            weight: existingSummary.vitals.weight || ''
+          });
+        }
+
+        // Do not copy old prescriptions into the new prescription builder.
+        // The doctor may add only additional/final medicines here.
+        setPrescribedItems([]);
+        setOrderedTests([]);
+
+        setSuccessMsg(
+          lang === 'ar'
+            ? 'نتائج المختبر جاهزة. راجع النتائج ثم أكمل التشخيص والعلاج.'
+            : 'Laboratory results are ready. Review them and finalize the diagnosis and treatment.'
+        );
+      } else {
+        setIsFinalizingVisit(false);
+        setCurrentRecordId(null);
+        setCurrentLabResults([]);
+      }
+
       fetchDoctorQueue();
     } catch (err) {
       console.error(err);
+
       setErrorMsg(
-        lang === 'ar'
-          ? 'حدث خطأ أثناء بدء الكشف الطبي.'
-          : 'An error occurred while starting the consultation.'
+        err.message ||
+          (lang === 'ar'
+            ? 'حدث خطأ أثناء فتح الكشف الطبي.'
+            : 'An error occurred while opening the consultation.')
       );
     }
   };
@@ -238,46 +316,116 @@ export default function DoctorDashboard({ user, lang, t }) {
   const handleSaveConsultation = async () => {
     setErrorMsg('');
     setSuccessMsg('');
+
     if (!diagnosis) {
       setErrorMsg(t('requiredField'));
       return;
     }
 
     try {
-      const res = await fetchWithAuth('/api/records', {
-        method: 'POST',
-        body: JSON.stringify({
-          patientId: selectedPatient.id,
-          appointmentId: selectedAppointmentId,
-          symptoms,
-          diagnosis,
-          treatment,
-          clinicalNotes,
-          vitalSigns: vitals,
-          prescribedDrugs: prescribedItems,
-          orderedServices: orderedTests
-        })
+      const isFinalize = isFinalizingVisit && currentRecordId;
+
+      const url = isFinalize
+        ? `/api/records/${currentRecordId}/finalize`
+        : '/api/records';
+
+      const body = isFinalize
+        ? {
+            diagnosis,
+            treatment,
+            clinicalNotes,
+            vitalSigns: vitals,
+            prescribedDrugs: prescribedItems
+          }
+        : {
+            patientId: selectedPatient.id,
+            appointmentId: selectedAppointmentId,
+            symptoms,
+            diagnosis,
+            treatment,
+            clinicalNotes,
+            vitalSigns: vitals,
+            prescribedDrugs: prescribedItems,
+            orderedServices: orderedTests
+          };
+
+      const res = await fetchWithAuth(url, {
+        method: isFinalize ? 'PUT' : 'POST',
+        body: JSON.stringify(body)
       });
 
-      const data = await res.json();
-      if (res.ok) {
-        setSuccessMsg(lang === 'ar' ? 'تم إنهاء الزيارة وحفظ الملف الطبي للمريض بنجاح.' : 'EMR Consultation saved successfully.');
-        const recId = data.recordId || data.record?.id || data.data?.record?.id || data.data?.id || selectedAppointmentId;
-        setActiveSummaryId(recId);
-        setSelectedPatient(null);
-        setSymptoms('');
-        setDiagnosis('');
-        setTreatment('');
-        setClinicalNotes('');
-        setPrescribedItems([]);
-        setOrderedTests([]);
-        fetchDoctorQueue();
-      } else {
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
         setErrorMsg(apiErrorMessage(data, 'Failed to save EMR.'));
+        return;
       }
+
+      const sentToLab =
+        !isFinalize &&
+        Boolean(data.data?.labOrder);
+
+      if (isFinalize) {
+        setSuccessMsg(
+          lang === 'ar'
+            ? 'تمت مراجعة النتائج وإنهاء الزيارة بنجاح.'
+            : 'Laboratory results reviewed and visit finalized successfully.'
+        );
+      } else if (sentToLab) {
+        setSuccessMsg(
+          lang === 'ar'
+            ? 'تم حفظ الكشف وإرسال طلب الفحوصات. المريض الآن بانتظار المختبر.'
+            : 'Consultation saved and laboratory tests ordered. The patient is now waiting for the laboratory.'
+        );
+      } else {
+        setSuccessMsg(
+          lang === 'ar'
+            ? 'تم إنهاء الزيارة وحفظ الملف الطبي للمريض بنجاح.'
+            : 'Consultation completed successfully.'
+        );
+      }
+
+      const recId =
+        data.recordId ||
+        data.record?.id ||
+        data.data?.record?.id ||
+        currentRecordId ||
+        selectedAppointmentId;
+
+      // Only show the final/post-visit summary after a truly completed visit.
+      if (!sentToLab) {
+        setActiveSummaryId(recId);
+      }
+
+      setSelectedPatient(null);
+      setSelectedAppointmentId('');
+      setSymptoms('');
+      setDiagnosis('');
+      setTreatment('');
+      setClinicalNotes('');
+      setPrescribedItems([]);
+      setOrderedTests([]);
+      setSelectedDrug('');
+      setCustomDrugName('');
+      setDosage('');
+      setDuration('');
+      setQuantity('');
+      setInstrAr('');
+      setInstrEn('');
+
+      setIsFinalizingVisit(false);
+      setCurrentRecordId(null);
+      setCurrentLabResults([]);
+
+      fetchDoctorQueue();
     } catch (err) {
       console.error(err);
-      setErrorMsg('EMR saving failed.');
+
+      setErrorMsg(
+        lang === 'ar'
+          ? 'فشل حفظ الكشف الطبي.'
+          : 'EMR saving failed.'
+      );
     }
   };
 
@@ -314,7 +462,17 @@ export default function DoctorDashboard({ user, lang, t }) {
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <strong>{lang === 'ar' ? appt.patient.fullNameAr : appt.patient.fullNameEn}</strong>
-                    <span className="badge badge-success">{appt.status}</span>
+                    <span
+                      className={
+                        appt.status === 'WAITING_LAB'
+                          ? 'badge badge-warning'
+                          : 'badge badge-success'
+                      }
+                    >
+                      {appt.status === 'WAITING_LAB'
+                        ? (lang === 'ar' ? 'بانتظار المختبر' : 'Waiting for Lab')
+                        : appt.status}
+                    </span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem', fontSize: '0.8rem' }}>
                     <span style={{ color: 'var(--text-secondary)' }}>{appt.appointmentTime}</span>
@@ -449,6 +607,82 @@ export default function DoctorDashboard({ user, lang, t }) {
 
                   {/* Right Column: Active Consultation & Prescription Builder */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                    {/* Completed laboratory results returned to the doctor */}
+                    {isFinalizingVisit && (
+                      <div
+                        className="glass-panel"
+                        style={{
+                          padding: '1rem',
+                          border: '1px solid var(--success)'
+                        }}
+                      >
+                        <h4 style={{ marginTop: 0, marginBottom: '0.75rem' }}>
+                          {lang === 'ar'
+                            ? 'نتائج المختبر - جاهزة للمراجعة'
+                            : 'Laboratory Results - Ready for Review'}
+                        </h4>
+
+                        {currentLabResults.length === 0 ? (
+                          <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
+                            {lang === 'ar'
+                              ? 'لا توجد نتائج مختبر مسجلة.'
+                              : 'No laboratory results were found.'}
+                          </p>
+                        ) : (
+                          <div style={{ display: 'grid', gap: '0.5rem' }}>
+                            {currentLabResults.map((result, index) => (
+                              <div
+                                key={`${result.serviceNameEn}-${index}`}
+                                style={{
+                                  padding: '0.65rem',
+                                  borderRadius: '8px',
+                                  background: 'rgba(255,255,255,0.04)',
+                                  borderLeft: result.isOutOfRange
+                                    ? '3px solid var(--danger)'
+                                    : '3px solid var(--success)'
+                                }}
+                              >
+                                <div style={{ fontWeight: 'bold' }}>
+                                  {lang === 'ar'
+                                    ? result.serviceNameAr
+                                    : result.serviceNameEn}
+                                </div>
+
+                                <div style={{ marginTop: '0.25rem' }}>
+                                  {lang === 'ar' ? 'النتيجة:' : 'Result:'}{' '}
+                                  <strong>{result.resultValue || 'N/A'}</strong>
+                                </div>
+
+                                {result.isOutOfRange && (
+                                  <span
+                                    className="badge badge-danger"
+                                    style={{ marginTop: '0.35rem' }}
+                                  >
+                                    {lang === 'ar'
+                                      ? 'خارج النطاق الطبيعي'
+                                      : 'Out of Range'}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <p
+                          style={{
+                            fontSize: '0.75rem',
+                            color: 'var(--text-secondary)',
+                            marginBottom: 0,
+                            marginTop: '0.75rem'
+                          }}
+                        >
+                          {lang === 'ar'
+                            ? 'راجع النتائج ثم حدّث التشخيص والعلاج والوصفة قبل إنهاء الزيارة.'
+                            : 'Review the results, then update the diagnosis, treatment and prescription before finalizing the visit.'}
+                        </p>
+                      </div>
+                    )}
+
                     {/* Vitals Section */}
                     <div className="glass-panel" style={{ padding: '1rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
