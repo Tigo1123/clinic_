@@ -99,7 +99,80 @@ router.post('/verify', verificationLimiter, validate(z.object({ challengeId: z.s
     return res.json({ state: 'AMBIGUOUS_MATCH' });
   } catch (error) { next(error); }
 });
+router.post(
+  '/verification/resend',
+  verificationLimiter,
+  validate(z.object({
+    challengeId: z.string().uuid()
+  })),
+  async (req, res, next) => {
+    try {
+      const previousChallenge = await prisma.verificationChallenge.findUnique({
+        where: { id: req.body.challengeId },
+        include: { user: true }
+      });
 
+      if (!previousChallenge || previousChallenge.usedAt) {
+        return sendError(
+          res,
+          422,
+          'VERIFICATION_INVALID',
+          'Verification challenge is invalid or already used.'
+        );
+      }
+
+      if (previousChallenge.user.status !== 'PENDING_VERIFICATION') {
+        return sendError(
+          res,
+          409,
+          'ACCOUNT_ALREADY_VERIFIED',
+          'This account is already verified.'
+        );
+      }
+
+      const verificationType =
+        process.env.VERIFICATION_PROVIDER === 'email'
+          ? 'EMAIL'
+          : previousChallenge.type;
+
+      const target =
+        verificationType === 'EMAIL'
+          ? previousChallenge.user.email
+          : previousChallenge.user.phoneNormalized;
+
+      if (!target) {
+        return sendError(
+          res,
+          422,
+          'VERIFICATION_TARGET_MISSING',
+          'Verification target is unavailable.'
+        );
+      }
+
+      const { challenge, developmentCode } =
+        await createVerificationChallenge(
+          previousChallenge.user,
+          verificationType,
+          target
+        );
+
+      await audit(
+        previousChallenge.user.id,
+        'PATIENT_VERIFICATION_RESENT',
+        'Patient verification code resent.',
+        req
+      );
+
+      return res.status(201).json({
+        state: 'VERIFICATION_REQUIRED',
+        challengeId: challenge.id,
+        ...(developmentCode ? { developmentCode } : {})
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 router.post('/verification/request', verificationLimiter, authenticate, allowRoles(ROLES.PATIENT), validate(z.object({ type: z.enum(['PHONE', 'EMAIL']) })), async (req, res, next) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
