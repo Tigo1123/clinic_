@@ -48,18 +48,31 @@ export default function PharmacyDashboard({ lang, t }) {
   const handleDispense = async (rx) => {
     setErrorMsg('');
     setSuccessMsg('');
-    const items = rx.prescribedDrugs.map((item) => {
-      // Select the eligible batch with the earliest expiry (FEFO).
-      const today = clinicDateString();
-      const batch = [...(item.drug.inventoryBatches || [])]
-        .filter((candidate) => candidate.qtyOnHand > 0 && candidate.expiryDate >= today)
-        .sort((a, b) => a.expiryDate.localeCompare(b.expiryDate) || a.batchNumber.localeCompare(b.batchNumber))[0];
-      return {
-        prescribedDrugId: item.id,
-        qtyToDispense: item.qtyPrescribed - item.qtyDispensed,
-        batchId: batch ? batch.id : null
-      };
-    });
+
+    const items = rx.prescribedDrugs
+      .filter((item) => item.drug)
+      .map((item) => {
+        // Select the eligible batch with the earliest expiry (FEFO).
+        const today = clinicDateString();
+        const batch = [...(item.drug.inventoryBatches || [])]
+          .filter((candidate) => candidate.qtyOnHand > 0 && candidate.expiryDate >= today)
+          .sort((a, b) => a.expiryDate.localeCompare(b.expiryDate) || a.batchNumber.localeCompare(b.batchNumber))[0];
+
+        return {
+          prescribedDrugId: item.id,
+          qtyToDispense: item.qtyPrescribed - item.qtyDispensed,
+          batchId: batch ? batch.id : null
+        };
+      });
+
+    if (items.length === 0) {
+      setErrorMsg(
+        lang === 'ar'
+          ? 'هذه الوصفة تحتوي فقط على أدوية مكتوبة يدويًا وغير مرتبطة بمخزون العيادة.'
+          : 'This prescription only contains custom medications that are not linked to clinic inventory.'
+      );
+      return;
+    }
 
     try {
       const res = await fetchWithAuth(`/api/records/prescriptions/${rx.id}/dispense`, {
@@ -136,33 +149,138 @@ export default function PharmacyDashboard({ lang, t }) {
                 </p>
 
                 {selectedRx.prescribedDrugs.map((item) => {
-                  const qtyOnHand = item.drug.inventoryBatches?.reduce((sum, b) => sum + (b.qtyOnHand || 0), 0) || 0;
+                  const isCustom = !item.drug;
+
+                  if (isCustom) {
+                    return (
+                      <div
+                        key={item.id}
+                        className="glass-panel"
+                        style={{
+                          padding: '0.75rem',
+                          marginBottom: '0.5rem',
+                          fontSize: '0.9rem',
+                          borderLeft: '3px solid var(--warning)'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <strong>{item.customDrugName || (lang === 'ar' ? 'دواء مكتوب يدويًا' : 'Custom medication')}</strong>
+                          <span style={{ color: 'var(--primary)', fontWeight: 'bold' }}>
+                            Qty: {item.qtyPrescribed}
+                          </span>
+                        </div>
+
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '0.8rem',
+                            color: 'var(--text-secondary)',
+                            marginTop: '0.25rem',
+                            alignItems: 'center',
+                            gap: '0.5rem'
+                          }}
+                        >
+                          <span>
+                            Dosage: {item.dosage} | Duration: {item.duration}
+                          </span>
+
+                          <span className="badge badge-warning" style={{ fontSize: '0.7rem' }}>
+                            {lang === 'ar' ? 'غير مرتبط بالمخزون' : 'Not linked to inventory'}
+                          </span>
+                        </div>
+
+                        <div style={{ fontSize: '0.75rem', color: 'var(--warning)', marginTop: '0.5rem' }}>
+                          {lang === 'ar'
+                            ? 'هذا الدواء تمت كتابته يدويًا بواسطة الطبيب ولن يتم خصمه تلقائيًا من مخزون العيادة.'
+                            : 'This medication was entered manually by the doctor and will not be deducted automatically from clinic inventory.'}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  const qtyOnHand =
+                    item.drug.inventoryBatches?.reduce(
+                      (sum, b) => sum + (b.qtyOnHand || 0),
+                      0
+                    ) || 0;
+
                   const isOutOfStock = qtyOnHand === 0;
                   const isInsufficient = qtyOnHand < item.qtyPrescribed;
                   const isLowStock = qtyOnHand < 25;
 
                   return (
-                    <div key={item.id} className="glass-panel" style={{ padding: '0.75rem', marginBottom: '0.5rem', fontSize: '0.9rem', borderLeft: isOutOfStock || isInsufficient ? '3px solid var(--danger)' : isLowStock ? '3px solid var(--warning)' : '3px solid var(--success)' }}>
+                    <div
+                      key={item.id}
+                      className="glass-panel"
+                      style={{
+                        padding: '0.75rem',
+                        marginBottom: '0.5rem',
+                        fontSize: '0.9rem',
+                        borderLeft:
+                          isOutOfStock || isInsufficient
+                            ? '3px solid var(--danger)'
+                            : isLowStock
+                              ? '3px solid var(--warning)'
+                              : '3px solid var(--success)'
+                      }}
+                    >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <strong>{lang === 'ar' ? item.drug.labelAr : item.drug.labelEn}</strong>
-                        <span style={{ color: 'var(--primary)', fontWeight: 'bold' }}>Qty: {item.qtyPrescribed}</span>
+                        <span style={{ color: 'var(--primary)', fontWeight: 'bold' }}>
+                          Qty: {item.qtyPrescribed}
+                        </span>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem', alignItems: 'center' }}>
-                        <span>Dosage: {item.dosage} | Duration: {item.duration}</span>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          fontSize: '0.8rem',
+                          color: 'var(--text-secondary)',
+                          marginTop: '0.25rem',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <span>
+                          Dosage: {item.dosage} | Duration: {item.duration}
+                        </span>
+
                         {isOutOfStock ? (
-                          <span className="badge badge-danger" style={{ fontSize: '0.7rem' }}>{lang === 'ar' ? 'غير متوفر' : 'Out of Stock'}</span>
+                          <span className="badge badge-danger" style={{ fontSize: '0.7rem' }}>
+                            {lang === 'ar' ? 'غير متوفر' : 'Out of Stock'}
+                          </span>
                         ) : isInsufficient ? (
-                          <span className="badge badge-danger" style={{ fontSize: '0.7rem' }}>{lang === 'ar' ? 'غير كافٍ' : `Insufficient (${qtyOnHand})`}</span>
+                          <span className="badge badge-danger" style={{ fontSize: '0.7rem' }}>
+                            {lang === 'ar' ? 'غير كافٍ' : `Insufficient (${qtyOnHand})`}
+                          </span>
                         ) : isLowStock ? (
-                          <span className="badge badge-warning" style={{ fontSize: '0.7rem' }}>{lang === 'ar' ? 'مخزون منخفض' : `Low Stock (${qtyOnHand})`}</span>
+                          <span className="badge badge-warning" style={{ fontSize: '0.7rem' }}>
+                            {lang === 'ar' ? 'مخزون منخفض' : `Low Stock (${qtyOnHand})`}
+                          </span>
                         ) : (
-                          <span className="badge badge-success" style={{ fontSize: '0.7rem' }}>{lang === 'ar' ? 'متوفر' : `In Stock (${qtyOnHand})`}</span>
+                          <span className="badge badge-success" style={{ fontSize: '0.7rem' }}>
+                            {lang === 'ar' ? 'متوفر' : `In Stock (${qtyOnHand})`}
+                          </span>
                         )}
                       </div>
-                      {/* Backend-compatible First Expiry, First Out suggestion. */}
-                      <div style={{ fontSize: '0.75rem', color: 'var(--warning)', marginTop: '0.5rem' }}>
+
+                      <div
+                        style={{
+                          fontSize: '0.75rem',
+                          color: 'var(--warning)',
+                          marginTop: '0.5rem'
+                        }}
+                      >
                         FEFO: Batch{' '}
-                        {[...(item.drug.inventoryBatches || [])].sort((a, b) => a.expiryDate.localeCompare(b.expiryDate))[0]?.batchNumber || 'N/A'} (Exp: {[...(item.drug.inventoryBatches || [])].sort((a, b) => a.expiryDate.localeCompare(b.expiryDate))[0]?.expiryDate || 'N/A'})
+                        {[...(item.drug.inventoryBatches || [])]
+                          .sort((a, b) => a.expiryDate.localeCompare(b.expiryDate))[0]
+                          ?.batchNumber || 'N/A'}{' '}
+                        (Exp:{' '}
+                        {[...(item.drug.inventoryBatches || [])]
+                          .sort((a, b) => a.expiryDate.localeCompare(b.expiryDate))[0]
+                          ?.expiryDate || 'N/A'}
+                        )
                       </div>
                     </div>
                   );

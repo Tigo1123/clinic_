@@ -126,7 +126,29 @@ router.get('/lab-results', async (req, res) => {
 
 router.get('/prescriptions', async (req, res) => {
   const prescriptions = await prisma.prescription.findMany({ where: { patientId: req.patient.id }, include: { doctor: { select: doctorSelect }, prescribedDrugs: { include: { drug: { select: { labelAr: true, labelEn: true, genericName: true, strength: true, dosageForm: true } } } } }, orderBy: { prescriptionDate: 'desc' } });
-  return res.json(prescriptions.map((rx) => ({ id: rx.id, prescriptionDate: rx.prescriptionDate, status: rx.status, doctor: rx.doctor, medicines: rx.prescribedDrugs.map((item) => ({ id: item.id, medicine: item.drug, dosage: item.dosage, duration: item.duration, instructionsAr: item.instructionsAr, instructionsEn: item.instructionsEn, qtyPrescribed: item.qtyPrescribed, qtyDispensed: item.qtyDispensed })) })));
+  return res.json(prescriptions.map((rx) => ({
+    id: rx.id,
+    prescriptionDate: rx.prescriptionDate,
+    status: rx.status,
+    doctor: rx.doctor,
+    medicines: rx.prescribedDrugs.map((item) => ({
+      id: item.id,
+      medicine: item.drug || {
+        labelAr: item.customDrugName || '',
+        labelEn: item.customDrugName || '',
+        genericName: item.customDrugName || '',
+        strength: '',
+        dosageForm: ''
+      },
+      customDrugName: item.customDrugName,
+      dosage: item.dosage,
+      duration: item.duration,
+      instructionsAr: item.instructionsAr,
+      instructionsEn: item.instructionsEn,
+      qtyPrescribed: item.qtyPrescribed,
+      qtyDispensed: item.qtyDispensed
+    }))
+  })));
 });
 
 router.get('/medical-records', async (req, res) => {

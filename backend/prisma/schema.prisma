@@ -169,18 +169,25 @@ model DrugFormulary {
 }
 
 model PrescribedDrug {
-  id             String        @id @default(uuid())
+  id             String         @id @default(uuid())
   prescriptionId String
-  prescription   Prescription  @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
-  drugId         String
-  drug           DrugFormulary @relation(fields: [drugId], references: [id])
+  prescription   Prescription   @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+
+  // Formulary medication: linked to clinic inventory.
+  drugId         String?
+  drug           DrugFormulary? @relation(fields: [drugId], references: [id])
+
+  // Free-text medication prescribed by the doctor.
+  // These medicines are not automatically connected to clinic inventory.
+  customDrugName String?
+
   dosage         String
   duration       String
   instructionsAr String
   instructionsEn String
   qtyPrescribed  Int
-  qtyDispensed   Int           @default(0)
-  ledgerVersion  Int           @default(0)
+  qtyDispensed   Int            @default(0)
+  ledgerVersion  Int            @default(0)
 }
 
 model InventoryBatch {

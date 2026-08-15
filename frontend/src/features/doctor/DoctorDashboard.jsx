@@ -29,6 +29,7 @@ export default function DoctorDashboard({ user, lang, t }) {
   // Prescription builder
   const [drugs, setDrugs] = useState([]);
   const [selectedDrug, setSelectedDrug] = useState('');
+  const [customDrugName, setCustomDrugName] = useState('');
   const [dosage, setDosage] = useState('');
   const [duration, setDuration] = useState('');
   const [quantity, setQuantity] = useState('');
@@ -142,22 +143,54 @@ export default function DoctorDashboard({ user, lang, t }) {
 
   const handleAddDrugToRx = () => {
     const parsedQuantity = Number(quantity);
-    if (!selectedDrug || !dosage || !duration || !Number.isInteger(parsedQuantity) || parsedQuantity <= 0) return;
-    const drugObj = drugs.find((d) => d.id === selectedDrug);
-    setPrescribedItems([
-      ...prescribedItems,
-      {
-        drugId: selectedDrug,
-        nameAr: drugObj.labelAr,
-        nameEn: drugObj.labelEn,
-        dosage,
-        duration,
-        instructionsAr: instrAr,
-        instructionsEn: instrEn,
-        qtyPrescribed: parsedQuantity
-      }
-    ]);
+    const customName = customDrugName.trim();
+
+    if (
+      (!selectedDrug && !customName) ||
+      (selectedDrug && customName) ||
+      !dosage ||
+      !duration ||
+      !Number.isInteger(parsedQuantity) ||
+      parsedQuantity <= 0
+    ) {
+      return;
+    }
+
+    if (selectedDrug) {
+      const drugObj = drugs.find((d) => d.id === selectedDrug);
+      if (!drugObj) return;
+
+      setPrescribedItems([
+        ...prescribedItems,
+        {
+          drugId: selectedDrug,
+          nameAr: drugObj.labelAr,
+          nameEn: drugObj.labelEn,
+          dosage,
+          duration,
+          instructionsAr: instrAr,
+          instructionsEn: instrEn,
+          qtyPrescribed: parsedQuantity
+        }
+      ]);
+    } else {
+      setPrescribedItems([
+        ...prescribedItems,
+        {
+          customDrugName: customName,
+          nameAr: customName,
+          nameEn: customName,
+          dosage,
+          duration,
+          instructionsAr: instrAr,
+          instructionsEn: instrEn,
+          qtyPrescribed: parsedQuantity
+        }
+      ]);
+    }
+
     setSelectedDrug('');
+    setCustomDrugName('');
     setDosage('');
     setDuration('');
     setQuantity('');
@@ -530,7 +563,10 @@ export default function DoctorDashboard({ user, lang, t }) {
                                     ? 'rgba(0,120,255,0.15)'
                                     : 'rgba(255,255,255,0.05)'
                               }}
-                              onClick={() => setSelectedDrug(drug.id)}
+                              onClick={() => {
+                                setSelectedDrug(drug.id);
+                                setCustomDrugName('');
+                              }}
                             >
                               {lang === 'ar' ? drug.labelAr : drug.labelEn}
                             </button>
@@ -539,14 +575,52 @@ export default function DoctorDashboard({ user, lang, t }) {
                       </div>
 
                       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: '0.5rem' }}>
-                        <select className="form-input" value={selectedDrug} onChange={(e) => setSelectedDrug(e.target.value)}>
-                          <option value="">{lang === 'ar' ? 'اختر الدواء...' : 'Medication...'}</option>
-                          {drugs.map((d) => (
-                            <option key={d.id} value={d.id}>
-                              {lang === 'ar' ? d.labelAr : d.labelEn}
+                        <div>
+                          <select
+                            className="form-input"
+                            value={selectedDrug}
+                            onChange={(e) => {
+                              setSelectedDrug(e.target.value);
+                              if (e.target.value) setCustomDrugName('');
+                            }}
+                          >
+                            <option value="">
+                              {lang === 'ar' ? 'اختر الدواء...' : 'Medication...'}
                             </option>
-                          ))}
-                        </select>
+
+                            {drugs.map((d) => (
+                              <option key={d.id} value={d.id}>
+                                {lang === 'ar' ? d.labelAr : d.labelEn}
+                              </option>
+                            ))}
+                          </select>
+
+                          <div
+                            style={{
+                              textAlign: 'center',
+                              fontSize: '0.7rem',
+                              opacity: 0.7,
+                              margin: '5px 0'
+                            }}
+                          >
+                            {lang === 'ar' ? 'أو' : 'OR'}
+                          </div>
+
+                          <input
+                            type="text"
+                            className="form-input"
+                            placeholder={
+                              lang === 'ar'
+                                ? 'اكتب اسم الدواء يدويًا'
+                                : 'Type medication name manually'
+                            }
+                            value={customDrugName}
+                            onChange={(e) => {
+                              setCustomDrugName(e.target.value);
+                              if (e.target.value) setSelectedDrug('');
+                            }}
+                          />
+                        </div>
 
                         <div>
                           <input

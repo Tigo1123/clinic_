@@ -21,7 +21,20 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
   patientId: z.string().uuid(), appointmentId: z.string().uuid(), symptoms: z.string().max(5000).optional(),
   diagnosis: z.string().trim().min(1).max(5000), treatment: z.string().max(5000).optional(), clinicalNotes: z.string().max(10000).optional(),
   vitalSigns: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
-  prescribedDrugs: z.array(z.object({ drugId: z.string().uuid(), dosage: z.string().min(1).max(200), duration: z.string().min(1).max(200), instructionsAr: z.string().max(1000).optional(), instructionsEn: z.string().max(1000).optional(), qtyPrescribed: z.coerce.number().int().positive() })).max(50).optional(),
+  prescribedDrugs: z.array(
+    z.object({
+      drugId: z.string().uuid().optional(),
+      customDrugName: z.string().trim().min(1).max(200).optional(),
+      dosage: z.string().min(1).max(200),
+      duration: z.string().min(1).max(200),
+      instructionsAr: z.string().max(1000).optional(),
+      instructionsEn: z.string().max(1000).optional(),
+      qtyPrescribed: z.coerce.number().int().positive()
+    }).refine(
+      (drug) => Boolean(drug.drugId) !== Boolean(drug.customDrugName),
+      { message: 'Provide either drugId or customDrugName, but not both.' }
+    )
+  ).max(50).optional(),
   orderedServices: z.array(z.string().uuid()).max(50).optional(), attachmentPath: z.string().max(300).optional()
 })), async (req, res) => {
   const {
@@ -121,7 +134,8 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
           await tx.prescribedDrug.create({
             data: {
               prescriptionId: prescription.id,
-              drugId: drug.drugId,
+              drugId: drug.drugId || null,
+              customDrugName: drug.customDrugName || null,
               dosage: drug.dosage,
               duration: drug.duration,
               instructionsAr: drug.instructionsAr || '',
@@ -296,6 +310,12 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
           throw new Error('Prescribed drug item not found.');
         }
         if (prescribedDrug.prescriptionId !== prescriptionId) throw new Error('Prescribed drug does not belong to this prescription.');
+        if (!prescribedDrug.drugId) {
+          // Custom/free-text medications are not linked to clinic inventory.
+          // They are excluded from automatic pharmacy stock dispensing.
+          continue;
+        }
+
         const remaining = prescribedDrug.qtyPrescribed - prescribedDrug.qtyDispensed;
         if (qtyToDispense > remaining) throw new Error('Dispensing quantity exceeds the remaining prescribed quantity.');
 
@@ -558,8 +578,8 @@ router.get('/:id/summary', authenticate, allowRoles(ROLES.DOCTOR), async (req, r
       treatment: safeDecryptField(record.treatmentEncrypted),
       clinicalNotes: safeDecryptField(record.clinicalNotesEncrypted),
       prescriptions: (record.prescriptions || []).flatMap(p => (p.prescribedDrugs || []).map(pd => ({
-        drugNameAr: pd.drug?.labelAr || pd.drug?.genericName || '',
-        drugNameEn: pd.drug?.labelEn || pd.drug?.genericName || '',
+        drugNameAr: pd.drug?.labelAr || pd.drug?.genericName || pd.customDrugName || '',
+        drugNameEn: pd.drug?.labelEn || pd.drug?.genericName || pd.customDrugName || '',
         dosage: pd.dosage || '',
         duration: pd.duration || '',
         instructionsAr: pd.instructionsAr || '',
