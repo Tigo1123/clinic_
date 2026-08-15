@@ -62,6 +62,14 @@ export default function ReceptionDashboard({ lang, t }) {
   };
 
   const handleApproveAppointment = async (appId) => {
+    const confirmed = window.confirm(
+      lang === 'ar'
+        ? 'هل أنت متأكد أنك تريد تأكيد هذا الموعد؟'
+        : 'Are you sure you want to confirm this appointment?'
+    );
+
+    if (!confirmed) return;
+
     try {
       const res = await fetchWithAuth(`/api/appointments/${appId}/status`, {
         method: 'PUT',
@@ -85,6 +93,14 @@ export default function ReceptionDashboard({ lang, t }) {
   };
 
   const handleCancelAppointment = async (appId) => {
+    const confirmed = window.confirm(
+      lang === 'ar'
+        ? 'هل أنت متأكد أنك تريد إلغاء هذا الموعد؟'
+        : 'Are you sure you want to cancel this appointment?'
+    );
+
+    if (!confirmed) return;
+
     try {
       const res = await fetchWithAuth(`/api/appointments/${appId}/status`, {
         method: 'PUT',
