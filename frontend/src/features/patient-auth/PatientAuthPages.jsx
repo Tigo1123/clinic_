@@ -6,10 +6,220 @@ import { apiRequest } from '../../services/apiClient';
 import { useAuth } from '../../app/auth/auth-context';
 
 export function PatientLogin(){
-  const{t}=useTranslation();const{login}=useAuth();const navigate=useNavigate();const location=useLocation();
-  const[form,setForm]=useState({username:'',password:''});const[error,setError]=useState('');const[loading,setLoading]=useState(false);const[showPassword,setShowPassword]=useState(false);
-  async function submit(event){event.preventDefault();setLoading(true);setError('');try{const data=await apiRequest('/api/auth/login',{method:'POST',body:JSON.stringify(form)});if(data.user.role!=='PATIENT')throw new Error(t('patientAccountRequired'));login(data.user,data.token);navigate('/patient')}catch(requestError){setError(requestError.message)}finally{setLoading(false)}}
-  return <AuthShell title={t('patientLogin')}>{location.state?.message&&<div className="patient-alert success">{location.state.message}</div>}<form onSubmit={submit}><Field label={t('phoneOrEmail')} value={form.username} onChange={username=>setForm({...form,username})} autoComplete="username"/><label className="patient-field">{t('password')}<span style={{position:'relative'}}><input style={{width:'100%',paddingInlineEnd:'3rem'}} type={showPassword?'text':'password'} value={form.password} onChange={event=>setForm({...form,password:event.target.value})} autoComplete="current-password" required/><button type="button" aria-label={showPassword?'Hide password':'Show password'} onClick={()=>setShowPassword(!showPassword)} style={{position:'absolute',insetInlineEnd:'.45rem',top:'.35rem',width:'38px',height:'38px',border:0,background:'transparent',color:'var(--color-text-secondary)',cursor:'pointer'}}>{showPassword?<EyeOff size={19}/>:<Eye size={19}/>}</button></span></label>{error&&<Alert>{error}</Alert>}<button className="patient-button" style={{width:'100%'}} disabled={loading} aria-busy={loading}>{loading?t('loading'):t('login')}</button></form><p><Link to="/register">{t('createPatientAccount')}</Link></p></AuthShell>;
+  const{t}=useTranslation();
+  const{login}=useAuth();
+  const navigate=useNavigate();
+  const location=useLocation();
+
+  const[form,setForm]=useState({username:'',password:''});
+  const[error,setError]=useState('');
+  const[loading,setLoading]=useState(false);
+  const[showPassword,setShowPassword]=useState(false);
+  const[pendingVerification,setPendingVerification]=useState(false);
+  const[challenge,setChallenge]=useState(null);
+  const[code,setCode]=useState('');
+  const[message,setMessage]=useState('');
+
+  async function submit(event){
+    event.preventDefault();
+    setLoading(true);
+    setError('');
+    setMessage('');
+    setPendingVerification(false);
+
+    try{
+      const data=await apiRequest('/api/auth/login',{
+        method:'POST',
+        body:JSON.stringify(form)
+      });
+
+      if(data.user.role!=='PATIENT'){
+        throw new Error(t('patientAccountRequired'));
+      }
+
+      login(data.user,data.token);
+      navigate('/patient');
+    }catch(requestError){
+      if(requestError.code==='ACCOUNT_PENDING_VERIFICATION'){
+        setPendingVerification(true);
+        setError('حسابك لم يتم التحقق منه بعد.');
+      }else{
+        setError(requestError.message);
+      }
+    }finally{
+      setLoading(false);
+    }
+  }
+
+  async function resendVerification(){
+    setLoading(true);
+    setError('');
+    setMessage('');
+
+    try{
+      const data=await apiRequest(
+        '/api/patient-auth/verification/resend-by-identity',
+        {
+          method:'POST',
+          body:JSON.stringify({
+            identity:form.username,
+            password:form.password
+          })
+        }
+      );
+
+      setChallenge(data);
+      setCode('');
+      setMessage('تم إرسال رمز تحقق جديد إلى بريدك الإلكتروني.');
+    }catch(requestError){
+      setError(requestError.message);
+    }finally{
+      setLoading(false);
+    }
+  }
+
+  async function verify(event){
+    event.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try{
+      await apiRequest('/api/patient-auth/verify',{
+        method:'POST',
+        body:JSON.stringify({
+          challengeId:challenge.challengeId,
+          code
+        })
+      });
+
+      setPendingVerification(false);
+      setChallenge(null);
+      setCode('');
+      setMessage('تم التحقق من الحساب بنجاح. يمكنك تسجيل الدخول الآن.');
+    }catch(requestError){
+      setError(requestError.message);
+    }finally{
+      setLoading(false);
+    }
+  }
+
+  if(challenge){
+    return (
+      <AuthShell title={t('patientLogin')}>
+        <form onSubmit={verify}>
+          <p>أدخل رمز التحقق المرسل إلى بريدك الإلكتروني.</p>
+
+          {message&&
+            <div className="patient-alert success">
+              {message}
+            </div>
+          }
+
+          <Field
+            label={t('verificationCode')}
+            value={code}
+            onChange={setCode}
+          />
+
+          {error&&<Alert>{error}</Alert>}
+
+          <button
+            className="patient-button"
+            style={{width:'100%'}}
+            disabled={loading}
+          >
+            {loading?t('loading'):t('verify')}
+          </button>
+        </form>
+      </AuthShell>
+    );
+  }
+
+  return (
+    <AuthShell title={t('patientLogin')}>
+      {location.state?.message&&
+        <div className="patient-alert success">
+          {location.state.message}
+        </div>
+      }
+
+      {message&&
+        <div className="patient-alert success">
+          {message}
+        </div>
+      }
+
+      <form onSubmit={submit}>
+        <Field
+          label={t('phoneOrEmail')}
+          value={form.username}
+          onChange={username=>setForm({...form,username})}
+          autoComplete="username"
+        />
+
+        <label className="patient-field">
+          {t('password')}
+          <span style={{position:'relative'}}>
+            <input
+              style={{width:'100%',paddingInlineEnd:'3rem'}}
+              type={showPassword?'text':'password'}
+              value={form.password}
+              onChange={event=>setForm({...form,password:event.target.value})}
+              autoComplete="current-password"
+              required
+            />
+
+            <button
+              type="button"
+              aria-label={showPassword?'Hide password':'Show password'}
+              onClick={()=>setShowPassword(!showPassword)}
+              style={{
+                position:'absolute',
+                insetInlineEnd:'.45rem',
+                top:'.35rem',
+                width:'38px',
+                height:'38px',
+                border:0,
+                background:'transparent',
+                color:'var(--color-text-secondary)',
+                cursor:'pointer'
+              }}
+            >
+              {showPassword?<EyeOff size={19}/>:<Eye size={19}/>}
+            </button>
+          </span>
+        </label>
+
+        {error&&<Alert>{error}</Alert>}
+
+        {pendingVerification&&
+          <button
+            type="button"
+            className="patient-button"
+            style={{width:'100%',marginBottom:'.75rem'}}
+            disabled={loading}
+            onClick={resendVerification}
+          >
+            إعادة إرسال رمز التحقق
+          </button>
+        }
+
+        <button
+          className="patient-button"
+          style={{width:'100%'}}
+          disabled={loading}
+        >
+          {loading?t('loading'):t('login')}
+        </button>
+      </form>
+
+      <p>
+        <Link to="/register">
+          {t('createPatientAccount')}
+        </Link>
+      </p>
+    </AuthShell>
+  );
 }
 
 export function PatientRegister(){

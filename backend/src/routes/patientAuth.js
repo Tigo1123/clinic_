@@ -173,6 +173,124 @@ router.post(
     }
   }
 );
+
+router.post(
+  '/verification/resend-by-identity',
+  verificationLimiter,
+  validate(z.object({
+    identity: z.string().trim().min(3).max(254),
+    password: z.string().min(1).max(200)
+  })),
+  async (req, res, next) => {
+    try {
+      const identity = req.body.identity.trim();
+      const normalizedEmail = identity.includes('@')
+        ? normalizeEmail(identity)
+        : null;
+      const normalizedPhone = normalizePhone(identity);
+
+      const user = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { username: identity },
+            ...(normalizedEmail
+              ? [
+                  { email: normalizedEmail },
+                  { username: normalizedEmail }
+                ]
+              : []),
+            ...(normalizedPhone
+              ? [{ phoneNormalized: normalizedPhone }]
+              : [])
+          ]
+        }
+      });
+
+      if (!user) {
+        return sendError(
+          res,
+          401,
+          'INVALID_CREDENTIALS',
+          'Invalid username or password.'
+        );
+      }
+
+      const passwordValid = await bcrypt.compare(
+        req.body.password,
+        user.passwordHash
+      );
+
+      if (!passwordValid) {
+        return sendError(
+          res,
+          401,
+          'INVALID_CREDENTIALS',
+          'Invalid username or password.'
+        );
+      }
+
+      if (user.role !== ROLES.PATIENT) {
+        return sendError(
+          res,
+          403,
+          'PATIENT_ACCOUNT_REQUIRED',
+          'A patient account is required.'
+        );
+      }
+
+      if (user.status !== 'PENDING_VERIFICATION') {
+        return sendError(
+          res,
+          409,
+          'ACCOUNT_NOT_PENDING_VERIFICATION',
+          'This account does not require verification.'
+        );
+      }
+
+      const verificationType =
+        process.env.VERIFICATION_PROVIDER === 'email'
+          ? 'EMAIL'
+          : 'PHONE';
+
+      const target =
+        verificationType === 'EMAIL'
+          ? user.email
+          : user.phoneNormalized;
+
+      if (!target) {
+        return sendError(
+          res,
+          422,
+          'VERIFICATION_TARGET_MISSING',
+          'Verification target is unavailable.'
+        );
+      }
+
+      const { challenge, developmentCode } =
+        await createVerificationChallenge(
+          user,
+          verificationType,
+          target
+        );
+
+      await audit(
+        user.id,
+        'PATIENT_VERIFICATION_RESENT',
+        'Patient requested a new account verification code.',
+        req
+      );
+
+      return res.status(201).json({
+        state: 'VERIFICATION_REQUIRED',
+        challengeId: challenge.id,
+        ...(developmentCode ? { developmentCode } : {})
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 router.post('/verification/request', verificationLimiter, authenticate, allowRoles(ROLES.PATIENT), validate(z.object({ type: z.enum(['PHONE', 'EMAIL']) })), async (req, res, next) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });

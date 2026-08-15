@@ -52,9 +52,32 @@ router.post('/login', loginLimiter, validate(z.object({
     }
 
     // 2. Check account status
+    if (user.status === 'PENDING_VERIFICATION') {
+      logger.security('auth.login_blocked', {
+        requestId: req.id,
+        userId: user.id,
+        reason: 'pending_verification',
+        ip: req.ip
+      });
+
+      return res.status(403).json({
+        error: 'Your account is not verified yet.',
+        code: 'ACCOUNT_PENDING_VERIFICATION'
+      });
+    }
+
     if (user.status !== 'ACTIVE') {
-      logger.security('auth.login_blocked', { requestId: req.id, userId: user.id, reason: 'inactive', ip: req.ip });
-      return res.status(403).json({ error: 'Your account is deactivated. Contact Admin.' });
+      logger.security('auth.login_blocked', {
+        requestId: req.id,
+        userId: user.id,
+        reason: 'inactive',
+        ip: req.ip
+      });
+
+      return res.status(403).json({
+        error: 'Your account is deactivated. Contact Admin.',
+        code: 'ACCOUNT_INACTIVE'
+      });
     }
 
     // 3. Verify password

@@ -13,7 +13,27 @@ export async function apiRequest(path, options = {}) {
   const payload = response.status === 204 ? null : await response.json().catch(() => null);
   if (!response.ok) {
     const error = payload?.error;
-    throw new ApiClientError(response.status, typeof error === 'object' ? error.code : 'REQUEST_FAILED', typeof error === 'object' ? error.message : error || 'Request failed.', error?.details);
+
+    const code =
+      payload?.code ||
+      (typeof error === 'object' ? error.code : 'REQUEST_FAILED');
+
+    const message =
+      typeof error === 'object'
+        ? error.message
+        : error || 'Request failed.';
+
+    const details =
+      typeof error === 'object'
+        ? error.details
+        : payload?.details;
+
+    throw new ApiClientError(
+      response.status,
+      code,
+      message,
+      details
+    );
   }
   return payload;
 }
