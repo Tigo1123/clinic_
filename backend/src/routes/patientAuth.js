@@ -33,7 +33,7 @@ async function matchingPatients(phoneNormalized, dateOfBirth) {
 router.post('/register', registrationLimiter, validate(z.object({
   fullName: z.string().trim().min(2).max(150), fullNameAr: z.string().trim().min(2).max(150).optional(),
   fullNameEn: z.string().trim().min(2).max(150).optional(), phone: z.string().trim().min(7).max(30),
-  email: z.string().trim().email().max(254).optional(), dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  email: z.string().trim().email().max(254), dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   gender: z.enum(['MALE', 'FEMALE']), password: passwordSchema, addressStateId: z.coerce.number().int().min(1).max(18).optional()
 })), async (req, res, next) => {
   let createdUserId;
