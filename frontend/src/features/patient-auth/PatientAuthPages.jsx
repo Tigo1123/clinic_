@@ -224,9 +224,25 @@ export function PatientLogin(){
 
 export function PatientRegister(){
   const{t}=useTranslation();const navigate=useNavigate();
-  const[form,setForm]=useState({fullName:'',phone:'',email:'',dateOfBirth:'',gender:'MALE',password:'',confirmPassword:''});const[challenge,setChallenge]=useState(null);const[code,setCode]=useState('');const[error,setError]=useState('');const[fieldErrors,setFieldErrors]=useState({});const[loading,setLoading]=useState(false);
+  const[form,setForm]=useState({
+    fullName:'',
+    countryCode:'+249',
+    phone:'',
+    email:'',
+    dateOfBirth:'',
+    gender:'MALE',
+    password:'',
+    confirmPassword:''
+  });const[challenge,setChallenge]=useState(null);const[code,setCode]=useState('');const[error,setError]=useState('');const[fieldErrors,setFieldErrors]=useState({});const[loading,setLoading]=useState(false);
   const checks=[['length',form.password.length>=10,t('passwordMin')],['upper',/[A-Z]/.test(form.password),t('passwordUpper')],['lower',/[a-z]/.test(form.password),t('passwordLower')],['number',/\d/.test(form.password),t('passwordNumber')]];
-  async function register(event){event.preventDefault();const clientErrors={};if(checks.some(([,valid])=>!valid))clientErrors.password=t('passwordRequirementsMissing');if(form.password!==form.confirmPassword)clientErrors.confirmPassword=t('passwordMismatch');if(Object.keys(clientErrors).length){setFieldErrors(clientErrors);return}setLoading(true);setError('');setFieldErrors({});try{const payload={...form};delete payload.confirmPassword;const data=await apiRequest('/api/patient-auth/register',{method:'POST',body:JSON.stringify(payload)});setChallenge(data)}catch(requestError){const details=Array.isArray(requestError.details)?requestError.details:[];if(details.length){const fields={};for(const detail of details)fields[detail.field]=friendlyValidation(detail.field,detail.message,t);setFieldErrors(fields)}else setError(requestError.message)}finally{setLoading(false)}}
+  async function register(event){event.preventDefault();const clientErrors={};if(checks.some(([,valid])=>!valid))clientErrors.password=t('passwordRequirementsMissing');if(form.password!==form.confirmPassword)clientErrors.confirmPassword=t('passwordMismatch');if(Object.keys(clientErrors).length){setFieldErrors(clientErrors);return}setLoading(true);setError('');setFieldErrors({});try{const payload={...form};
+delete payload.confirmPassword;
+
+const localPhone = payload.phone.trim().replace(/^0+/, '');
+payload.phone = `${payload.countryCode}${localPhone}`;
+delete payload.countryCode;
+
+const data=await apiRequest('/api/patient-auth/register',{method:'POST',body:JSON.stringify(payload)});setChallenge(data)}catch(requestError){const details=Array.isArray(requestError.details)?requestError.details:[];if(details.length){const fields={};for(const detail of details)fields[detail.field]=friendlyValidation(detail.field,detail.message,t);setFieldErrors(fields)}else setError(requestError.message)}finally{setLoading(false)}}
   async function verify(event){event.preventDefault();setLoading(true);setError('');try{const data=await apiRequest('/api/patient-auth/verify',{method:'POST',body:JSON.stringify({challengeId:challenge.challengeId,code})});navigate('/patient-login',{state:{message:data.state==='MATCH_REQUIRES_VERIFICATION'?t('claimAfterLogin'):t('accountVerified')}})}catch(requestError){setError(requestError.message)}finally{setLoading(false)}}
 async function resendVerification(){
   setLoading(true);
@@ -256,7 +272,36 @@ async function resendVerification(){
     setLoading(false);
   }
 }
-  return <AuthShell title={t('createPatientAccount')}>{!challenge?<form onSubmit={register}><Field label={t('fullName')} value={form.fullName} onChange={fullName=>setForm({...form,fullName})} error={fieldErrors.fullName}/><Field label={t('phone')} value={form.phone} onChange={phone=>setForm({...form,phone})} error={fieldErrors.phone}/><Field label={t('emailOptional')} type="email" value={form.email} onChange={email=>setForm({...form,email})} error={fieldErrors.email}/><Field label={t('dateOfBirth')} type="date" value={form.dateOfBirth} onChange={dateOfBirth=>setForm({...form,dateOfBirth})} error={fieldErrors.dateOfBirth}/><label className="patient-field">{t('gender')}<select value={form.gender} onChange={event=>setForm({...form,gender:event.target.value})}><option value="MALE">{t('male')}</option><option value="FEMALE">{t('female')}</option></select></label><Field label={t('password')} type="password" value={form.password} onChange={password=>setForm({...form,password})} error={fieldErrors.password}/><div className="password-requirements">{checks.map(([key,valid,label])=><span className={valid?'valid':''} key={key}><Check size={14}/>{label}</span>)}</div><Field label={t('confirmPassword')} type="password" value={form.confirmPassword} onChange={confirmPassword=>setForm({...form,confirmPassword})} error={fieldErrors.confirmPassword}/>{error&&<Alert>{error}</Alert>}<button className="patient-button" style={{width:'100%'}} disabled={loading}>{loading?t('loading'):t('createAccount')}</button></form>:<form onSubmit={verify}>
+  return <AuthShell title={t('createPatientAccount')}>{!challenge?<form onSubmit={register}><Field label={t('fullName')} value={form.fullName} onChange={fullName=>setForm({...form,fullName})} error={fieldErrors.fullName}/><label className="patient-field">
+  {t('phone')}
+  <div style={{display:'grid',gridTemplateColumns:'150px 1fr',gap:'.5rem'}}>
+    <select
+      value={form.countryCode}
+      onChange={event=>setForm({...form,countryCode:event.target.value})}
+    >
+      <option value="+249">🇸🇩 +249 السودان</option>
+      <option value="+250">🇷🇼 +250 رواندا</option>
+      <option value="+20">🇪🇬 +20 مصر</option>
+      <option value="+251">🇪🇹 +251 إثيوبيا</option>
+      <option value="+254">🇰🇪 +254 كينيا</option>
+      <option value="+256">🇺🇬 +256 أوغندا</option>
+      <option value="+255">🇹🇿 +255 تنزانيا</option>
+      <option value="+211">🇸🇸 +211 جنوب السودان</option>
+      <option value="+966">🇸🇦 +966 السعودية</option>
+      <option value="+971">🇦🇪 +971 الإمارات</option>
+    </select>
+
+    <input
+      type="tel"
+      value={form.phone}
+      onChange={event=>setForm({...form,phone:event.target.value})}
+      placeholder="مثال: 900224455"
+      required
+      aria-invalid={Boolean(fieldErrors.phone)}
+    />
+  </div>
+</label>
+{fieldErrors.phone&&<span className="field-error">{fieldErrors.phone}</span>}<Field label={t('emailOptional')} type="email" value={form.email} onChange={email=>setForm({...form,email})} error={fieldErrors.email}/><Field label={t('dateOfBirth')} type="date" value={form.dateOfBirth} onChange={dateOfBirth=>setForm({...form,dateOfBirth})} error={fieldErrors.dateOfBirth}/><label className="patient-field">{t('gender')}<select value={form.gender} onChange={event=>setForm({...form,gender:event.target.value})}><option value="MALE">{t('male')}</option><option value="FEMALE">{t('female')}</option></select></label><Field label={t('password')} type="password" value={form.password} onChange={password=>setForm({...form,password})} error={fieldErrors.password}/><div className="password-requirements">{checks.map(([key,valid,label])=><span className={valid?'valid':''} key={key}><Check size={14}/>{label}</span>)}</div><Field label={t('confirmPassword')} type="password" value={form.confirmPassword} onChange={confirmPassword=>setForm({...form,confirmPassword})} error={fieldErrors.confirmPassword}/>{error&&<Alert>{error}</Alert>}<button className="patient-button" style={{width:'100%'}} disabled={loading}>{loading?t('loading'):t('createAccount')}</button></form>:<form onSubmit={verify}>
   <p>{t('verificationCodePrompt')}</p>
 
   {challenge.developmentCode&&

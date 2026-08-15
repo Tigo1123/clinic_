@@ -7,7 +7,14 @@ export function normalizeEmail(value) {
 
 export function normalizePhone(value, defaultCountry = process.env.PHONE_DEFAULT_COUNTRY || 'SD') {
   if (!value) return null;
-  const parsed = parsePhoneNumberFromString(String(value).trim(), defaultCountry);
+
+  const input = String(value).trim();
+
+  const parsed = input.startsWith('+')
+    ? parsePhoneNumberFromString(input)
+    : parsePhoneNumberFromString(input, defaultCountry);
+
   if (!parsed?.isValid()) return null;
+
   return parsed.number;
 }
