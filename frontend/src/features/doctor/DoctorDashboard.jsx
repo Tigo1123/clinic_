@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Activity, Lock, MessageCircle, Printer, Shield, Sliders, Stethoscope, User } from 'lucide-react';
+import { Activity, Lock, MessageCircle, Printer, Sliders, Stethoscope, User } from 'lucide-react';
 import { PatientProfileModal, PostVisitSummaryModal } from '../clinical/ClinicalModals';
 import { getWhatsAppLink } from '../reception/clinicData';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
@@ -39,11 +39,6 @@ export default function DoctorDashboard({ user, lang, t }) {
   // Lab services selectors
   const [clinicalServices, setClinicalServices] = useState([]);
   const [orderedTests, setOrderedTests] = useState([]);
-
-  // Break-the-Glass States
-  const [showBypassModal, setShowBypassModal] = useState(false);
-  const [bypassJustification, setBypassJustification] = useState('');
-  const [bypassError, setBypassError] = useState('');
 
   // Messages
   const [successMsg, setSuccessMsg] = useState('');
@@ -143,34 +138,7 @@ export default function DoctorDashboard({ user, lang, t }) {
     }).then(() => fetchDoctorQueue());
   };
 
-  const handleBreakTheGlass = async () => {
-    setBypassError('');
-    if (bypassJustification.length < 20) {
-      setBypassError(lang === 'ar' ? 'الرجاء توفير شرح طارئ كافٍ (20 حرفاً على الأقل)' : 'Please provide sufficient justification (minimum 20 characters)');
-      return;
-    }
 
-    try {
-      const res = await fetchWithAuth('/api/records/bypass', {
-        method: 'POST',
-        body: JSON.stringify({
-          patientId: selectedPatient.id,
-          justification: bypassJustification
-        })
-      });
-      if (res.ok) {
-        setShowBypassModal(false);
-        setBypassJustification('');
-        fetchPatientHistory(selectedPatient.id);
-      } else {
-        const errData = await res.json();
-        setBypassError(errData.error || 'Bypass failed.');
-      }
-    } catch (err) {
-      console.error(err);
-      setBypassError('Bypass request failed.');
-    }
-  };
 
   const handleAddDrugToRx = () => {
     const parsedQuantity = Number(quantity);
@@ -304,12 +272,6 @@ export default function DoctorDashboard({ user, lang, t }) {
                 <p><strong>{lang === 'ar' ? 'تاريخ الميلاد:' : 'DOB:'}</strong> {selectedPatient.dateOfBirth}</p>
                 <p><strong>{lang === 'ar' ? 'الهاتف:' : 'Phone:'}</strong> {selectedPatient.phone}</p>
 
-                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                  <button className="btn btn-danger" style={{ width: '100%', fontSize: '0.8rem' }} onClick={() => setShowBypassModal(true)}>
-                    <Shield size={14} />
-                    {t('breakTheGlass')}
-                  </button>
-                </div>
               </div>
             )}
           </div>
@@ -690,41 +652,6 @@ export default function DoctorDashboard({ user, lang, t }) {
         </div>
       </div>
 
-      {/* Break-the-Glass warning Modal */}
-      {showBypassModal && (
-        <div className="modal-overlay">
-          <div className="modal-content-panel glass-panel" style={{ maxWidth: '450px' }}>
-            <h3 style={{ color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Shield size={24} />
-              {lang === 'ar' ? 'تحذير كسر حماية الخصوصية' : 'Bypass Privacy Alert'}
-            </h3>
-            {bypassError && <div className="badge badge-danger" style={{ padding: '0.5rem' }}>{bypassError}</div>}
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              {lang === 'ar'
-                ? 'تحذير: أنت على وشك تجاوز خصوصية المريض والولوج إلى السجل الكامل. سيتم تسجيل هذا الإجراء وإبلاغ الإدارة فوراً.'
-                : 'Warning: You are about to bypass patient privacy. This action will be logged and reported to the Administrator.'}
-            </p>
-            <div className="form-group">
-              <label className="form-label">{lang === 'ar' ? 'مبرر الحالة الطارئة (20 حرفاً كحد أدنى)' : 'Emergency Justification (Min 20 chars)'}</label>
-              <textarea
-                rows={3}
-                required
-                className="form-input"
-                value={bypassJustification}
-                onChange={(e) => setBypassJustification(e.target.value)}
-              />
-            </div>
-            <div style={{ display: 'flex', gap: '1rem' }}>
-              <button className="btn btn-secondary" onClick={() => setShowBypassModal(false)}>
-                {lang === 'ar' ? 'إلغاء' : 'Cancel'}
-              </button>
-              <button className="btn btn-danger" onClick={handleBreakTheGlass}>
-                {lang === 'ar' ? 'تأكيد الباي-باس' : 'Confirm Bypass'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {viewingProfilePatientId && (
         <PatientProfileModal
           patientId={viewingProfilePatientId}
