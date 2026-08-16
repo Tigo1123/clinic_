@@ -143,27 +143,720 @@ export function MedicalRecords(){
   );
 }
 function Collection({path,titleKey,render}){const{t}=useTranslation();const{data,error,loading}=useApi(path);return <State loading={loading} error={error}><h1>{t(titleKey)}</h1>{!data?.length?<Empty>{t('noRecords')}</Empty>:data.map(item=><article className="patient-card" key={item.id}>{render(item)}</article>)}</State>}
-export function Profile(){const{t}=useTranslation();const{data,error,loading,reload}=useApi('/api/patient/me');const[form,setForm]=useState(null),[message,setMessage]=useState('');const[saving,setSaving]=useState(false);useEffect(()=>{if(data)setForm({addressStateId:data.addressStateId,addressDetails:data.addressDetails||'',emergencyContact:data.emergencyContact||'',preferredLanguage:data.preferredLanguage})},[data]);async function save(e){e.preventDefault();setSaving(true);try{await apiRequest('/api/patient/me',{method:'PATCH',body:JSON.stringify(form)});setMessage(t('saved'));reload()}finally{setSaving(false)}}return <State loading={loading} error={error}>{form&&<><section className="patient-card"><h1>{t('profile')}</h1><h2>{data.fullNameEn}</h2><p>{data.phone}{data.email?` · ${data.email}`:''}</p><form onSubmit={save}><label className="patient-field">{t('addressState')}<select
-  value={form.addressStateId || ''}
-  onChange={e=>setForm({...form,addressStateId:Number(e.target.value)})}
->
-  <option value="">{t('selectState')}</option>
-  <option value="1">{t('stateKhartoum')}</option>
-  <option value="2">{t('stateGezira')}</option>
-  <option value="3">{t('stateRedSea')}</option>
-  <option value="4">{t('stateKassala')}</option>
-  <option value="5">{t('stateGedaref')}</option>
-  <option value="6">{t('stateSennar')}</option>
-  <option value="7">{t('stateBlueNile')}</option>
-  <option value="8">{t('stateWhiteNile')}</option>
-  <option value="9">{t('stateRiverNile')}</option>
-  <option value="10">{t('stateNorthern')}</option>
-  <option value="11">{t('stateWestKordofan')}</option>
-  <option value="12">{t('stateNorthKordofan')}</option>
-  <option value="13">{t('stateSouthKordofan')}</option>
-  <option value="14">{t('stateNorthDarfur')}</option>
-  <option value="15">{t('stateWestDarfur')}</option>
-  <option value="16">{t('stateSouthDarfur')}</option>
-  <option value="17">{t('stateEastDarfur')}</option>
-  <option value="18">{t('stateCentralDarfur')}</option>
-</select></label><label className="patient-field">{t('addressDetails')}<input value={form.addressDetails} onChange={e=>setForm({...form,addressDetails:e.target.value})}/></label><label className="patient-field">{t('emergencyContact')}<input value={form.emergencyContact} onChange={e=>setForm({...form,emergencyContact:e.target.value})}/></label>{message&&<div className="patient-alert success">{message}</div>}<button className="patient-button" disabled={saving}>{saving?t('loading'):t('save')}</button></form></section><section className="patient-card"><h2>{t('accountSecurity')}</h2><p>{t('phone')}: <StatusBadge status={data.phoneVerified?'CONFIRMED':'PENDING'}/></p>{data.email&&<p>{t('emailOptional')}: <StatusBadge status={data.emailVerified?'CONFIRMED':'PENDING'}/></p>}</section></>}</State>}
+export function Profile() {
+  const { t, i18n } = useTranslation();
+  const {
+    data,
+    error,
+    loading,
+    reload
+  } = useApi('/api/patient/me');
+
+  const lang = i18n.language === 'ar' ? 'ar' : 'en';
+
+  const [form, setForm] = useState(null);
+  const [message, setMessage] = useState('');
+  const [saveError, setSaveError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const [emailChangeOpen, setEmailChangeOpen] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
+  const [emailChallengeId, setEmailChallengeId] = useState('');
+  const [emailCode, setEmailCode] = useState('');
+  const [emailChanging, setEmailChanging] = useState(false);
+  const [emailChangeError, setEmailChangeError] = useState('');
+  const [emailChangeMessage, setEmailChangeMessage] = useState('');
+
+  const [phoneChangeOpen, setPhoneChangeOpen] = useState(false);
+  const [newPhone, setNewPhone] = useState('');
+  const [phoneChallengeId, setPhoneChallengeId] = useState('');
+  const [phoneCode, setPhoneCode] = useState('');
+  const [phoneChanging, setPhoneChanging] = useState(false);
+  const [phoneChangeError, setPhoneChangeError] = useState('');
+  const [phoneChangeMessage, setPhoneChangeMessage] = useState('');
+
+  useEffect(() => {
+    if (!data) return;
+
+    setForm({
+      addressStateId: data.addressStateId,
+      addressDetails: data.addressDetails || '',
+      emergencyContact: data.emergencyContact || '',
+      bloodType: data.bloodType || '',
+      preferredLanguage: data.preferredLanguage
+    });
+  }, [data]);
+
+  async function save(event) {
+    event.preventDefault();
+
+    if (!form || saving) return;
+
+    setSaving(true);
+    setMessage('');
+    setSaveError('');
+
+    try {
+      await apiRequest('/api/patient/me', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          addressStateId: form.addressStateId,
+          addressDetails: form.addressDetails || null,
+          emergencyContact: form.emergencyContact,
+          bloodType: form.bloodType || null,
+          preferredLanguage: form.preferredLanguage
+        })
+      });
+
+      setMessage(
+        lang === 'ar'
+          ? 'تم حفظ التغييرات بنجاح.'
+          : 'Profile changes saved successfully.'
+      );
+
+      await reload();
+    } catch (requestError) {
+      console.error('Patient profile save error:', requestError);
+
+      setSaveError(
+        requestError?.message ||
+          (
+            lang === 'ar'
+              ? 'تعذر حفظ التغييرات. يرجى المحاولة مرة أخرى.'
+              : 'Unable to save profile changes. Please try again.'
+          )
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function requestEmailChange(event) {
+    event.preventDefault();
+
+    setEmailChanging(true);
+    setEmailChangeError('');
+    setEmailChangeMessage('');
+
+    try {
+      const result = await apiRequest(
+        '/api/patient/me/email-change/request',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            email: newEmail.trim()
+          })
+        }
+      );
+
+      setEmailChallengeId(result.challengeId);
+
+      setEmailChangeMessage(
+        lang === 'ar'
+          ? 'تم إرسال رمز تحقق إلى البريد الإلكتروني الجديد.'
+          : 'A verification code was sent to the new email address.'
+      );
+    } catch (requestError) {
+      setEmailChangeError(
+        requestError?.message ||
+          (
+            lang === 'ar'
+              ? 'تعذر إرسال رمز التحقق.'
+              : 'Unable to send verification code.'
+          )
+      );
+    } finally {
+      setEmailChanging(false);
+    }
+  }
+
+  async function verifyEmailChange(event) {
+    event.preventDefault();
+
+    setEmailChanging(true);
+    setEmailChangeError('');
+
+    try {
+      await apiRequest(
+        '/api/patient/me/email-change/verify',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            challengeId: emailChallengeId,
+            code: emailCode
+          })
+        }
+      );
+
+      setEmailChangeMessage(
+        lang === 'ar'
+          ? 'تم تغيير البريد الإلكتروني والتحقق منه بنجاح.'
+          : 'Email address changed and verified successfully.'
+      );
+
+      setEmailChangeOpen(false);
+      setEmailChallengeId('');
+      setEmailCode('');
+      setNewEmail('');
+
+      await reload();
+    } catch (requestError) {
+      setEmailChangeError(
+        requestError?.message ||
+          (
+            lang === 'ar'
+              ? 'تعذر التحقق من رمز البريد الإلكتروني.'
+              : 'Unable to verify the email change code.'
+          )
+      );
+    } finally {
+      setEmailChanging(false);
+    }
+  }
+
+  async function requestPhoneChange(event) {
+    event.preventDefault();
+
+    setPhoneChanging(true);
+    setPhoneChangeError('');
+    setPhoneChangeMessage('');
+
+    try {
+      const result = await apiRequest(
+        '/api/patient/me/phone-change/request',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            phone: newPhone.trim()
+          })
+        }
+      );
+
+      setPhoneChallengeId(result.challengeId);
+
+      setPhoneChangeMessage(
+        lang === 'ar'
+          ? `تم إرسال رمز تأكيد إلى بريدك الإلكتروني الموثق${result.deliveredTo ? ` (${result.deliveredTo})` : ''}.`
+          : `An authorization code was sent to your verified email${result.deliveredTo ? ` (${result.deliveredTo})` : ''}.`
+      );
+    } catch (requestError) {
+      setPhoneChangeError(
+        requestError?.message ||
+          (
+            lang === 'ar'
+              ? 'تعذر بدء عملية تغيير رقم الهاتف.'
+              : 'Unable to start the phone number change.'
+          )
+      );
+    } finally {
+      setPhoneChanging(false);
+    }
+  }
+
+  async function verifyPhoneChange(event) {
+    event.preventDefault();
+
+    setPhoneChanging(true);
+    setPhoneChangeError('');
+
+    try {
+      await apiRequest(
+        '/api/patient/me/phone-change/verify',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            challengeId: phoneChallengeId,
+            code: phoneCode
+          })
+        }
+      );
+
+      setPhoneChangeMessage(
+        lang === 'ar'
+          ? 'تم تغيير رقم الهاتف. سيظل الرقم غير موثق حتى يتم التحقق منه عبر SMS.'
+          : 'Phone number changed. It will remain unverified until SMS verification is available.'
+      );
+
+      setPhoneChangeOpen(false);
+      setPhoneChallengeId('');
+      setPhoneCode('');
+      setNewPhone('');
+
+      await reload();
+    } catch (requestError) {
+      setPhoneChangeError(
+        requestError?.message ||
+          (
+            lang === 'ar'
+              ? 'تعذر التحقق من رمز تغيير رقم الهاتف.'
+              : 'Unable to verify the phone change code.'
+          )
+      );
+    } finally {
+      setPhoneChanging(false);
+    }
+  }
+
+  return (
+    <State
+      loading={loading}
+      error={error}
+    >
+      {form && (
+        <>
+          <section className="patient-card">
+            <h1>{t('profile')}</h1>
+
+            <h2>
+              {lang === 'ar'
+                ? data.fullNameAr || data.fullNameEn
+                : data.fullNameEn || data.fullNameAr}
+            </h2>
+
+            <div
+              style={{
+                display: 'grid',
+                gap: '.35rem',
+                marginBottom: '1.25rem'
+              }}
+            >
+              <p style={{ margin: 0 }}>
+                <strong>
+                  {lang === 'ar'
+                    ? 'رقم الهاتف:'
+                    : 'Phone:'}
+                </strong>{' '}
+                {data.phone || (
+                  lang === 'ar'
+                    ? 'غير متوفر'
+                    : 'Not available'
+                )}
+              </p>
+
+              <p style={{ margin: 0 }}>
+                <strong>
+                  {lang === 'ar'
+                    ? 'البريد الإلكتروني:'
+                    : 'Email:'}
+                </strong>{' '}
+                {data.email || (
+                  lang === 'ar'
+                    ? 'غير متوفر'
+                    : 'Not available'
+                )}
+              </p>
+            </div>
+
+            <form onSubmit={save}>
+              <label className="patient-field">
+                {t('addressState')}
+
+                <select
+                  value={form.addressStateId || ''}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      addressStateId: Number(event.target.value)
+                    })
+                  }
+                >
+                  <option value="">
+                    {t('selectState')}
+                  </option>
+
+                  <option value="1">{t('stateKhartoum')}</option>
+                  <option value="2">{t('stateGezira')}</option>
+                  <option value="3">{t('stateRedSea')}</option>
+                  <option value="4">{t('stateKassala')}</option>
+                  <option value="5">{t('stateGedaref')}</option>
+                  <option value="6">{t('stateSennar')}</option>
+                  <option value="7">{t('stateBlueNile')}</option>
+                  <option value="8">{t('stateWhiteNile')}</option>
+                  <option value="9">{t('stateRiverNile')}</option>
+                  <option value="10">{t('stateNorthern')}</option>
+                  <option value="11">{t('stateWestKordofan')}</option>
+                  <option value="12">{t('stateNorthKordofan')}</option>
+                  <option value="13">{t('stateSouthKordofan')}</option>
+                  <option value="14">{t('stateNorthDarfur')}</option>
+                  <option value="15">{t('stateWestDarfur')}</option>
+                  <option value="16">{t('stateSouthDarfur')}</option>
+                  <option value="17">{t('stateEastDarfur')}</option>
+                  <option value="18">{t('stateCentralDarfur')}</option>
+                </select>
+              </label>
+
+              <label className="patient-field">
+                {lang === 'ar'
+                  ? 'فصيلة الدم'
+                  : 'Blood Type'}
+
+                <select
+                  value={form.bloodType || ''}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      bloodType: event.target.value
+                    })
+                  }
+                >
+                  <option value="">
+                    {lang === 'ar'
+                      ? 'اختر فصيلة الدم'
+                      : 'Select blood type'}
+                  </option>
+
+                  <option value="A+">A+</option>
+                  <option value="A-">A-</option>
+                  <option value="B+">B+</option>
+                  <option value="B-">B-</option>
+                  <option value="AB+">AB+</option>
+                  <option value="AB-">AB-</option>
+                  <option value="O+">O+</option>
+                  <option value="O-">O-</option>
+                </select>
+              </label>
+
+              <label className="patient-field">
+                {t('addressDetails')}
+
+                <input
+                  value={form.addressDetails}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      addressDetails: event.target.value
+                    })
+                  }
+                />
+              </label>
+
+              <label className="patient-field">
+                {t('emergencyContact')}
+
+                <input
+                  value={form.emergencyContact}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      emergencyContact: event.target.value
+                    })
+                  }
+                />
+              </label>
+
+              {saveError && (
+                <div
+                  className="patient-alert error"
+                  role="alert"
+                >
+                  {saveError}
+                </div>
+              )}
+
+              {message && (
+                <div
+                  className="patient-alert success"
+                  role="status"
+                >
+                  {message}
+                </div>
+              )}
+
+              <button
+                className="patient-button"
+                disabled={saving}
+              >
+                {saving
+                  ? t('loading')
+                  : t('save')}
+              </button>
+            </form>
+          </section>
+
+          <section className="patient-card">
+            <h2>{t('accountSecurity')}</h2>
+
+            {/* Email */}
+            <div
+              style={{
+                padding: '1rem 0',
+                borderBottom: '1px solid var(--border-color)'
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: '1rem',
+                  flexWrap: 'wrap',
+                  alignItems: 'center'
+                }}
+              >
+                <div>
+                  <strong>
+                    {lang === 'ar'
+                      ? 'البريد الإلكتروني'
+                      : 'Email'}
+                  </strong>
+
+                  <p style={{ margin: '.3rem 0' }}>
+                    {data.email || '-'}
+                  </p>
+
+                  <StatusBadge
+                    status={
+                      data.emailVerified
+                        ? 'CONFIRMED'
+                        : 'PENDING'
+                    }
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  className="patient-button secondary"
+                  onClick={() => {
+                    setEmailChangeOpen((current) => !current);
+                    setEmailChangeError('');
+                    setEmailChangeMessage('');
+                  }}
+                >
+                  {lang === 'ar'
+                    ? 'تغيير البريد'
+                    : 'Change Email'}
+                </button>
+              </div>
+
+              {emailChangeOpen && (
+                <div style={{ marginTop: '1rem' }}>
+                  {!emailChallengeId ? (
+                    <form onSubmit={requestEmailChange}>
+                      <label className="patient-field">
+                        {lang === 'ar'
+                          ? 'البريد الإلكتروني الجديد'
+                          : 'New email address'}
+
+                        <input
+                          type="email"
+                          value={newEmail}
+                          onChange={(event) =>
+                            setNewEmail(event.target.value)
+                          }
+                          required
+                        />
+                      </label>
+
+                      <button
+                        className="patient-button"
+                        disabled={emailChanging || !newEmail.trim()}
+                      >
+                        {emailChanging
+                          ? t('loading')
+                          : (
+                              lang === 'ar'
+                                ? 'إرسال رمز التحقق'
+                                : 'Send Verification Code'
+                            )}
+                      </button>
+                    </form>
+                  ) : (
+                    <form onSubmit={verifyEmailChange}>
+                      <label className="patient-field">
+                        {lang === 'ar'
+                          ? 'رمز التحقق'
+                          : 'Verification code'}
+
+                        <input
+                          inputMode="numeric"
+                          maxLength={6}
+                          value={emailCode}
+                          onChange={(event) =>
+                            setEmailCode(
+                              event.target.value.replace(/\D/g, '')
+                            )
+                          }
+                          required
+                        />
+                      </label>
+
+                      <button
+                        className="patient-button"
+                        disabled={
+                          emailChanging ||
+                          emailCode.length !== 6
+                        }
+                      >
+                        {emailChanging
+                          ? t('loading')
+                          : (
+                              lang === 'ar'
+                                ? 'تأكيد البريد الجديد'
+                                : 'Confirm New Email'
+                            )}
+                      </button>
+                    </form>
+                  )}
+
+                  {emailChangeError && (
+                    <div className="patient-alert error">
+                      {emailChangeError}
+                    </div>
+                  )}
+
+                  {emailChangeMessage && (
+                    <div className="patient-alert success">
+                      {emailChangeMessage}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Phone */}
+            <div style={{ padding: '1rem 0' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: '1rem',
+                  flexWrap: 'wrap',
+                  alignItems: 'center'
+                }}
+              >
+                <div>
+                  <strong>
+                    {lang === 'ar'
+                      ? 'رقم الهاتف'
+                      : 'Phone'}
+                  </strong>
+
+                  <p style={{ margin: '.3rem 0' }}>
+                    {data.phone || '-'}
+                  </p>
+
+                  <StatusBadge
+                    status={
+                      data.phoneVerified
+                        ? 'CONFIRMED'
+                        : 'PENDING'
+                    }
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  className="patient-button secondary"
+                  onClick={() => {
+                    setPhoneChangeOpen((current) => !current);
+                    setPhoneChangeError('');
+                    setPhoneChangeMessage('');
+                  }}
+                >
+                  {lang === 'ar'
+                    ? 'تغيير رقم الهاتف'
+                    : 'Change Phone'}
+                </button>
+              </div>
+
+              {phoneChangeOpen && (
+                <div style={{ marginTop: '1rem' }}>
+                  {!phoneChallengeId ? (
+                    <form onSubmit={requestPhoneChange}>
+                      <label className="patient-field">
+                        {lang === 'ar'
+                          ? 'رقم الهاتف الجديد'
+                          : 'New phone number'}
+
+                        <input
+                          value={newPhone}
+                          onChange={(event) =>
+                            setNewPhone(event.target.value)
+                          }
+                          placeholder="+249..."
+                          required
+                        />
+                      </label>
+
+                      <button
+                        className="patient-button"
+                        disabled={phoneChanging || !newPhone.trim()}
+                      >
+                        {phoneChanging
+                          ? t('loading')
+                          : (
+                              lang === 'ar'
+                                ? 'إرسال رمز التأكيد'
+                                : 'Send Authorization Code'
+                            )}
+                      </button>
+                    </form>
+                  ) : (
+                    <form onSubmit={verifyPhoneChange}>
+                      <label className="patient-field">
+                        {lang === 'ar'
+                          ? 'رمز التأكيد المرسل إلى بريدك'
+                          : 'Authorization code sent to your email'}
+
+                        <input
+                          inputMode="numeric"
+                          maxLength={6}
+                          value={phoneCode}
+                          onChange={(event) =>
+                            setPhoneCode(
+                              event.target.value.replace(/\D/g, '')
+                            )
+                          }
+                          required
+                        />
+                      </label>
+
+                      <button
+                        className="patient-button"
+                        disabled={
+                          phoneChanging ||
+                          phoneCode.length !== 6
+                        }
+                      >
+                        {phoneChanging
+                          ? t('loading')
+                          : (
+                              lang === 'ar'
+                                ? 'تأكيد تغيير الرقم'
+                                : 'Confirm Phone Change'
+                            )}
+                      </button>
+                    </form>
+                  )}
+
+                  {phoneChangeError && (
+                    <div className="patient-alert error">
+                      {phoneChangeError}
+                    </div>
+                  )}
+
+                  {phoneChangeMessage && (
+                    <div className="patient-alert success">
+                      {phoneChangeMessage}
+                    </div>
+                  )}
+
+                  <p
+                    style={{
+                      marginTop: '.75rem',
+                      fontSize: '.85rem',
+                      opacity: .75
+                    }}
+                  >
+                    {lang === 'ar'
+                      ? 'يتم تأكيد طلب تغيير الرقم عبر بريدك الموثق حالياً. سيظل الرقم الجديد بحالة قيد التحقق حتى يتوفر التحقق عبر SMS.'
+                      : 'The change is authorized through your currently verified email. The new phone remains pending until SMS verification is available.'}
+                  </p>
+                </div>
+              )}
+            </div>
+          </section>
+        </>
+      )}
+    </State>
+  );
+}

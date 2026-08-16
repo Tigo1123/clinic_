@@ -64,6 +64,7 @@ model Patient {
   dateOfBirth              String // YYYY-MM-DD
   nationalId               String?            @unique
   phone                    String
+  bloodType                String?
   addressStateId           Int
   addressState             State              @relation(fields: [addressStateId], references: [id])
   addressDetails           String?

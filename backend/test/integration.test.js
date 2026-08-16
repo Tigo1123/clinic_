@@ -627,3 +627,266 @@ async function bookingPayload(date, time, phone) {
   assert.equal(otp.status, 200);
   return { doctorId: doctor1.id, appointmentDate: date, appointmentTime: time, fullNameAr: 'مريض حجز', fullNameEn: 'Booking Patient', gender: 'MALE', dateOfBirth: '1990-01-01', phone, addressStateId: 1, otpCode: otp.body.developmentCode };
 }
+
+
+test('patient can securely change verified email', async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const currentEmail = `profile-email-${suffix}@example.com`;
+  const newEmail = `profile-email-new-${suffix}@example.com`;
+  const phone = `+24991${String(Date.now()).slice(-7)}`;
+  const password = 'StrongPass123';
+
+  const register = await api
+    .post('/api/patient-auth/register')
+    .send({
+      fullName: 'Profile Email Test',
+      fullNameAr: 'اختبار تغيير البريد',
+      fullNameEn: 'Profile Email Test',
+      phone,
+      email: currentEmail,
+      dateOfBirth: '1994-04-15',
+      gender: 'MALE',
+      password,
+      addressStateId: 1
+    });
+
+  assert.equal(register.status, 201);
+  assert.ok(register.body.developmentCode);
+
+  const verify = await api
+    .post('/api/patient-auth/verify')
+    .send({
+      challengeId: register.body.challengeId,
+      code: register.body.developmentCode
+    });
+
+  assert.equal(verify.status, 200);
+
+  const login = await api
+    .post('/api/auth/login')
+    .send({
+      username: currentEmail,
+      password
+    });
+
+  assert.equal(login.status, 200);
+
+  const token = login.body.token;
+
+  const requestChange = await api
+    .post('/api/patient/me/email-change/request')
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+      email: newEmail
+    });
+
+  assert.equal(requestChange.status, 201);
+  assert.ok(requestChange.body.challengeId);
+  assert.ok(requestChange.body.developmentCode);
+
+  const confirmChange = await api
+    .post('/api/patient/me/email-change/verify')
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+      challengeId: requestChange.body.challengeId,
+      code: requestChange.body.developmentCode
+    });
+
+  assert.equal(confirmChange.status, 200);
+  assert.equal(confirmChange.body.email, newEmail);
+  assert.equal(confirmChange.body.emailVerified, true);
+
+  const user = await prisma.user.findUnique({
+    where: {
+      email: newEmail
+    }
+  });
+
+  assert.ok(user);
+  assert.ok(user.emailVerifiedAt);
+
+  const oldLogin = await api
+    .post('/api/auth/login')
+    .send({
+      username: currentEmail,
+      password
+    });
+
+  assert.equal(oldLogin.status, 401);
+
+  const newLogin = await api
+    .post('/api/auth/login')
+    .send({
+      username: newEmail,
+      password
+    });
+
+  assert.equal(newLogin.status, 200);
+});
+
+
+test('patient phone change updates account and patient but remains unverified', async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const email = `profile-phone-${suffix}@example.com`;
+  const phone = `+24992${String(Date.now()).slice(-7)}`;
+  const newPhone = `+24993${String(Date.now()).slice(-7)}`;
+  const password = 'StrongPass123';
+
+  const register = await api
+    .post('/api/patient-auth/register')
+    .send({
+      fullName: 'Profile Phone Test',
+      fullNameAr: 'اختبار تغيير الهاتف',
+      fullNameEn: 'Profile Phone Test',
+      phone,
+      email,
+      dateOfBirth: '1993-03-12',
+      gender: 'MALE',
+      password,
+      addressStateId: 1
+    });
+
+  assert.equal(register.status, 201);
+  assert.ok(register.body.developmentCode);
+
+  const verify = await api
+    .post('/api/patient-auth/verify')
+    .send({
+      challengeId: register.body.challengeId,
+      code: register.body.developmentCode
+    });
+
+  assert.equal(verify.status, 200);
+
+  const login = await api
+    .post('/api/auth/login')
+    .send({
+      username: email,
+      password
+    });
+
+  assert.equal(login.status, 200);
+
+  const token = login.body.token;
+  const userId = login.body.user.id;
+
+  // Phone change is authorized through the current verified email.
+  await prisma.user.update({
+    where: {
+      id: userId
+    },
+    data: {
+      emailVerifiedAt: new Date()
+    }
+  });
+
+  const requestChange = await api
+    .post('/api/patient/me/phone-change/request')
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+      phone: newPhone
+    });
+
+  assert.equal(requestChange.status, 201);
+  assert.ok(requestChange.body.challengeId);
+  assert.ok(requestChange.body.developmentCode);
+
+  const confirmChange = await api
+    .post('/api/patient/me/phone-change/verify')
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+      challengeId: requestChange.body.challengeId,
+      code: requestChange.body.developmentCode
+    });
+
+  assert.equal(confirmChange.status, 200);
+  assert.equal(confirmChange.body.phone, newPhone);
+  assert.equal(confirmChange.body.phoneVerified, false);
+
+  const updatedUser = await prisma.user.findUnique({
+    where: {
+      id: userId
+    }
+  });
+
+  const updatedPatient = await prisma.patient.findUnique({
+    where: {
+      userId
+    }
+  });
+
+  assert.equal(updatedUser.phoneNormalized, newPhone);
+  assert.equal(updatedUser.phoneVerifiedAt, null);
+  assert.equal(updatedPatient.phone, newPhone);
+});
+
+
+test('patient profile persists blood type', async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const email = `profile-blood-${suffix}@example.com`;
+  const phone = `+24994${String(Date.now()).slice(-7)}`;
+  const password = 'StrongPass123';
+
+  const register = await api
+    .post('/api/patient-auth/register')
+    .send({
+      fullName: 'Profile Blood Type Test',
+      fullNameAr: 'اختبار فصيلة الدم',
+      fullNameEn: 'Profile Blood Type Test',
+      phone,
+      email,
+      dateOfBirth: '1992-02-10',
+      gender: 'MALE',
+      password,
+      addressStateId: 1
+    });
+
+  assert.equal(register.status, 201);
+  assert.ok(register.body.developmentCode);
+
+  const verify = await api
+    .post('/api/patient-auth/verify')
+    .send({
+      challengeId: register.body.challengeId,
+      code: register.body.developmentCode
+    });
+
+  assert.equal(verify.status, 200);
+
+  const login = await api
+    .post('/api/auth/login')
+    .send({
+      username: email,
+      password
+    });
+
+  assert.equal(login.status, 200);
+
+  const token = login.body.token;
+  const userId = login.body.user.id;
+
+  const update = await api
+    .patch('/api/patient/me')
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+      bloodType: 'O+'
+    });
+
+  assert.equal(update.status, 200);
+
+  const profile = await api
+    .get('/api/patient/me')
+    .set('Authorization', `Bearer ${token}`);
+
+  assert.equal(profile.status, 200);
+  assert.equal(profile.body.bloodType, 'O+');
+
+  const patient = await prisma.patient.findUnique({
+    where: {
+      userId
+    }
+  });
+
+  assert.ok(patient);
+  assert.equal(patient.bloodType, 'O+');
+});
