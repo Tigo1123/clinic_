@@ -29,11 +29,16 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
       setProfile(data);
     } catch (err) {
       console.error('Error fetching patient profile:', err);
-      setError(err.message || 'Failed to load patient profile');
+      setError(
+        err.message ||
+          (lang === 'ar'
+            ? 'تعذر تحميل ملف المريض.'
+            : 'Failed to load patient profile.')
+      );
     } finally {
       setLoading(false);
     }
-  }, [patientId]);
+  }, [patientId, lang]);
 
   useEffect(() => {
     loadProfile();
@@ -96,7 +101,16 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
                   </div>
                   <div>
                     <span style={{ opacity: 0.75 }}>{lang === 'ar' ? 'الجنس / تاريخ الميلاد:' : 'Gender / DOB:'}</span>{' '}
-                    <strong>{profile.gender} ({profile.dateOfBirth ? new Date(profile.dateOfBirth).toLocaleDateString() : 'N/A'})</strong>
+                    <strong>
+      {profile.gender}{' '}
+      (
+      {profile.dateOfBirth
+        ? new Date(profile.dateOfBirth).toLocaleDateString(
+            lang === 'ar' ? 'ar' : 'en'
+          )
+        : (lang === 'ar' ? 'غير متوفر' : 'N/A')}
+      )
+    </strong>
                   </div>
                   <div>
                     <span style={{ opacity: 0.75 }}>{lang === 'ar' ? 'فصيلة الدم:' : 'Blood Type:'}</span>{' '}
@@ -174,7 +188,9 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
                         <div>
                           <div style={{ fontWeight: 'bold', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <Calendar size={14} style={{ opacity: 0.7 }} />
-                            {new Date(visit.visitDate).toLocaleDateString()}
+                            {new Date(visit.visitDate).toLocaleDateString(
+      lang === 'ar' ? 'ar' : 'en'
+    )}
                             <span style={{ fontSize: '0.8rem', opacity: 0.6, fontWeight: 'normal' }}>
                               ({new Date(visit.visitDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
                             </span>
@@ -251,7 +267,14 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang }) {
       if (!res.ok) {
         if (contentType.includes('application/json')) {
           const errData = await res.json();
-          throw new Error(errData.error || `HTTP ${res.status}: Failed to retrieve summary`);
+          const message =
+            typeof errData.error === 'object'
+              ? errData.error?.message
+              : errData.error;
+
+          throw new Error(
+            message || `HTTP ${res.status}: Failed to retrieve summary`
+          );
         } else {
           const htmlText = await res.text();
           throw new Error(`Server returned non-JSON error (${res.status}): ${htmlText.substring(0, 100)}...`);
@@ -290,7 +313,12 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang }) {
       if (!res.ok) {
         if (contentType.includes('application/json')) {
           const errData = await res.json();
-          setEmailMsg(errData.error || 'Failed to send email.');
+          setEmailMsg(
+          errData.error ||
+            (lang === 'ar'
+              ? 'تعذر إرسال البريد الإلكتروني.'
+              : 'Failed to send email.')
+        );
         } else {
           setEmailMsg(`Server returned status ${res.status}`);
         }
@@ -354,7 +382,9 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang }) {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', fontSize: '0.85rem', marginBottom: '1rem' }}>
             <div><strong>{lang === 'ar' ? 'اسم المريض:' : 'Patient Name:'}</strong> {lang === 'ar' ? summary.patient.fullNameAr : summary.patient.fullNameEn}</div>
-            <div><strong>{lang === 'ar' ? 'تاريخ الزيارة:' : 'Visit Date:'}</strong> {new Date(summary.visitDate).toLocaleDateString()}</div>
+            <div><strong>{lang === 'ar' ? 'تاريخ الزيارة:' : 'Visit Date:'}</strong> {new Date(summary.visitDate).toLocaleDateString(
+      lang === 'ar' ? 'ar' : 'en'
+    )}</div>
             <div><strong>{lang === 'ar' ? 'الطبيب المعالج:' : 'Attending Doctor:'}</strong> {lang === 'ar' ? summary.doctor.fullNameAr : summary.doctor.fullNameEn}</div>
             <div><strong>{lang === 'ar' ? 'التخصص:' : 'Specialty:'}</strong> {lang === 'ar' ? summary.doctor.specialtyAr : summary.doctor.specialtyEn}</div>
           </div>
@@ -375,6 +405,77 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang }) {
             <p style={{ margin: '0 0 0.4rem 0' }}><strong>{lang === 'ar' ? 'التشخيص الطبي:' : 'Diagnosis:'}</strong> {summary.diagnosis}</p>
             <p style={{ margin: 0 }}><strong>{lang === 'ar' ? 'العلاج والخطة:' : 'Treatment Plan:'}</strong> {summary.treatment}</p>
           </div>
+
+          {/* Laboratory Results */}
+          {summary.labOrders && summary.labOrders.length > 0 && (
+            <div style={{ marginBottom: '1rem' }}>
+              <h4
+                style={{
+                  fontSize: '0.9rem',
+                  color: 'var(--primary)',
+                  marginBottom: '0.4rem'
+                }}
+              >
+                {lang === 'ar'
+                  ? 'نتائج الفحوصات المخبرية'
+                  : 'Laboratory Results'}
+              </h4>
+
+              <table className="staff-table" style={{ fontSize: '0.8rem' }}>
+                <thead>
+                  <tr>
+                    <th>{lang === 'ar' ? 'الفحص' : 'Test'}</th>
+                    <th>{lang === 'ar' ? 'النتيجة' : 'Result'}</th>
+                    <th>{lang === 'ar' ? 'المجال المرجعي' : 'Reference Range'}</th>
+                    <th>{lang === 'ar' ? 'الحالة' : 'Status'}</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {summary.labOrders.map((lab, idx) => {
+                    const hasMin = lab.referenceRangeMin !== '';
+                    const hasMax = lab.referenceRangeMax !== '';
+
+                    let referenceRange = '—';
+
+                    if (hasMin && hasMax) {
+                      referenceRange = `${lab.referenceRangeMin} - ${lab.referenceRangeMax}`;
+                    } else if (hasMin) {
+                      referenceRange = `≥ ${lab.referenceRangeMin}`;
+                    } else if (hasMax) {
+                      referenceRange = `≤ ${lab.referenceRangeMax}`;
+                    }
+
+                    return (
+                      <tr key={`${lab.serviceNameEn || lab.serviceNameAr}-${idx}`}>
+                        <td>
+                          {lang === 'ar'
+                            ? lab.serviceNameAr
+                            : lab.serviceNameEn}
+                        </td>
+
+                        <td>{lab.resultValue || '—'}</td>
+
+                        <td>{referenceRange}</td>
+
+                        <td>
+                          {lab.isOutOfRange ? (
+                            <span className="badge badge-danger">
+                              {lang === 'ar' ? 'غير طبيعي' : 'Abnormal'}
+                            </span>
+                          ) : (
+                            <span className="badge badge-success">
+                              {lang === 'ar' ? 'طبيعي / غير محدد' : 'Normal / Not flagged'}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Prescriptions */}
           {summary.prescriptions && summary.prescriptions.length > 0 && (

@@ -45,6 +45,8 @@ export default function DoctorDashboard({ user, lang, t }) {
   // Lab services selectors
   const [clinicalServices, setClinicalServices] = useState([]);
   const [orderedTests, setOrderedTests] = useState([]);
+  const [customTestName, setCustomTestName] = useState('');
+  const [customTests, setCustomTests] = useState([]);
 
   // Messages
   const [successMsg, setSuccessMsg] = useState('');
@@ -60,7 +62,47 @@ export default function DoctorDashboard({ user, lang, t }) {
   ];
 
   const quickDosagePresets = ["1x3 daily", "1x2 daily", "1 daily", "500mg 1x3"];
-  const quickDurationPresets = ["3 Days", "5 Days", "7 Days", "10 Days"];
+  const quickDurationPresets = [
+    { value: '3 Days', ar: '3 أيام', en: '3 Days' },
+    { value: '5 Days', ar: '5 أيام', en: '5 Days' },
+    { value: '7 Days', ar: '7 أيام', en: '7 Days' },
+    { value: '10 Days', ar: '10 أيام', en: '10 Days' }
+  ];
+
+  const appointmentStatusLabels = {
+    SCHEDULED: { ar: 'مجدول', en: 'Scheduled' },
+    CONFIRMED: { ar: 'مؤكد', en: 'Confirmed' },
+    CHECKED_IN: { ar: 'تم تسجيل الوصول', en: 'Checked In' },
+    IN_CONSULTATION: { ar: 'قيد الكشف', en: 'In Consultation' },
+    WAITING_LAB: { ar: 'بانتظار المختبر', en: 'Waiting for Lab' },
+    COMPLETED: { ar: 'مكتمل', en: 'Completed' },
+    CANCELLED: { ar: 'ملغي', en: 'Cancelled' },
+    NO_SHOW: { ar: 'لم يحضر', en: 'No Show' }
+  };
+
+  const getAppointmentStatusLabel = (status) => {
+    const labels = appointmentStatusLabels[status];
+
+    if (!labels) {
+      return status?.replaceAll('_', ' ') || '-';
+    }
+
+    return lang === 'ar' ? labels.ar : labels.en;
+  };
+
+  const getGenderLabel = (gender) => {
+    const genderLabels = {
+      MALE: { ar: 'ذكر', en: 'Male' },
+      FEMALE: { ar: 'أنثى', en: 'Female' },
+      OTHER: { ar: 'آخر', en: 'Other' }
+    };
+
+    const labels = genderLabels[gender];
+
+    if (!labels) return gender || '-';
+
+    return lang === 'ar' ? labels.ar : labels.en;
+  };
 
   const handlePopulateNormalVitals = () => {
     setVitals({ blood_pressure: '120/80', heart_rate: '72', temperature: '36.8', weight: '70' });
@@ -136,6 +178,15 @@ export default function DoctorDashboard({ user, lang, t }) {
   const handlePatientSelect = async (appt) => {
     setErrorMsg('');
     setSuccessMsg('');
+
+    if (appt.status === 'CONFIRMED' || appt.status === 'SCHEDULED') {
+      setErrorMsg(
+        lang === 'ar'
+          ? 'يجب على الاستقبال تسجيل وصول المريض أولاً قبل بدء الكشف.'
+          : 'Reception must check in the patient before the consultation can start.'
+      );
+      return;
+    }
 
     // The doctor must not reopen a patient while the laboratory is still working.
     if (appt.status === 'WAITING_LAB') {
@@ -313,17 +364,46 @@ export default function DoctorDashboard({ user, lang, t }) {
     }
   };
 
+  const handleAddCustomTest = () => {
+    const normalized = customTestName.trim();
+
+    if (!normalized) return;
+
+    const alreadyExists = customTests.some(
+      (item) => item.toLowerCase() === normalized.toLowerCase()
+    );
+
+    if (!alreadyExists) {
+      setCustomTests([...customTests, normalized]);
+    }
+
+    setCustomTestName('');
+  };
+
+  const handleRemoveCustomTest = (testName) => {
+    setCustomTests(customTests.filter((item) => item !== testName));
+  };
+
   const handleSaveConsultation = async () => {
     setErrorMsg('');
     setSuccessMsg('');
 
-    if (!diagnosis) {
+    const isFinalize = isFinalizingVisit && currentRecordId;
+    const hasLabOrders =
+      orderedTests.length > 0 ||
+      customTests.length > 0;
+
+    if (!isFinalize && !hasLabOrders && !diagnosis.trim()) {
+      setErrorMsg(t('requiredField'));
+      return;
+    }
+
+    if (isFinalize && !diagnosis.trim()) {
       setErrorMsg(t('requiredField'));
       return;
     }
 
     try {
-      const isFinalize = isFinalizingVisit && currentRecordId;
 
       const url = isFinalize
         ? `/api/records/${currentRecordId}/finalize`
@@ -346,7 +426,8 @@ export default function DoctorDashboard({ user, lang, t }) {
             clinicalNotes,
             vitalSigns: vitals,
             prescribedDrugs: prescribedItems,
-            orderedServices: orderedTests
+            orderedServices: orderedTests,
+            customTests
           };
 
       const res = await fetchWithAuth(url, {
@@ -357,7 +438,14 @@ export default function DoctorDashboard({ user, lang, t }) {
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setErrorMsg(apiErrorMessage(data, 'Failed to save EMR.'));
+        setErrorMsg(
+          apiErrorMessage(
+            data,
+            lang === 'ar'
+              ? 'تعذر حفظ الكشف الطبي.'
+              : 'Failed to save the medical record.'
+          )
+        );
         return;
       }
 
@@ -405,6 +493,8 @@ export default function DoctorDashboard({ user, lang, t }) {
       setClinicalNotes('');
       setPrescribedItems([]);
       setOrderedTests([]);
+      setCustomTests([]);
+      setCustomTestName('');
       setSelectedDrug('');
       setCustomDrugName('');
       setDosage('');
@@ -469,9 +559,7 @@ export default function DoctorDashboard({ user, lang, t }) {
                           : 'badge badge-success'
                       }
                     >
-                      {appt.status === 'WAITING_LAB'
-                        ? (lang === 'ar' ? 'بانتظار المختبر' : 'Waiting for Lab')
-                        : appt.status}
+                      {getAppointmentStatusLabel(appt.status)}
                     </span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem', fontSize: '0.8rem' }}>
@@ -507,7 +595,7 @@ export default function DoctorDashboard({ user, lang, t }) {
                       {lang === 'ar' ? selectedPatient.fullNameAr : selectedPatient.fullNameEn}
                     </h3>
                     <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                      {lang === 'ar' ? 'الجنس:' : 'Gender:'} {selectedPatient.gender} | {lang === 'ar' ? 'تاريخ الميلاد:' : 'DOB:'} {selectedPatient.dateOfBirth}
+                      {lang === 'ar' ? 'الجنس:' : 'Gender:'} {getGenderLabel(selectedPatient.gender)} | {lang === 'ar' ? 'تاريخ الميلاد:' : 'DOB:'} {selectedPatient.dateOfBirth}
                     </span>
                   </div>
                   <button
@@ -545,15 +633,26 @@ export default function DoctorDashboard({ user, lang, t }) {
                             )}
                             <div className={`timeline-details ${rec.isLocked ? 'locked-overlay' : ''}`} style={{ fontSize: '0.8rem' }}>
                               <div className="timeline-header" style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
-                                <span>{new Date(rec.visitDate).toLocaleDateString()}</span>
+                                <span>
+      {new Date(rec.visitDate).toLocaleDateString(
+        lang === 'ar' ? 'ar' : 'en'
+      )}
+    </span>
                                 <span style={{ color: 'var(--primary)' }}>
                                   {lang === 'ar' ? rec.doctorNameAr : rec.doctorNameEn}
                                 </span>
                               </div>
                               <div className="timeline-vitals" style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem', opacity: 0.8 }}>
-                                <span>BP: {rec.vitalSigns?.blood_pressure}</span>
-                                <span>HR: {rec.vitalSigns?.heart_rate} bpm</span>
-                                <span>Temp: {rec.vitalSigns?.temperature} °C</span>
+                                <span>
+                                  {lang === 'ar' ? 'الضغط:' : 'BP:'} {rec.vitalSigns?.blood_pressure || '-'}
+                                </span>
+                                <span>
+                                  {lang === 'ar' ? 'النبض:' : 'HR:'} {rec.vitalSigns?.heart_rate || '-'}{' '}
+                                  {lang === 'ar' ? 'نبضة/دقيقة' : 'bpm'}
+                                </span>
+                                <span>
+                                  {lang === 'ar' ? 'الحرارة:' : 'Temp:'} {rec.vitalSigns?.temperature || '-'} °C
+                                </span>
                               </div>
                               <div style={{ marginTop: '0.25rem' }}>
                                 <strong>{t('symptoms')}:</strong> {rec.symptoms}
@@ -698,7 +797,9 @@ export default function DoctorDashboard({ user, lang, t }) {
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0.5rem' }}>
                         <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-label" style={{ fontSize: '0.75rem' }}>BP</label>
+                          <label className="form-label" style={{ fontSize: '0.75rem' }}>
+  {lang === 'ar' ? 'ضغط الدم' : 'Blood Pressure'}
+</label>
                           <input
                             type="text"
                             className="form-input"
@@ -708,7 +809,9 @@ export default function DoctorDashboard({ user, lang, t }) {
                           />
                         </div>
                         <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-label" style={{ fontSize: '0.75rem' }}>HR (bpm)</label>
+                          <label className="form-label" style={{ fontSize: '0.75rem' }}>
+  {lang === 'ar' ? 'معدل النبض (نبضة/دقيقة)' : 'Heart Rate (bpm)'}
+</label>
                           <input
                             type="text"
                             className="form-input"
@@ -718,7 +821,9 @@ export default function DoctorDashboard({ user, lang, t }) {
                           />
                         </div>
                         <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-label" style={{ fontSize: '0.75rem' }}>Temp (°C)</label>
+                          <label className="form-label" style={{ fontSize: '0.75rem' }}>
+  {lang === 'ar' ? 'درجة الحرارة (°م)' : 'Temperature (°C)'}
+</label>
                           <input
                             type="text"
                             className="form-input"
@@ -728,7 +833,9 @@ export default function DoctorDashboard({ user, lang, t }) {
                           />
                         </div>
                         <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-label" style={{ fontSize: '0.75rem' }}>Wt (kg)</label>
+                          <label className="form-label" style={{ fontSize: '0.75rem' }}>
+  {lang === 'ar' ? 'الوزن (كجم)' : 'Weight (kg)'}
+</label>
                           <input
                             type="text"
                             className="form-input"
@@ -774,7 +881,11 @@ export default function DoctorDashboard({ user, lang, t }) {
 
                         <input
                           type="text"
-                          placeholder="ICD-11 Code / Diagnosis description"
+                          placeholder={
+  lang === 'ar'
+    ? 'رمز ICD-11 أو وصف التشخيص'
+    : 'ICD-11 code or diagnosis description'
+}
                           className="form-input"
                           required
                           value={diagnosis}
@@ -902,7 +1013,11 @@ export default function DoctorDashboard({ user, lang, t }) {
                         <div>
                           <input
                             type="text"
-                            placeholder="Dosage (500mg)"
+                            placeholder={
+  lang === 'ar'
+    ? 'الجرعة، مثال: 500mg'
+    : 'Dosage, e.g. 500mg'
+}
                             className="form-input"
                             value={dosage}
                             onChange={(e) => setDosage(e.target.value)}
@@ -915,7 +1030,7 @@ export default function DoctorDashboard({ user, lang, t }) {
                                 style={{ padding: '2px 4px', fontSize: '0.65rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'rgba(255,255,255,0.03)', cursor: 'pointer', color: 'var(--text-secondary)' }}
                                 onClick={() => setDosage(p)}
                               >
-                                {p}
+                                {lang === 'ar' ? preset.ar : preset.en}
                               </button>
                             ))}
                           </div>
@@ -924,18 +1039,22 @@ export default function DoctorDashboard({ user, lang, t }) {
                         <div>
                           <input
                             type="text"
-                            placeholder="Duration (5 Days)"
+                            placeholder={
+  lang === 'ar'
+    ? 'مدة العلاج، مثال: 5 أيام'
+    : 'Duration, e.g. 5 days'
+}
                             className="form-input"
                             value={duration}
                             onChange={(e) => setDuration(e.target.value)}
                           />
                           <div style={{ display: 'flex', gap: '2px', marginTop: '4px', flexWrap: 'wrap' }}>
-                            {quickDurationPresets.map(p => (
+                            {quickDurationPresets.map((preset) => (
                               <button
-                                key={p}
+                                key={preset.value}
                                 type="button"
                                 style={{ padding: '2px 4px', fontSize: '0.65rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'rgba(255,255,255,0.03)', cursor: 'pointer', color: 'var(--text-secondary)' }}
-                                onClick={() => setDuration(p)}
+                                onClick={() => setDuration(preset.value)}
                               >
                                 {p}
                               </button>
@@ -957,14 +1076,22 @@ export default function DoctorDashboard({ user, lang, t }) {
                         />
                         <input
                           type="text"
-                          placeholder="Instructions (Arabic)"
+                          placeholder={
+  lang === 'ar'
+    ? 'تعليمات الدواء بالعربية'
+    : 'Medication instructions in Arabic'
+}
                           className="form-input"
                           value={instrAr}
                           onChange={(e) => setInstrAr(e.target.value)}
                         />
                         <input
                           type="text"
-                          placeholder="Instructions (English)"
+                          placeholder={
+  lang === 'ar'
+    ? 'تعليمات الدواء بالإنجليزية'
+    : 'Medication instructions in English'
+}
                           className="form-input"
                           value={instrEn}
                           onChange={(e) => setInstrEn(e.target.value)}
@@ -979,9 +1106,9 @@ export default function DoctorDashboard({ user, lang, t }) {
                         <table className="staff-table" style={{ fontSize: '0.75rem', marginTop: '0.75rem' }}>
                           <thead>
                             <tr>
-                              <th>Drug</th>
-                              <th>Dosage</th>
-                              <th>Duration</th>
+                              <th>{lang === 'ar' ? 'الدواء' : 'Medication'}</th>
+                              <th>{lang === 'ar' ? 'الجرعة' : 'Dosage'}</th>
+                              <th>{lang === 'ar' ? 'المدة' : 'Duration'}</th>
                               <th>{lang === 'ar' ? 'الكمية' : 'Quantity'}</th>
                             </tr>
                           </thead>
@@ -1019,11 +1146,119 @@ export default function DoctorDashboard({ user, lang, t }) {
                               <span>{lang === 'ar' ? svc.labelAr : svc.labelEn}</span>
                             </label>
                           ))}
+
                       </div>
+
+                      {!isFinalizingVisit && (
+                        <div style={{ marginTop: '0.9rem' }}>
+                          <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.45rem' }}>
+                            {lang === 'ar' ? 'إضافة فحص غير موجود في القائمة' : 'Add a test not in the catalogue'}
+                          </div>
+
+                          <div
+                            style={{
+                              display: 'flex',
+                              gap: '0.5rem',
+                              flexWrap: 'wrap'
+                            }}
+                          >
+                            <input
+                              type="text"
+                              value={customTestName}
+                              onChange={(event) => setCustomTestName(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  event.preventDefault();
+                                  handleAddCustomTest();
+                                }
+                              }}
+                              placeholder={
+                                lang === 'ar'
+                                  ? 'مثال: CRP أو Thyroid Function Test'
+                                  : 'Example: CRP or Thyroid Function Test'
+                              }
+                              style={{
+                                flex: '1 1 260px',
+                                minWidth: 0
+                              }}
+                            />
+
+                            <button
+                              type="button"
+                              className="btn btn-secondary"
+                              onClick={handleAddCustomTest}
+                            >
+                              {lang === 'ar' ? 'إضافة الفحص' : 'Add Test'}
+                            </button>
+                          </div>
+
+                          {customTests.length > 0 && (
+                            <div
+                              style={{
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                gap: '0.5rem',
+                                marginTop: '0.65rem'
+                              }}
+                            >
+                              {customTests.map((testName) => (
+                                <div
+                                  key={testName}
+                                  className="glass-panel"
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.45rem',
+                                    padding: '5px 8px',
+                                    margin: 0,
+                                    fontSize: '0.8rem'
+                                  }}
+                                >
+                                  <span>{testName}</span>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveCustomTest(testName)}
+                                    aria-label={
+                                      lang === 'ar'
+                                        ? `حذف ${testName}`
+                                        : `Remove ${testName}`
+                                    }
+                                    style={{
+                                      border: 0,
+                                      background: 'transparent',
+                                      cursor: 'pointer',
+                                      fontWeight: 700,
+                                      color: 'var(--danger)'
+                                    }}
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
-                    <button type="button" className="btn btn-primary" style={{ width: '100%', padding: '12px', fontSize: '1rem', fontWeight: 'bold' }} onClick={handleSaveConsultation}>
-                      {lang === 'ar' ? 'حفظ الكشف الطبي وإغلاق الجلسة' : 'Save Consultation & Lock File'}
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ width: '100%', padding: '12px', fontSize: '1rem', fontWeight: 'bold' }}
+                      onClick={handleSaveConsultation}
+                    >
+                      {isFinalizingVisit
+                        ? (lang === 'ar'
+                            ? 'مراجعة النتائج وإنهاء الزيارة'
+                            : 'Review Results & Complete Visit')
+                        : (orderedTests.length > 0 || customTests.length > 0)
+                          ? (lang === 'ar'
+                              ? 'إرسال للمختبر وانتظار النتائج'
+                              : 'Send to Lab & Await Results')
+                          : (lang === 'ar'
+                              ? 'إنهاء الزيارة'
+                              : 'Complete Visit')}
                     </button>
                   </div>
                 </div>

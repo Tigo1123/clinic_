@@ -45,16 +45,54 @@ export default function LaboratoryDashboard({ lang }) {
         })
       });
       if (res.ok) {
-        setSuccessMsg(lang === 'ar' ? 'تم تسجيل النتيجة وتنبيه الطبيب بنجاح.' : 'Lab results logged and doctor notified.');
-        setResultForms((current) => { const next = { ...current }; delete next[item.id]; return next; });
-        setSelectedOrder(null);
+        const savedItem = await res.json();
+
+        setSuccessMsg(
+          lang === 'ar'
+            ? 'تم حفظ نتيجة الفحص بنجاح.'
+            : 'Test result saved successfully.'
+        );
+
+        setResultForms((current) => {
+          const next = { ...current };
+          delete next[item.id];
+          return next;
+        });
+
+        setSelectedOrder((current) => {
+          if (!current) return current;
+
+          return {
+            ...current,
+            items: current.items.map((currentItem) =>
+              currentItem.id === item.id
+                ? {
+                    ...currentItem,
+                    resultValue: savedItem.resultValue,
+                    referenceRangeMin: savedItem.referenceRangeMin,
+                    referenceRangeMax: savedItem.referenceRangeMax,
+                    isOutOfRange: savedItem.isOutOfRange
+                  }
+                : currentItem
+            )
+          };
+        });
+
         fetchPendingLabOrders();
       } else {
-        setErrorMsg('Failed to save lab results.');
+        setErrorMsg(
+          lang === 'ar'
+            ? 'تعذر حفظ نتيجة الفحص.'
+            : 'Failed to save the test result.'
+        );
       }
     } catch (e) {
       console.error(e);
-      setErrorMsg('Transaction failed.');
+      setErrorMsg(
+        lang === 'ar'
+          ? 'حدث خطأ أثناء معالجة الطلب. يرجى المحاولة مرة أخرى.'
+          : 'The request could not be completed. Please try again.'
+      );
     }
   };
 
@@ -68,13 +106,17 @@ export default function LaboratoryDashboard({ lang }) {
             <div className="panel-header">
               <span className="panel-title">
                 <FileSpreadsheet size={18} />
-                {lang === 'ar' ? 'الفحوصات الطبية المطلوبة' : 'Pending Lab/Rad Orders'}
+                {lang === 'ar'
+                  ? 'طلبات الفحوصات المخبرية'
+                  : 'Pending Laboratory Orders'}
               </span>
             </div>
             {orders.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
                 <HelpCircle size={36} />
-                <p style={{ marginTop: '0.5rem' }}>{lang === 'ar' ? 'لا توجد فحوصات مطلوبة بانتظار الإجراء حالياً.' : 'No pending test orders to perform.'}</p>
+                <p style={{ marginTop: '0.5rem' }}>{lang === 'ar'
+                    ? 'لا توجد طلبات فحوصات مخبرية بانتظار الإجراء حالياً.'
+                    : 'There are no pending laboratory orders at this time.'}</p>
               </div>
             ) : (
               orders.map((ord) => (
@@ -85,7 +127,11 @@ export default function LaboratoryDashboard({ lang }) {
                 >
                   <strong>{lang === 'ar' ? ord.patient.fullNameAr : ord.patient.fullNameEn}</strong>
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-                    <span>{new Date(ord.orderDate).toLocaleDateString()}</span>
+                    <span>
+                      {new Date(ord.orderDate).toLocaleDateString(
+                        lang === 'ar' ? 'ar' : 'en'
+                      )}
+                    </span>
                   </div>
                 </div>
               ))
@@ -97,7 +143,9 @@ export default function LaboratoryDashboard({ lang }) {
             <div className="panel-header">
               <span className="panel-title">
                 <Sliders size={18} />
-                {lang === 'ar' ? 'تسجيل نتائج الفحوصات' : 'Test Findings Entry Desk'}
+                {lang === 'ar'
+                  ? 'تسجيل نتائج الفحوصات'
+                  : 'Laboratory Results Entry'}
               </span>
             </div>
             {errorMsg && <div className="badge badge-danger" style={{ padding: '0.5rem' }}>{errorMsg}</div>}
@@ -110,11 +158,24 @@ export default function LaboratoryDashboard({ lang }) {
                   {lang === 'ar' ? selectedOrder.patient.fullNameAr : selectedOrder.patient.fullNameEn}
                 </h4>
                 <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
-                  {lang === 'ar' ? 'الطبيب الطالب:' : 'Ordering Physician:'} {lang === 'ar' ? selectedOrder.doctor.fullNameAr : selectedOrder.doctor.fullNameEn}
+                  {lang === 'ar' ? 'الطبيب طالب الفحص:' : 'Ordering Doctor:'} {lang === 'ar' ? selectedOrder.doctor.fullNameAr : selectedOrder.doctor.fullNameEn}
                 </p>
 
                 {selectedOrder.items.map((item) => {
-                  const form = resultForms[item.id] || { value: '', min: '', max: '' };
+                  const isCompleted =
+                    item.resultValue !== null &&
+                    item.resultValue !== undefined &&
+                    String(item.resultValue).trim() !== '';
+
+                  const form = resultForms[item.id] || {
+                    value: '',
+                    min: '',
+                    max: ''
+                  };
+
+                  const testName = item.service
+                    ? (lang === 'ar' ? item.service.labelAr : item.service.labelEn)
+                    : item.customTestName || (lang === 'ar' ? 'فحص مخصص' : 'Custom Test');
                   const valParsed = Number(form.value);
                   const minParsed = Number(form.min);
                   const maxParsed = Number(form.max);
@@ -123,32 +184,93 @@ export default function LaboratoryDashboard({ lang }) {
 
                   return (
                     <div key={item.id} className="glass-panel" style={{ padding: '1rem', marginBottom: '1rem', borderLeft: isOutOfRange ? '4px solid var(--danger)' : '1px solid var(--border-color)' }}>
-                      <strong>{lang === 'ar' ? item.service.labelAr : item.service.labelEn}</strong>
+                      <strong>{testName}</strong>
+
+                      {isCompleted ? (
+                        <div
+                          className="badge badge-success"
+                          style={{ marginTop: '0.75rem', padding: '0.65rem' }}
+                        >
+                          {lang === 'ar'
+                            ? `النتيجة المسجلة: ${item.resultValue}`
+                            : `Recorded result: ${item.resultValue}`}
+                        </div>
+                      ) : (
+                      <>
                       <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginTop: '0.75rem', flexWrap: 'wrap' }}>
                         <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
                           <input
                             type="text"
-                            placeholder="Result value (e.g. 13.5)"
+                            placeholder={
+                              lang === 'ar'
+                                ? 'قيمة النتيجة، مثال: 13.5'
+                                : 'Result value, e.g. 13.5'
+                            }
                             className="form-input"
                             style={isOutOfRange ? { border: '1px solid var(--danger)', boxShadow: '0 0 8px rgba(239, 68, 68, 0.3)', color: 'var(--danger)', fontWeight: 'bold' } : {}}
                             value={form.value}
                             onChange={(e) => updateForm('value', e.target.value)}
                           />
                         </div>
-                        <input aria-label="Reference minimum" type="number" step="any" placeholder="Reference min" className="form-input" style={{width:'130px'}} value={form.min} onChange={(e) => updateForm('min', e.target.value)} />
-                        <input aria-label="Reference maximum" type="number" step="any" placeholder="Reference max" className="form-input" style={{width:'130px'}} value={form.max} onChange={(e) => updateForm('max', e.target.value)} />
+                        <input
+                          aria-label={
+                            lang === 'ar'
+                              ? 'الحد الأدنى للنطاق المرجعي'
+                              : 'Reference range minimum'
+                          }
+                          type="number"
+                          step="any"
+                          placeholder={
+                            lang === 'ar'
+                              ? 'الحد الأدنى'
+                              : 'Reference min'
+                          }
+                          className="form-input"
+                          style={{ width: '130px' }}
+                          value={form.min}
+                          onChange={(e) => updateForm('min', e.target.value)}
+                        />
+                        <input
+                          aria-label={
+                            lang === 'ar'
+                              ? 'الحد الأعلى للنطاق المرجعي'
+                              : 'Reference range maximum'
+                          }
+                          type="number"
+                          step="any"
+                          placeholder={
+                            lang === 'ar'
+                              ? 'الحد الأعلى'
+                              : 'Reference max'
+                          }
+                          className="form-input"
+                          style={{ width: '130px' }}
+                          value={form.max}
+                          onChange={(e) => updateForm('max', e.target.value)}
+                        />
                       </div>
 
                       {isOutOfRange && (
                         <div style={{ color: 'var(--danger)', fontSize: '0.8rem', marginTop: '0.5rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
                           <AlertTriangle size={14} />
-                          {lang === 'ar' ? 'تنبيه: نتيجة غير طبيعية (خارج المعدل المرجعي)' : 'Abnormal Test Finding (Out of normal range!)'}
+                          {lang === 'ar'
+                            ? 'تنبيه: النتيجة خارج النطاق المرجعي'
+                            : 'Warning: Result is outside the reference range'}
                         </div>
                       )}
 
-                      <button className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }} onClick={() => handleSubmitResult(item)}>
-                        {lang === 'ar' ? 'إرسال التقرير وتحديث السجل' : 'Save Findings'}
+                      <button
+                        className="btn btn-primary"
+                        style={{ width: '100%', marginTop: '1rem' }}
+                        disabled={!form.value?.trim()}
+                        onClick={() => handleSubmitResult(item)}
+                      >
+                        {lang === 'ar'
+                          ? 'حفظ نتيجة الفحص'
+                          : 'Save Test Result'}
                       </button>
+                      </>
+                      )}
                     </div>
                   );
                 })}
@@ -156,7 +278,9 @@ export default function LaboratoryDashboard({ lang }) {
             ) : (
               <div style={{ textAlign: 'center', padding: '5rem', color: 'var(--text-secondary)' }}>
                 <Stethoscope size={64} />
-                <p style={{ marginTop: '1rem' }}>{lang === 'ar' ? 'يرجى اختيار فحص مخبري من القائمة للمتابعة.' : 'Please select an active test order from the list.'}</p>
+                <p style={{ marginTop: '1rem' }}>{lang === 'ar'
+                  ? 'اختر طلب فحص من القائمة لعرض التفاصيل وتسجيل النتائج.'
+                  : 'Select a laboratory order from the list to view details and enter results.'}</p>
               </div>
             )}
           </div>

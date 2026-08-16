@@ -11,7 +11,7 @@ export default function PharmacyDashboard({ lang, t }) {
   const [errorMsg, setErrorMsg] = useState('');
 
   // Inventory warnings
-  const [lowStockAlerts, setLowStockAlerts] = useState([]);
+  const [inventoryAlerts, setInventoryAlerts] = useState([]);
 
   const fetchPendingRx = () => {
     fetchWithAuth('/api/records/prescriptions/pending')
@@ -30,18 +30,90 @@ export default function PharmacyDashboard({ lang, t }) {
       .then((res) => res.ok ? res.json() : [])
       .then((data) => {
         if (Array.isArray(data)) {
-          // filter low stock items (qty <= min level)
-          const lowStock = data.filter((d) =>
-            d.inventoryBatches && d.inventoryBatches.some((b) => b.qtyOnHand <= b.minReorderLevel)
-          );
-          setLowStockAlerts(lowStock);
+          const today = clinicDateString();
+
+          const expiryCutoff = new Date(`${today}T00:00:00Z`);
+          expiryCutoff.setUTCDate(expiryCutoff.getUTCDate() + 30);
+          const expiryCutoffDate = expiryCutoff.toISOString().slice(0, 10);
+
+          const alerts = data
+            .map((drug) => {
+              const batches = Array.isArray(drug.inventoryBatches)
+                ? drug.inventoryBatches
+                : [];
+
+              // A batch is usable only when it has stock and has not expired.
+              // This intentionally matches the current pharmacy dispensing rule.
+              const usableBatches = batches.filter(
+                (batch) =>
+                  Number(batch.qtyOnHand) > 0 &&
+                  batch.expiryDate >= today
+              );
+
+              const totalUsableStock = usableBatches.reduce(
+                (sum, batch) => sum + Number(batch.qtyOnHand || 0),
+                0
+              );
+
+              const reorderLevel = batches.length
+                ? Math.max(
+                    ...batches.map((batch) =>
+                      Number(batch.minReorderLevel || 0)
+                    )
+                  )
+                : 0;
+
+              const expiredBatches = batches.filter(
+                (batch) =>
+                  Number(batch.qtyOnHand) > 0 &&
+                  batch.expiryDate < today
+              );
+
+              const expiringSoonBatches = batches
+                .filter(
+                  (batch) =>
+                    Number(batch.qtyOnHand) > 0 &&
+                    batch.expiryDate >= today &&
+                    batch.expiryDate <= expiryCutoffDate
+                )
+                .sort((a, b) =>
+                  a.expiryDate.localeCompare(b.expiryDate)
+                );
+
+              const isOutOfStock = totalUsableStock === 0;
+
+              const isLowStock =
+                totalUsableStock > 0 &&
+                totalUsableStock <= reorderLevel;
+
+              const hasExpiryAlert =
+                expiredBatches.length > 0 ||
+                expiringSoonBatches.length > 0;
+
+              if (!isOutOfStock && !isLowStock && !hasExpiryAlert) {
+                return null;
+              }
+
+              return {
+                ...drug,
+                totalUsableStock,
+                reorderLevel,
+                isOutOfStock,
+                isLowStock,
+                expiredBatches,
+                expiringSoonBatches
+              };
+            })
+            .filter(Boolean);
+
+          setInventoryAlerts(alerts);
         } else {
-          setLowStockAlerts([]);
+          setInventoryAlerts([]);
         }
       })
       .catch((err) => {
         console.error(err);
-        setLowStockAlerts([]);
+        setInventoryAlerts([]);
       });
   }, []);
 
@@ -52,16 +124,9 @@ export default function PharmacyDashboard({ lang, t }) {
     const items = rx.prescribedDrugs
       .filter((item) => item.drug)
       .map((item) => {
-        // Select the eligible batch with the earliest expiry (FEFO).
-        const today = clinicDateString();
-        const batch = [...(item.drug.inventoryBatches || [])]
-          .filter((candidate) => candidate.qtyOnHand > 0 && candidate.expiryDate >= today)
-          .sort((a, b) => a.expiryDate.localeCompare(b.expiryDate) || a.batchNumber.localeCompare(b.batchNumber))[0];
-
         return {
           prescribedDrugId: item.id,
-          qtyToDispense: item.qtyPrescribed - item.qtyDispensed,
-          batchId: batch ? batch.id : null
+          qtyToDispense: item.qtyPrescribed - item.qtyDispensed
         };
       });
 
@@ -103,7 +168,9 @@ export default function PharmacyDashboard({ lang, t }) {
             <div className="panel-header">
               <span className="panel-title">
                 <FileText size={18} />
-                {lang === 'ar' ? 'الوصفات الطبية المعلقة' : 'Pending Rx Queue'}
+                {lang === 'ar'
+      ? 'الوصفات الطبية بانتظار الصرف'
+      : 'Prescriptions Awaiting Dispensing'}
               </span>
             </div>
             {prescriptions.length === 0 ? (
@@ -120,7 +187,11 @@ export default function PharmacyDashboard({ lang, t }) {
                 >
                   <strong>{lang === 'ar' ? rx.patient.fullNameAr : rx.patient.fullNameEn}</strong>
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-                    <span>{new Date(rx.prescriptionDate).toLocaleDateString()}</span>
+                    <span>
+      {new Date(rx.prescriptionDate).toLocaleDateString(
+        lang === 'ar' ? 'ar' : 'en'
+      )}
+    </span>
                   </div>
                 </div>
               ))
@@ -248,7 +319,7 @@ export default function PharmacyDashboard({ lang, t }) {
 
                         {isOutOfStock ? (
                           <span className="badge badge-danger" style={{ fontSize: '0.7rem' }}>
-                            {lang === 'ar' ? 'غير متوفر' : 'Out of Stock'}
+                            {lang === 'ar' ? 'غير متوفر' : 'Out of stock'}
                           </span>
                         ) : isInsufficient ? (
                           <span className="badge badge-danger" style={{ fontSize: '0.7rem' }}>
@@ -256,7 +327,9 @@ export default function PharmacyDashboard({ lang, t }) {
                           </span>
                         ) : isLowStock ? (
                           <span className="badge badge-warning" style={{ fontSize: '0.7rem' }}>
-                            {lang === 'ar' ? 'مخزون منخفض' : `Low Stock (${qtyOnHand})`}
+                            {lang === 'ar'
+      ? `مخزون منخفض (${qtyOnHand} متوفر)`
+      : `Low stock (${qtyOnHand} available)`}
                           </span>
                         ) : (
                           <span className="badge badge-success" style={{ fontSize: '0.7rem' }}>
@@ -293,7 +366,9 @@ export default function PharmacyDashboard({ lang, t }) {
             ) : (
               <div style={{ textAlign: 'center', padding: '5rem', color: 'var(--text-secondary)' }}>
                 <Stethoscope size={64} />
-                <p style={{ marginTop: '1rem' }}>{lang === 'ar' ? 'يرجى اختيار وصفة طبية من القائمة للمتابعة.' : 'Please select an active prescription from the list.'}</p>
+                <p style={{ marginTop: '1rem' }}>{lang === 'ar'
+      ? 'اختر وصفة طبية من القائمة لعرض الأدوية والتحقق من المخزون.'
+      : 'Select a prescription to review medications and inventory availability.'}</p>
               </div>
             )}
           </div>
@@ -306,20 +381,107 @@ export default function PharmacyDashboard({ lang, t }) {
                 {lang === 'ar' ? 'تنبيهات المخازن والصلاحية' : 'Stock Alerts & Expiry'}
               </span>
             </div>
-            {lowStockAlerts.map((d) => {
-              const qty = d.inventoryBatches[0]?.qtyOnHand || 0;
-              const isZero = qty === 0;
-              return (
-                <div key={d.id} className="glass-panel" style={{ padding: '0.75rem', borderLeft: isZero ? '4px solid var(--danger)' : '4px solid var(--warning)', fontSize: '0.85rem', marginBottom: '0.5rem', background: isZero ? 'rgba(239, 68, 68, 0.05)' : 'rgba(245, 158, 11, 0.05)' }}>
-                  <strong>{lang === 'ar' ? d.labelAr : d.labelEn}</strong>
-                  <p style={{ color: isZero ? 'var(--danger)' : 'var(--warning)', marginTop: '0.25rem', fontWeight: 'bold' }}>
-                    {isZero
-                      ? (lang === 'ar' ? 'نفذ تماماً من المخزن!' : 'OUT OF STOCK!')
-                      : `${lang === 'ar' ? 'مستوى حرج للمخزون:' : 'Critical low stock:'} ${qty} left`}
-                  </p>
+            {inventoryAlerts.length === 0 ? (
+              <div
+                style={{
+                  textAlign: 'center',
+                  padding: '2rem',
+                  color: 'var(--text-secondary)'
+                }}
+              >
+                <p>
+                  {lang === 'ar'
+                    ? 'لا توجد تنبيهات مخزون أو صلاحية حالياً.'
+                    : 'There are no inventory or expiry alerts at this time.'}
+                </p>
+              </div>
+            ) : (
+              inventoryAlerts.map((drug) => (
+                <div
+                  key={drug.id}
+                  className="glass-panel"
+                  style={{
+                    padding: '0.85rem',
+                    marginBottom: '0.65rem',
+                    fontSize: '0.85rem',
+                    borderLeft: drug.isOutOfStock
+                      ? '4px solid var(--danger)'
+                      : '4px solid var(--warning)',
+                    background: drug.isOutOfStock
+                      ? 'rgba(239, 68, 68, 0.05)'
+                      : 'rgba(245, 158, 11, 0.05)'
+                  }}
+                >
+                  <strong>
+                    {lang === 'ar'
+                      ? drug.labelAr
+                      : drug.labelEn}
+                  </strong>
+
+                  <div
+                    style={{
+                      display: 'grid',
+                      gap: '0.4rem',
+                      marginTop: '0.6rem'
+                    }}
+                  >
+                    {drug.isOutOfStock && (
+                      <div className="badge badge-danger">
+                        {lang === 'ar'
+                          ? 'نفد المخزون القابل للصرف'
+                          : 'No usable stock available'}
+                      </div>
+                    )}
+
+                    {drug.isLowStock && (
+                      <div className="badge badge-warning">
+                        {lang === 'ar'
+                          ? `مخزون منخفض: ${drug.totalUsableStock} متوفر — حد إعادة الطلب ${drug.reorderLevel}`
+                          : `Low stock: ${drug.totalUsableStock} available — reorder level ${drug.reorderLevel}`}
+                      </div>
+                    )}
+
+                    {!drug.isOutOfStock && !drug.isLowStock && (
+                      <div style={{ color: 'var(--text-secondary)' }}>
+                        {lang === 'ar'
+                          ? `المخزون الصالح للصرف: ${drug.totalUsableStock}`
+                          : `Usable stock: ${drug.totalUsableStock}`}
+                      </div>
+                    )}
+
+                    {drug.expiringSoonBatches.map((batch) => (
+                      <div
+                        key={`soon-${batch.id}`}
+                        className="badge badge-warning"
+                        style={{
+                          display: 'block',
+                          whiteSpace: 'normal'
+                        }}
+                      >
+                        {lang === 'ar'
+                          ? `قريب الانتهاء — التشغيلة ${batch.batchNumber} — تنتهي ${batch.expiryDate} — الكمية ${batch.qtyOnHand}`
+                          : `Expiring soon — Batch ${batch.batchNumber} — Expires ${batch.expiryDate} — Qty ${batch.qtyOnHand}`}
+                      </div>
+                    ))}
+
+                    {drug.expiredBatches.map((batch) => (
+                      <div
+                        key={`expired-${batch.id}`}
+                        className="badge badge-danger"
+                        style={{
+                          display: 'block',
+                          whiteSpace: 'normal'
+                        }}
+                      >
+                        {lang === 'ar'
+                          ? `منتهي الصلاحية — التشغيلة ${batch.batchNumber} — انتهت ${batch.expiryDate} — الكمية ${batch.qtyOnHand}`
+                          : `Expired — Batch ${batch.batchNumber} — Expired ${batch.expiryDate} — Qty ${batch.qtyOnHand}`}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              );
-            })}
+              ))
+            )}
           </div>
         </div>
       </div>
