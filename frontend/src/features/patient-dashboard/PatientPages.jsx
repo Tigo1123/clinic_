@@ -214,7 +214,11 @@ export function Profile() {
           : 'Profile changes saved successfully.'
       );
 
-      await reload();
+      try {
+        await reload();
+      } catch (reloadError) {
+        console.error('Patient profile reload error:', reloadError);
+      }
     } catch (requestError) {
       console.error('Patient profile save error:', requestError);
 
@@ -299,7 +303,11 @@ export function Profile() {
       setEmailCode('');
       setNewEmail('');
 
-      await reload();
+      try {
+        await reload();
+      } catch (reloadError) {
+        console.error('Patient profile reload error:', reloadError);
+      }
     } catch (requestError) {
       setEmailChangeError(
         requestError?.message ||
@@ -382,7 +390,11 @@ export function Profile() {
       setPhoneCode('');
       setNewPhone('');
 
-      await reload();
+      try {
+        await reload();
+      } catch (reloadError) {
+        console.error('Patient profile reload error:', reloadError);
+      }
     } catch (requestError) {
       setPhoneChangeError(
         requestError?.message ||
@@ -402,7 +414,7 @@ export function Profile() {
       loading={loading}
       error={error}
     >
-      {form && (
+      {form && data && (
         <>
           <section className="patient-card">
             <h1>{t('profile')}</h1>
