@@ -87,11 +87,28 @@ router.post('/login', loginLimiter, validate(z.object({
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
 
-    // 4. If Doctor, retrieve doctor ID
+    // 4. Resolve role-specific profile linkage.
+    //
+    // Authentication and medical-record linkage are intentionally separate:
+    // a valid PATIENT account may authenticate even if a legacy patient
+    // record has not yet been linked. The frontend can then route that user
+    // into the secure linkage recovery flow instead of opening the portal
+    // and failing later with PATIENT_RECORD_NOT_LINKED.
     let doctorDetails = null;
+    let patientDetails = null;
+
     if (user.role === 'DOCTOR') {
       doctorDetails = await prisma.doctor.findUnique({
         where: { userId: user.id }
+      });
+    }
+
+    if (user.role === 'PATIENT') {
+      patientDetails = await prisma.patient.findUnique({
+        where: { userId: user.id },
+        select: {
+          id: true
+        }
       });
     }
 
@@ -118,9 +135,17 @@ router.post('/login', loginLimiter, validate(z.object({
         preferredLanguage: user.preferredLanguage,
         mfaEnabled: user.mfaEnabled,
         doctorId: doctorDetails ? doctorDetails.id : null,
-        doctorName: doctorDetails ? doctorDetails.fullNameEn : null
-        ,email: user.email
-        ,phone: user.phoneNormalized
+        doctorName: doctorDetails ? doctorDetails.fullNameEn : null,
+        patientLinked:
+          user.role === 'PATIENT'
+            ? Boolean(patientDetails)
+            : null,
+        patientId:
+          user.role === 'PATIENT'
+            ? patientDetails?.id || null
+            : null,
+        email: user.email,
+        phone: user.phoneNormalized
       }
     });
 

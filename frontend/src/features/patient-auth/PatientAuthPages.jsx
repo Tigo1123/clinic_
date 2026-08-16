@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { Check, Eye, EyeOff, HeartPulse } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { apiRequest } from '../../services/apiClient';
@@ -565,7 +565,311 @@ async function resendVerification(){
 
 }
 
-export function PatientClaim(){const{t}=useTranslation();const[form,setForm]=useState({code:'',dateOfBirth:''});const[message,setMessage]=useState('');const[error,setError]=useState('');async function submit(event){event.preventDefault();setError('');try{const data=await apiRequest('/api/patient-auth/claim',{method:'POST',body:JSON.stringify(form)});setMessage(data.state)}catch(requestError){setError(requestError.message)}}return <section className="patient-card"><h1>{t('claimRecord')}</h1><p>{t('claimInstructions')}</p><form onSubmit={submit}><Field label={t('claimCode')} value={form.code} onChange={code=>setForm({...form,code})}/><Field label={t('dateOfBirth')} type="date" value={form.dateOfBirth} onChange={dateOfBirth=>setForm({...form,dateOfBirth})}/>{error&&<Alert>{error}</Alert>}{message&&<div className="patient-alert success">{message}</div>}<button className="patient-button">{t('claimRecord')}</button></form></section>}
+export function PatientClaim() {
+  const { t, i18n } = useTranslation();
+  const { user, updateUser, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const lang = i18n.language === 'ar' ? 'ar' : 'en';
+
+  const [form, setForm] = useState({
+    code: '',
+    dateOfBirth: ''
+  });
+
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  if (user?.patientLinked === true) {
+    return <Navigate to="/patient" replace />;
+  }
+
+  function updateField(field, value) {
+    setForm((current) => ({
+      ...current,
+      [field]: value
+    }));
+
+    setError('');
+    setMessage('');
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+
+    if (loading) return;
+
+    setLoading(true);
+    setError('');
+    setMessage('');
+
+    try {
+      const data = await apiRequest('/api/patient-auth/claim', {
+        method: 'POST',
+        body: JSON.stringify({
+          code: form.code.trim(),
+          dateOfBirth: form.dateOfBirth
+        })
+      });
+
+      if (data.state === 'CLAIMED') {
+        updateUser({
+          patientLinked: true,
+          ...(data.patientId
+            ? { patientId: data.patientId }
+            : {})
+        });
+
+        navigate('/patient', {
+          replace: true
+        });
+
+        return;
+      }
+
+      if (data.state === 'AMBIGUOUS_MATCH') {
+        setError(
+          lang === 'ar'
+            ? 'وجد النظام أكثر من ملف طبي مطابق لبياناتك. لا يمكن اختيار ملف تلقائيًا. يرجى التواصل مع موظف الاستقبال للتحقق من هويتك وربط الملف الصحيح.'
+            : 'More than one medical record matches your identity. Please contact reception so the correct record can be verified and linked.'
+        );
+
+        return;
+      }
+
+      if (data.state === 'MANUAL_REVIEW_REQUIRED') {
+        setError(
+          lang === 'ar'
+            ? 'تعذر ربط الحساب بالملف الطبي تلقائيًا. يرجى مراجعة موظف الاستقبال للحصول على رمز ربط جديد أو للتحقق من بيانات الملف.'
+            : 'Your account could not be linked automatically. Please contact reception to verify your record or obtain a new claim code.'
+        );
+
+        return;
+      }
+
+      setError(
+        lang === 'ar'
+          ? 'لم يتمكن النظام من إكمال عملية ربط الملف الطبي.'
+          : 'The system could not complete medical-record linking.'
+      );
+    } catch (requestError) {
+      const code =
+        requestError?.code ||
+        requestError?.error?.code;
+
+      if (code === 'PATIENT_ALREADY_LINKED') {
+        updateUser({
+          patientLinked: true
+        });
+
+        navigate('/patient', {
+          replace: true
+        });
+
+        return;
+      }
+
+      if (code === 'PATIENT_ALREADY_CLAIMED') {
+        setError(
+          lang === 'ar'
+            ? 'هذا الملف الطبي مرتبط بالفعل بحساب آخر. يرجى التواصل مع موظف الاستقبال إذا كنت تعتقد أن هذا غير صحيح.'
+            : 'This medical record is already linked to another account. Please contact reception if you believe this is incorrect.'
+        );
+
+        return;
+      }
+
+      if (code === 'CLAIM_VERIFICATION_FAILED') {
+        setError(
+          lang === 'ar'
+            ? 'رمز الربط غير صحيح أو منتهي الصلاحية. تحقق من الرمز وتاريخ الميلاد أو اطلب رمزًا جديدًا من موظف الاستقبال.'
+            : 'The claim code is incorrect or expired. Check the code and date of birth, or request a new code from reception.'
+        );
+
+        return;
+      }
+
+      setError(
+        requestError?.message ||
+          (lang === 'ar'
+            ? 'حدث خطأ أثناء محاولة ربط الملف الطبي.'
+            : 'An error occurred while linking your medical record.')
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleLogout() {
+    logout();
+
+    navigate('/patient-login', {
+      replace: true
+    });
+  }
+
+  if (!user) {
+    return <Navigate to="/patient-login" replace />;
+  }
+
+  if (user.role !== 'PATIENT') {
+    return <Navigate to="/" replace />;
+  }
+
+  return (
+    <main className="patient-auth-shell">
+      <aside className="patient-auth-aside">
+        <Link to="/">
+          <HeartPulse size={24} />
+          {t('brandName')}
+        </Link>
+
+        <div>
+          <h2>
+            {lang === 'ar'
+              ? 'استعادة وربط الملف الطبي'
+              : 'Recover your medical record'}
+          </h2>
+
+          <p>
+            {lang === 'ar'
+              ? 'حسابك آمن، لكن يجب ربطه بملف المريض الصحيح قبل الوصول إلى البيانات الطبية.'
+              : 'Your account is secure, but it must be linked to the correct patient record before clinical information can be accessed.'}
+          </p>
+        </div>
+      </aside>
+
+      <div className="patient-auth-content">
+        <section className="patient-card patient-auth">
+          <div style={{ marginBottom: '1.25rem' }}>
+            <h1>
+              {lang === 'ar'
+                ? 'ربط الملف الطبي'
+                : 'Link medical record'}
+            </h1>
+
+            <p>
+              {lang === 'ar'
+                ? 'إذا كان لديك ملف سابق في العيادة، استخدم رمز الربط الذي حصلت عليه من موظف الاستقبال.'
+                : 'If you already have a record at the clinic, enter the claim code provided by reception.'}
+            </p>
+          </div>
+
+          <div
+            className="patient-alert"
+            style={{ marginBottom: '1.25rem' }}
+          >
+            <strong>
+              {lang === 'ar'
+                ? 'لماذا أرى هذه الصفحة؟'
+                : 'Why am I seeing this page?'}
+            </strong>
+
+            <p style={{ margin: '.4rem 0 0' }}>
+              {lang === 'ar'
+                ? 'تم تسجيل الدخول إلى حسابك بنجاح، لكن النظام لم يؤكد بعد ارتباط الحساب بملف طبي. لن يتم عرض أي بيانات طبية حتى يتم الربط بشكل آمن.'
+                : 'You signed in successfully, but this account is not yet confirmed as linked to a medical record. Clinical data will remain unavailable until secure linking is completed.'}
+            </p>
+          </div>
+
+          <form onSubmit={submit}>
+            <Field
+              label={
+                lang === 'ar'
+                  ? 'رمز ربط الملف'
+                  : 'Claim code'
+              }
+              value={form.code}
+              onChange={(code) =>
+                updateField('code', code)
+              }
+              autoComplete="one-time-code"
+            />
+
+            <Field
+              label={
+                lang === 'ar'
+                  ? 'تاريخ الميلاد'
+                  : 'Date of birth'
+              }
+              type="date"
+              value={form.dateOfBirth}
+              onChange={(dateOfBirth) =>
+                updateField(
+                  'dateOfBirth',
+                  dateOfBirth
+                )
+              }
+            />
+
+            {error && <Alert>{error}</Alert>}
+
+            {message && (
+              <div
+                className="patient-alert success"
+                role="status"
+              >
+                {message}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="patient-button"
+              style={{
+                width: '100%',
+                marginTop: '1rem'
+              }}
+              disabled={
+                loading ||
+                !form.code.trim() ||
+                !form.dateOfBirth
+              }
+            >
+              {loading
+                ? lang === 'ar'
+                  ? 'جاري التحقق...'
+                  : 'Verifying...'
+                : lang === 'ar'
+                  ? 'تحقق واربط الملف'
+                  : 'Verify and link record'}
+            </button>
+          </form>
+
+          <div
+            style={{
+              marginTop: '1.25rem',
+              paddingTop: '1.25rem',
+              borderTop:
+                '1px solid var(--border-color, rgba(148, 163, 184, .2))'
+            }}
+          >
+            <p style={{ fontSize: '.9rem' }}>
+              {lang === 'ar'
+                ? 'ليس لديك رمز ربط؟ اطلب من موظف الاستقبال التحقق من ملفك وإصدار رمز جديد. الرمز صالح لمدة 30 دقيقة.'
+                : 'Do not have a claim code? Ask reception to verify your record and issue a new code. Claim codes are valid for 30 minutes.'}
+            </p>
+
+            <button
+              type="button"
+              className="patient-button secondary"
+              style={{
+                width: '100%',
+                marginTop: '.75rem'
+              }}
+              onClick={handleLogout}
+            >
+              {lang === 'ar'
+                ? 'تسجيل الخروج واستخدام حساب آخر'
+                : 'Sign out and use another account'}
+            </button>
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
 
 function AuthShell({title,children}){const{t}=useTranslation();return <main className="patient-auth-shell"><aside className="patient-auth-aside"><Link to="/"><HeartPulse size={24}/>{t('brandName')}</Link><div><h2>{title}</h2><p>{t('secureAccessDescription')}</p></div></aside><div className="patient-auth-content"><section className="patient-card patient-auth"><h1>{title}</h1>{children}</section></div></main>}
 function Field({label,type='text',value,onChange,autoComplete,error}){return <><label className="patient-field">{label}<input type={type} value={value} onChange={event=>onChange(event.target.value)} autoComplete={autoComplete} required aria-invalid={Boolean(error)}/></label>{error&&<span className="field-error">{error}</span>}</>}

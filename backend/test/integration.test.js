@@ -563,6 +563,53 @@ test('oversize uploads return a safe 413 validation response', async () => {
   assert.equal(JSON.stringify(response.body).includes('MulterError'), false);
 });
 
+
+test('patient login reports whether the medical record is linked', async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const email = `linkage-${suffix}@example.com`;
+  const phone = `+24991${String(Date.now()).slice(-7)}`;
+  const password = 'StrongPass123';
+
+  const register = await api
+    .post('/api/patient-auth/register')
+    .send({
+      fullName: 'Patient Linkage Test',
+      fullNameAr: 'مريض اختبار الربط',
+      fullNameEn: 'Patient Linkage Test',
+      phone,
+      email,
+      dateOfBirth: '1994-04-15',
+      gender: 'MALE',
+      password,
+      addressStateId: 1
+    });
+
+  assert.equal(register.status, 201);
+  assert.ok(register.body.challengeId);
+  assert.ok(register.body.developmentCode);
+
+  const verify = await api
+    .post('/api/patient-auth/verify')
+    .send({
+      challengeId: register.body.challengeId,
+      code: register.body.developmentCode
+    });
+
+  assert.equal(verify.status, 200);
+
+  const login = await api
+    .post('/api/auth/login')
+    .send({
+      username: email,
+      password
+    });
+
+  assert.equal(login.status, 200);
+  assert.equal(login.body.user.role, 'PATIENT');
+  assert.equal(login.body.user.patientLinked, true);
+  assert.ok(login.body.user.patientId);
+});
+
 async function createPrescriptionFixture() {
   fixtureCounter += 1;
   const fixtureDrug = await prisma.drugFormulary.create({ data: { labelAr: 'دواء اختبار', labelEn: 'Fixture Drug', genericName: `Fixture-${fixtureCounter}-${Date.now()}`, strength: '1mg', dosageForm: 'Tablet' } });

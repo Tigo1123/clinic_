@@ -555,6 +555,220 @@ router.post('/verification/request', verificationLimiter, authenticate, allowRol
   } catch (error) { next(error); }
 });
 
+/**
+ * POST /api/patient-auth/link/recover
+ *
+ * Safely repairs legacy PATIENT accounts that are ACTIVE but are not linked
+ * to a Patient record.
+ *
+ * Automatic recovery is intentionally strict:
+ * - account must already be authenticated as PATIENT
+ * - account must have a verified phone number
+ * - patient match requires normalized verified phone + exact date of birth
+ * - exactly one unclaimed Patient record must match
+ * - ownership can never be overwritten
+ *
+ * When automatic recovery is unsafe or impossible, the endpoint returns a
+ * manual-review state. The existing receptionist/admin Claim Code workflow
+ * remains the secure fallback.
+ */
+router.post(
+  '/link/recover',
+  claimLimiter,
+  authenticate,
+  allowRoles(ROLES.PATIENT),
+  validate(
+    z.object({
+      dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+    })
+  ),
+  async (req, res, next) => {
+    try {
+      // -----------------------------------------------------
+      // 1. Idempotent success if already linked.
+      // -----------------------------------------------------
+      const existingPatient = await prisma.patient.findUnique({
+        where: {
+          userId: req.user.id
+        },
+        select: {
+          id: true
+        }
+      });
+
+      if (existingPatient) {
+        return res.json({
+          state: 'LINKED',
+          patientId: existingPatient.id,
+          recovered: false
+        });
+      }
+
+      // -----------------------------------------------------
+      // 2. Load the authenticated patient account.
+      // -----------------------------------------------------
+      const user = await prisma.user.findUnique({
+        where: {
+          id: req.user.id
+        },
+        select: {
+          id: true,
+          role: true,
+          status: true,
+          phoneNormalized: true,
+          phoneVerifiedAt: true
+        }
+      });
+
+      if (!user) {
+        return sendError(
+          res,
+          404,
+          'USER_NOT_FOUND',
+          'User account not found.'
+        );
+      }
+
+      if (user.role !== ROLES.PATIENT) {
+        return sendError(
+          res,
+          403,
+          'PATIENT_ACCOUNT_REQUIRED',
+          'A patient account is required.'
+        );
+      }
+
+      if (user.status !== 'ACTIVE') {
+        return sendError(
+          res,
+          403,
+          'ACCOUNT_NOT_ACTIVE',
+          'The patient account must be active before record recovery.'
+        );
+      }
+
+      // -----------------------------------------------------
+      // 3. Automatic linkage requires VERIFIED phone identity.
+      //
+      // Email verification alone is not enough because Patient records
+      // currently carry phone + DOB as the stable matching attributes.
+      // -----------------------------------------------------
+      if (!user.phoneNormalized || !user.phoneVerifiedAt) {
+        await audit(
+          user.id,
+          'PATIENT_LINK_RECOVERY_REJECTED',
+          'Automatic patient linkage recovery requires a verified phone number.',
+          req
+        );
+
+        return res.json({
+          state: 'MANUAL_REVIEW_REQUIRED',
+          reason: 'VERIFIED_PHONE_REQUIRED'
+        });
+      }
+
+      // -----------------------------------------------------
+      // 4. Match using exact DOB + normalized verified phone.
+      // -----------------------------------------------------
+      const matches = await matchingPatients(
+        user.phoneNormalized,
+        req.body.dateOfBirth
+      );
+
+      if (matches.length === 0) {
+        await audit(
+          user.id,
+          'PATIENT_LINK_RECOVERY_NO_MATCH',
+          'No patient record matched verified phone and supplied date of birth.',
+          req
+        );
+
+        return res.json({
+          state: 'MANUAL_REVIEW_REQUIRED',
+          reason: 'NO_MATCH'
+        });
+      }
+
+      if (matches.length > 1) {
+        await audit(
+          user.id,
+          'PATIENT_LINK_RECOVERY_AMBIGUOUS',
+          'Multiple patient records matched verified phone and supplied date of birth.',
+          req
+        );
+
+        return res.json({
+          state: 'AMBIGUOUS_MATCH',
+          reason: 'MULTIPLE_MATCHES'
+        });
+      }
+
+      const patient = matches[0];
+
+      // -----------------------------------------------------
+      // 5. Never steal ownership from another patient account.
+      // -----------------------------------------------------
+      if (patient.userId) {
+        await audit(
+          user.id,
+          'PATIENT_LINK_RECOVERY_CONFLICT',
+          'Matching patient record is already linked to another account.',
+          req
+        );
+
+        return res.json({
+          state: 'MANUAL_REVIEW_REQUIRED',
+          reason: 'ALREADY_CLAIMED'
+        });
+      }
+
+      // -----------------------------------------------------
+      // 6. Atomic ownership claim.
+      //
+      // updateMany + userId:null protects against concurrent claims.
+      // -----------------------------------------------------
+      const linked = await prisma.patient.updateMany({
+        where: {
+          id: patient.id,
+          userId: null
+        },
+        data: {
+          userId: user.id
+        }
+      });
+
+      if (linked.count !== 1) {
+        await audit(
+          user.id,
+          'PATIENT_LINK_RECOVERY_CONFLICT',
+          'Patient linkage changed concurrently before recovery completed.',
+          req
+        );
+
+        return res.json({
+          state: 'MANUAL_REVIEW_REQUIRED',
+          reason: 'LINK_CONFLICT'
+        });
+      }
+
+      await audit(
+        user.id,
+        'PATIENT_LINK_RECOVERED',
+        `Recovered legacy patient account linkage to patient record ${patient.id}.`,
+        req
+      );
+
+      return res.json({
+        state: 'LINKED',
+        patientId: patient.id,
+        recovered: true
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 router.post('/claim', claimLimiter, authenticate, allowRoles(ROLES.PATIENT), validate(z.object({ code: z.string().min(6).max(20), dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })), async (req, res, next) => {
   try {
     if (await prisma.patient.findUnique({ where: { userId: req.user.id } })) return sendError(res, 409, 'PATIENT_ALREADY_LINKED', 'Account is already linked to a patient record.');
