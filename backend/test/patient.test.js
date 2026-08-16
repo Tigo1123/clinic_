@@ -264,6 +264,140 @@ test('patient only receives own released labs, prescriptions, and patient-safe v
   assert.equal((await api.get('/api/patient/lab-results').set(auth(patientB.token))).body.some((item) => item.id === lab.id), false);
 });
 
+
+test('forgot password sends a reset challenge without exposing unknown emails', async () => {
+  const account = await registerAndVerify(
+    '+250788100030',
+    'forgot-password@example.com'
+  );
+
+  const existing = await api
+    .post('/api/patient-auth/forgot-password')
+    .send({ email: ' FORGOT-PASSWORD@EXAMPLE.COM ' });
+
+  assert.equal(existing.status, 200);
+  assert.equal(existing.body.success, true);
+  assert.ok(existing.body.challengeId);
+  assert.ok(existing.body.developmentCode);
+
+  const unknown = await api
+    .post('/api/patient-auth/forgot-password')
+    .send({ email: 'does-not-exist@example.com' });
+
+  assert.equal(unknown.status, 200);
+  assert.equal(unknown.body.success, true);
+  assert.equal(Object.hasOwn(unknown.body, 'challengeId'), false);
+
+  assert.ok(account.user.id);
+});
+
+test('wrong password reset code is rejected', async () => {
+  await registerAndVerify(
+    '+250788100031',
+    'reset-wrong@example.com'
+  );
+
+  const forgot = await api
+    .post('/api/patient-auth/forgot-password')
+    .send({ email: 'reset-wrong@example.com' });
+
+  assert.equal(forgot.status, 200);
+
+  const response = await api
+    .post('/api/patient-auth/reset-password')
+    .send({
+      challengeId: forgot.body.challengeId,
+      code: '000000',
+      newPassword: 'NewStrongPass123'
+    });
+
+  assert.equal(response.status, 422);
+  assert.equal(
+    response.body.error.code,
+    'PASSWORD_RESET_CODE_INCORRECT'
+  );
+});
+
+test('password reset changes password and reset code is single-use', async () => {
+  const phone = '+250788100032';
+  const email = 'reset-success@example.com';
+  const newPassword = 'NewStrongPass123';
+
+  await registerAndVerify(phone, email);
+
+  const forgot = await api
+    .post('/api/patient-auth/forgot-password')
+    .send({ email });
+
+  assert.equal(forgot.status, 200);
+  assert.ok(forgot.body.challengeId);
+  assert.ok(forgot.body.developmentCode);
+
+  const reset = await api
+    .post('/api/patient-auth/reset-password')
+    .send({
+      challengeId: forgot.body.challengeId,
+      code: forgot.body.developmentCode,
+      newPassword
+    });
+
+  assert.equal(reset.status, 200);
+  assert.equal(reset.body.success, true);
+
+  // Old password must stop working.
+  assert.equal((await login(phone, password)).status, 401);
+
+  // New password must work.
+  assert.equal((await login(phone, newPassword)).status, 200);
+
+  // The same reset code cannot be reused.
+  const reused = await api
+    .post('/api/patient-auth/reset-password')
+    .send({
+      challengeId: forgot.body.challengeId,
+      code: forgot.body.developmentCode,
+      newPassword: 'AnotherStrongPass123'
+    });
+
+  assert.equal(reused.status, 422);
+  assert.equal(
+    reused.body.error.code,
+    'PASSWORD_RESET_INVALID'
+  );
+});
+
+test('expired password reset code is rejected', async () => {
+  await registerAndVerify(
+    '+250788100033',
+    'reset-expired@example.com'
+  );
+
+  const forgot = await api
+    .post('/api/patient-auth/forgot-password')
+    .send({ email: 'reset-expired@example.com' });
+
+  assert.equal(forgot.status, 200);
+
+  await prisma.verificationChallenge.update({
+    where: { id: forgot.body.challengeId },
+    data: { expiresAt: new Date(Date.now() - 1000) }
+  });
+
+  const response = await api
+    .post('/api/patient-auth/reset-password')
+    .send({
+      challengeId: forgot.body.challengeId,
+      code: forgot.body.developmentCode,
+      newPassword: 'NewStrongPass123'
+    });
+
+  assert.equal(response.status, 422);
+  assert.equal(
+    response.body.error.code,
+    'PASSWORD_RESET_EXPIRED'
+  );
+});
+
 test('doctor discovery and specialties use real active doctor data', async () => {
   const doctors = await api.get('/api/patient/doctors').set(auth(patientA.token));
   const specialties = await api.get('/api/patient/specialties').set(auth(patientA.token));

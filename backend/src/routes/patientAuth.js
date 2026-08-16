@@ -332,6 +332,219 @@ router.post(
   }
 );
 
+
+router.post(
+  '/forgot-password',
+  verificationLimiter,
+  validate(z.object({
+    email: z.string().trim().email().max(254)
+  })),
+  async (req, res, next) => {
+    try {
+      const email = normalizeEmail(req.body.email);
+
+      const genericResponse = {
+        success: true,
+        message: 'If an account exists for this email, a password reset code has been sent.'
+      };
+
+      const user = await prisma.user.findUnique({
+        where: { email }
+      });
+
+      // Do not reveal whether the email exists.
+      if (!user || user.role !== ROLES.PATIENT) {
+        return res.json(genericResponse);
+      }
+
+      const code = String(crypto.randomInt(100000, 1000000));
+      const codeHash = await bcrypt.hash(code, 10);
+
+      const challenge = await prisma.verificationChallenge.create({
+        data: {
+          userId: user.id,
+          type: 'PASSWORD_RESET',
+          targetNormalized: email,
+          codeHash,
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000)
+        }
+      });
+
+      const developmentMode =
+        process.env.VERIFICATION_PROVIDER === 'development' &&
+        process.env.NODE_ENV !== 'production';
+
+      if (!developmentMode) {
+        const { sendEmail } = await import('../utils/notifications.js');
+
+        const sent = await sendEmail({
+          to: email,
+          subject: 'Reset your patient account password',
+          text: `Your password reset code is ${code}. It expires in 10 minutes.`
+        });
+
+        if (!sent) {
+          await prisma.verificationChallenge.delete({
+            where: { id: challenge.id }
+          }).catch(() => {});
+
+          return sendError(
+            res,
+            503,
+            'PASSWORD_RESET_DELIVERY_FAILED',
+            'Password reset email could not be delivered.'
+          );
+        }
+      }
+
+      await audit(
+        user.id,
+        'PATIENT_PASSWORD_RESET_REQUESTED',
+        'Patient requested a password reset code.',
+        req
+      );
+
+      return res.json({
+        ...genericResponse,
+        challengeId: challenge.id,
+        ...(process.env.VERIFICATION_PROVIDER === 'development' &&
+        process.env.NODE_ENV !== 'production'
+          ? { developmentCode: code }
+          : {})
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+
+router.post(
+  '/reset-password',
+  verificationLimiter,
+  validate(z.object({
+    challengeId: z.string().uuid(),
+    code: z.string().regex(/^\d{6}$/),
+    newPassword: passwordSchema
+  })),
+  async (req, res, next) => {
+    try {
+      const challenge = await prisma.verificationChallenge.findUnique({
+        where: { id: req.body.challengeId },
+        include: { user: true }
+      });
+
+      if (
+        !challenge ||
+        challenge.type !== 'PASSWORD_RESET' ||
+        challenge.usedAt
+      ) {
+        return sendError(
+          res,
+          422,
+          'PASSWORD_RESET_INVALID',
+          'Password reset request is invalid or already used.'
+        );
+      }
+
+      if (challenge.expiresAt <= new Date()) {
+        return sendError(
+          res,
+          422,
+          'PASSWORD_RESET_EXPIRED',
+          'Password reset code has expired.'
+        );
+      }
+
+      if (challenge.attemptCount >= challenge.maxAttempts) {
+        return sendError(
+          res,
+          429,
+          'PASSWORD_RESET_ATTEMPTS_EXCEEDED',
+          'Password reset attempt limit exceeded.'
+        );
+      }
+
+      const valid = await bcrypt.compare(
+        String(req.body.code),
+        challenge.codeHash
+      );
+
+      if (!valid) {
+        await prisma.verificationChallenge.update({
+          where: { id: challenge.id },
+          data: {
+            attemptCount: { increment: 1 }
+          }
+        });
+
+        return sendError(
+          res,
+          422,
+          'PASSWORD_RESET_CODE_INCORRECT',
+          'Password reset code is incorrect.'
+        );
+      }
+
+      const passwordHash = await bcrypt.hash(
+        req.body.newPassword,
+        bcryptRounds
+      );
+
+      const changedAt = new Date();
+
+      const updated = await prisma.$transaction(async (tx) => {
+        const consumed = await tx.verificationChallenge.updateMany({
+          where: {
+            id: challenge.id,
+            usedAt: null
+          },
+          data: {
+            usedAt: changedAt
+          }
+        });
+
+        if (consumed.count !== 1) {
+          return false;
+        }
+
+        await tx.user.update({
+          where: { id: challenge.userId },
+          data: {
+            passwordHash,
+            lastPasswordChange: changedAt
+          }
+        });
+
+        return true;
+      });
+
+      if (!updated) {
+        return sendError(
+          res,
+          422,
+          'PASSWORD_RESET_INVALID',
+          'Password reset request is invalid or already used.'
+        );
+      }
+
+      await audit(
+        challenge.userId,
+        'PATIENT_PASSWORD_RESET_COMPLETED',
+        'Patient password was reset successfully.',
+        req
+      );
+
+      return res.json({
+        success: true,
+        message: 'Password reset successfully.'
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 router.post('/verification/request', verificationLimiter, authenticate, allowRoles(ROLES.PATIENT), validate(z.object({ type: z.enum(['PHONE', 'EMAIL']) })), async (req, res, next) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });

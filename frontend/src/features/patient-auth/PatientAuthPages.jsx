@@ -211,6 +211,12 @@ export function PatientLogin(){
         >
           {loading?t('loading'):t('login')}
         </button>
+
+        <div style={{marginTop:'.75rem',textAlign:'center'}}>
+          <Link to="/forgot-password">
+            {t('forgotPassword')}
+          </Link>
+        </div>
       </form>
 
       <p>
@@ -218,6 +224,192 @@ export function PatientLogin(){
           {t('createPatientAccount')}
         </Link>
       </p>
+    </AuthShell>
+  );
+}
+
+
+export function PatientForgotPassword(){
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+
+  const [step, setStep] = useState('request');
+  const [email, setEmail] = useState('');
+  const [challengeId, setChallengeId] = useState('');
+  const [developmentCode, setDevelopmentCode] = useState('');
+  const [code, setCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+
+  async function requestReset(event){
+    event.preventDefault();
+    setLoading(true);
+    setError('');
+    setMessage('');
+
+    try{
+      const data = await apiRequest('/api/patient-auth/forgot-password',{
+        method:'POST',
+        body:JSON.stringify({ email })
+      });
+
+      setMessage(
+        data.message ||
+        t('passwordResetCodeSent')
+      );
+
+      if(data.challengeId){
+        setChallengeId(data.challengeId);
+        setDevelopmentCode(data.developmentCode || '');
+        setStep('reset');
+      }
+    }catch(requestError){
+      setError(requestError.message);
+    }finally{
+      setLoading(false);
+    }
+  }
+
+  async function resetPassword(event){
+    event.preventDefault();
+    setLoading(true);
+    setError('');
+    setMessage('');
+
+    if(newPassword !== confirmPassword){
+      setError(t('passwordMismatch'));
+      setLoading(false);
+      return;
+    }
+
+    try{
+      await apiRequest('/api/patient-auth/reset-password',{
+        method:'POST',
+        body:JSON.stringify({
+          challengeId,
+          code,
+          newPassword
+        })
+      });
+
+      navigate('/patient-login',{
+        state:{
+          message:t('passwordResetSuccess')
+        }
+      });
+    }catch(requestError){
+      setError(requestError.message);
+    }finally{
+      setLoading(false);
+    }
+  }
+
+  return (
+    <AuthShell title={t('forgotPassword')}>
+      {step === 'request' ? (
+        <form onSubmit={requestReset}>
+          <p>{t('forgotPasswordInstructions')}</p>
+
+          <Field
+            label={t('emailOptional')}
+            type="email"
+            value={email}
+            onChange={setEmail}
+            autoComplete="email"
+          />
+
+          {error && <Alert>{error}</Alert>}
+
+          {message && (
+            <div className="patient-alert success">
+              {message}
+            </div>
+          )}
+
+          <button
+            className="patient-button"
+            style={{width:'100%'}}
+            disabled={loading}
+          >
+            {loading ? t('loading') : t('sendResetCode')}
+          </button>
+
+          <div style={{marginTop:'1rem',textAlign:'center'}}>
+            <Link to="/patient-login">
+              {t('backToLogin')}
+            </Link>
+          </div>
+        </form>
+      ) : (
+        <form onSubmit={resetPassword}>
+          <p>{t('resetPasswordInstructions')}</p>
+
+          {developmentCode && (
+            <div className="patient-alert success">
+              {t('developmentCode')}: {developmentCode}
+            </div>
+          )}
+
+          <Field
+            label={t('verificationCode')}
+            value={code}
+            onChange={setCode}
+            autoComplete="one-time-code"
+          />
+
+          <label className="patient-field">
+            {t('newPassword')}
+            <span style={{position:'relative'}}>
+              <input
+                style={{width:'100%',paddingInlineEnd:'3rem'}}
+                type={showPassword ? 'text' : 'password'}
+                value={newPassword}
+                onChange={event=>setNewPassword(event.target.value)}
+                autoComplete="new-password"
+                required
+              />
+
+              <button
+                type="button"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                onClick={()=>setShowPassword(!showPassword)}
+                style={{
+                  position:'absolute',
+                  insetInlineEnd:'.45rem',
+                  top:'.35rem',
+                  background:'transparent',
+                  border:0,
+                  cursor:'pointer'
+                }}
+              >
+                {showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}
+              </button>
+            </span>
+          </label>
+
+          <Field
+            label={t('confirmPassword')}
+            type="password"
+            value={confirmPassword}
+            onChange={setConfirmPassword}
+            autoComplete="new-password"
+          />
+
+          {error && <Alert>{error}</Alert>}
+
+          <button
+            className="patient-button"
+            style={{width:'100%'}}
+            disabled={loading}
+          >
+            {loading ? t('loading') : t('resetPassword')}
+          </button>
+        </form>
+      )}
     </AuthShell>
   );
 }
