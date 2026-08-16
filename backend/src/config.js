@@ -40,7 +40,15 @@ export function validateEnvironment() {
     if (origins.some((origin) => origin === '*' || !origin.startsWith('https://'))) errors.push('Production CORS origins must be explicit HTTPS URLs and cannot use wildcards.');
     if (process.env.VERIFICATION_PROVIDER === 'development') errors.push('The development verification provider is forbidden in production.');
     if (process.env.VERIFICATION_PROVIDER === 'email') {
-      for (const name of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM']) if (!process.env[name]) errors.push(`${name} is required for email verification.`);
+      for (const name of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS']) {
+        if (!process.env[name]) {
+          errors.push(`${name} is required for email verification.`);
+        }
+      }
+
+      if (!(process.env.SMTP_FROM_EMAIL || process.env.SMTP_FROM)) {
+        errors.push('SMTP_FROM_EMAIL or SMTP_FROM is required for email verification.');
+      }
       if (process.env.NOTIFICATIONS_DISABLED === 'true') errors.push('NOTIFICATIONS_DISABLED cannot be true when email verification is enabled.');
     }
     if (!['email', 'disabled'].includes(process.env.VERIFICATION_PROVIDER || '')) errors.push('VERIFICATION_PROVIDER must be email or disabled in production.');
