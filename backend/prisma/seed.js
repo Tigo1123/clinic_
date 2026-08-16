@@ -189,48 +189,192 @@ async function main() {
   });
 
   // 6. Seed Clinical Services
-  const serviceCount = await prisma.clinicalService.count();
-  if (serviceCount === 0) {
-    console.log('Seeding clinical services...');
-    const services = [
-      {
-        labelAr: 'كشف طبي عام',
-        labelEn: 'General Medicine Consultation',
-        baseFeeSdg: 20000.00,
-        baseFeeUsd: 13.33,
-        category: 'CONSULTATION'
-      },
-      {
-        labelAr: 'فحص دم كامل (CBC)',
-        labelEn: 'Complete Blood Count (CBC)',
-        baseFeeSdg: 15000.00,
-        baseFeeUsd: 10.00,
-        category: 'LABORATORY'
-      },
-      {
-        labelAr: 'تضميد جرح سطحي',
-        labelEn: 'Surgical Wound Dressing',
-        baseFeeSdg: 10000.00,
-        baseFeeUsd: 6.67,
-        category: 'CLINICAL_PROCEDURE'
-      },
-      {
-        labelAr: 'جلسة نيبولايزر (بخاخ)',
-        labelEn: 'Nebulizer Therapy Session',
-        baseFeeSdg: 8000.00,
-        baseFeeUsd: 5.33,
-        category: 'CLINICAL_PROCEDURE'
-      },
-      {
-        labelAr: 'صورة أشعة للصدر',
-        labelEn: 'Chest X-Ray Digital',
-        baseFeeSdg: 25000.00,
-        baseFeeUsd: 16.67,
-        category: 'RADIOLOGY'
-      }
-    ];
+  console.log('Seeding clinical services...');
 
-    for (const svc of services) {
+  const services = [
+    {
+      labelAr: 'كشف طبي عام',
+      labelEn: 'General Medicine Consultation',
+      baseFeeSdg: 20000.00,
+      baseFeeUsd: 13.33,
+      category: 'CONSULTATION'
+    },
+
+    // Laboratory quick-selection catalogue
+    {
+      labelAr: 'فحص دم كامل (CBC)',
+      labelEn: 'Complete Blood Count (CBC)',
+      baseFeeSdg: 15000.00,
+      baseFeeUsd: 10.00,
+      category: 'LABORATORY'
+    },
+    {
+      labelAr: 'فحص الملاريا',
+      labelEn: 'Malaria Test',
+      baseFeeSdg: 10000.00,
+      baseFeeUsd: 6.67,
+      category: 'LABORATORY'
+    },
+    {
+      labelAr: 'فصيلة الدم وعامل ريسس',
+      labelEn: 'Blood Group & Rh',
+      baseFeeSdg: 10000.00,
+      baseFeeUsd: 6.67,
+      category: 'LABORATORY'
+    },
+    {
+      labelAr: 'سكر الدم العشوائي',
+      labelEn: 'Random Blood Sugar',
+      baseFeeSdg: 8000.00,
+      baseFeeUsd: 5.33,
+      category: 'LABORATORY'
+    },
+    {
+      labelAr: 'سكر الدم الصائم',
+      labelEn: 'Fasting Blood Sugar',
+      baseFeeSdg: 8000.00,
+      baseFeeUsd: 5.33,
+      category: 'LABORATORY'
+    },
+    {
+      labelAr: 'السكر التراكمي (HbA1c)',
+      labelEn: 'HbA1c',
+      baseFeeSdg: 18000.00,
+      baseFeeUsd: 12.00,
+      category: 'LABORATORY'
+    },
+    {
+      labelAr: 'تحليل البول',
+      labelEn: 'Urinalysis',
+      baseFeeSdg: 10000.00,
+      baseFeeUsd: 6.67,
+      category: 'LABORATORY'
+    },
+    {
+      labelAr: 'تحليل البراز',
+      labelEn: 'Stool Analysis',
+      baseFeeSdg: 10000.00,
+      baseFeeUsd: 6.67,
+      category: 'LABORATORY'
+    },
+    {
+      labelAr: 'اختبار الحمل',
+      labelEn: 'Pregnancy Test',
+      baseFeeSdg: 10000.00,
+      baseFeeUsd: 6.67,
+      category: 'LABORATORY'
+    },
+    {
+      labelAr: 'البروتين المتفاعل C (CRP)',
+      labelEn: 'C-Reactive Protein (CRP)',
+      baseFeeSdg: 15000.00,
+      baseFeeUsd: 10.00,
+      category: 'LABORATORY'
+    },
+    {
+      labelAr: 'سرعة ترسيب الدم (ESR)',
+      labelEn: 'Erythrocyte Sedimentation Rate (ESR)',
+      baseFeeSdg: 12000.00,
+      baseFeeUsd: 8.00,
+      category: 'LABORATORY'
+    },
+    {
+      labelAr: 'وظائف الكبد',
+      labelEn: 'Liver Function Test (LFT)',
+      baseFeeSdg: 25000.00,
+      baseFeeUsd: 16.67,
+      category: 'LABORATORY'
+    },
+    {
+      labelAr: 'وظائف الكلى',
+      labelEn: 'Kidney Function Test (KFT)',
+      baseFeeSdg: 25000.00,
+      baseFeeUsd: 16.67,
+      category: 'LABORATORY'
+    },
+    {
+      labelAr: 'دهون الدم',
+      labelEn: 'Lipid Profile',
+      baseFeeSdg: 25000.00,
+      baseFeeUsd: 16.67,
+      category: 'LABORATORY'
+    },
+    {
+      labelAr: 'هرمون الغدة الدرقية (TSH)',
+      labelEn: 'Thyroid Stimulating Hormone (TSH)',
+      baseFeeSdg: 25000.00,
+      baseFeeUsd: 16.67,
+      category: 'LABORATORY'
+    },
+    {
+      labelAr: 'فحص فيروس نقص المناعة',
+      labelEn: 'HIV Screening',
+      baseFeeSdg: 15000.00,
+      baseFeeUsd: 10.00,
+      category: 'LABORATORY'
+    },
+    {
+      labelAr: 'التهاب الكبد B (HBsAg)',
+      labelEn: 'Hepatitis B Surface Antigen (HBsAg)',
+      baseFeeSdg: 15000.00,
+      baseFeeUsd: 10.00,
+      category: 'LABORATORY'
+    },
+    {
+      labelAr: 'فحص التهاب الكبد C',
+      labelEn: 'Hepatitis C Screening',
+      baseFeeSdg: 15000.00,
+      baseFeeUsd: 10.00,
+      category: 'LABORATORY'
+    },
+    {
+      labelAr: 'فحص التيفوئيد',
+      labelEn: 'Typhoid Test',
+      baseFeeSdg: 12000.00,
+      baseFeeUsd: 8.00,
+      category: 'LABORATORY'
+    },
+
+    // Clinical procedures
+    {
+      labelAr: 'تضميد جرح سطحي',
+      labelEn: 'Surgical Wound Dressing',
+      baseFeeSdg: 10000.00,
+      baseFeeUsd: 6.67,
+      category: 'CLINICAL_PROCEDURE'
+    },
+    {
+      labelAr: 'جلسة نيبولايزر (بخاخ)',
+      labelEn: 'Nebulizer Therapy Session',
+      baseFeeSdg: 8000.00,
+      baseFeeUsd: 5.33,
+      category: 'CLINICAL_PROCEDURE'
+    },
+
+    // Radiology
+    {
+      labelAr: 'صورة أشعة للصدر',
+      labelEn: 'Chest X-Ray Digital',
+      baseFeeSdg: 25000.00,
+      baseFeeUsd: 16.67,
+      category: 'RADIOLOGY'
+    }
+  ];
+
+  for (const svc of services) {
+    const existing = await prisma.clinicalService.findFirst({
+      where: {
+        labelEn: svc.labelEn,
+        category: svc.category
+      }
+    });
+
+    if (existing) {
+      await prisma.clinicalService.update({
+        where: { id: existing.id },
+        data: svc
+      });
+    } else {
       await prisma.clinicalService.create({
         data: svc
       });

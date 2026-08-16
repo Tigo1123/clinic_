@@ -269,15 +269,21 @@ model PatientRegistration {
 }
 
 model LabOrderItem {
-  id                 String          @id @default(uuid())
+  id                 String           @id @default(uuid())
   labOrderId         String
-  labOrder           LabOrder        @relation(fields: [labOrderId], references: [id], onDelete: Cascade)
-  serviceId          String
-  service            ClinicalService @relation(fields: [serviceId], references: [id])
+  labOrder           LabOrder         @relation(fields: [labOrderId], references: [id], onDelete: Cascade)
+
+  // Standard test selected from the clinic catalogue.
+  serviceId          String?
+  service            ClinicalService? @relation(fields: [serviceId], references: [id])
+
+  // Free-text test requested by the doctor when it is not in the catalogue.
+  customTestName     String?
+
   resultValue        String?
   referenceRangeMin  Decimal?
   referenceRangeMax  Decimal?
-  isOutOfRange       Boolean         @default(false)
+  isOutOfRange       Boolean          @default(false)
   fileAttachmentPath String?
 }
 
