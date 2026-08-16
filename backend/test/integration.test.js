@@ -890,3 +890,267 @@ test('patient profile persists blood type', async () => {
   assert.ok(patient);
   assert.equal(patient.bloodType, 'O+');
 });
+
+test('patient lab results stay hidden until released and expose released standard and custom tests safely', async () => {
+  // -------------------------------------------------------
+  // 1. Create a real verified patient portal account.
+  // -------------------------------------------------------
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const email = `lab-patient-${suffix}@example.com`;
+  const phone = `+24995${String(Date.now()).slice(-7)}`;
+  const password = 'StrongPass123';
+
+  const register = await api
+    .post('/api/patient-auth/register')
+    .send({
+      fullName: 'Laboratory Patient Test',
+      fullNameAr: 'مريض اختبار المختبر',
+      fullNameEn: 'Laboratory Patient Test',
+      phone,
+      email,
+      dateOfBirth: '1991-05-17',
+      gender: 'MALE',
+      password,
+      addressStateId: 1
+    });
+
+  assert.equal(register.status, 201);
+  assert.ok(register.body.developmentCode);
+
+  const verify = await api
+    .post('/api/patient-auth/verify')
+    .send({
+      challengeId: register.body.challengeId,
+      code: register.body.developmentCode
+    });
+
+  assert.equal(verify.status, 200);
+
+  const login = await api
+    .post('/api/auth/login')
+    .send({
+      username: email,
+      password
+    });
+
+  assert.equal(login.status, 200);
+  assert.equal(login.body.user.role, 'PATIENT');
+
+  const patientToken = login.body.token;
+  const userId = login.body.user.id;
+
+  const linkedPatient = await prisma.patient.findUnique({
+    where: {
+      userId
+    }
+  });
+
+  assert.ok(linkedPatient);
+
+  // -------------------------------------------------------
+  // 2. Create a fresh clinical visit for this patient.
+  // -------------------------------------------------------
+  fixtureCounter += 1;
+
+  const appointment = await prisma.appointment.create({
+    data: {
+      patientId: linkedPatient.id,
+      doctorId: doctor1.id,
+      appointmentDate: `2035-04-${String(fixtureCounter).padStart(2, '0')}`,
+      appointmentTime: '10:30',
+      status: 'IN_CONSULTATION'
+    }
+  });
+
+  const record = await prisma.medicalRecord.create({
+    data: {
+      patientId: linkedPatient.id,
+      doctorId: doctor1.id,
+      appointmentId: appointment.id,
+      symptomsEncrypted: '',
+      diagnosisEncrypted: '',
+      treatmentEncrypted: '',
+      vitalSignsJson: '{}',
+      clinicalNotesEncrypted: ''
+    }
+  });
+
+  // -------------------------------------------------------
+  // 3. Create a COMPLETED order which has NOT been released.
+  //
+  // It contains:
+  // - a catalogue test
+  // - a custom doctor-requested test
+  // -------------------------------------------------------
+  const order = await prisma.labOrder.create({
+    data: {
+      medicalRecordId: record.id,
+      patientId: linkedPatient.id,
+      doctorId: doctor1.id,
+      status: 'COMPLETED',
+      items: {
+        create: [
+          {
+            serviceId: service.id,
+            resultValue: '13.5',
+            referenceRangeMin: 12,
+            referenceRangeMax: 16,
+            isOutOfRange: false
+          },
+          {
+            customTestName: 'Custom Vitamin Test',
+            resultValue: '7.2',
+            referenceRangeMin: 8,
+            referenceRangeMax: 20,
+            isOutOfRange: true
+          }
+        ]
+      }
+    }
+  });
+
+  assert.equal(order.releasedToPatientAt, null);
+
+  // -------------------------------------------------------
+  // 4. SECURITY:
+  // COMPLETED is not enough. It must remain hidden.
+  // -------------------------------------------------------
+  const beforeRelease = await api
+    .get('/api/patient/lab-results')
+    .set('Authorization', `Bearer ${patientToken}`);
+
+  assert.equal(beforeRelease.status, 200);
+
+  assert.equal(
+    beforeRelease.body.some(
+      (item) => item.id === order.id
+    ),
+    false
+  );
+
+  // -------------------------------------------------------
+  // 5. Lab technician explicitly releases results.
+  // -------------------------------------------------------
+  const release = await api
+    .put(`/api/records/lab-orders/${order.id}/release`)
+    .set(auth('lab'));
+
+  assert.equal(release.status, 200);
+  assert.equal(release.body.id, order.id);
+  assert.ok(release.body.releasedToPatientAt);
+
+  // -------------------------------------------------------
+  // 6. Patient should now receive the result.
+  // -------------------------------------------------------
+  const afterRelease = await api
+    .get('/api/patient/lab-results')
+    .set('Authorization', `Bearer ${patientToken}`);
+
+  assert.equal(afterRelease.status, 200);
+
+  const releasedOrder = afterRelease.body.find(
+    (item) => item.id === order.id
+  );
+
+  assert.ok(releasedOrder);
+  assert.ok(releasedOrder.releasedAt);
+  assert.equal(releasedOrder.tests.length, 2);
+
+  // -------------------------------------------------------
+  // 7. Standard catalogue test.
+  // -------------------------------------------------------
+  const standardTest = releasedOrder.tests.find(
+    (item) => item.service
+  );
+
+  assert.ok(standardTest);
+
+  assert.equal(
+    standardTest.resultValue,
+    '13.5'
+  );
+
+  assert.equal(
+    standardTest.isOutOfRange,
+    false
+  );
+
+  assert.ok(standardTest.service.labelEn);
+  assert.ok(standardTest.service.labelAr);
+
+  assert.equal(
+    Number(standardTest.referenceRangeMin),
+    12
+  );
+
+  assert.equal(
+    Number(standardTest.referenceRangeMax),
+    16
+  );
+
+  // -------------------------------------------------------
+  // 8. Custom/free-text test.
+  // -------------------------------------------------------
+  const customTest = releasedOrder.tests.find(
+    (item) =>
+      item.customTestName ===
+      'Custom Vitamin Test'
+  );
+
+  assert.ok(customTest);
+
+  assert.equal(
+    customTest.resultValue,
+    '7.2'
+  );
+
+  assert.equal(
+    customTest.isOutOfRange,
+    true
+  );
+
+  assert.equal(
+    customTest.service,
+    null
+  );
+
+  assert.equal(
+    Number(customTest.referenceRangeMin),
+    8
+  );
+
+  assert.equal(
+    Number(customTest.referenceRangeMax),
+    20
+  );
+
+  // -------------------------------------------------------
+  // 9. Persisted release state.
+  // -------------------------------------------------------
+  const persistedOrder =
+    await prisma.labOrder.findUnique({
+      where: {
+        id: order.id
+      }
+    });
+
+  assert.ok(
+    persistedOrder.releasedToPatientAt
+  );
+
+  // -------------------------------------------------------
+  // 10. Audit trail.
+  // -------------------------------------------------------
+  const releaseAudit =
+    await prisma.tenantAuditLog.findFirst({
+      where: {
+        action:
+          'LAB_RESULTS_RELEASED_TO_PATIENT',
+        details: {
+          contains: order.id
+        }
+      }
+    });
+
+  assert.ok(releaseAudit);
+});

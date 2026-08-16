@@ -820,9 +820,68 @@ router.put('/appointments/:id/reschedule', validate(bookingSchema), async (req, 
   }
 });
 
-router.get('/lab-results', async (req, res) => {
-  const orders = await prisma.labOrder.findMany({ where: { patientId: req.patient.id, status: 'COMPLETED', releasedToPatientAt: { not: null } }, include: { doctor: { select: doctorSelect }, items: { include: { service: { select: { labelAr: true, labelEn: true, category: true } } } } }, orderBy: { orderDate: 'desc' } });
-  return res.json(orders.map((order) => ({ id: order.id, orderDate: order.orderDate, releasedAt: order.releasedToPatientAt, doctor: order.doctor, tests: order.items.map((item) => ({ id: item.id, service: item.service, resultValue: item.resultValue, referenceRangeMin: item.referenceRangeMin, referenceRangeMax: item.referenceRangeMax, isOutOfRange: item.isOutOfRange, attachmentPath: item.fileAttachmentPath ? `/api/upload/${item.fileAttachmentPath.split('/').pop()}` : null })) })));
+router.get('/lab-results', async (req, res, next) => {
+  try {
+    const orders = await prisma.labOrder.findMany({
+      where: {
+        patientId: req.patient.id,
+        status: 'COMPLETED',
+        releasedToPatientAt: { not: null }
+      },
+      select: {
+        id: true,
+        orderDate: true,
+        releasedToPatientAt: true,
+        doctor: {
+          select: doctorSelect
+        },
+        items: {
+          select: {
+            id: true,
+            customTestName: true,
+            resultValue: true,
+            referenceRangeMin: true,
+            referenceRangeMax: true,
+            isOutOfRange: true,
+            fileAttachmentPath: true,
+            service: {
+              select: {
+                labelAr: true,
+                labelEn: true,
+                category: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: {
+        orderDate: 'desc'
+      }
+    });
+
+    return res.json(
+      orders.map((order) => ({
+        id: order.id,
+        orderDate: order.orderDate,
+        releasedAt: order.releasedToPatientAt,
+        doctor: order.doctor,
+        tests: order.items.map((item) => ({
+          id: item.id,
+          service: item.service,
+          customTestName: item.customTestName,
+          resultValue: item.resultValue,
+          referenceRangeMin: item.referenceRangeMin,
+          referenceRangeMax: item.referenceRangeMax,
+          isOutOfRange: item.isOutOfRange,
+          attachmentPath: item.fileAttachmentPath
+            ? `/api/upload/${item.fileAttachmentPath.split('/').pop()}`
+            : null
+        }))
+      }))
+    );
+  } catch (error) {
+    next(error);
+  }
 });
 
 router.get('/prescriptions', async (req, res) => {
