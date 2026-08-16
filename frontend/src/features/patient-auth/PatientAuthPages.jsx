@@ -245,6 +245,15 @@ export function PatientForgotPassword(){
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
+  const passwordChecks = [
+    ['length', newPassword.length >= 10, t('passwordMin')],
+    ['upper', /[A-Z]/.test(newPassword), t('passwordUpper')],
+    ['lower', /[a-z]/.test(newPassword), t('passwordLower')],
+    ['number', /\d/.test(newPassword), t('passwordNumber')]
+  ];
+
+  const passwordValid = passwordChecks.every(([, valid]) => valid);
+
   async function requestReset(event){
     event.preventDefault();
     setLoading(true);
@@ -279,6 +288,12 @@ export function PatientForgotPassword(){
     setLoading(true);
     setError('');
     setMessage('');
+
+    if (!passwordValid) {
+      setError(t('passwordRequirementsMissing'));
+      setLoading(false);
+      return;
+    }
 
     if(newPassword !== confirmPassword){
       setError(t('passwordMismatch'));
@@ -391,6 +406,18 @@ export function PatientForgotPassword(){
             </span>
           </label>
 
+          <div className="password-requirements">
+            {passwordChecks.map(([key, valid, label]) => (
+              <span
+                className={valid ? 'valid' : ''}
+                key={key}
+              >
+                <Check size={14} />
+                {label}
+              </span>
+            ))}
+          </div>
+
           <Field
             label={t('confirmPassword')}
             type="password"
@@ -404,7 +431,12 @@ export function PatientForgotPassword(){
           <button
             className="patient-button"
             style={{width:'100%'}}
-            disabled={loading}
+            disabled={
+              loading ||
+              !passwordValid ||
+              newPassword !== confirmPassword ||
+              code.length !== 6
+            }
           >
             {loading ? t('loading') : t('resetPassword')}
           </button>
