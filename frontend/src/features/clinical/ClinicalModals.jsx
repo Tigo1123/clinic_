@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Activity, AlertCircle, AlertTriangle, Calendar, Clock, FileText, Mail, MessageCircle, MessageSquare, Printer, Shield, User, X } from 'lucide-react';
 import { fetchWithAuth } from '../../services/staffApi';
+import { useAuth } from '../../app/auth/auth-context';
 
 function getWhatsAppLink(phone, message) {
   if (!phone) return '#';
@@ -11,9 +12,21 @@ function getWhatsAppLink(phone, message) {
 }
 
 export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary }) {
+  const { user } = useAuth();
+
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const [claimCode, setClaimCode] = useState('');
+  const [claimExpiresIn, setClaimExpiresIn] = useState(null);
+  const [claimLoading, setClaimLoading] = useState(false);
+  const [claimError, setClaimError] = useState('');
+  const [claimCopied, setClaimCopied] = useState(false);
+
+  const canManagePortalLink =
+    user?.role === 'ADMIN' ||
+    user?.role === 'RECEPTIONIST';
 
   const loadProfile = useCallback(async () => {
     if (!patientId) return;
@@ -43,6 +56,95 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
   useEffect(() => {
     loadProfile();
   }, [loadProfile]);
+
+  const handleGenerateClaimCode = async () => {
+    if (!patientId || !canManagePortalLink || profile?.portalLinked) {
+      return;
+    }
+
+    setClaimLoading(true);
+    setClaimError('');
+    setClaimCode('');
+    setClaimExpiresIn(null);
+    setClaimCopied(false);
+
+    try {
+      const res = await fetchWithAuth(
+        `/api/patient-auth/claims/${patientId}/code`,
+        {
+          method: 'POST'
+        }
+      );
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const code =
+          data?.error?.code ||
+          data?.code;
+
+        if (code === 'PATIENT_ALREADY_CLAIMED') {
+          setClaimError(
+            lang === 'ar'
+              ? 'هذا السجل مرتبط بالفعل بحساب مريض ولا يمكن إصدار رمز جديد.'
+              : 'This patient record is already linked to a portal account.'
+          );
+
+          await loadProfile();
+          return;
+        }
+
+        const apiMessage =
+          typeof data?.error === 'string'
+            ? data.error
+            : data?.error?.message;
+
+        throw new Error(
+          apiMessage ||
+            (lang === 'ar'
+              ? 'تعذر إصدار رمز ربط الحساب.'
+              : 'Failed to generate a claim code.')
+        );
+      }
+
+      setClaimCode(data.code || '');
+      setClaimExpiresIn(
+        Number(data.expiresInMinutes) || 30
+      );
+    } catch (err) {
+      console.error('Generate patient claim code error:', err);
+
+      setClaimError(
+        err.message ||
+          (lang === 'ar'
+            ? 'تعذر إصدار رمز ربط الحساب.'
+            : 'Failed to generate a claim code.')
+      );
+    } finally {
+      setClaimLoading(false);
+    }
+  };
+
+  const handleCopyClaimCode = async () => {
+    if (!claimCode) return;
+
+    try {
+      await navigator.clipboard.writeText(claimCode);
+      setClaimCopied(true);
+
+      window.setTimeout(() => {
+        setClaimCopied(false);
+      }, 2000);
+    } catch (err) {
+      console.error('Copy claim code error:', err);
+
+      setClaimError(
+        lang === 'ar'
+          ? 'تعذر نسخ الرمز تلقائيًا. يمكنك نسخه يدويًا.'
+          : 'The code could not be copied automatically. You can copy it manually.'
+      );
+    }
+  };
 
   if (!patientId) return null;
 
@@ -117,6 +219,205 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
                     <span className="badge badge-info" style={{ background: '#0284c7', color: '#fff', padding: '2px 8px', borderRadius: '12px', fontSize: '0.8rem' }}>{profile.bloodType}</span>
                   </div>
                 </div>
+
+                {/* Patient Portal Link Management */}
+                {canManagePortalLink && (
+                  <div
+                    style={{
+                      marginTop: '1rem',
+                      padding: '1rem',
+                      borderRadius: '10px',
+                      border: '1px solid var(--border-color)',
+                      background: profile.portalLinked
+                        ? 'rgba(16, 185, 129, 0.08)'
+                        : 'rgba(2, 132, 199, 0.08)'
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '1rem',
+                        flexWrap: 'wrap'
+                      }}
+                    >
+                      <div>
+                        <strong
+                          style={{
+                            display: 'block',
+                            marginBottom: '.25rem'
+                          }}
+                        >
+                          {lang === 'ar'
+                            ? 'ربط حساب بوابة المريض'
+                            : 'Patient Portal Account Link'}
+                        </strong>
+
+                        <span
+                          style={{
+                            fontSize: '.85rem',
+                            opacity: .8
+                          }}
+                        >
+                          {profile.portalLinked
+                            ? (
+                              lang === 'ar'
+                                ? 'هذا السجل مرتبط بالفعل بحساب مريض.'
+                                : 'This patient record is already linked to a portal account.'
+                            )
+                            : (
+                              lang === 'ar'
+                                ? 'السجل غير مرتبط بحساب. يمكنك إصدار رمز آمن للمريض لربط حسابه بهذا السجل.'
+                                : 'This record is not linked to an account. Generate a secure claim code for the patient.'
+                            )}
+                        </span>
+                      </div>
+
+                      {profile.portalLinked ? (
+                        <span
+                          className="badge badge-success"
+                          style={{
+                            padding: '6px 10px'
+                          }}
+                        >
+                          {lang === 'ar'
+                            ? 'مرتبط'
+                            : 'Linked'}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          disabled={claimLoading}
+                          onClick={handleGenerateClaimCode}
+                        >
+                          {claimLoading
+                            ? (
+                              lang === 'ar'
+                                ? 'جاري الإصدار...'
+                                : 'Generating...'
+                            )
+                            : (
+                              lang === 'ar'
+                                ? 'إصدار رمز ربط'
+                                : 'Generate Claim Code'
+                            )}
+                        </button>
+                      )}
+                    </div>
+
+                    {claimError && (
+                      <div
+                        className="alert alert-error"
+                        style={{
+                          marginTop: '.75rem'
+                        }}
+                      >
+                        {claimError}
+                      </div>
+                    )}
+
+                    {!profile.portalLinked && claimCode && (
+                      <div
+                        style={{
+                          marginTop: '1rem',
+                          padding: '1rem',
+                          borderRadius: '10px',
+                          background: 'rgba(255,255,255,0.06)',
+                          border: '1px dashed var(--border-color)'
+                        }}
+                      >
+                        <span
+                          style={{
+                            display: 'block',
+                            fontSize: '.8rem',
+                            opacity: .75,
+                            marginBottom: '.35rem'
+                          }}
+                        >
+                          {lang === 'ar'
+                            ? 'رمز ربط المريض'
+                            : 'Patient Claim Code'}
+                        </span>
+
+                        <div
+                          dir="ltr"
+                          style={{
+                            fontSize: '1.5rem',
+                            fontWeight: 800,
+                            letterSpacing: '.15em',
+                            wordBreak: 'break-all'
+                          }}
+                        >
+                          {claimCode}
+                        </div>
+
+                        <p
+                          style={{
+                            margin: '.6rem 0 0',
+                            fontSize: '.85rem',
+                            opacity: .8
+                          }}
+                        >
+                          {lang === 'ar'
+                            ? `الرمز صالح لمدة ${claimExpiresIn || 30} دقيقة ويُستخدم لربط هذا السجل بحساب المريض.`
+                            : `This code is valid for ${claimExpiresIn || 30} minutes and can be used to link this record to the patient's account.`}
+                        </p>
+
+                        <div
+                          style={{
+                            display: 'flex',
+                            gap: '.5rem',
+                            marginTop: '.75rem',
+                            flexWrap: 'wrap'
+                          }}
+                        >
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            onClick={handleCopyClaimCode}
+                          >
+                            {claimCopied
+                              ? (
+                                lang === 'ar'
+                                  ? 'تم النسخ'
+                                  : 'Copied'
+                              )
+                              : (
+                                lang === 'ar'
+                                  ? 'نسخ الرمز'
+                                  : 'Copy Code'
+                              )}
+                          </button>
+
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            disabled={claimLoading}
+                            onClick={handleGenerateClaimCode}
+                          >
+                            {lang === 'ar'
+                              ? 'إصدار رمز جديد'
+                              : 'Generate New Code'}
+                          </button>
+                        </div>
+
+                        <p
+                          style={{
+                            margin: '.75rem 0 0',
+                            fontSize: '.78rem',
+                            opacity: .7
+                          }}
+                        >
+                          {lang === 'ar'
+                            ? 'أعطِ الرمز للمريض فقط بعد التأكد من هويته. سيحتاج أيضًا إلى إدخال تاريخ ميلاده عند الربط.'
+                            : 'Only provide this code after verifying the patient’s identity. The patient must also enter their date of birth when linking the record.'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Risk Flags & Insurance */}
                 <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
