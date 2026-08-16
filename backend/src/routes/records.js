@@ -19,7 +19,7 @@ const router = express.Router();
  */
 router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
   patientId: z.string().uuid(), appointmentId: z.string().uuid(), symptoms: z.string().max(5000).optional(),
-  diagnosis: z.string().trim().min(1).max(5000), treatment: z.string().max(5000).optional(), clinicalNotes: z.string().max(10000).optional(),
+  diagnosis: z.string().trim().max(5000).optional(), treatment: z.string().max(5000).optional(), clinicalNotes: z.string().max(10000).optional(),
   vitalSigns: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
   prescribedDrugs: z.array(
     z.object({
@@ -35,7 +35,9 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
       { message: 'Provide either drugId or customDrugName, but not both.' }
     )
   ).max(50).optional(),
-  orderedServices: z.array(z.string().uuid()).max(50).optional(), attachmentPath: z.string().max(300).optional()
+  orderedServices: z.array(z.string().uuid()).max(50).optional(),
+  customTests: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+  attachmentPath: z.string().max(300).optional()
 })), async (req, res) => {
   const {
     patientId,
@@ -47,11 +49,27 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
     vitalSigns, // { blood_pressure, heart_rate, temperature, weight }
     prescribedDrugs, // Array of { drugId, dosage, duration, instructionsAr, instructionsEn, qtyPrescribed }
     orderedServices, // Array of ClinicalService IDs
+    customTests, // Array of free-text laboratory test names
     attachmentPath
   } = req.body;
 
-  if (!patientId || !appointmentId || !diagnosis) {
-    return res.status(400).json({ error: 'Patient ID, Appointment ID, and Diagnosis are required.' });
+  if (!patientId || !appointmentId) {
+    return res.status(400).json({
+      error: 'Patient ID and Appointment ID are required.'
+    });
+  }
+
+  const hasLabOrders =
+    (Array.isArray(orderedServices) && orderedServices.length > 0) ||
+    (Array.isArray(customTests) && customTests.length > 0);
+
+  if (!hasLabOrders && !diagnosis?.trim()) {
+    return sendError(
+      res,
+      422,
+      'DIAGNOSIS_REQUIRED',
+      'Diagnosis is required when completing a visit without laboratory orders.'
+    );
   }
 
   let doctorId = req.user.doctorId;
@@ -96,7 +114,7 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
     }
     // 1. Encrypt clinical text fields
     const encryptedSymptoms = encrypt(symptoms || '');
-    const encryptedDiagnosis = encrypt(diagnosis);
+    const encryptedDiagnosis = encrypt(diagnosis?.trim() || '');
     const encryptedTreatment = encrypt(treatment || '');
     const encryptedNotes = encrypt(clinicalNotes || '');
     const vitalSignsStr = JSON.stringify(vitalSigns || {});
@@ -148,7 +166,7 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
 
       // c. If lab/radiology tests are ordered, create LabOrder & LabOrderItems
       let labOrder = null;
-      if (orderedServices && orderedServices.length > 0) {
+      if (hasLabOrders) {
         labOrder = await tx.labOrder.create({
           data: {
             medicalRecordId: record.id,
@@ -158,11 +176,23 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
           }
         });
 
-        for (const serviceId of orderedServices) {
+        for (const serviceId of orderedServices || []) {
           await tx.labOrderItem.create({
             data: {
               labOrderId: labOrder.id,
               serviceId,
+              customTestName: null,
+              isOutOfRange: false
+            }
+          });
+        }
+
+        for (const customTestName of customTests || []) {
+          await tx.labOrderItem.create({
+            data: {
+              labOrderId: labOrder.id,
+              serviceId: null,
+              customTestName: customTestName.trim(),
               isOutOfRange: false
             }
           });
@@ -172,7 +202,7 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
       // d. If laboratory/radiology work was ordered, keep the visit open
       // until all results are available. Otherwise complete the visit now.
       const nextAppointmentStatus =
-        orderedServices && orderedServices.length > 0
+        hasLabOrders
           ? 'WAITING_LAB'
           : 'COMPLETED';
 
@@ -504,7 +534,10 @@ router.get('/prescriptions/pending', authenticate, allowRoles(ROLES.PHARMACIST),
  * Fills or partially fills a prescription. Updates inventory levels.
  */
 router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMACIST), validate(z.object({
-  items: z.array(z.object({ prescribedDrugId: z.string().uuid(), qtyToDispense: z.coerce.number().int().positive(), batchId: z.string().uuid() })).min(1).max(100)
+  items: z.array(z.object({
+    prescribedDrugId: z.string().uuid(),
+    qtyToDispense: z.coerce.number().int().positive()
+  })).min(1).max(100)
 })), async (req, res) => {
   const prescriptionId = req.params.id;
   const { items } = req.body; // Array of { prescribedDrugId, qtyToDispense, batchId }
@@ -518,7 +551,7 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
       let allFilled = true;
 
       for (const item of items) {
-        const { prescribedDrugId, batchId } = item;
+        const { prescribedDrugId } = item;
         const qtyToDispense = Number(item.qtyToDispense);
         if (!Number.isInteger(qtyToDispense) || qtyToDispense <= 0) throw new Error('Dispensing quantity must be a positive whole number.');
 
@@ -539,33 +572,64 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
         const remaining = prescribedDrug.qtyPrescribed - prescribedDrug.qtyDispensed;
         if (qtyToDispense > remaining) throw new Error('Dispensing quantity exceeds the remaining prescribed quantity.');
 
-        if (batchId) {
-          const batch = await tx.inventoryBatch.findUnique({
-            where: { id: batchId }
-          });
+        const eligibleBatches = await tx.inventoryBatch.findMany({
+          where: {
+            drugId: prescribedDrug.drugId,
+            qtyOnHand: { gt: 0 },
+            expiryDate: { gte: getClinicDateString() }
+          },
+          orderBy: [
+            { expiryDate: 'asc' },
+            { batchNumber: 'asc' }
+          ]
+        });
 
-          if (!batch) {
-            throw new Error('Inventory batch not found.');
-          }
-          if (batch.drugId !== prescribedDrug.drugId) throw new Error('Inventory batch does not belong to the prescribed drug.');
+        const totalAvailable = eligibleBatches.reduce(
+          (sum, batch) => sum + batch.qtyOnHand,
+          0
+        );
 
-          const earliestBatch = await tx.inventoryBatch.findFirst({
-            where: { drugId: prescribedDrug.drugId, qtyOnHand: { gt: 0 }, expiryDate: { gte: getClinicDateString() } },
-            orderBy: [{ expiryDate: 'asc' }, { batchNumber: 'asc' }]
-          });
-          if (earliestBatch && earliestBatch.id !== batch.id) throw new Error('A batch with an earlier expiry must be dispensed first (FEFO).');
+        if (totalAvailable < qtyToDispense) {
+          throw new Error(
+            `Insufficient stock. Required ${qtyToDispense}, available ${totalAvailable}.`
+          );
+        }
 
-          if (batch.qtyOnHand < qtyToDispense) {
-            throw new Error(`Insufficient stock in batch ${batch.batchNumber}.`);
-          }
+        let remainingToDispense = qtyToDispense;
+
+        for (const batch of eligibleBatches) {
+          if (remainingToDispense <= 0) break;
+
+          const quantityFromBatch = Math.min(
+            batch.qtyOnHand,
+            remainingToDispense
+          );
 
           const batchClaim = await tx.inventoryBatch.updateMany({
-            where: { id: batchId, qtyOnHand: batch.qtyOnHand, ledgerVersion: batch.ledgerVersion },
-            data: { qtyOnHand: { decrement: qtyToDispense }, ledgerVersion: { increment: 1 } }
+            where: {
+              id: batch.id,
+              qtyOnHand: batch.qtyOnHand,
+              ledgerVersion: batch.ledgerVersion
+            },
+            data: {
+              qtyOnHand: { decrement: quantityFromBatch },
+              ledgerVersion: { increment: 1 }
+            }
           });
-          if (batchClaim.count !== 1) throw new Error('Inventory changed concurrently. Reload and retry dispensing.');
-        } else {
-          throw new Error('An eligible FEFO inventory batch is required.');
+
+          if (batchClaim.count !== 1) {
+            throw new Error(
+              'Inventory changed concurrently. Reload and retry dispensing.'
+            );
+          }
+
+          remainingToDispense -= quantityFromBatch;
+        }
+
+        if (remainingToDispense !== 0) {
+          throw new Error(
+            'Unable to allocate the full dispensing quantity across FEFO inventory batches.'
+          );
         }
 
         const newQtyDispensed = prescribedDrug.qtyDispensed + qtyToDispense;
@@ -592,7 +656,7 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
     console.error('Dispense prescription error:', error);
     const knownValidation = [
       'positive whole number', 'does not belong', 'exceeds the remaining',
-      'earlier expiry', 'eligible FEFO', 'not found', 'changed concurrently'
+      'not found', 'changed concurrently', 'Unable to allocate'
     ].some((fragment) => error.message?.includes(fragment));
     if (knownValidation) return sendError(res, 422, 'DISPENSING_VALIDATION_FAILED', error.message);
     if (error.message?.includes('Insufficient stock')) return sendError(res, 409, 'INSUFFICIENT_STOCK', error.message);
@@ -666,6 +730,9 @@ router.put('/lab-orders/items/:id/results', authenticate, allowRoles(ROLES.LAB_T
       }
     });
 
+    let returnedAppointmentId = null;
+    let returnedDoctorId = null;
+
     if (remainingItems === 0) {
       await prisma.$transaction(async (tx) => {
         const completedOrder = await tx.labOrder.update({
@@ -681,7 +748,7 @@ router.put('/lab-orders/items/:id/results', authenticate, allowRoles(ROLES.LAB_T
         });
 
         if (completedOrder.medicalRecord?.appointmentId) {
-          await tx.appointment.updateMany({
+          const returnedToDoctor = await tx.appointment.updateMany({
             where: {
               id: completedOrder.medicalRecord.appointmentId,
               status: 'WAITING_LAB'
@@ -690,8 +757,28 @@ router.put('/lab-orders/items/:id/results', authenticate, allowRoles(ROLES.LAB_T
               status: 'IN_CONSULTATION'
             }
           });
+
+          if (returnedToDoctor.count === 1) {
+            returnedAppointmentId = completedOrder.medicalRecord.appointmentId;
+            returnedDoctorId = item.labOrder.doctorId;
+          }
         }
       });
+
+      if (returnedAppointmentId && returnedDoctorId) {
+        const io = req.app.get('io');
+
+        emitQueueUpdate(
+          io,
+          {
+            type: 'LAB_RESULTS_COMPLETED',
+            appointmentId: returnedAppointmentId,
+            doctorId: returnedDoctorId,
+            status: 'IN_CONSULTATION'
+          },
+          [returnedDoctorId]
+        );
+      }
     } else {
       await prisma.labOrder.update({
         where: { id: orderId },
@@ -828,9 +915,17 @@ router.get('/:id/summary', authenticate, allowRoles(ROLES.DOCTOR), async (req, r
         qtyPrescribed: pd.qtyPrescribed || 0
       }))),
       labOrders: (record.labOrders || []).flatMap(lo => (lo.items || []).map(i => ({
-        serviceNameAr: i.service?.labelAr || '',
-        serviceNameEn: i.service?.labelEn || '',
+        serviceNameAr: i.service?.labelAr || i.customTestName || '',
+        serviceNameEn: i.service?.labelEn || i.customTestName || '',
         resultValue: i.resultValue || '',
+        referenceRangeMin:
+          i.referenceRangeMin !== null && i.referenceRangeMin !== undefined
+            ? String(i.referenceRangeMin)
+            : '',
+        referenceRangeMax:
+          i.referenceRangeMax !== null && i.referenceRangeMax !== undefined
+            ? String(i.referenceRangeMax)
+            : '',
         isOutOfRange: !!i.isOutOfRange
       }))),
       instructions: [

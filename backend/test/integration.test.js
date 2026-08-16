@@ -186,26 +186,216 @@ test('lab results persist and complete the order', async () => {
   assert.equal((await prisma.labOrder.findUnique({ where: { id: order.id } })).status, 'COMPLETED');
 });
 
+
+test('completed lab results return the patient to the doctor before final visit completion', async () => {
+  fixtureCounter += 1;
+
+  const appointment = await prisma.appointment.create({
+    data: {
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      appointmentDate: `2034-03-${String(fixtureCounter).padStart(2, '0')}`,
+      appointmentTime: '09:30',
+      status: 'WAITING_LAB'
+    }
+  });
+
+  const record = await prisma.medicalRecord.create({
+    data: {
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      appointmentId: appointment.id,
+      symptomsEncrypted: '',
+      diagnosisEncrypted: '',
+      treatmentEncrypted: '',
+      vitalSignsJson: '{}',
+      clinicalNotesEncrypted: ''
+    }
+  });
+
+  const order = await prisma.labOrder.create({
+    data: {
+      medicalRecordId: record.id,
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      status: 'PAID',
+      items: {
+        create: {
+          serviceId: service.id
+        }
+      }
+    },
+    include: {
+      items: true
+    }
+  });
+
+  const resultResponse = await api
+    .put(`/api/records/lab-orders/items/${order.items[0].id}/results`)
+    .set(auth('lab'))
+    .send({
+      resultValue: '13.5',
+      referenceRangeMin: 12,
+      referenceRangeMax: 16,
+      isOutOfRange: false
+    });
+
+  assert.equal(resultResponse.status, 200);
+
+  const completedOrder = await prisma.labOrder.findUnique({
+    where: { id: order.id }
+  });
+
+  assert.equal(completedOrder.status, 'COMPLETED');
+
+  const returnedAppointment = await prisma.appointment.findUnique({
+    where: { id: appointment.id }
+  });
+
+  assert.equal(returnedAppointment.status, 'IN_CONSULTATION');
+
+  const finalizeResponse = await api
+    .put(`/api/records/${record.id}/finalize`)
+    .set(auth('doctor'))
+    .send({
+      diagnosis: 'Final diagnosis after lab review',
+      treatment: 'Final treatment plan',
+      clinicalNotes: 'Reviewed completed laboratory results.',
+      vitalSigns: {}
+    });
+
+  assert.equal(finalizeResponse.status, 200);
+
+  const finalizedAppointment = await prisma.appointment.findUnique({
+    where: { id: appointment.id }
+  });
+
+  assert.equal(finalizedAppointment.status, 'COMPLETED');
+});
+
 test('pharmacy dispensing rejects negative quantity', async () => {
   const fixture = await createPrescriptionFixture();
   const response = await api.post(`/api/records/prescriptions/${fixture.rx.id}/dispense`).set(auth('pharmacy')).send({ items: [{ prescribedDrugId: fixture.item.id, qtyToDispense: -1, batchId: fixture.early.id }] });
   assert.notEqual(response.status, 200);
 });
 
-test('pharmacy dispensing enforces batch-drug relationship and FEFO', async () => {
+test('pharmacy dispensing applies FEFO automatically on the server', async () => {
   const fixture = await createPrescriptionFixture();
-  const otherDrug = await prisma.drugFormulary.create({ data: { labelAr: 'آخر', labelEn: 'Other', genericName: `Other-${Date.now()}`, strength: '1mg', dosageForm: 'Tablet' } });
-  const wrong = await prisma.inventoryBatch.create({ data: { drugId: otherDrug.id, batchNumber: `WRONG-${Date.now()}`, expiryDate: '2030-01-01', qtyOnHand: 20 } });
-  assert.notEqual((await api.post(`/api/records/prescriptions/${fixture.rx.id}/dispense`).set(auth('pharmacy')).send({ items: [{ prescribedDrugId: fixture.item.id, qtyToDispense: 1, batchId: wrong.id }] })).status, 200);
-  assert.notEqual((await api.post(`/api/records/prescriptions/${fixture.rx.id}/dispense`).set(auth('pharmacy')).send({ items: [{ prescribedDrugId: fixture.item.id, qtyToDispense: 1, batchId: fixture.late.id }] })).status, 200);
+
+  const response = await api
+    .post(`/api/records/prescriptions/${fixture.rx.id}/dispense`)
+    .set(auth('pharmacy'))
+    .send({
+      items: [{
+        prescribedDrugId: fixture.item.id,
+        qtyToDispense: 1
+      }]
+    });
+
+  assert.equal(response.status, 200);
+
+  const early = await prisma.inventoryBatch.findUnique({
+    where: { id: fixture.early.id }
+  });
+
+  const late = await prisma.inventoryBatch.findUnique({
+    where: { id: fixture.late.id }
+  });
+
+  assert.equal(early.qtyOnHand, 19);
+  assert.equal(late.qtyOnHand, 20);
+});
+
+test('pharmacy dispensing splits quantity across multiple FEFO batches', async () => {
+  const fixture = await createPrescriptionFixture();
+
+  await prisma.prescribedDrug.update({
+    where: { id: fixture.item.id },
+    data: { qtyPrescribed: 20 }
+  });
+
+  await prisma.inventoryBatch.update({
+    where: { id: fixture.early.id },
+    data: { qtyOnHand: 8 }
+  });
+
+  await prisma.inventoryBatch.update({
+    where: { id: fixture.late.id },
+    data: { qtyOnHand: 20 }
+  });
+
+  const response = await api
+    .post(`/api/records/prescriptions/${fixture.rx.id}/dispense`)
+    .set(auth('pharmacy'))
+    .send({
+      items: [{
+        prescribedDrugId: fixture.item.id,
+        qtyToDispense: 20
+      }]
+    });
+
+  assert.equal(response.status, 200);
+
+  const early = await prisma.inventoryBatch.findUnique({
+    where: { id: fixture.early.id }
+  });
+
+  const late = await prisma.inventoryBatch.findUnique({
+    where: { id: fixture.late.id }
+  });
+
+  const prescribedDrug = await prisma.prescribedDrug.findUnique({
+    where: { id: fixture.item.id }
+  });
+
+  const prescription = await prisma.prescription.findUnique({
+    where: { id: fixture.rx.id }
+  });
+
+  assert.equal(early.qtyOnHand, 0);
+  assert.equal(late.qtyOnHand, 8);
+  assert.equal(prescribedDrug.qtyDispensed, 20);
+  assert.equal(prescription.status, 'FILLED');
 });
 
 test('pharmacy dispensing prevents over-dispensing and deducts valid FEFO stock', async () => {
   const fixture = await createPrescriptionFixture();
-  assert.notEqual((await api.post(`/api/records/prescriptions/${fixture.rx.id}/dispense`).set(auth('pharmacy')).send({ items: [{ prescribedDrugId: fixture.item.id, qtyToDispense: 11, batchId: fixture.early.id }] })).status, 200);
-  const response = await api.post(`/api/records/prescriptions/${fixture.rx.id}/dispense`).set(auth('pharmacy')).send({ items: [{ prescribedDrugId: fixture.item.id, qtyToDispense: 10, batchId: fixture.early.id }] });
+
+  assert.notEqual(
+    (
+      await api
+        .post(`/api/records/prescriptions/${fixture.rx.id}/dispense`)
+        .set(auth('pharmacy'))
+        .send({
+          items: [{
+            prescribedDrugId: fixture.item.id,
+            qtyToDispense: 11
+          }]
+        })
+    ).status,
+    200
+  );
+
+  const response = await api
+    .post(`/api/records/prescriptions/${fixture.rx.id}/dispense`)
+    .set(auth('pharmacy'))
+    .send({
+      items: [{
+        prescribedDrugId: fixture.item.id,
+        qtyToDispense: 10
+      }]
+    });
+
   assert.equal(response.status, 200);
-  assert.equal((await prisma.inventoryBatch.findUnique({ where: { id: fixture.early.id } })).qtyOnHand, 10);
+
+  assert.equal(
+    (
+      await prisma.inventoryBatch.findUnique({
+        where: { id: fixture.early.id }
+      })
+    ).qtyOnHand,
+    10
+  );
 });
 
 test('billing is restricted and split payments set partial then paid', async () => {
