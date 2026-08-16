@@ -45,6 +45,72 @@ router.get('/search', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST),
 });
 
 /**
+ * GET /api/patients
+ * Returns a safe patient directory for Admin and Receptionist users.
+ */
+router.get(
+  '/',
+  authenticate,
+  allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST),
+  async (req, res) => {
+    try {
+      const parsedLimit = Number.parseInt(req.query.limit, 10);
+
+      const limit = Number.isFinite(parsedLimit)
+        ? Math.min(Math.max(parsedLimit, 1), 100)
+        : 50;
+
+      const patients = await prisma.patient.findMany({
+        where: {
+          status: 'ACTIVE'
+        },
+        select: {
+          id: true,
+          fullNameAr: true,
+          fullNameEn: true,
+          phone: true,
+          dateOfBirth: true,
+          gender: true,
+          userId: true,
+          createdAt: true
+        },
+        orderBy: [
+          {
+            fullNameEn: 'asc'
+          },
+          {
+            fullNameAr: 'asc'
+          }
+        ],
+        take: limit
+      });
+
+      return res.json(
+        patients.map((patient) => ({
+          id: patient.id,
+          fullNameAr: patient.fullNameAr,
+          fullNameEn: patient.fullNameEn,
+          phone: patient.phone,
+          dateOfBirth: patient.dateOfBirth,
+          gender: patient.gender,
+          portalLinked: Boolean(patient.userId),
+          createdAt: patient.createdAt
+        }))
+      );
+    } catch (error) {
+      console.error('Patient directory error:', error);
+
+      return sendError(
+        res,
+        500,
+        'PATIENT_DIRECTORY_FAILED',
+        'Failed to load patient directory.'
+      );
+    }
+  }
+);
+
+/**
  * POST /api/patients
  * Registers a new patient.
  */

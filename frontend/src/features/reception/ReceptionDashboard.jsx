@@ -12,11 +12,18 @@ export default function ReceptionDashboard({ lang, t }) {
   const [doctors, setDoctors] = useState([]);
   const [selectedDoctor, setSelectedDoctor] = useState(null);
   const [appointments, setAppointments] = useState([]);
-  const [activeTab, setActiveTab] = useState('register'); // 'register', 'billing', 'reconcile'
+  const [activeTab, setActiveTab] = useState('register'); // 'register', 'patients', 'billing', 'reconcile'
 
-  // Global search states
+  // Billing patient search states
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
+
+  // Dedicated patient-directory search states
+  const [patientDirectoryQuery, setPatientDirectoryQuery] = useState('');
+  const [patientDirectoryResults, setPatientDirectoryResults] = useState([]);
+  const [patientDirectoryLoading, setPatientDirectoryLoading] = useState(false);
+  const [patientDirectoryError, setPatientDirectoryError] = useState('');
+  const [patientDirectoryLoaded, setPatientDirectoryLoaded] = useState(false);
 
   // Registration Form States
   const [fullNameAr, setFullNameAr] = useState('');
@@ -278,6 +285,118 @@ export default function ReceptionDashboard({ lang, t }) {
       setSearchResults(data);
     } else {
       setSearchResults([]);
+    }
+  };
+
+
+  const loadPatientDirectory = useCallback(async () => {
+    setPatientDirectoryLoading(true);
+    setPatientDirectoryError('');
+
+    try {
+      const res = await fetchWithAuth('/api/patients?limit=50');
+      const data = await res.json().catch(() => []);
+
+      if (!res.ok) {
+        throw new Error(
+          apiErrorMessage(
+            data,
+            lang === 'ar'
+              ? 'تعذر تحميل قائمة المرضى.'
+              : 'Failed to load patient directory.'
+          )
+        );
+      }
+
+      setPatientDirectoryResults(
+        Array.isArray(data) ? data : []
+      );
+
+      setPatientDirectoryLoaded(true);
+    } catch (err) {
+      console.error('Patient directory load error:', err);
+
+      setPatientDirectoryResults([]);
+      setPatientDirectoryError(
+        err?.message ||
+          (
+            lang === 'ar'
+              ? 'تعذر تحميل قائمة المرضى. حاول مرة أخرى.'
+              : 'Unable to load patient directory. Please try again.'
+          )
+      );
+    } finally {
+      setPatientDirectoryLoading(false);
+    }
+  }, [lang]);
+
+  useEffect(() => {
+    if (
+      activeTab === 'patients' &&
+      !patientDirectoryLoaded &&
+      !patientDirectoryLoading
+    ) {
+      loadPatientDirectory();
+    }
+  }, [
+    activeTab,
+    patientDirectoryLoaded,
+    patientDirectoryLoading,
+    loadPatientDirectory
+  ]);
+
+  const handlePatientDirectorySearch = async (val) => {
+    setPatientDirectoryQuery(val);
+    setPatientDirectoryError('');
+
+    if (val.trim().length <= 2) {
+      if (patientDirectoryLoaded) {
+        await loadPatientDirectory();
+      } else {
+        setPatientDirectoryResults([]);
+      }
+
+      setPatientDirectoryLoading(false);
+      return;
+    }
+
+    setPatientDirectoryLoading(true);
+
+    try {
+      const res = await fetchWithAuth(
+        `/api/patients/search?q=${encodeURIComponent(val.trim())}`
+      );
+
+      const data = await res.json().catch(() => []);
+
+      if (!res.ok) {
+        throw new Error(
+          apiErrorMessage(
+            data,
+            lang === 'ar'
+              ? 'تعذر البحث عن المرضى.'
+              : 'Failed to search patients.'
+          )
+        );
+      }
+
+      setPatientDirectoryResults(
+        Array.isArray(data) ? data : []
+      );
+    } catch (err) {
+      console.error('Patient directory search error:', err);
+
+      setPatientDirectoryResults([]);
+      setPatientDirectoryError(
+        err?.message ||
+          (
+            lang === 'ar'
+              ? 'تعذر البحث عن المرضى. حاول مرة أخرى.'
+              : 'Unable to search patients. Please try again.'
+          )
+      );
+    } finally {
+      setPatientDirectoryLoading(false);
     }
   };
 
@@ -788,6 +907,13 @@ export default function ReceptionDashboard({ lang, t }) {
                 {lang === 'ar' ? 'تسجيل مريض' : 'Register Patient'}
               </button>
               <button
+                className={`tab-select-btn ${activeTab === 'patients' ? 'active' : ''}`}
+                onClick={() => setActiveTab('patients')}
+              >
+                {lang === 'ar' ? 'المرضى' : 'Patients'}
+              </button>
+
+              <button
                 className={`tab-select-btn ${activeTab === 'billing' ? 'active' : ''}`}
                 onClick={() => setActiveTab('billing')}
               >
@@ -868,6 +994,202 @@ export default function ReceptionDashboard({ lang, t }) {
                   {lang === 'ar' ? 'حفظ ملف المريض' : 'Save Patient Profile'}
                 </button>
               </form>
+            )}
+
+            {/* TAB: PATIENT DIRECTORY */}
+            {activeTab === 'patients' && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '1rem',
+                  overflowY: 'auto'
+                }}
+              >
+                <div>
+                  <h3 style={{ marginBottom: '0.35rem' }}>
+                    {lang === 'ar' ? 'المرضى' : 'Patients'}
+                  </h3>
+                  <p
+                    style={{
+                      margin: 0,
+                      color: 'var(--text-secondary)',
+                      fontSize: '0.9rem'
+                    }}
+                  >
+                    {lang === 'ar'
+                      ? 'ابحث عن مريض مسجل ثم افتح ملفه لإدارة بياناته وربط حساب بوابة المريض.'
+                      : 'Search for an existing patient and open their profile to manage their information and patient portal link.'}
+                  </p>
+                </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                    flexWrap: 'wrap'
+                  }}
+                >
+                  <small style={{ color: 'var(--text-secondary)' }}>
+                    {lang === 'ar'
+                      ? `المرضى الظاهرون: ${patientDirectoryResults.length}`
+                      : `Visible patients: ${patientDirectoryResults.length}`}
+                  </small>
+
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={loadPatientDirectory}
+                    disabled={patientDirectoryLoading}
+                  >
+                    {lang === 'ar'
+                      ? 'تحديث القائمة'
+                      : 'Refresh list'}
+                  </button>
+                </div>
+
+                <div className="search-wrapper">
+                  <Search className="search-icon-svg" size={16} />
+
+                  <input
+                    type="text"
+                    className="search-input-field"
+                    placeholder={
+                      lang === 'ar'
+                        ? 'ابحث بالاسم أو رقم الهاتف...'
+                        : 'Search by patient name or phone...'
+                    }
+                    value={patientDirectoryQuery}
+                    onChange={(e) =>
+                      handlePatientDirectorySearch(e.target.value)
+                    }
+                  />
+                </div>
+
+                {patientDirectoryLoading && (
+                  <div
+                    className="glass-panel"
+                    style={{
+                      padding: '1rem',
+                      textAlign: 'center',
+                      color: 'var(--text-secondary)'
+                    }}
+                  >
+                    {lang === 'ar'
+                      ? 'جارٍ البحث عن المرضى...'
+                      : 'Searching patients...'}
+                  </div>
+                )}
+
+                {patientDirectoryError && (
+                  <div
+                    className="badge badge-danger"
+                    style={{
+                      padding: '0.75rem',
+                      whiteSpace: 'normal'
+                    }}
+                  >
+                    {patientDirectoryError}
+                  </div>
+                )}
+
+                {!patientDirectoryLoading &&
+                  !patientDirectoryError &&
+                  patientDirectoryLoaded &&
+                  patientDirectoryResults.length === 0 && (
+                    <div
+                      className="glass-panel"
+                      style={{
+                        padding: '1rem',
+                        textAlign: 'center',
+                        color: 'var(--text-secondary)'
+                      }}
+                    >
+                      {lang === 'ar'
+                        ? 'لم يتم العثور على مرضى مطابقين.'
+                        : 'No matching patients found.'}
+                    </div>
+                  )}
+
+                {patientDirectoryResults.length > 0 && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.75rem'
+                    }}
+                  >
+                    {patientDirectoryResults.map((patient) => (
+                      <article
+                        key={patient.id}
+                        className="glass-panel"
+                        style={{
+                          padding: '0.9rem',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: '1rem',
+                          flexWrap: 'wrap'
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0.25rem'
+                          }}
+                        >
+                          <strong>
+                            {lang === 'ar'
+                              ? patient.fullNameAr ||
+                                patient.fullNameEn
+                              : patient.fullNameEn ||
+                                patient.fullNameAr}
+                          </strong>
+
+                          {patient.phone && (
+                            <span
+                              style={{
+                                fontSize: '0.85rem',
+                                color: 'var(--text-secondary)'
+                              }}
+                            >
+                              {patient.phone}
+                            </span>
+                          )}
+
+                          {patient.dateOfBirth && (
+                            <span
+                              style={{
+                                fontSize: '0.8rem',
+                                color: 'var(--text-secondary)'
+                              }}
+                            >
+                              {lang === 'ar'
+                                ? `تاريخ الميلاد: ${patient.dateOfBirth}`
+                                : `Date of birth: ${patient.dateOfBirth}`}
+                            </span>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          onClick={() =>
+                            setViewingProfilePatientId(patient.id)
+                          }
+                        >
+                          {lang === 'ar'
+                            ? 'فتح ملف المريض'
+                            : 'Open Patient Profile'}
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
 
             {/* TAB: BILLING & CHECKOUT */}
