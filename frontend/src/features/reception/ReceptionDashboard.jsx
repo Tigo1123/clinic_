@@ -54,6 +54,82 @@ export default function ReceptionDashboard({ lang, t }) {
   const [pendingAppointments, setPendingAppointments] = useState([]);
   const [queueTab, setQueueTab] = useState('queue'); // 'queue' | 'pending'
 
+  const appointmentStatusLabels = {
+    PENDING: {
+      ar: 'قيد المراجعة',
+      en: 'Pending'
+    },
+    SCHEDULED: {
+      ar: 'مجدول',
+      en: 'Scheduled'
+    },
+    CONFIRMED: {
+      ar: 'مؤكد',
+      en: 'Confirmed'
+    },
+    CHECKED_IN: {
+      ar: 'بانتظار الطبيب',
+      en: 'Waiting for Doctor'
+    },
+    IN_CONSULTATION: {
+      ar: 'داخل العيادة',
+      en: 'In Consultation'
+    },
+    WAITING_LAB: {
+      ar: 'بانتظار المختبر',
+      en: 'Waiting for Lab'
+    },
+    COMPLETED: {
+      ar: 'مكتمل',
+      en: 'Completed'
+    },
+    CANCELLED: {
+      ar: 'ملغي',
+      en: 'Cancelled'
+    },
+    NO_SHOW: {
+      ar: 'لم يحضر',
+      en: 'No Show'
+    }
+  };
+
+  const getAppointmentStatusLabel = (status) => {
+    const labels = appointmentStatusLabels[status];
+
+    if (!labels) {
+      return status?.replaceAll('_', ' ') || '-';
+    }
+
+    return lang === 'ar' ? labels.ar : labels.en;
+  };
+
+  const getPaymentMethodLabel = (method) => {
+    const labels = {
+      CASH: {
+        ar: 'نقدًا',
+        en: 'Cash'
+      },
+      CARD: {
+        ar: 'بطاقة',
+        en: 'Card'
+      },
+      BANKAK: {
+        ar: 'بنكك',
+        en: 'Bankak'
+      },
+      FAWRY: {
+        ar: 'فوري',
+        en: 'Fawry'
+      }
+    };
+
+    const value = labels[method];
+
+    return value
+      ? (lang === 'ar' ? value.ar : value.en)
+      : method;
+  };
+
   const fetchPendingAppointments = () => {
     fetchWithAuth('/api/appointments/pending')
       .then((res) => res.ok ? res.json() : [])
@@ -84,11 +160,22 @@ export default function ReceptionDashboard({ lang, t }) {
           window.open(data.whatsAppLinkAr, '_blank');
         }
       } else {
-        setErrorMsg(apiErrorMessage(data, 'Failed to confirm appointment.'));
+        setErrorMsg(
+          apiErrorMessage(
+            data,
+            lang === 'ar'
+              ? 'تعذر تأكيد الموعد.'
+              : 'Failed to confirm the appointment.'
+          )
+        );
       }
     } catch (err) {
       console.error(err);
-      setErrorMsg('Failed to approve appointment.');
+      setErrorMsg(
+        lang === 'ar'
+          ? 'تعذر تأكيد الموعد. يرجى المحاولة مرة أخرى.'
+          : 'Failed to confirm the appointment. Please try again.'
+      );
     }
   };
 
@@ -113,7 +200,11 @@ export default function ReceptionDashboard({ lang, t }) {
       }
     } catch (err) {
       console.error(err);
-      setErrorMsg('Failed to cancel appointment.');
+      setErrorMsg(
+        lang === 'ar'
+          ? 'تعذر إلغاء الموعد. يرجى المحاولة مرة أخرى.'
+          : 'Failed to cancel the appointment. Please try again.'
+      );
     }
   };
 
@@ -223,11 +314,22 @@ export default function ReceptionDashboard({ lang, t }) {
         setAddressDetails('');
         setEmergencyContact('');
       } else {
-        setErrorMsg(apiErrorMessage(data, 'Registration failed.'));
+        setErrorMsg(
+          apiErrorMessage(
+            data,
+            lang === 'ar'
+              ? 'تعذر تسجيل المريض.'
+              : 'Patient registration failed.'
+          )
+        );
       }
     } catch (err) {
       console.error(err);
-      setErrorMsg('Failed to connect to the backend server.');
+      setErrorMsg(
+        lang === 'ar'
+          ? 'تعذر الاتصال بالخادم. تحقق من الاتصال وحاول مرة أخرى.'
+          : 'Unable to connect to the server. Please try again.'
+      );
     }
   };
 
@@ -237,11 +339,32 @@ export default function ReceptionDashboard({ lang, t }) {
         method: 'PUT',
         body: JSON.stringify({ status: 'CHECKED_IN' })
       });
+      const data = await res.json().catch(() => ({}));
+
       if (res.ok) {
+        setSuccessMsg(
+          lang === 'ar'
+            ? 'تم تسجيل وصول المريض وإضافته إلى طابور الطبيب.'
+            : 'Patient checked in and added to the doctor queue.'
+        );
         refreshDoctorQueue();
+      } else {
+        setErrorMsg(
+          apiErrorMessage(
+            data,
+            lang === 'ar'
+              ? 'تعذر تسجيل وصول المريض.'
+              : 'Failed to check in the patient.'
+          )
+        );
       }
     } catch (err) {
       console.error(err);
+      setErrorMsg(
+        lang === 'ar'
+          ? 'حدث خطأ أثناء تسجيل وصول المريض.'
+          : 'An error occurred while checking in the patient.'
+      );
     }
   };
 
@@ -298,7 +421,11 @@ export default function ReceptionDashboard({ lang, t }) {
     setErrorMsg('');
     setSuccessMsg('');
     if (addedServices.length === 0 || !billingPatient) {
-      setErrorMsg('Choose a patient and add at least one clinical service.');
+      setErrorMsg(
+        lang === 'ar'
+          ? 'اختر المريض وأضف خدمة طبية واحدة على الأقل.'
+          : 'Select a patient and add at least one clinical service.'
+      );
       return;
     }
 
@@ -339,14 +466,32 @@ export default function ReceptionDashboard({ lang, t }) {
           setPaymentRows([{ amountSdg: '', paymentMethod: 'CASH', transactionReference: '' }]);
         } else {
           const payError = await paymentRes.json();
-          setErrorMsg(payError.error || 'Failed to apply payments.');
+          setErrorMsg(
+            typeof payError.error === 'object'
+              ? payError.error.message
+              : payError.error ||
+                (lang === 'ar'
+                  ? 'تعذر تسجيل الدفعات على الفاتورة.'
+                  : 'Failed to apply payments to the invoice.')
+          );
         }
       } else {
-        setErrorMsg(apiErrorMessage(data, 'Invoice creation failed.'));
+        setErrorMsg(
+          apiErrorMessage(
+            data,
+            lang === 'ar'
+              ? 'تعذر إنشاء الفاتورة.'
+              : 'Failed to create the invoice.'
+          )
+        );
       }
     } catch (err) {
       console.error(err);
-      setErrorMsg('Failed to process billing checkout.');
+      setErrorMsg(
+        lang === 'ar'
+          ? 'حدث خطأ أثناء معالجة الفاتورة والدفع.'
+          : 'An error occurred while processing billing and payment.'
+      );
     } finally {
       setBillingSubmitting(false);
     }
@@ -363,12 +508,32 @@ export default function ReceptionDashboard({ lang, t }) {
           note: 'Daily receptionist shift reconciliation close'
         })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+
       if (res.ok) {
         setReconcileResult(data);
+        setSuccessMsg(
+          lang === 'ar'
+            ? 'تمت مطابقة الوردية بنجاح.'
+            : 'Shift reconciliation completed successfully.'
+        );
+      } else {
+        setErrorMsg(
+          apiErrorMessage(
+            data,
+            lang === 'ar'
+              ? 'تعذر إتمام مطابقة الوردية.'
+              : 'Failed to reconcile the shift.'
+          )
+        );
       }
     } catch (err) {
       console.error(err);
+      setErrorMsg(
+        lang === 'ar'
+          ? 'حدث خطأ أثناء مطابقة الوردية.'
+          : 'An error occurred while reconciling the shift.'
+      );
     }
   };
 
@@ -411,7 +576,7 @@ export default function ReceptionDashboard({ lang, t }) {
                   onClick={() => setQueueTab('queue')}
                 >
                   <Clock size={14} />
-                  {lang === 'ar' ? 'الطابور اليومي' : 'Live Queue'}
+                  {lang === 'ar' ? 'الطابور اليومي' : 'Today’s Queue'}
                 </button>
                 <button
                   type="button"
@@ -420,7 +585,9 @@ export default function ReceptionDashboard({ lang, t }) {
                   onClick={() => setQueueTab('pending')}
                 >
                   <AlertCircle size={14} />
-                  {lang === 'ar' ? 'طلبات بانتظار التأكيد' : 'Pending Approvals'}
+                  {lang === 'ar'
+                    ? 'طلبات بانتظار التأكيد'
+                    : 'Pending Appointment Requests'}
                   {pendingAppointments.length > 0 && (
                     <span className="badge badge-danger" style={{ marginLeft: '4px', fontSize: '0.7rem', padding: '1px 5px' }}>
                       {pendingAppointments.length}
@@ -455,11 +622,20 @@ export default function ReceptionDashboard({ lang, t }) {
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <strong>{lang === 'ar' ? app.patient.fullNameAr : app.patient.fullNameEn}</strong>
-                      <span className="badge badge-warning">{lang === 'ar' ? 'قيد المراجعة' : 'PENDING'}</span>
+                      <span className="badge badge-warning">
+                        {getAppointmentStatusLabel('PENDING')}
+                      </span>
                     </div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.4rem' }}>
                       <div><strong>{lang === 'ar' ? 'الطبيب:' : 'Doctor:'}</strong> {lang === 'ar' ? app.doctor?.fullNameAr : app.doctor?.fullNameEn}</div>
-                      <div><strong>{lang === 'ar' ? 'الموعد:' : 'Slot:'}</strong> {app.appointmentDate} الساعة {app.appointmentTime}</div>
+                      <div>
+                        <strong>
+                          {lang === 'ar' ? 'الموعد:' : 'Appointment:'}
+                        </strong>{' '}
+                        {app.appointmentDate}{' '}
+                        {lang === 'ar' ? 'الساعة' : 'at'}{' '}
+                        {app.appointmentTime}
+                      </div>
                       <div><strong>{lang === 'ar' ? 'الهاتف:' : 'Phone:'}</strong> {app.patient?.phone}</div>
                     </div>
 
@@ -471,7 +647,7 @@ export default function ReceptionDashboard({ lang, t }) {
                         onClick={() => handleApproveAppointment(app.id)}
                       >
                         <Check size={12} />
-                        {lang === 'ar' ? 'تأكيد الموعد' : 'Approve'}
+                        {lang === 'ar' ? 'تأكيد الموعد' : 'Confirm Appointment'}
                       </button>
 
                       <a
@@ -496,7 +672,7 @@ export default function ReceptionDashboard({ lang, t }) {
                         style={{ padding: '4px 8px', fontSize: '0.75rem', minHeight: '34px' }}
                         onClick={() => handleCancelAppointment(app.id)}
                       >
-                        {lang === 'ar' ? 'إلغاء' : 'Reject'}
+                        {lang === 'ar' ? 'رفض الطلب' : 'Reject Request'}
                       </button>
                     </div>
                   </div>
@@ -539,9 +715,7 @@ export default function ReceptionDashboard({ lang, t }) {
                           app.status === 'IN_CONSULTATION' ? 'badge-primary' :
                             app.status === 'CHECKED_IN' ? 'badge-warning' : 'badge-secondary'
                           }`}>
-                          {app.status === 'CHECKED_IN' ? (lang === 'ar' ? 'انتظار' : 'Waiting') :
-                            app.status === 'IN_CONSULTATION' ? (lang === 'ar' ? 'عيادة' : 'Consulting') :
-                              app.status === 'COMPLETED' ? (lang === 'ar' ? 'مكتمل' : 'Completed') : app.status}
+                          {getAppointmentStatusLabel(app.status)}
                         </span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.4rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
@@ -556,7 +730,7 @@ export default function ReceptionDashboard({ lang, t }) {
                             style={{ flex: 1, padding: '4px 8px', fontSize: '0.75rem', margin: 0, minHeight: '32px' }}
                             onClick={() => handleCheckIn(app.id)}
                           >
-                            {lang === 'ar' ? 'تسجيل دخول' : 'Check In'}
+                            {lang === 'ar' ? 'تسجيل وصول' : 'Check In'}
                           </button>
                         )}
                         <button
@@ -565,7 +739,7 @@ export default function ReceptionDashboard({ lang, t }) {
                           onClick={() => handleQuickBill(app)}
                         >
                           <DollarSign size={12} />
-                          {lang === 'ar' ? 'فوترة سريعة' : 'Quick Bill'}
+                          {lang === 'ar' ? 'فتح الفاتورة' : 'Open Billing'}
                         </button>
                         <a
                           href={getWhatsAppLink(
@@ -611,19 +785,19 @@ export default function ReceptionDashboard({ lang, t }) {
                 className={`tab-select-btn ${activeTab === 'register' ? 'active' : ''}`}
                 onClick={() => setActiveTab('register')}
               >
-                {lang === 'ar' ? 'تسجيل مريض' : 'Register'}
+                {lang === 'ar' ? 'تسجيل مريض' : 'Register Patient'}
               </button>
               <button
                 className={`tab-select-btn ${activeTab === 'billing' ? 'active' : ''}`}
                 onClick={() => setActiveTab('billing')}
               >
-                {lang === 'ar' ? 'فوترة وبيع' : 'Billing'}
+                {lang === 'ar' ? 'الفوترة والدفع' : 'Billing & Payment'}
               </button>
               <button
                 className={`tab-select-btn ${activeTab === 'reconcile' ? 'active' : ''}`}
                 onClick={() => setActiveTab('reconcile')}
               >
-                {lang === 'ar' ? 'إقفال الوردية' : 'Reconcile'}
+                {lang === 'ar' ? 'مطابقة الوردية' : 'Shift Reconciliation'}
               </button>
             </div>
 
@@ -664,7 +838,7 @@ export default function ReceptionDashboard({ lang, t }) {
                   />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">{lang === 'ar' ? 'تاريخ الميلاد' : 'DOB'} *</label>
+                  <label className="form-label">{lang === 'ar' ? 'تاريخ الميلاد' : 'Date of Birth'} *</label>
                   <input
                     type="date"
                     required
@@ -704,7 +878,11 @@ export default function ReceptionDashboard({ lang, t }) {
                   <Search className="search-icon-svg" size={16} />
                   <input
                     type="text"
-                    placeholder={lang === 'ar' ? 'ابحث عن مريض بالاسم أو الهاتف...' : 'Search patient...'}
+                    placeholder={
+                      lang === 'ar'
+                        ? 'ابحث عن مريض بالاسم أو رقم الهاتف...'
+                        : 'Search patient by name or phone...'
+                    }
                     className="search-input-field"
                     value={searchQuery}
                     onChange={(e) => handlePatientSearch(e.target.value)}
@@ -741,7 +919,7 @@ export default function ReceptionDashboard({ lang, t }) {
                       }}
                     >
                       <div>
-                        <strong>{lang === 'ar' ? 'العميل المختار:' : 'Selected Client:'}</strong>{' '}
+                        <strong>{lang === 'ar' ? 'المريض المختار:' : 'Selected Patient:'}</strong>{' '}
                         {lang === 'ar' ? billingPatient.fullNameAr : billingPatient.fullNameEn}
                       </div>
 
@@ -758,7 +936,7 @@ export default function ReceptionDashboard({ lang, t }) {
 
                 {/* Services Catalog */}
                 <div>
-                  <label className="form-label">{lang === 'ar' ? 'اختر الخدمة الطبية' : 'Choose Service'}</label>
+                  <label className="form-label">{lang === 'ar' ? 'اختر الخدمة الطبية' : 'Select Clinical Service'}</label>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.5rem' }}>
                     {clinicalServices.map((svc) => (
                       <button
@@ -777,13 +955,16 @@ export default function ReceptionDashboard({ lang, t }) {
                 {/* Added services list */}
                 {addedServices.length > 0 && (
                   <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
-                    <strong>{lang === 'ar' ? 'الخدمات المضافة:' : 'Invoice Services:'}</strong>
+                    <strong>{lang === 'ar' ? 'الخدمات المضافة للفاتورة:' : 'Services Added to Invoice:'}</strong>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
                       {addedServices.map((item, idx) => (
                         <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
                           <span>{lang === 'ar' ? item.labelAr : item.labelEn}</span>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <span>{parseFloat(item.baseFeeSdg).toLocaleString()} SDG</span>
+                            <span>{parseFloat(item.baseFeeSdg).toLocaleString(
+                              lang === 'ar' ? 'ar' : 'en'
+                            )}{' '}
+                            {lang === 'ar' ? 'ج.س' : 'SDG'}</span>
                             <button
                               type="button"
                               style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}
@@ -804,10 +985,19 @@ export default function ReceptionDashboard({ lang, t }) {
                         value={insuranceCompanyId}
                         onChange={(e) => setInsuranceCompanyId(e.target.value)}
                       >
-                        <option value="">{lang === 'ar' ? 'دفع شخصي مباشر' : 'Out-of-Pocket Cash'}</option>
+                        <option value="">
+                          {lang === 'ar'
+                            ? 'دفع مباشر بدون تأمين'
+                            : 'Self-Pay / No Insurance'}
+                        </option>
                         {insuranceCompanies.map((c) => (
                           <option key={c.id} value={c.id}>
-                            {lang === 'ar' ? c.labelAr : c.labelEn} ({parseFloat(c.copayPercentage)}% Copay)
+                            {lang === 'ar' ? c.labelAr : c.labelEn}{' '}
+                            (
+                            {lang === 'ar'
+                              ? `مساهمة المريض ${parseFloat(c.copayPercentage)}%`
+                              : `${parseFloat(c.copayPercentage)}% Copay`}
+                            )
                           </option>
                         ))}
                       </select>
@@ -817,18 +1007,25 @@ export default function ReceptionDashboard({ lang, t }) {
                     <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.5rem', marginTop: '0.5rem', display: 'flex', justifyContent: 'space-between', fontSize: '1rem', fontWeight: 'bold' }}>
                       <span>{t('invoiceTotal')}:</span>
                       <span style={{ color: 'var(--primary)' }}>
-                        {calculateInvoiceTotals().totalSdg.toLocaleString()} SDG
+                        {calculateInvoiceTotals().totalSdg.toLocaleString(
+                          lang === 'ar' ? 'ar' : 'en'
+                        )}{' '}
+                        {lang === 'ar' ? 'ج.س' : 'SDG'}
                       </span>
                     </div>
 
                     {/* Split Payments row configuration */}
                     <div style={{ marginTop: '1rem' }}>
-                      <label className="form-label">{lang === 'ar' ? 'توزيع وتجزئة الدفع' : 'Payment Breakdowns'}</label>
+                      <label className="form-label">{lang === 'ar' ? 'توزيع الدفعات' : 'Payment Allocation'}</label>
                       {paymentRows.map((row, idx) => (
                         <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.25rem', marginTop: '0.25rem' }}>
                           <input
                             type="number"
-                            placeholder="Amount SDG"
+                            placeholder={
+      lang === 'ar'
+        ? 'المبلغ بالجنيه'
+        : 'Amount (SDG)'
+    }
                             className="form-input"
                             style={{ padding: '6px' }}
                             value={row.amountSdg}
@@ -848,14 +1045,26 @@ export default function ReceptionDashboard({ lang, t }) {
                               setPaymentRows(updated);
                             }}
                           >
-                            <option value="CASH">Cash</option>
-                            <option value="CARD">Card</option>
-                            <option value="BANKAK">Bankak</option>
-                            <option value="FAWRY">Fawry</option>
+                            <option value="CASH">
+                              {getPaymentMethodLabel('CASH')}
+                            </option>
+                            <option value="CARD">
+                              {getPaymentMethodLabel('CARD')}
+                            </option>
+                            <option value="BANKAK">
+                              {getPaymentMethodLabel('BANKAK')}
+                            </option>
+                            <option value="FAWRY">
+                              {getPaymentMethodLabel('FAWRY')}
+                            </option>
                           </select>
                           <input
                             type="text"
-                            placeholder="Ref ID"
+                            placeholder={
+      lang === 'ar'
+        ? 'رقم المرجع'
+        : 'Reference ID'
+    }
                             className="form-input"
                             style={{ padding: '6px' }}
                             value={row.transactionReference}
@@ -873,12 +1082,18 @@ export default function ReceptionDashboard({ lang, t }) {
                         style={{ padding: '4px', fontSize: '0.75rem', marginTop: '0.5rem', width: '100%' }}
                         onClick={() => setPaymentRows([...paymentRows, { amountSdg: '', paymentMethod: 'CASH', transactionReference: '' }])}
                       >
-                        {lang === 'ar' ? '+ إضافة دفعة مجزأة' : '+ Add Payment Split'}
+                        {lang === 'ar' ? '+ إضافة دفعة أخرى' : '+ Add Another Payment'}
                       </button>
                     </div>
 
                     <button className="btn btn-primary" style={{ width: '100%', marginTop: '1.5rem' }} onClick={handleCreateInvoice} disabled={billingSubmitting}>
-                      {billingSubmitting ? (lang === 'ar' ? 'جاري المعالجة...' : 'Processing...') : (lang === 'ar' ? 'إصدار الفاتورة وتأكيد الدفع' : 'Checkout & Print Invoice')}
+                      {billingSubmitting
+                        ? (lang === 'ar'
+                            ? 'جاري معالجة الفاتورة...'
+                            : 'Processing invoice...')
+                        : (lang === 'ar'
+                            ? 'إصدار الفاتورة وتأكيد الدفع'
+                            : 'Issue Invoice & Confirm Payment')}
                     </button>
                   </div>
                 )}
@@ -920,14 +1135,24 @@ export default function ReceptionDashboard({ lang, t }) {
 
                 {reconcileResult && (
                   <div className="glass-panel" style={{ padding: '1rem', marginTop: '1rem', textAlign: 'center' }}>
-                    <h4>{lang === 'ar' ? 'نتيجة مطابقة الوردية' : 'Reconciliation Output'}</h4>
+                    <h4>{lang === 'ar'
+                      ? 'نتيجة مطابقة الوردية'
+                      : 'Shift Reconciliation Result'}</h4>
                     <h3 style={{ color: reconcileResult.discrepancy === 0 ? 'var(--primary)' : 'var(--danger)', marginTop: '0.5rem' }}>
                       {reconcileResult.discrepancy === 0
-                        ? (lang === 'ar' ? 'متطابقة تماماً (0)' : 'Perfectly Balanced (0)')
-                        : `${reconcileResult.discrepancy.toLocaleString()} SDG Diff`}
+                        ? (lang === 'ar'
+                            ? 'الوردية متطابقة تمامًا — لا يوجد فرق'
+                            : 'Shift balanced — no discrepancy')
+                        : (lang === 'ar'
+                            ? `فرق الصندوق: ${reconcileResult.discrepancy.toLocaleString('ar')} ج.س`
+                            : `Cash discrepancy: ${reconcileResult.discrepancy.toLocaleString('en')} SDG`)}
                     </h3>
                     <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
-                      {reconcileResult.message}
+                      {lang === 'ar'
+                        ? (reconcileResult.discrepancy === 0
+                            ? 'تمت مطابقة المبلغ المتوقع مع المبلغ الفعلي.'
+                            : 'يوجد فرق بين المبلغ المتوقع والمبلغ الفعلي. يرجى مراجعته.')
+                        : reconcileResult.message}
                     </p>
                   </div>
                 )}

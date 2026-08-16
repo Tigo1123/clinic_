@@ -31,6 +31,61 @@ export default function AdminDashboard({ lang, t }) {
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
+  const roleLabels = {
+    ADMIN: { ar: 'مدير النظام', en: 'Administrator' },
+    RECEPTIONIST: { ar: 'موظف الاستقبال', en: 'Receptionist' },
+    DOCTOR: { ar: 'طبيب', en: 'Doctor' },
+    PHARMACIST: { ar: 'صيدلي', en: 'Pharmacist' },
+    LAB_TECH: { ar: 'فني مختبر', en: 'Laboratory Technician' },
+    PATIENT: { ar: 'مريض', en: 'Patient' }
+  };
+
+  const userStatusLabels = {
+    ACTIVE: { ar: 'نشط', en: 'Active' },
+    INACTIVE: { ar: 'غير نشط', en: 'Inactive' }
+  };
+
+  const getRoleLabel = (role) => {
+    const labels = roleLabels[role];
+    return labels
+      ? (lang === 'ar' ? labels.ar : labels.en)
+      : role?.replaceAll('_', ' ') || '-';
+  };
+
+  const getUserStatusLabel = (status) => {
+    const labels = userStatusLabels[status];
+    return labels
+      ? (lang === 'ar' ? labels.ar : labels.en)
+      : status?.replaceAll('_', ' ') || '-';
+  };
+
+  const getAuditActionLabel = (action) => {
+    if (!action) return '-';
+
+    if (action.startsWith('EMR_BREAK_THE_GLASS_BYPASS')) {
+      return lang === 'ar'
+        ? 'فتح طارئ للملف الطبي'
+        : 'Emergency Medical Record Access';
+    }
+
+    const known = {
+      LAB_RESULTS_LOGGED: {
+        ar: 'تسجيل نتيجة مختبر',
+        en: 'Laboratory Result Recorded'
+      },
+      LAB_RESULTS_RELEASED_TO_PATIENT: {
+        ar: 'إتاحة نتائج المختبر للمريض',
+        en: 'Laboratory Results Released to Patient'
+      }
+    };
+
+    if (known[action]) {
+      return lang === 'ar' ? known[action].ar : known[action].en;
+    }
+
+    return action.replaceAll('_', ' ');
+  };
+
   // Fetch users & logs on tab switch
   useEffect(() => {
     if (activeTab === 'logs') {
@@ -65,12 +120,16 @@ export default function AdminDashboard({ lang, t }) {
         })
         .catch((err) => {
           console.error('Analytics fetch error:', err);
-          setAnalyticsError(err.message || 'Failed to fetch analytics');
+          setAnalyticsError(
+            lang === 'ar'
+              ? 'تعذر تحميل بيانات التحليلات والإحصائيات.'
+              : err.message || 'Failed to load analytics data.'
+          );
           setAnalyticsData(null);
           setLoadingAnalytics(false);
         });
     }
-  }, [activeTab]);
+  }, [activeTab, lang]);
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
@@ -105,11 +164,22 @@ export default function AdminDashboard({ lang, t }) {
           .then((r) => r.json())
           .then((d) => setUsers(d));
       } else {
-        setErrorMsg(apiErrorMessage(data, 'Failed to create user.'));
+        setErrorMsg(
+          apiErrorMessage(
+            data,
+            lang === 'ar'
+              ? 'تعذر إنشاء حساب الموظف.'
+              : 'Failed to create the staff account.'
+          )
+        );
       }
     } catch (err) {
       console.error(err);
-      setErrorMsg('Failed to connect to the backend server.');
+      setErrorMsg(
+        lang === 'ar'
+          ? 'تعذر الاتصال بالخادم. يرجى المحاولة مرة أخرى.'
+          : 'Unable to connect to the server. Please try again.'
+      );
     }
   };
 
@@ -267,11 +337,11 @@ export default function AdminDashboard({ lang, t }) {
                 <div className="form-group">
                   <label className="form-label">{lang === 'ar' ? 'الدور الوظيفي' : 'Role'}</label>
                   <select className="form-input" value={newRole} onChange={(e) => setNewRole(e.target.value)}>
-                    <option value="ADMIN">ADMIN</option>
-                    <option value="RECEPTIONIST">RECEPTIONIST</option>
-                    <option value="DOCTOR">DOCTOR</option>
-                    <option value="PHARMACIST">PHARMACIST</option>
-                    <option value="LAB_TECH">LAB_TECH</option>
+                    <option value="ADMIN">{getRoleLabel('ADMIN')}</option>
+                    <option value="RECEPTIONIST">{getRoleLabel('RECEPTIONIST')}</option>
+                    <option value="DOCTOR">{getRoleLabel('DOCTOR')}</option>
+                    <option value="PHARMACIST">{getRoleLabel('PHARMACIST')}</option>
+                    <option value="LAB_TECH">{getRoleLabel('LAB_TECH')}</option>
                   </select>
                 </div>
                 {newRole === 'DOCTOR' && (
@@ -353,11 +423,13 @@ export default function AdminDashboard({ lang, t }) {
                     <tr key={u.id}>
                       <td>{u.username}</td>
                       <td>
-                        <span className="badge badge-success" style={{ fontSize: '0.8rem' }}>{u.role}</span>
+                        <span className="badge badge-success" style={{ fontSize: '0.8rem' }}>
+                          {getRoleLabel(u.role)}
+                        </span>
                       </td>
                       <td>
                         <span className={`badge ${u.status === 'ACTIVE' ? 'badge-success' : 'badge-danger'}`}>
-                          {u.status}
+                          {getUserStatusLabel(u.status)}
                         </span>
                       </td>
                       <td>
@@ -471,7 +543,12 @@ export default function AdminDashboard({ lang, t }) {
                       </div>
                     </div>
                     <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', margin: '0.5rem 0 0', color: '#f59e0b' }}>
-                      {(analyticsData.financials?.totalRevenueSdg || 0).toLocaleString()} <span style={{ fontSize: '0.8rem' }}>SDG</span>
+                      {(analyticsData.financials?.totalRevenueSdg || 0).toLocaleString(
+                        lang === 'ar' ? 'ar' : 'en'
+                      )}{' '}
+                      <span style={{ fontSize: '0.8rem' }}>
+                        {lang === 'ar' ? 'ج.س' : 'SDG'}
+                      </span>
                     </h2>
                   </div>
                 </div>
@@ -527,7 +604,7 @@ export default function AdminDashboard({ lang, t }) {
                         {/* Completed */}
                         <div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
-                            <span>{lang === 'ar' ? 'الحالات المنجزة (Completed)' : 'Completed'}</span>
+                            <span>{lang === 'ar' ? 'المواعيد المكتملة' : 'Completed'}</span>
                             <span style={{ fontWeight: 'bold', color: '#10b981' }}>{analyticsData.statusBreakdown.completed}</span>
                           </div>
                           <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px' }}>
@@ -545,7 +622,7 @@ export default function AdminDashboard({ lang, t }) {
                         {/* In Consultation */}
                         <div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
-                            <span>{lang === 'ar' ? 'في غرفة الكشف (In Consultation)' : 'In Consultation'}</span>
+                            <span>{lang === 'ar' ? 'قيد الكشف الطبي' : 'In Consultation'}</span>
                             <span style={{ fontWeight: 'bold', color: '#0284c7' }}>{analyticsData.statusBreakdown.inConsultation}</span>
                           </div>
                           <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px' }}>
@@ -563,7 +640,7 @@ export default function AdminDashboard({ lang, t }) {
                         {/* Waiting Room */}
                         <div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
-                            <span>{lang === 'ar' ? 'صالة الانتظار (Waiting)' : 'Waiting Room'}</span>
+                            <span>{lang === 'ar' ? 'بانتظار الطبيب' : 'Waiting for Doctor'}</span>
                             <span style={{ fontWeight: 'bold', color: '#f59e0b' }}>{analyticsData.statusBreakdown.waiting}</span>
                           </div>
                           <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px' }}>
@@ -581,7 +658,7 @@ export default function AdminDashboard({ lang, t }) {
                         {/* Pending Approval */}
                         <div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
-                            <span>{lang === 'ar' ? 'طلبات قيد المراجعة (Pending)' : 'Pending Approvals'}</span>
+                            <span>{lang === 'ar' ? 'طلبات المواعيد قيد المراجعة' : 'Pending Appointment Requests'}</span>
                             <span style={{ fontWeight: 'bold', color: '#8b5cf6' }}>{analyticsData.statusBreakdown.pending}</span>
                           </div>
                           <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px' }}>
@@ -621,11 +698,15 @@ export default function AdminDashboard({ lang, t }) {
                   const isBypass = log.action.startsWith('EMR_BREAK_THE_GLASS_BYPASS');
                   return (
                     <tr key={log.id} style={isBypass ? { background: 'rgba(239, 68, 68, 0.08)' } : {}}>
-                      <td>{new Date(log.timestamp).toLocaleString()}</td>
-                      <td>{log.userId || 'System'}</td>
+                      <td>
+                        {new Date(log.timestamp).toLocaleString(
+                          lang === 'ar' ? 'ar' : 'en'
+                        )}
+                      </td>
+                      <td>{log.userId || (lang === 'ar' ? 'النظام' : 'System')}</td>
                       <td>
                         <span className={`badge ${isBypass ? 'badge-danger' : 'badge-success'}`}>
-                          {log.action}
+                          {getAuditActionLabel(log.action)}
                         </span>
                       </td>
                       <td style={{ color: isBypass ? 'var(--danger)' : 'inherit' }}>{log.details}</td>

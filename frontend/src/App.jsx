@@ -27,7 +27,8 @@ export default function App({ initialView = 'login' }) {
   const { t, i18n } = useTranslation();
   const [user, setUser] = useState(null);
   const [view, setView] = useState(initialView); // 'portal', 'login', 'dashboard'
-  const [lang, setLang] = useState('ar');
+  const lang = (i18n.resolvedLanguage || i18n.language || 'ar')
+    .split('-')[0];
   const [theme, setTheme] = useState('light');
 
   // Load state on mount
@@ -43,19 +44,11 @@ export default function App({ initialView = 'login' }) {
     setTheme(savedTheme);
     document.documentElement.setAttribute('data-theme', savedTheme);
 
-    // Default to Arabic/RTL
-    const currentLang = i18n.language || 'ar';
-    setLang(currentLang);
-    document.documentElement.dir = currentLang === 'ar' ? 'rtl' : 'ltr';
-    document.documentElement.lang = currentLang;
-  }, [i18n.language]);
+  }, []);
 
   const toggleLanguage = () => {
     const nextLang = lang === 'ar' ? 'en' : 'ar';
     i18n.changeLanguage(nextLang);
-    setLang(nextLang);
-    document.documentElement.dir = nextLang === 'ar' ? 'rtl' : 'ltr';
-    document.documentElement.lang = nextLang;
   };
 
   const toggleTheme = () => {

@@ -42,7 +42,7 @@ export function PatientLogin(){
     }catch(requestError){
       if(requestError.code==='ACCOUNT_PENDING_VERIFICATION'){
         setPendingVerification(true);
-        setError('حسابك لم يتم التحقق منه بعد.');
+        setError(t('pendingVerificationMessage'));
       }else{
         setError(requestError.message);
       }
@@ -70,7 +70,7 @@ export function PatientLogin(){
 
       setChallenge(data);
       setCode('');
-      setMessage('تم إرسال رمز تحقق جديد إلى بريدك الإلكتروني.');
+      setMessage(t('verificationResent'));
     }catch(requestError){
       setError(requestError.message);
     }finally{
@@ -95,7 +95,7 @@ export function PatientLogin(){
       setPendingVerification(false);
       setChallenge(null);
       setCode('');
-      setMessage('تم التحقق من الحساب بنجاح. يمكنك تسجيل الدخول الآن.');
+      setMessage(t('verificationSuccessLogin'));
     }catch(requestError){
       setError(requestError.message);
     }finally{
@@ -107,7 +107,7 @@ export function PatientLogin(){
     return (
       <AuthShell title={t('patientLogin')}>
         <form onSubmit={verify}>
-          <p>أدخل رمز التحقق المرسل إلى بريدك الإلكتروني.</p>
+          <p>{t('enterVerificationCode')}</p>
 
           {message&&
             <div className="patient-alert success">
@@ -171,7 +171,7 @@ export function PatientLogin(){
 
             <button
               type="button"
-              aria-label={showPassword?'Hide password':'Show password'}
+              aria-label={showPassword?t('hidePassword'):t('showPassword')}
               onClick={()=>setShowPassword(!showPassword)}
               style={{
                 position:'absolute',
@@ -200,7 +200,7 @@ export function PatientLogin(){
             disabled={loading}
             onClick={resendVerification}
           >
-            إعادة إرسال رمز التحقق
+            {t('resendVerification')}
           </button>
         }
 
@@ -375,7 +375,7 @@ export function PatientForgotPassword(){
 
               <button
                 type="button"
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-label={showPassword ? t('hidePassword') : t('showPassword')}
                 onClick={()=>setShowPassword(!showPassword)}
                 style={{
                   position:'absolute',
@@ -504,23 +504,23 @@ async function resendVerification(){
       value={form.countryCode}
       onChange={event=>setForm({...form,countryCode:event.target.value})}
     >
-      <option value="+249">🇸🇩 +249 السودان</option>
-      <option value="+250">🇷🇼 +250 رواندا</option>
-      <option value="+20">🇪🇬 +20 مصر</option>
-      <option value="+251">🇪🇹 +251 إثيوبيا</option>
-      <option value="+254">🇰🇪 +254 كينيا</option>
-      <option value="+256">🇺🇬 +256 أوغندا</option>
-      <option value="+255">🇹🇿 +255 تنزانيا</option>
-      <option value="+211">🇸🇸 +211 جنوب السودان</option>
-      <option value="+966">🇸🇦 +966 السعودية</option>
-      <option value="+971">🇦🇪 +971 الإمارات</option>
+      <option value="+249">🇸🇩 +249 {t('countrySudan')}</option>
+      <option value="+250">🇷🇼 +250 {t('countryRwanda')}</option>
+      <option value="+20">🇪🇬 +20 {t('countryEgypt')}</option>
+      <option value="+251">🇪🇹 +251 {t('countryEthiopia')}</option>
+      <option value="+254">🇰🇪 +254 {t('countryKenya')}</option>
+      <option value="+256">🇺🇬 +256 {t('countryUganda')}</option>
+      <option value="+255">🇹🇿 +255 {t('countryTanzania')}</option>
+      <option value="+211">🇸🇸 +211 {t('countrySouthSudan')}</option>
+      <option value="+966">🇸🇦 +966 {t('countrySaudiArabia')}</option>
+      <option value="+971">🇦🇪 +971 {t('countryUAE')}</option>
     </select>
 
     <input
       type="tel"
       value={form.phone}
       onChange={event=>setForm({...form,phone:event.target.value})}
-      placeholder="مثال: 900224455"
+      placeholder={t('phoneExample')}
       required
       aria-invalid={Boolean(fieldErrors.phone)}
     />
@@ -558,7 +558,7 @@ async function resendVerification(){
     disabled={loading}
     onClick={resendVerification}
   >
-    إعادة إرسال رمز التحقق
+    {t('resendVerification')}
   </button>
 </form>}
 </AuthShell>;

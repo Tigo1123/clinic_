@@ -6,10 +6,10 @@ import './public.css';
 export default function LandingPage() {
   const { t, i18n } = useTranslation();
   function toggleLanguage() {
-    const language = i18n.language === 'ar' ? 'en' : 'ar';
-    i18n.changeLanguage(language);
-    document.documentElement.lang = language;
-    document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
+    const current = (i18n.resolvedLanguage || i18n.language || 'ar')
+      .split('-')[0];
+
+    i18n.changeLanguage(current === 'ar' ? 'en' : 'ar');
   }
   return <div className="public-site">
     <header className="public-header"><Link className="public-brand" to="/"><span><HeartPulse /></span><strong>{t('brandName')}</strong></Link><nav aria-label="Main navigation"><a href="#care">{t('services')}</a><Link to="/patient/doctors">{t('doctors')}</Link></nav><div className="public-header__actions"><button className="public-icon-button" onClick={toggleLanguage} aria-label="Change language"><Languages /></button><Link className="ui-button ui-button--outline" to="/staff">{t('staffPortal')}</Link><Link className="ui-button ui-button--primary" to="/patient-login">{t('patientLogin')}</Link></div></header>
