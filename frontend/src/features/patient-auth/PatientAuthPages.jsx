@@ -84,7 +84,7 @@ export function PatientLogin(){
     setError('');
 
     try{
-      await apiRequest('/api/patient-auth/verify',{
+      const data = await apiRequest('/api/patient-auth/verify',{
         method:'POST',
         body:JSON.stringify({
           challengeId:challenge.challengeId,
@@ -92,10 +92,21 @@ export function PatientLogin(){
         })
       });
 
+      let verificationMessage = t('verificationSuccessLogin');
+
+      if(data.state === 'CLAIMED'){
+        verificationMessage = t('accountLinked');
+      }else if(
+        data.state === 'MANUAL_REVIEW_REQUIRED' ||
+        data.state === 'AMBIGUOUS_MATCH'
+      ){
+        verificationMessage = t('manualReviewRequired');
+      }
+
       setPendingVerification(false);
       setChallenge(null);
       setCode('');
-      setMessage(t('verificationSuccessLogin'));
+      setMessage(verificationMessage);
     }catch(requestError){
       setError(requestError.message);
     }finally{

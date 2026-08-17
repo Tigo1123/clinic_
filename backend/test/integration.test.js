@@ -1154,3 +1154,450 @@ test('patient lab results stay hidden until released and expose released standar
 
   assert.ok(releaseAudit);
 });
+
+
+test('login self-heals orphan patient account by creating missing patient record', async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const email = `orphan-create-${suffix}@example.com`;
+  const phone = `+24995${String(Date.now()).slice(-7)}`;
+  const password = 'StrongPass123';
+  const dateOfBirth = '1991-05-14';
+
+  const register = await api
+    .post('/api/patient-auth/register')
+    .send({
+      fullName: 'Orphan Create Test',
+      fullNameAr: 'اختبار إصلاح الحساب',
+      fullNameEn: 'Orphan Create Test',
+      phone,
+      email,
+      dateOfBirth,
+      gender: 'MALE',
+      password,
+      addressStateId: 1
+    });
+
+  assert.equal(register.status, 201);
+  assert.ok(register.body.developmentCode);
+
+  const verify = await api
+    .post('/api/patient-auth/verify')
+    .send({
+      challengeId: register.body.challengeId,
+      code: register.body.developmentCode
+    });
+
+  assert.equal(verify.status, 200);
+  assert.equal(verify.body.state, 'CLAIMED');
+
+  const user = await prisma.user.findUnique({
+    where: { email }
+  });
+
+  assert.ok(user);
+
+  const originallyLinkedPatient = await prisma.patient.findUnique({
+    where: { userId: user.id }
+  });
+
+  assert.ok(originallyLinkedPatient);
+
+  // Simulate a legacy/orphan production account:
+  // User + PatientRegistration survive, but Patient linkage is missing.
+  await prisma.patient.delete({
+    where: { id: originallyLinkedPatient.id }
+  });
+
+  const registration = await prisma.patientRegistration.findUnique({
+    where: { userId: user.id }
+  });
+
+  assert.ok(registration);
+
+  const beforeLogin = await prisma.patient.findUnique({
+    where: { userId: user.id }
+  });
+
+  assert.equal(beforeLogin, null);
+
+  const login = await api
+    .post('/api/auth/login')
+    .send({
+      username: email,
+      password
+    });
+
+  assert.equal(login.status, 200);
+  assert.equal(login.body.user.patientLinked, true);
+  assert.ok(login.body.user.patientId);
+
+  const healedPatient = await prisma.patient.findUnique({
+    where: { userId: user.id }
+  });
+
+  assert.ok(healedPatient);
+  assert.equal(healedPatient.fullNameEn, 'Orphan Create Test');
+  assert.equal(healedPatient.dateOfBirth, dateOfBirth);
+  assert.equal(healedPatient.phone, phone);
+
+  const auditLog = await prisma.tenantAuditLog.findFirst({
+    where: {
+      userId: user.id,
+      action: 'PATIENT_LOGIN_SELF_HEALED'
+    },
+    orderBy: {
+      timestamp: 'desc'
+    }
+  });
+
+  assert.ok(auditLog);
+});
+
+
+test('login self-heals orphan account by linking exactly one existing unclaimed patient', async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const email = `orphan-link-${suffix}@example.com`;
+  const phone = `+24996${String(Date.now()).slice(-7)}`;
+  const password = 'StrongPass123';
+  const dateOfBirth = '1990-06-16';
+
+  const register = await api
+    .post('/api/patient-auth/register')
+    .send({
+      fullName: 'Orphan Link Test',
+      fullNameAr: 'اختبار ربط الحساب',
+      fullNameEn: 'Orphan Link Test',
+      phone,
+      email,
+      dateOfBirth,
+      gender: 'FEMALE',
+      password,
+      addressStateId: 1
+    });
+
+  assert.equal(register.status, 201);
+  assert.ok(register.body.developmentCode);
+
+  const verify = await api
+    .post('/api/patient-auth/verify')
+    .send({
+      challengeId: register.body.challengeId,
+      code: register.body.developmentCode
+    });
+
+  assert.equal(verify.status, 200);
+
+  const user = await prisma.user.findUnique({
+    where: { email }
+  });
+
+  assert.ok(user);
+
+  const originalPatient = await prisma.patient.findUnique({
+    where: { userId: user.id }
+  });
+
+  assert.ok(originalPatient);
+
+  await prisma.patient.delete({
+    where: { id: originalPatient.id }
+  });
+
+  const existingPatient = await prisma.patient.create({
+    data: {
+      fullNameAr: 'ملف مريض موجود',
+      fullNameEn: 'Existing Patient Record',
+      gender: 'FEMALE',
+      dateOfBirth,
+      phone,
+      addressStateId: 1,
+      emergencyContact: 'Self',
+      status: 'ACTIVE'
+    }
+  });
+
+  const patientCountBefore = await prisma.patient.count({
+    where: {
+      dateOfBirth,
+      phone
+    }
+  });
+
+  assert.equal(patientCountBefore, 1);
+
+  const login = await api
+    .post('/api/auth/login')
+    .send({
+      username: email,
+      password
+    });
+
+  assert.equal(login.status, 200);
+  assert.equal(login.body.user.patientLinked, true);
+  assert.equal(login.body.user.patientId, existingPatient.id);
+
+  const linkedPatient = await prisma.patient.findUnique({
+    where: { id: existingPatient.id }
+  });
+
+  assert.equal(linkedPatient.userId, user.id);
+
+  const patientCountAfter = await prisma.patient.count({
+    where: {
+      dateOfBirth,
+      phone
+    }
+  });
+
+  // No duplicate Patient should have been created.
+  assert.equal(patientCountAfter, 1);
+});
+
+
+test('login does not auto-link orphan account when multiple patient records match', async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const email = `orphan-ambiguous-${suffix}@example.com`;
+  const phone = `+24997${String(Date.now()).slice(-7)}`;
+  const password = 'StrongPass123';
+  const dateOfBirth = '1989-07-17';
+
+  const register = await api
+    .post('/api/patient-auth/register')
+    .send({
+      fullName: 'Orphan Ambiguous Test',
+      fullNameAr: 'اختبار التطابق المتعدد',
+      fullNameEn: 'Orphan Ambiguous Test',
+      phone,
+      email,
+      dateOfBirth,
+      gender: 'MALE',
+      password,
+      addressStateId: 1
+    });
+
+  assert.equal(register.status, 201);
+  assert.ok(register.body.developmentCode);
+
+  const verify = await api
+    .post('/api/patient-auth/verify')
+    .send({
+      challengeId: register.body.challengeId,
+      code: register.body.developmentCode
+    });
+
+  assert.equal(verify.status, 200);
+
+  const user = await prisma.user.findUnique({
+    where: { email }
+  });
+
+  assert.ok(user);
+
+  const originalPatient = await prisma.patient.findUnique({
+    where: { userId: user.id }
+  });
+
+  assert.ok(originalPatient);
+
+  await prisma.patient.delete({
+    where: { id: originalPatient.id }
+  });
+
+  const firstPatient = await prisma.patient.create({
+    data: {
+      fullNameAr: 'المريض المطابق الأول',
+      fullNameEn: 'First Matching Patient',
+      gender: 'MALE',
+      dateOfBirth,
+      phone,
+      addressStateId: 1,
+      emergencyContact: 'Self',
+      status: 'ACTIVE'
+    }
+  });
+
+  const secondPatient = await prisma.patient.create({
+    data: {
+      fullNameAr: 'المريض المطابق الثاني',
+      fullNameEn: 'Second Matching Patient',
+      gender: 'MALE',
+      dateOfBirth,
+      phone,
+      addressStateId: 1,
+      emergencyContact: 'Self',
+      status: 'ACTIVE'
+    }
+  });
+
+  const login = await api
+    .post('/api/auth/login')
+    .send({
+      username: email,
+      password
+    });
+
+  assert.equal(login.status, 200);
+
+  // Ambiguous identity must NOT be linked automatically.
+  assert.equal(login.body.user.patientLinked, false);
+  assert.equal(login.body.user.patientId, null);
+
+  const firstAfter = await prisma.patient.findUnique({
+    where: { id: firstPatient.id }
+  });
+
+  const secondAfter = await prisma.patient.findUnique({
+    where: { id: secondPatient.id }
+  });
+
+  assert.equal(firstAfter.userId, null);
+  assert.equal(secondAfter.userId, null);
+
+  const linkedToUser = await prisma.patient.findUnique({
+    where: { userId: user.id }
+  });
+
+  assert.equal(linkedToUser, null);
+});
+
+
+test('email-only verification never auto-links an existing medical record', async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const email = `email-only-link-${suffix}@example.com`;
+  const phone = `+24998${String(Date.now()).slice(-7)}`;
+  const password = 'StrongPass123';
+  const dateOfBirth = '1993-08-18';
+
+  const register = await api
+    .post('/api/patient-auth/register')
+    .send({
+      fullName: 'Email Only Security Test',
+      fullNameAr: 'اختبار أمان البريد فقط',
+      fullNameEn: 'Email Only Security Test',
+      phone,
+      email,
+      dateOfBirth,
+      gender: 'MALE',
+      password,
+      addressStateId: 1
+    });
+
+  assert.equal(register.status, 201);
+  assert.ok(register.body.challengeId);
+  assert.ok(register.body.developmentCode);
+
+  /*
+   * Test environment normally creates a PHONE challenge.
+   * Convert this challenge to EMAIL so verification proves email ownership
+   * while deliberately leaving phoneVerifiedAt null.
+   */
+  await prisma.verificationChallenge.update({
+    where: {
+      id: register.body.challengeId
+    },
+    data: {
+      type: 'EMAIL',
+      targetNormalized: email
+    }
+  });
+
+  /*
+   * Simulate a legacy clinic record that already exists before
+   * the online account is verified.
+   */
+  const existingPatient = await prisma.patient.create({
+    data: {
+      fullNameAr: 'ملف طبي سابق',
+      fullNameEn: 'Existing Legacy Patient',
+      gender: 'MALE',
+      dateOfBirth,
+      phone,
+      addressStateId: 1,
+      emergencyContact: 'Self',
+      status: 'ACTIVE'
+    }
+  });
+
+  const verify = await api
+    .post('/api/patient-auth/verify')
+    .send({
+      challengeId: register.body.challengeId,
+      code: register.body.developmentCode
+    });
+
+  assert.equal(verify.status, 200);
+
+  // Email ownership alone must never grant access to an existing
+  // medical record matched by phone + DOB.
+  assert.equal(verify.body.state, 'MANUAL_REVIEW_REQUIRED');
+  assert.equal(verify.body.reason, 'VERIFIED_PHONE_REQUIRED');
+
+  const user = await prisma.user.findUnique({
+    where: {
+      email
+    },
+    select: {
+      id: true,
+      status: true,
+      emailVerifiedAt: true,
+      phoneVerifiedAt: true
+    }
+  });
+
+  assert.ok(user);
+  assert.equal(user.status, 'ACTIVE');
+  assert.ok(user.emailVerifiedAt);
+  assert.equal(user.phoneVerifiedAt, null);
+
+  const patientAfterVerify = await prisma.patient.findUnique({
+    where: {
+      id: existingPatient.id
+    },
+    select: {
+      userId: true
+    }
+  });
+
+  assert.equal(patientAfterVerify.userId, null);
+
+  const linkedAfterVerify = await prisma.patient.findUnique({
+    where: {
+      userId: user.id
+    }
+  });
+
+  assert.equal(linkedAfterVerify, null);
+
+  /*
+   * Login self-healing must obey the same security rule.
+   */
+  const login = await api
+    .post('/api/auth/login')
+    .send({
+      username: email,
+      password
+    });
+
+  assert.equal(login.status, 200);
+  assert.equal(login.body.user.patientLinked, false);
+  assert.equal(login.body.user.patientId, null);
+
+  const patientAfterLogin = await prisma.patient.findUnique({
+    where: {
+      id: existingPatient.id
+    },
+    select: {
+      userId: true
+    }
+  });
+
+  assert.equal(patientAfterLogin.userId, null);
+
+  const linkedAfterLogin = await prisma.patient.findUnique({
+    where: {
+      userId: user.id
+    }
+  });
+
+  assert.equal(linkedAfterLogin, null);
+});

@@ -97,6 +97,35 @@ router.post('/verify', verificationLimiter, validate(z.object({ challengeId: z.s
     if (matches.length === 1) {
       const matchedPatient = matches[0];
 
+      // Linking an EXISTING medical record requires verified ownership
+      // of the phone number used for phone + DOB matching.
+      //
+      // Email verification is sufficient for creating a brand-new empty
+      // Patient record, but it must never grant access to an existing
+      // clinical record based on an unverified phone number.
+      const verifiedUser = await prisma.user.findUnique({
+        where: {
+          id: challenge.userId
+        },
+        select: {
+          phoneVerifiedAt: true
+        }
+      });
+
+      if (!verifiedUser?.phoneVerifiedAt) {
+        await audit(
+          challenge.userId,
+          'PATIENT_AUTO_LINK_REJECTED',
+          'Automatic linkage to an existing patient record requires a verified phone number.',
+          req
+        );
+
+        return res.json({
+          state: 'MANUAL_REVIEW_REQUIRED',
+          reason: 'VERIFIED_PHONE_REQUIRED'
+        });
+      }
+
       // Auto-link only when the matching patient record is still unclaimed.
       // The match is already constrained by normalized phone + date of birth.
       const linked = await prisma.patient.updateMany({
