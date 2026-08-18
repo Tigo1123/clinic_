@@ -37,7 +37,12 @@ export default function RescheduleAppointment() {
     setError('');
     try {
       await apiRequest(`/api/patient/appointments/${id}/reschedule`, {
-        method: 'PUT', body: JSON.stringify({ appointmentDate: date, appointmentTime: time })
+        method: 'PUT',
+        body: JSON.stringify({
+          doctorId: appointment.doctor.id,
+          appointmentDate: date,
+          appointmentTime: time
+        })
       });
       navigate(`/patient/appointments/${id}`);
     } catch (requestError) {
