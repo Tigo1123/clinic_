@@ -339,6 +339,28 @@ router.put('/:id/status', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONI
     } else if (req.user.role === ROLES.RECEPTIONIST && !['CONFIRMED', 'CHECKED_IN', 'CANCELLED', 'NO_SHOW'].includes(status)) {
       return sendError(res, 403, 'APPOINTMENT_STATUS_FORBIDDEN', 'Receptionists cannot set clinical appointment states.');
     }
+    // A checked-in patient cannot enter consultation until the
+    // appointment's consultation invoice has been fully paid.
+    if (current.status === 'CHECKED_IN' && status === 'IN_CONSULTATION') {
+      const paidConsultationInvoice = await prisma.invoice.findFirst({
+        where: {
+          appointmentId: current.id,
+          invoiceType: 'CONSULTATION',
+          paymentStatus: 'PAID'
+        },
+        select: { id: true }
+      });
+
+      if (!paidConsultationInvoice) {
+        return sendError(
+          res,
+          409,
+          'CONSULTATION_PAYMENT_REQUIRED',
+          'Consultation fee must be paid at reception before the consultation can start.'
+        );
+      }
+    }
+
     const appointment = await prisma.appointment.update({
       where: { id: req.params.id },
       data: { status },

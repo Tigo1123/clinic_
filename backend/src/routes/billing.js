@@ -10,34 +10,138 @@ const router = express.Router();
 
 /**
  * POST /api/billing/invoice
- * Generates an itemized invoice. Locked exchange rate is pinned at creation time.
+ * Generates an itemized invoice.
+ *
+ * CONSULTATION invoices are derived from the appointment and the doctor's
+ * configured consultation fee. Client-supplied consultation prices are ignored.
  */
 router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
   const {
     patientId,
     appointmentId,
-    insuranceCompanyId, // Optional insurance link
-    items // Array of { descriptionAr, descriptionEn, qty, unitPriceSdg }
+    insuranceCompanyId,
+    items,
+    invoiceType = 'GENERAL'
   } = req.body;
 
-  if (!patientId || !items || items.length === 0) {
-    return res.status(400).json({ error: 'Patient ID and invoice items are required.' });
+  const normalizedInvoiceType =
+    typeof invoiceType === 'string'
+      ? invoiceType.trim().toUpperCase()
+      : 'GENERAL';
+
+  const allowedInvoiceTypes = [
+    'GENERAL',
+    'CONSULTATION',
+    'LABORATORY',
+    'PHARMACY'
+  ];
+
+  if (!allowedInvoiceTypes.includes(normalizedInvoiceType)) {
+    return sendError(res, 422, 'INVALID_INVOICE_TYPE', 'Unsupported invoice type.');
+  }
+
+  if (!patientId) {
+    return sendError(res, 400, 'PATIENT_ID_REQUIRED', 'Patient ID is required.');
+  }
+
+  if (
+    normalizedInvoiceType !== 'CONSULTATION' &&
+    (!Array.isArray(items) || items.length === 0)
+  ) {
+    return sendError(
+      res,
+      400,
+      'INVOICE_ITEMS_REQUIRED',
+      'At least one invoice item is required.'
+    );
   }
 
   try {
-    // 1. Fetch current exchange rate from some global setting (we can fetch doctor fee or static value)
-    // For simplicity, let's set a default rate of 1500.00 SDG/USD
     const lockedExchangeRate = 1500.00;
 
-    // Calculate totals
-    let totalSdg = 0;
-    const invoiceItemsData = items.map((item) => {
-      const priceSdg = parseFloat(item.unitPriceSdg);
-      const qty = Number(item.qty);
-      if (!Number.isFinite(priceSdg) || priceSdg <= 0 || !Number.isInteger(qty) || qty <= 0) {
-        throw new Error('Invoice quantities and prices must be positive values.');
+    let resolvedItems = items;
+    const resolvedAppointmentId = appointmentId || null;
+
+    if (normalizedInvoiceType === 'CONSULTATION') {
+      if (!appointmentId) {
+        return sendError(
+          res,
+          422,
+          'CONSULTATION_APPOINTMENT_REQUIRED',
+          'Consultation billing requires an appointment.'
+        );
       }
-      const priceUsd = priceSdg / lockedExchangeRate;
+
+      const appointment = await prisma.appointment.findUnique({
+        where: { id: appointmentId },
+        include: { doctor: true }
+      });
+
+      if (!appointment) {
+        return sendError(
+          res,
+          404,
+          'APPOINTMENT_NOT_FOUND',
+          'Appointment not found.'
+        );
+      }
+
+      if (appointment.patientId !== patientId) {
+        return sendError(
+          res,
+          409,
+          'CONSULTATION_PATIENT_MISMATCH',
+          'The invoice patient does not match the appointment patient.'
+        );
+      }
+
+      if (appointment.status !== 'CHECKED_IN') {
+        return sendError(
+          res,
+          409,
+          'CONSULTATION_BILLING_INVALID_STATE',
+          'Consultation billing is available after patient check-in.'
+        );
+      }
+
+      const consultationFee = Number(appointment.doctor?.consultationFee);
+
+      if (!Number.isFinite(consultationFee) || consultationFee <= 0) {
+        return sendError(
+          res,
+          409,
+          'CONSULTATION_FEE_NOT_CONFIGURED',
+          'The doctor consultation fee is not configured correctly.'
+        );
+      }
+
+      // Security: never trust a consultation price supplied by the browser.
+      resolvedItems = [{
+        descriptionAr: `كشف طبي - د. ${appointment.doctor.fullNameAr}`,
+        descriptionEn: `Consultation - Dr. ${appointment.doctor.fullNameEn}`,
+        qty: 1,
+        unitPriceSdg: consultationFee
+      }];
+    }
+
+    let totalSdg = 0;
+
+    const invoiceItemsData = resolvedItems.map((item) => {
+      const priceSdg = Number(item.unitPriceSdg);
+      const qty = Number(item.qty);
+
+      if (
+        !Number.isFinite(priceSdg) ||
+        priceSdg <= 0 ||
+        !Number.isInteger(qty) ||
+        qty <= 0
+      ) {
+        throw Object.assign(
+          new Error('Invoice quantities and prices must be positive values.'),
+          { status: 422, code: 'INVALID_INVOICE_ITEM' }
+        );
+      }
+
       totalSdg += priceSdg * qty;
 
       return {
@@ -45,71 +149,131 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
         descriptionEn: item.descriptionEn,
         qty,
         unitPriceSdg: priceSdg,
-        unitPriceUsd: priceUsd
+        unitPriceUsd: priceSdg / lockedExchangeRate
       };
     });
 
     const totalUsd = totalSdg / lockedExchangeRate;
 
-    // 2. Resolve Insurance share if linked
-    let insuranceClaim = null;
-    let patientShareSdg = totalSdg;
-
-    const result = await prisma.$transaction(async (tx) => {
-      // Create Invoice
-      const invoice = await tx.invoice.create({
-        data: {
-          patientId,
-          appointmentId: appointmentId || null,
-          totalAmountSdg: totalSdg,
-          totalAmountUsd: totalUsd,
-          invoiceExchangeRate: lockedExchangeRate,
-          paymentStatus: 'UNPAID',
-          createdBy: req.user.id,
-          items: {
-            create: invoiceItemsData
-          }
-        },
-        include: {
-          items: true
-        }
-      });
-
-      if (insuranceCompanyId) {
-        const company = await tx.insuranceCompany.findUnique({
-          where: { id: insuranceCompanyId }
-        });
-
-        if (company) {
-          const copayFactor = parseFloat(company.copayPercentage) / 100.0;
-          patientShareSdg = totalSdg * copayFactor;
-          const claimAmountSdg = totalSdg - patientShareSdg;
-
-          // Create Insurance Claim
-          insuranceClaim = await tx.insuranceClaim.create({
-            data: {
-              insuranceCompanyId,
-              patientId,
-              invoiceId: invoice.id,
-              claimAmountSdg,
-              claimStatus: 'DRAFT'
+    const runCreateTransaction = () =>
+      prisma.$transaction(async (tx) => {
+        // Repeated consultation checkout must not create another invoice.
+        if (normalizedInvoiceType === 'CONSULTATION') {
+          const existingInvoice = await tx.invoice.findFirst({
+            where: {
+              appointmentId: resolvedAppointmentId,
+              invoiceType: 'CONSULTATION'
+            },
+            include: {
+              items: true,
+              insuranceClaim: true
             }
           });
 
-          // Link Claim back to Invoice
-          await tx.invoice.update({
-            where: { id: invoice.id },
-            data: { insuranceClaimId: insuranceClaim.id }
-          });
+          if (existingInvoice) {
+            const claimAmount = existingInvoice.insuranceClaim
+              ? Number(existingInvoice.insuranceClaim.claimAmountSdg)
+              : 0;
+
+            return {
+              invoice: existingInvoice,
+              insuranceClaim: existingInvoice.insuranceClaim || null,
+              patientShareSdg: Math.max(
+                0,
+                Number(existingInvoice.totalAmountSdg) - claimAmount
+              ),
+              existing: true
+            };
+          }
         }
+
+        let insuranceClaim = null;
+        let patientShareSdg = totalSdg;
+
+        const invoice = await tx.invoice.create({
+          data: {
+            patientId,
+            appointmentId: resolvedAppointmentId,
+            invoiceType: normalizedInvoiceType,
+            totalAmountSdg: totalSdg,
+            totalAmountUsd: totalUsd,
+            invoiceExchangeRate: lockedExchangeRate,
+            paymentStatus: 'UNPAID',
+            createdBy: req.user.id,
+            items: {
+              create: invoiceItemsData
+            }
+          },
+          include: {
+            items: true
+          }
+        });
+
+        if (insuranceCompanyId) {
+          const company = await tx.insuranceCompany.findUnique({
+            where: { id: insuranceCompanyId }
+          });
+
+          if (company) {
+            const copayFactor = Number(company.copayPercentage) / 100;
+            patientShareSdg = totalSdg * copayFactor;
+            const claimAmountSdg = totalSdg - patientShareSdg;
+
+            insuranceClaim = await tx.insuranceClaim.create({
+              data: {
+                insuranceCompanyId,
+                patientId,
+                invoiceId: invoice.id,
+                claimAmountSdg,
+                claimStatus: 'DRAFT'
+              }
+            });
+
+            await tx.invoice.update({
+              where: { id: invoice.id },
+              data: { insuranceClaimId: insuranceClaim.id }
+            });
+          }
+        }
+
+        return {
+          invoice,
+          insuranceClaim,
+          patientShareSdg,
+          existing: false
+        };
+      }, {
+        isolationLevel: 'Serializable',
+        maxWait: 5000,
+        timeout: 10000
+      });
+
+    let result;
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        result = await runCreateTransaction();
+        break;
+      } catch (error) {
+        const contention =
+          ['P2028', 'P2034'].includes(error.code) ||
+          /serialization|write conflict|deadlock/i.test(error.message || '');
+
+        if (!contention || attempt === 2) throw error;
+
+        await new Promise((resolve) =>
+          setTimeout(resolve, 20 * (attempt + 1))
+        );
       }
+    }
 
-      return { invoice, insuranceClaim, patientShareSdg };
-    });
-
-    return res.status(201).json(result);
+    return res.status(result.existing ? 200 : 201).json(result);
 
   } catch (error) {
+    if (error.status && error.code) {
+      return sendError(res, error.status, error.code, error.message);
+    }
+
     console.error('Create invoice error:', error);
     return res.status(500).json({ error: 'Failed to generate invoice.' });
   }

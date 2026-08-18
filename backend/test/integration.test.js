@@ -398,6 +398,147 @@ test('pharmacy dispensing prevents over-dispensing and deducts valid FEFO stock'
   );
 });
 
+test('consultation payment gate blocks the doctor until the server-priced consultation invoice is fully paid', async () => {
+  fixtureCounter += 1;
+
+  const consultationFee = Number(doctor1.consultationFee);
+  assert.ok(consultationFee > 1);
+
+  const appointment = await prisma.appointment.create({
+    data: {
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      appointmentDate: '2042-04-01',
+      appointmentTime: `14:${String(fixtureCounter % 60).padStart(2, '0')}`,
+      status: 'CHECKED_IN'
+    }
+  });
+
+  const blockedWithoutInvoice = await api
+    .put(`/api/appointments/${appointment.id}/status`)
+    .set(auth('doctor'))
+    .send({ status: 'IN_CONSULTATION' });
+
+  assert.equal(blockedWithoutInvoice.status, 409);
+  assert.equal(
+    blockedWithoutInvoice.body.error.code,
+    'CONSULTATION_PAYMENT_REQUIRED'
+  );
+
+  const invoicePayload = {
+    patientId: patient1.id,
+    appointmentId: appointment.id,
+    invoiceType: 'CONSULTATION',
+
+    // Deliberately forged. Backend must ignore this value.
+    items: [{
+      descriptionAr: 'سعر مزور',
+      descriptionEn: 'Tampered consultation',
+      qty: 1,
+      unitPriceSdg: 1
+    }]
+  };
+
+  const created = await api
+    .post('/api/billing/invoice')
+    .set(auth('reception'))
+    .send(invoicePayload);
+
+  assert.equal(created.status, 201);
+  assert.equal(created.body.invoice.invoiceType, 'CONSULTATION');
+  assert.equal(
+    Number(created.body.invoice.totalAmountSdg),
+    consultationFee
+  );
+  assert.equal(
+    Number(created.body.invoice.items[0].unitPriceSdg),
+    consultationFee
+  );
+
+  const duplicate = await api
+    .post('/api/billing/invoice')
+    .set(auth('reception'))
+    .send({
+      ...invoicePayload,
+      items: [{
+        descriptionAr: 'محاولة ثانية',
+        descriptionEn: 'Second forged value',
+        qty: 1,
+        unitPriceSdg: 999999
+      }]
+    });
+
+  assert.equal(duplicate.status, 200);
+  assert.equal(duplicate.body.existing, true);
+  assert.equal(
+    duplicate.body.invoice.id,
+    created.body.invoice.id
+  );
+
+  assert.equal(
+    await prisma.invoice.count({
+      where: {
+        appointmentId: appointment.id,
+        invoiceType: 'CONSULTATION'
+      }
+    }),
+    1
+  );
+
+  const partialAmount = Math.floor(consultationFee / 2);
+  const remainingAmount = consultationFee - partialAmount;
+
+  const partial = await api
+    .post(`/api/billing/invoice/${created.body.invoice.id}/payments`)
+    .set(paymentAuth('reception'))
+    .send({
+      payments: [{
+        amountSdg: partialAmount,
+        paymentMethod: 'CASH'
+      }]
+    });
+
+  assert.equal(partial.status, 200);
+  assert.equal(partial.body.paymentStatus, 'PARTIALLY_PAID');
+
+  const blockedAfterPartial = await api
+    .put(`/api/appointments/${appointment.id}/status`)
+    .set(auth('doctor'))
+    .send({ status: 'IN_CONSULTATION' });
+
+  assert.equal(blockedAfterPartial.status, 409);
+  assert.equal(
+    blockedAfterPartial.body.error.code,
+    'CONSULTATION_PAYMENT_REQUIRED'
+  );
+
+  const paid = await api
+    .post(`/api/billing/invoice/${created.body.invoice.id}/payments`)
+    .set(paymentAuth('reception'))
+    .send({
+      payments: [{
+        amountSdg: remainingAmount,
+        paymentMethod: 'CASH'
+      }]
+    });
+
+  assert.equal(paid.status, 200);
+  assert.equal(paid.body.paymentStatus, 'PAID');
+
+  const allowed = await api
+    .put(`/api/appointments/${appointment.id}/status`)
+    .set(auth('doctor'))
+    .send({ status: 'IN_CONSULTATION' });
+
+  assert.equal(allowed.status, 200);
+
+  const persisted = await prisma.appointment.findUnique({
+    where: { id: appointment.id }
+  });
+
+  assert.equal(persisted.status, 'IN_CONSULTATION');
+});
+
 test('billing is restricted and split payments set partial then paid', async () => {
   assert.equal((await api.post('/api/billing/invoice').set(auth('pharmacy')).send({ patientId: patient1.id, items: [{ descriptionAr: 'x', descriptionEn: 'x', qty: 1, unitPriceSdg: 100 }] })).status, 403);
   const invoiceResponse = await api.post('/api/billing/invoice').set(auth('reception')).send({ patientId: patient1.id, items: [{ descriptionAr: 'اختبار', descriptionEn: 'Test', qty: 1, unitPriceSdg: 100 }] });
