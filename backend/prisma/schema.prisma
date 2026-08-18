@@ -170,13 +170,13 @@ model DrugFormulary {
 }
 
 model PrescribedDrug {
-  id             String         @id @default(uuid())
+  id             String       @id @default(uuid())
   prescriptionId String
-  prescription   Prescription   @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+  prescription   Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
 
   // Formulary medication: linked to clinic inventory.
-  drugId         String?
-  drug           DrugFormulary? @relation(fields: [drugId], references: [id])
+  drugId String?
+  drug   DrugFormulary? @relation(fields: [drugId], references: [id])
 
   // Free-text medication prescribed by the doctor.
   // These medicines are not automatically connected to clinic inventory.
@@ -187,8 +187,8 @@ model PrescribedDrug {
   instructionsAr String
   instructionsEn String
   qtyPrescribed  Int
-  qtyDispensed   Int            @default(0)
-  ledgerVersion  Int            @default(0)
+  qtyDispensed   Int    @default(0)
+  ledgerVersion  Int    @default(0)
 }
 
 model InventoryBatch {
@@ -270,21 +270,21 @@ model PatientRegistration {
 }
 
 model LabOrderItem {
-  id                 String           @id @default(uuid())
-  labOrderId         String
-  labOrder           LabOrder         @relation(fields: [labOrderId], references: [id], onDelete: Cascade)
+  id         String   @id @default(uuid())
+  labOrderId String
+  labOrder   LabOrder @relation(fields: [labOrderId], references: [id], onDelete: Cascade)
 
   // Standard test selected from the clinic catalogue.
-  serviceId          String?
-  service            ClinicalService? @relation(fields: [serviceId], references: [id])
+  serviceId String?
+  service   ClinicalService? @relation(fields: [serviceId], references: [id])
 
   // Free-text test requested by the doctor when it is not in the catalogue.
-  customTestName     String?
+  customTestName String?
 
   resultValue        String?
   referenceRangeMin  Decimal?
   referenceRangeMax  Decimal?
-  isOutOfRange       Boolean          @default(false)
+  isOutOfRange       Boolean  @default(false)
   fileAttachmentPath String?
 }
 
@@ -299,6 +299,7 @@ model Invoice {
   totalAmountUsd      Decimal
   invoiceExchangeRate Decimal
   paymentStatus       String             @default("UNPAID") // UNPAID, PAID, PARTIALLY_PAID, PARTIALLY_REFUNDED, REFUNDED
+  invoiceType         String             @default("GENERAL") // GENERAL, CONSULTATION, LABORATORY, PHARMACY
   ledgerVersion       Int                @default(0)
   insuranceClaimId    String?            @unique
   insuranceClaim      InsuranceClaim?    @relation(fields: [insuranceClaimId], references: [id])
@@ -309,6 +310,7 @@ model Invoice {
   refunds             Refund[]
 
   @@index([invoiceDate])
+  @@index([appointmentId, invoiceType, paymentStatus])
 }
 
 model InvoiceItem {
