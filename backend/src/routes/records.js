@@ -498,6 +498,98 @@ router.get('/drugs', authenticate, allowRoles(ROLES.DOCTOR, ROLES.PHARMACIST), a
 });
 
 /**
+ * PATCH /api/records/drugs/:id/price
+ * Pharmacist-only medication pricing.
+ */
+router.patch(
+  '/drugs/:id/price',
+  authenticate,
+  allowRoles(ROLES.PHARMACIST),
+  async (req, res) => {
+    const drugId = req.params.id;
+    const unitPriceSdg = Number(req.body?.unitPriceSdg);
+
+    if (!Number.isSafeInteger(unitPriceSdg) || unitPriceSdg <= 0) {
+      return res.status(422).json({
+        error: 'Medicine unit price must be a positive whole number.'
+      });
+    }
+
+    try {
+      const existingDrug = await prisma.drugFormulary.findUnique({
+        where: { id: drugId },
+        select: {
+          id: true,
+          labelAr: true,
+          labelEn: true,
+          unitPriceSdg: true
+        }
+      });
+
+      if (!existingDrug) {
+        return res.status(404).json({
+          error: 'Medicine not found.'
+        });
+      }
+
+      const previousPrice =
+        existingDrug.unitPriceSdg == null
+          ? null
+          : Number(existingDrug.unitPriceSdg);
+
+      const updatedDrug = await prisma.$transaction(async (tx) => {
+        const updated = await tx.drugFormulary.update({
+          where: { id: drugId },
+          data: {
+            unitPriceSdg
+          },
+          select: {
+            id: true,
+            labelAr: true,
+            labelEn: true,
+            genericName: true,
+            strength: true,
+            dosageForm: true,
+            unitPriceSdg: true
+          }
+        });
+
+        await tx.tenantAuditLog.create({
+          data: {
+            userId: req.user.id,
+            action: `PHARMACY_DRUG_PRICE_UPDATED:${drugId}`,
+            details: JSON.stringify({
+              drugId,
+              drugName: existingDrug.labelEn,
+              previousPriceSdg: previousPrice,
+              newPriceSdg: unitPriceSdg
+            }),
+            ipAddress: req.ip || '127.0.0.1'
+          }
+        });
+
+        return updated;
+      });
+
+      return res.json({
+        success: true,
+        message: 'Medicine price updated successfully.',
+        drug: {
+          ...updatedDrug,
+          unitPriceSdg: Number(updatedDrug.unitPriceSdg)
+        }
+      });
+    } catch (error) {
+      console.error('Update medicine price error:', error);
+
+      return res.status(500).json({
+        error: 'Failed to update medicine price.'
+      });
+    }
+  }
+);
+
+/**
  * GET /api/records/prescriptions/pending
  * Returns list of prescriptions that are ACTIVE or PARTIALLY_FILLED.
  */

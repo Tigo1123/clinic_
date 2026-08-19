@@ -173,6 +173,169 @@ test('drug inventory is not public and is available to pharmacy', async () => {
   assert.equal((await api.get('/api/records/drugs').set(auth('pharmacy'))).status, 200);
 });
 
+test('pharmacist can update medication price and the change is audited', async () => {
+  assert.ok(drug);
+
+  const freshDrug = await prisma.drugFormulary.findUnique({
+    where: { id: drug.id }
+  });
+
+  const originalPrice =
+    freshDrug.unitPriceSdg == null
+      ? null
+      : Number(freshDrug.unitPriceSdg);
+
+  const testPrice =
+    originalPrice === 7777
+      ? 8888
+      : 7777;
+
+  try {
+    const response = await api
+      .patch(`/api/records/drugs/${drug.id}/price`)
+      .set(auth('pharmacy'))
+      .send({
+        unitPriceSdg: testPrice
+      });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.success, true);
+    assert.equal(response.body.drug.id, drug.id);
+    assert.equal(
+      Number(response.body.drug.unitPriceSdg),
+      testPrice
+    );
+
+    const storedDrug = await prisma.drugFormulary.findUnique({
+      where: { id: drug.id }
+    });
+
+    assert.equal(
+      Number(storedDrug.unitPriceSdg),
+      testPrice
+    );
+
+    const auditEntries = await prisma.tenantAuditLog.findMany({
+      where: {
+        action: `PHARMACY_DRUG_PRICE_UPDATED:${drug.id}`
+      }
+    });
+
+    const matchingAudit = auditEntries.find((entry) => {
+      try {
+        const details = JSON.parse(entry.details);
+
+        return (
+          details.drugId === drug.id &&
+          Number(details.newPriceSdg) === testPrice
+        );
+      } catch {
+        return false;
+      }
+    });
+
+    assert.ok(
+      matchingAudit,
+      'Expected medication price update audit log'
+    );
+  } finally {
+    await prisma.drugFormulary.update({
+      where: { id: drug.id },
+      data: {
+        unitPriceSdg: originalPrice
+      }
+    });
+  }
+});
+
+test('only pharmacists can update medication prices', async () => {
+  assert.ok(drug);
+
+  const before = await prisma.drugFormulary.findUnique({
+    where: { id: drug.id }
+  });
+
+  const beforePrice =
+    before.unitPriceSdg == null
+      ? null
+      : Number(before.unitPriceSdg);
+
+  const forbiddenRoles = [
+    'admin',
+    'reception',
+    'doctor',
+    'lab'
+  ];
+
+  for (const role of forbiddenRoles) {
+    const response = await api
+      .patch(`/api/records/drugs/${drug.id}/price`)
+      .set(auth(role))
+      .send({
+        unitPriceSdg: 9999
+      });
+
+    assert.equal(
+      response.status,
+      403,
+      `${role} must not be allowed to update medication prices`
+    );
+  }
+
+  const after = await prisma.drugFormulary.findUnique({
+    where: { id: drug.id }
+  });
+
+  const afterPrice =
+    after.unitPriceSdg == null
+      ? null
+      : Number(after.unitPriceSdg);
+
+  assert.equal(afterPrice, beforePrice);
+});
+
+test('medication pricing rejects invalid prices without changing the drug', async () => {
+  assert.ok(drug);
+
+  const before = await prisma.drugFormulary.findUnique({
+    where: { id: drug.id }
+  });
+
+  const beforePrice =
+    before.unitPriceSdg == null
+      ? null
+      : Number(before.unitPriceSdg);
+
+  const invalidPrices = [
+    0,
+    -100,
+    12.5,
+    'invalid'
+  ];
+
+  for (const invalidPrice of invalidPrices) {
+    const response = await api
+      .patch(`/api/records/drugs/${drug.id}/price`)
+      .set(auth('pharmacy'))
+      .send({
+        unitPriceSdg: invalidPrice
+      });
+
+    assert.equal(response.status, 422);
+  }
+
+  const after = await prisma.drugFormulary.findUnique({
+    where: { id: drug.id }
+  });
+
+  const afterPrice =
+    after.unitPriceSdg == null
+      ? null
+      : Number(after.unitPriceSdg);
+
+  assert.equal(afterPrice, beforePrice);
+});
+
 test('lab queue is lab-only', async () => {
   assert.equal((await api.get('/api/records/lab-orders/pending').set(auth('lab'))).status, 200);
   assert.equal((await api.get('/api/records/lab-orders/pending').set(auth('pharmacy'))).status, 403);

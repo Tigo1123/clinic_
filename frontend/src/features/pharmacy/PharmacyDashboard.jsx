@@ -13,6 +13,13 @@ export default function PharmacyDashboard({ lang, t }) {
   // Inventory warnings
   const [inventoryAlerts, setInventoryAlerts] = useState([]);
 
+  // Pharmacist-only medication pricing
+  const [drugCatalog, setDrugCatalog] = useState([]);
+  const [priceDrafts, setPriceDrafts] = useState({});
+  const [priceSavingId, setPriceSavingId] = useState(null);
+  const [pricingSuccessMsg, setPricingSuccessMsg] = useState('');
+  const [pricingErrorMsg, setPricingErrorMsg] = useState('');
+
   const fetchPendingRx = () => {
     fetchWithAuth('/api/records/prescriptions/pending')
       .then((res) => res.ok ? res.json() : [])
@@ -42,6 +49,8 @@ export default function PharmacyDashboard({ lang, t }) {
       .then((res) => res.ok ? res.json() : [])
       .then((data) => {
         if (Array.isArray(data)) {
+          setDrugCatalog(data);
+
           const today = clinicDateString();
 
           const expiryCutoff = new Date(`${today}T00:00:00Z`);
@@ -120,14 +129,95 @@ export default function PharmacyDashboard({ lang, t }) {
 
           setInventoryAlerts(alerts);
         } else {
+          setDrugCatalog([]);
           setInventoryAlerts([]);
         }
       })
       .catch((err) => {
         console.error(err);
+        setDrugCatalog([]);
         setInventoryAlerts([]);
       });
   }, []);
+
+  const handlePriceUpdate = async (drug) => {
+    setPricingErrorMsg('');
+    setPricingSuccessMsg('');
+
+    const draftValue =
+      priceDrafts[drug.id] ??
+      (drug.unitPriceSdg == null
+        ? ''
+        : String(Number(drug.unitPriceSdg)));
+
+    const unitPriceSdg = Number(draftValue);
+
+    if (!Number.isSafeInteger(unitPriceSdg) || unitPriceSdg <= 0) {
+      setPricingErrorMsg(
+        lang === 'ar'
+          ? 'يجب إدخال سعر صحيح أكبر من صفر بالعملة السودانية.'
+          : 'Enter a valid positive whole-number price in SDG.'
+      );
+      return;
+    }
+
+    try {
+      setPriceSavingId(drug.id);
+
+      const res = await fetchWithAuth(
+        `/api/records/drugs/${drug.id}/price`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ unitPriceSdg })
+        }
+      );
+
+      const payload = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setPricingErrorMsg(
+          apiErrorMessage(payload, 'Failed to update medicine price.')
+        );
+        return;
+      }
+
+      const updatedDrug = payload.drug;
+
+      setDrugCatalog((current) =>
+        current.map((item) =>
+          item.id === drug.id
+            ? {
+                ...item,
+                unitPriceSdg: updatedDrug.unitPriceSdg
+              }
+            : item
+        )
+      );
+
+      setPriceDrafts((current) => ({
+        ...current,
+        [drug.id]: String(updatedDrug.unitPriceSdg)
+      }));
+
+      setPricingSuccessMsg(
+        lang === 'ar'
+          ? `تم تحديث سعر ${
+              drug.labelAr || drug.labelEn
+            } بنجاح.`
+          : `${drug.labelEn || drug.labelAr} price updated successfully.`
+      );
+    } catch (error) {
+      console.error(error);
+
+      setPricingErrorMsg(
+        lang === 'ar'
+          ? 'تعذر تحديث سعر الدواء.'
+          : 'Unable to update medicine price.'
+      );
+    } finally {
+      setPriceSavingId(null);
+    }
+  };
 
   const handleDispense = async (rx) => {
     setErrorMsg('');
@@ -186,6 +276,260 @@ export default function PharmacyDashboard({ lang, t }) {
     <div className="dashboard-wrapper">
       <div className="workspace-panel" style={{ padding: '1rem' }}>
         <RoleHero role="pharmacy" lang={lang}/>
+
+        <div
+          className="glass-panel"
+          style={{
+            padding: '1rem',
+            marginBottom: '1rem'
+          }}
+        >
+          <div className="panel-header">
+            <span className="panel-title">
+              {lang === 'ar'
+                ? 'إدارة أسعار الأدوية'
+                : 'Medication Pricing'}
+            </span>
+          </div>
+
+          <p
+            style={{
+              fontSize: '0.82rem',
+              color: 'var(--text-secondary)',
+              marginBottom: '1rem'
+            }}
+          >
+            {lang === 'ar'
+              ? 'الصيدلي مسؤول عن اعتماد وتعديل أسعار الأدوية المستخدمة في فواتير الصيدلية.'
+              : 'Pharmacists can approve and update medication prices used for pharmacy billing.'}
+          </p>
+
+          {pricingErrorMsg && (
+            <div
+              className="badge badge-danger"
+              style={{
+                padding: '0.6rem',
+                marginBottom: '0.75rem',
+                display: 'block'
+              }}
+            >
+              {pricingErrorMsg}
+            </div>
+          )}
+
+          {pricingSuccessMsg && (
+            <div
+              className="badge badge-success"
+              style={{
+                padding: '0.6rem',
+                marginBottom: '0.75rem',
+                display: 'block'
+              }}
+            >
+              {pricingSuccessMsg}
+            </div>
+          )}
+
+          {drugCatalog.length === 0 ? (
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '1.5rem',
+                color: 'var(--text-secondary)'
+              }}
+            >
+              {lang === 'ar'
+                ? 'لا توجد أدوية متاحة.'
+                : 'No medications available.'}
+            </div>
+          ) : (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns:
+                  'repeat(auto-fit, minmax(260px, 1fr))',
+                gap: '0.75rem'
+              }}
+            >
+              {[...drugCatalog]
+                .sort((a, b) => {
+                  const aMissing =
+                    a.unitPriceSdg == null ||
+                    Number(a.unitPriceSdg) <= 0;
+
+                  const bMissing =
+                    b.unitPriceSdg == null ||
+                    Number(b.unitPriceSdg) <= 0;
+
+                  if (aMissing !== bMissing) {
+                    return aMissing ? -1 : 1;
+                  }
+
+                  return String(a.labelEn || '').localeCompare(
+                    String(b.labelEn || '')
+                  );
+                })
+                .map((drug) => {
+                  const currentPrice =
+                    drug.unitPriceSdg == null
+                      ? null
+                      : Number(drug.unitPriceSdg);
+
+                  const hasValidPrice =
+                    Number.isFinite(currentPrice) &&
+                    currentPrice > 0;
+
+                  return (
+                    <div
+                      key={drug.id}
+                      className="glass-panel"
+                      style={{
+                        padding: '0.85rem',
+                        borderLeft: hasValidPrice
+                          ? '4px solid var(--success)'
+                          : '4px solid var(--warning)'
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          gap: '0.5rem',
+                          alignItems: 'flex-start'
+                        }}
+                      >
+                        <div>
+                          <strong>
+                            {lang === 'ar'
+                              ? drug.labelAr
+                              : drug.labelEn}
+                          </strong>
+
+                          <div
+                            style={{
+                              fontSize: '0.75rem',
+                              color: 'var(--text-secondary)',
+                              marginTop: '0.2rem'
+                            }}
+                          >
+                            {[drug.strength, drug.dosageForm]
+                              .filter(Boolean)
+                              .join(' • ')}
+                          </div>
+                        </div>
+
+                        <span
+                          className={`badge ${
+                            hasValidPrice
+                              ? 'badge-success'
+                              : 'badge-warning'
+                          }`}
+                          style={{
+                            fontSize: '0.68rem',
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {hasValidPrice
+                            ? (lang === 'ar'
+                                ? 'سعر معتمد'
+                                : 'PRICED')
+                            : (lang === 'ar'
+                                ? 'السعر مطلوب'
+                                : 'PRICE REQUIRED')}
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          marginTop: '0.75rem',
+                          fontSize: '0.8rem',
+                          color: 'var(--text-secondary)'
+                        }}
+                      >
+                        {lang === 'ar'
+                          ? 'السعر الحالي:'
+                          : 'Current price:'}{' '}
+
+                        <strong
+                          style={{
+                            color: 'var(--text-primary)'
+                          }}
+                        >
+                          {hasValidPrice
+                            ? `${currentPrice.toLocaleString(
+                                lang === 'ar'
+                                  ? 'ar-SD'
+                                  : 'en-US'
+                              )} SDG`
+                            : (lang === 'ar'
+                                ? 'غير محدد'
+                                : 'Not set')}
+                        </strong>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          gap: '0.5rem',
+                          marginTop: '0.65rem'
+                        }}
+                      >
+                        <input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={
+                            priceDrafts[drug.id] ??
+                            (
+                              hasValidPrice
+                                ? String(currentPrice)
+                                : ''
+                            )
+                          }
+                          onChange={(event) =>
+                            setPriceDrafts((current) => ({
+                              ...current,
+                              [drug.id]: event.target.value
+                            }))
+                          }
+                          placeholder={
+                            lang === 'ar'
+                              ? 'السعر بالجنيه'
+                              : 'Price in SDG'
+                          }
+                          style={{
+                            width: '100%',
+                            minWidth: 0
+                          }}
+                        />
+
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          disabled={priceSavingId === drug.id}
+                          onClick={() =>
+                            handlePriceUpdate(drug)
+                          }
+                          style={{
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {priceSavingId === drug.id
+                            ? (lang === 'ar'
+                                ? 'جارٍ الحفظ...'
+                                : 'Saving...')
+                            : (lang === 'ar'
+                                ? 'حفظ السعر'
+                                : 'Save Price')}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+        </div>
+
         <div className="panel-grid">
           {/* COLUMN 1: ACTIVE RX QUEUE */}
           <div className="panel-column glass-panel" style={{ padding: '1rem' }}>
