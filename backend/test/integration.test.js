@@ -178,6 +178,59 @@ test('lab queue is lab-only', async () => {
   assert.equal((await api.get('/api/records/lab-orders/pending').set(auth('pharmacy'))).status, 403);
 });
 
+test('reception can view the laboratory billing queue and lab staff cannot', async () => {
+  const record = await prisma.medicalRecord.findUnique({
+    where: {
+      appointmentId: relatedAppointment.id
+    }
+  });
+
+  const order = await prisma.labOrder.create({
+    data: {
+      medicalRecordId: record.id,
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      status: 'PENDING_BILLING',
+      items: {
+        create: {
+          serviceId: service.id
+        }
+      }
+    }
+  });
+
+  const receptionResponse = await api
+    .get('/api/billing/lab-orders/pending')
+    .set(auth('reception'));
+
+  assert.equal(receptionResponse.status, 200);
+
+  const queuedOrder = receptionResponse.body.find(
+    (candidate) => candidate.id === order.id
+  );
+
+  assert.ok(queuedOrder);
+  assert.equal(queuedOrder.billingStatus, 'UNBILLED');
+  assert.equal(queuedOrder.invoice, null);
+  assert.equal(queuedOrder.pricingRequired, false);
+  assert.equal(
+    Number(queuedOrder.estimatedTotalSdg),
+    Number(service.baseFeeSdg)
+  );
+
+  const labResponse = await api
+    .get('/api/billing/lab-orders/pending')
+    .set(auth('lab'));
+
+  assert.equal(labResponse.status, 403);
+
+  await prisma.labOrder.delete({
+    where: {
+      id: order.id
+    }
+  });
+});
+
 test('laboratory payment gate requires full payment and sample collection before results', async () => {
   const record = await prisma.medicalRecord.findUnique({
     where: { appointmentId: relatedAppointment.id }

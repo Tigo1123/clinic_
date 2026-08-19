@@ -827,6 +827,171 @@ router.post('/invoice/:id/refund', authenticate, allowRoles(ROLES.ADMIN, ROLES.R
   }
 });
 
+
+/**
+ * GET /api/billing/lab-orders/pending
+ * Reception/admin billing queue for laboratory orders.
+ *
+ * Financial totals are derived on the server. Fully refunded invoices are
+ * historical and do not block a new laboratory invoice.
+ */
+router.get(
+  '/lab-orders/pending',
+  authenticate,
+  allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST),
+  async (req, res) => {
+    try {
+      const orders = await prisma.labOrder.findMany({
+        where: {
+          status: {
+            in: ['PENDING_BILLING', 'PAID']
+          }
+        },
+        include: {
+          patient: {
+            select: {
+              id: true,
+              fullNameAr: true,
+              fullNameEn: true,
+              phone: true
+            }
+          },
+          doctor: {
+            select: {
+              id: true,
+              fullNameAr: true,
+              fullNameEn: true
+            }
+          },
+          medicalRecord: {
+            select: {
+              appointmentId: true
+            }
+          },
+          items: {
+            include: {
+              service: true
+            }
+          },
+          invoices: {
+            where: {
+              invoiceType: 'LABORATORY',
+              paymentStatus: {
+                not: 'REFUNDED'
+              }
+            },
+            include: {
+              payments: true,
+              refunds: true
+            },
+            orderBy: {
+              invoiceDate: 'desc'
+            },
+            take: 1
+          }
+        },
+        orderBy: {
+          orderDate: 'desc'
+        }
+      });
+
+      const queue = orders.map((order) => {
+        const invoice = order.invoices[0] || null;
+
+        const estimatedTotalSdg = order.items.reduce((sum, item) => {
+          const price = Number(item.service?.baseFeeSdg);
+          return Number.isFinite(price) ? sum + price : sum;
+        }, 0);
+
+        const pricingRequired = order.items.some(
+          (item) => !item.service
+        );
+
+        let totalPaidSdg = 0;
+        let refundedSdg = 0;
+        let remainingBalanceSdg = estimatedTotalSdg;
+
+        if (invoice) {
+          totalPaidSdg = invoice.payments.reduce(
+            (sum, payment) => sum + Number(payment.amountSdg),
+            0
+          );
+
+          refundedSdg = invoice.refunds.reduce(
+            (sum, refund) => sum + Number(refund.amountSdg),
+            0
+          );
+
+          const netCollectedSdg = Math.max(
+            0,
+            totalPaidSdg - refundedSdg
+          );
+
+          remainingBalanceSdg = Math.max(
+            0,
+            Number(invoice.totalAmountSdg) - netCollectedSdg
+          );
+        }
+
+        return {
+          id: order.id,
+          orderDate: order.orderDate,
+          status: order.status,
+          appointmentId: order.medicalRecord?.appointmentId || null,
+          patient: order.patient,
+          doctor: order.doctor,
+
+          items: order.items.map((item) => ({
+            id: item.id,
+            customTestName: item.customTestName,
+            service: item.service
+              ? {
+                  id: item.service.id,
+                  labelAr: item.service.labelAr,
+                  labelEn: item.service.labelEn,
+                  category: item.service.category,
+                  baseFeeSdg: Number(item.service.baseFeeSdg)
+                }
+              : null
+          })),
+
+          pricingRequired,
+          estimatedTotalSdg,
+
+          billingStatus: invoice
+            ? invoice.paymentStatus
+            : 'UNBILLED',
+
+          invoice: invoice
+            ? {
+                id: invoice.id,
+                paymentStatus: invoice.paymentStatus,
+                totalAmountSdg: Number(invoice.totalAmountSdg),
+                totalPaidSdg,
+                refundedSdg,
+                remainingBalanceSdg
+              }
+            : null
+        };
+      });
+
+      return res.json(queue);
+    } catch (error) {
+      console.error(
+        'Fetch laboratory billing queue error:',
+        error
+      );
+
+      return sendError(
+        res,
+        500,
+        'LAB_BILLING_QUEUE_FAILED',
+        'Failed to retrieve laboratory billing queue.'
+      );
+    }
+  }
+);
+
 /**
  * POST /api/billing/shift/reconcile
  * Logs shift balance reconciliation.
