@@ -62,6 +62,11 @@ export default function ReceptionDashboard({ lang, t }) {
   const [queueTab, setQueueTab] = useState('queue'); // 'queue' | 'pending'
   const [billingAppointment, setBillingAppointment] = useState(null);
 
+  // Laboratory billing queue
+  const [labBillingOrders, setLabBillingOrders] = useState([]);
+  const [selectedLabBillingOrder, setSelectedLabBillingOrder] = useState(null);
+  const [labBillingLoading, setLabBillingLoading] = useState(false);
+
   const appointmentStatusLabels = {
     PENDING: {
       ar: 'قيد المراجعة',
@@ -145,6 +150,82 @@ export default function ReceptionDashboard({ lang, t }) {
       .catch((err) => console.error('Pending fetch error:', err));
   };
 
+  const refreshLabBillingQueue = async () => {
+    setLabBillingLoading(true);
+
+    try {
+      const res = await fetchWithAuth('/api/billing/lab-orders/pending');
+      const data = await res.json().catch(() => []);
+
+      if (!res.ok) {
+        console.error('Laboratory billing queue failed:', data);
+        setLabBillingOrders([]);
+        return;
+      }
+
+      const queue = Array.isArray(data) ? data : [];
+      setLabBillingOrders(queue);
+
+      setSelectedLabBillingOrder((current) => {
+        if (!current) return null;
+
+        const refreshed = queue.find((order) => order.id === current.id);
+
+        if (!refreshed) return null;
+
+        return refreshed;
+      });
+    } catch (err) {
+      console.error('Laboratory billing queue error:', err);
+      setLabBillingOrders([]);
+    } finally {
+      setLabBillingLoading(false);
+    }
+  };
+
+  const handleSelectLabBillingOrder = (order) => {
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    setSelectedLabBillingOrder(order);
+    setBillingPatient(order.patient);
+    setBillingAppointment(null);
+    setInsuranceCompanyId('');
+
+    setAddedServices(
+      order.items.map((item) => ({
+        id: item.id,
+        labelAr:
+          item.service?.labelAr ||
+          item.customTestName ||
+          'فحص مخصص',
+        labelEn:
+          item.service?.labelEn ||
+          item.customTestName ||
+          'Custom Test',
+        baseFeeSdg: Number(item.service?.baseFeeSdg || 0),
+        qty: 1
+      }))
+    );
+
+    const amount =
+      order.pricingRequired || order.status === 'PAID'
+        ? ''
+        : Number(
+            order.invoice?.remainingBalanceSdg ??
+            order.estimatedTotalSdg ??
+            0
+          );
+
+    setPaymentRows([
+      {
+        amountSdg: amount > 0 ? String(amount) : '',
+        paymentMethod: 'CASH',
+        transactionReference: ''
+      }
+    ]);
+  };
+
   const handleApproveAppointment = async (appId) => {
     const confirmed = window.confirm(
       lang === 'ar'
@@ -219,6 +300,7 @@ export default function ReceptionDashboard({ lang, t }) {
   // Fetch doctors & services on mount
   useEffect(() => {
     fetchPendingAppointments();
+    refreshLabBillingQueue();
 
     apiRequest('/api/appointments/doctors')
       .then((data) => setDoctors(Array.isArray(data) ? data : []))
@@ -491,6 +573,7 @@ export default function ReceptionDashboard({ lang, t }) {
   const handleQuickBill = (app) => {
     if (!app.patient || app.status !== 'CHECKED_IN') return;
 
+    setSelectedLabBillingOrder(null);
     setBillingPatient(app.patient);
     setBillingAppointment(app);
     setActiveTab('billing');
@@ -540,98 +623,120 @@ export default function ReceptionDashboard({ lang, t }) {
 
   const handleCreateInvoice = async () => {
     if (billingSubmitting) return;
+
     setErrorMsg('');
     setSuccessMsg('');
-    if (addedServices.length === 0 || !billingPatient) {
+
+    if (!billingPatient) {
       setErrorMsg(
         lang === 'ar'
-          ? 'اختر المريض وأضف خدمة طبية واحدة على الأقل.'
-          : 'Select a patient and add at least one clinical service.'
+          ? 'اختر المريض أولاً.'
+          : 'Select a patient first.'
+      );
+      return;
+    }
+
+    const isLaboratoryBilling = Boolean(selectedLabBillingOrder);
+
+    if (
+      !isLaboratoryBilling &&
+      addedServices.length === 0
+    ) {
+      setErrorMsg(
+        lang === 'ar'
+          ? 'أضف خدمة طبية واحدة على الأقل.'
+          : 'Add at least one clinical service.'
+      );
+      return;
+    }
+
+    if (
+      isLaboratoryBilling &&
+      selectedLabBillingOrder.pricingRequired
+    ) {
+      setErrorMsg(
+        lang === 'ar'
+          ? 'يحتوي طلب المختبر على فحص مخصص بدون سعر معتمد. يجب ضبط السعر في كتالوج الخدمات أولاً.'
+          : 'This laboratory order contains a custom test without an approved catalogue price.'
+      );
+      return;
+    }
+
+    if (
+      isLaboratoryBilling &&
+      selectedLabBillingOrder.status === 'PAID'
+    ) {
+      setSuccessMsg(
+        lang === 'ar'
+          ? 'تم دفع هذه الفاتورة بالكامل والمريض جاهز للمختبر.'
+          : 'This laboratory invoice is already fully paid and ready for the laboratory.'
+      );
+      return;
+    }
+
+    const validPayments = paymentRows
+      .map((payment) => ({
+        ...payment,
+        amountSdg: Number(payment.amountSdg)
+      }))
+      .filter(
+        (payment) =>
+          Number.isFinite(payment.amountSdg) &&
+          payment.amountSdg > 0
+      );
+
+    if (validPayments.length === 0) {
+      setErrorMsg(
+        lang === 'ar'
+          ? 'أدخل مبلغ دفع صحيح.'
+          : 'Enter a valid payment amount.'
       );
       return;
     }
 
     setBillingSubmitting(true);
+
     try {
+      const invoiceType = isLaboratoryBilling
+        ? 'LABORATORY'
+        : billingAppointment
+          ? 'CONSULTATION'
+          : 'GENERAL';
+
+      const invoicePayload = {
+        patientId: billingPatient.id,
+        appointmentId:
+          !isLaboratoryBilling
+            ? billingAppointment?.id || undefined
+            : undefined,
+        labOrderId:
+          isLaboratoryBilling
+            ? selectedLabBillingOrder.id
+            : undefined,
+        invoiceType,
+        insuranceCompanyId:
+          !isLaboratoryBilling
+            ? insuranceCompanyId || undefined
+            : undefined
+      };
+
+      if (!isLaboratoryBilling) {
+        invoicePayload.items = addedServices.map((service) => ({
+          descriptionAr: service.labelAr,
+          descriptionEn: service.labelEn,
+          qty: service.qty,
+          unitPriceSdg: parseFloat(service.baseFeeSdg)
+        }));
+      }
+
       const res = await fetchWithAuth('/api/billing/invoice', {
         method: 'POST',
-        body: JSON.stringify({
-          patientId: billingPatient.id,
-          appointmentId: billingAppointment?.id || undefined,
-          invoiceType: billingAppointment ? 'CONSULTATION' : 'GENERAL',
-          insuranceCompanyId: insuranceCompanyId || undefined,
-          items: addedServices.map((s) => ({
-            descriptionAr: s.labelAr,
-            descriptionEn: s.labelEn,
-            qty: s.qty,
-            unitPriceSdg: parseFloat(s.baseFeeSdg)
-          }))
-        })
+        body: JSON.stringify(invoicePayload)
       });
-      const data = await res.json();
-      if (res.ok) {
-        // Record split payments
-        const paymentRes = await fetchWithAuth(`/api/billing/invoice/${data.invoice.id}/payments`, {
-          method: 'POST',
-          headers: { 'Idempotency-Key': crypto.randomUUID() },
-          body: JSON.stringify({
-            payments: paymentRows.map((p) => ({
-              amountSdg: parseFloat(p.amountSdg),
-              paymentMethod: p.paymentMethod,
-              transactionReference: p.transactionReference || undefined
-            }))
-          })
-        });
 
-        const paymentData = await paymentRes.json().catch(() => ({}));
+      const data = await res.json().catch(() => ({}));
 
-        if (paymentRes.ok) {
-          refreshDoctorQueue();
-
-          if (paymentData.paymentStatus === 'PAID') {
-            setSuccessMsg(
-              lang === 'ar'
-                ? 'تم دفع رسوم الكشف بالكامل. المريض الآن جاهز للطبيب.'
-                : 'Consultation fee paid in full. The patient is now ready for the doctor.'
-            );
-
-            setAddedServices([]);
-            setBillingPatient(null);
-            setBillingAppointment(null);
-            setPaymentRows([
-              {
-                amountSdg: '',
-                paymentMethod: 'CASH',
-                transactionReference: ''
-              }
-            ]);
-          } else {
-            setSuccessMsg(
-              lang === 'ar'
-                ? `تم تسجيل دفعة جزئية. المتبقي ${paymentData.remainingBalanceSdg ?? 0} SDG.`
-                : `Partial payment recorded. Remaining balance: ${paymentData.remainingBalanceSdg ?? 0} SDG.`
-            );
-
-            setPaymentRows([
-              {
-                amountSdg: String(paymentData.remainingBalanceSdg ?? ''),
-                paymentMethod: 'CASH',
-                transactionReference: ''
-              }
-            ]);
-          }
-        } else {
-          const payError = paymentData;
-          setErrorMsg(
-            typeof payError.error === 'object'
-              ? payError.error.message
-              : payError.error ||
-                (lang === 'ar'
-                  ? 'تعذر تسجيل الدفعات على الفاتورة.'
-                  : 'Failed to apply payments to the invoice.')
-          );
-        }
-      } else {
+      if (!res.ok) {
         setErrorMsg(
           apiErrorMessage(
             data,
@@ -640,9 +745,93 @@ export default function ReceptionDashboard({ lang, t }) {
               : 'Failed to create the invoice.'
           )
         );
+        return;
+      }
+
+      const paymentRes = await fetchWithAuth(
+        `/api/billing/invoice/${data.invoice.id}/payments`,
+        {
+          method: 'POST',
+          headers: {
+            'Idempotency-Key': crypto.randomUUID()
+          },
+          body: JSON.stringify({
+            payments: validPayments.map((payment) => ({
+              amountSdg: payment.amountSdg,
+              paymentMethod: payment.paymentMethod,
+              transactionReference:
+                payment.transactionReference || undefined
+            }))
+          })
+        }
+      );
+
+      const paymentData =
+        await paymentRes.json().catch(() => ({}));
+
+      if (!paymentRes.ok) {
+        setErrorMsg(
+          apiErrorMessage(
+            paymentData,
+            lang === 'ar'
+              ? 'تعذر تسجيل الدفعة.'
+              : 'Failed to record the payment.'
+          )
+        );
+        return;
+      }
+
+      refreshDoctorQueue();
+      await refreshLabBillingQueue();
+
+      if (paymentData.paymentStatus === 'PAID') {
+        if (isLaboratoryBilling) {
+          setSuccessMsg(
+            lang === 'ar'
+              ? 'تم دفع رسوم المختبر بالكامل. الطلب الآن جاهز لجمع العينة.'
+              : 'Laboratory invoice paid in full. The order is now ready for sample collection.'
+          );
+
+          setSelectedLabBillingOrder(null);
+        } else {
+          setSuccessMsg(
+            lang === 'ar'
+              ? 'تم دفع رسوم الكشف بالكامل. المريض الآن جاهز للطبيب.'
+              : 'Consultation fee paid in full. The patient is now ready for the doctor.'
+          );
+        }
+
+        setAddedServices([]);
+        setBillingPatient(null);
+        setBillingAppointment(null);
+
+        setPaymentRows([
+          {
+            amountSdg: '',
+            paymentMethod: 'CASH',
+            transactionReference: ''
+          }
+        ]);
+      } else {
+        setSuccessMsg(
+          lang === 'ar'
+            ? `تم تسجيل دفعة جزئية. المتبقي ${paymentData.remainingBalanceSdg ?? 0} ج.س.`
+            : `Partial payment recorded. Remaining balance: ${paymentData.remainingBalanceSdg ?? 0} SDG.`
+        );
+
+        setPaymentRows([
+          {
+            amountSdg: String(
+              paymentData.remainingBalanceSdg ?? ''
+            ),
+            paymentMethod: 'CASH',
+            transactionReference: ''
+          }
+        ]);
       }
     } catch (err) {
       console.error(err);
+
       setErrorMsg(
         lang === 'ar'
           ? 'حدث خطأ أثناء معالجة الفاتورة والدفع.'
@@ -1248,6 +1437,202 @@ export default function ReceptionDashboard({ lang, t }) {
             {/* TAB: BILLING & CHECKOUT */}
             {activeTab === 'billing' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto' }}>
+                {/* Laboratory Billing Queue */}
+                <section
+                  className="glass-panel"
+                  style={{
+                    padding: '1rem',
+                    marginBottom: '0.75rem'
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: '0.75rem',
+                      marginBottom: '0.75rem'
+                    }}
+                  >
+                    <div>
+                      <strong>
+                        {lang === 'ar'
+                          ? 'فواتير المختبر'
+                          : 'Laboratory Bills'}
+                      </strong>
+
+                      <div
+                        style={{
+                          fontSize: '0.78rem',
+                          color: 'var(--text-secondary)',
+                          marginTop: '0.2rem'
+                        }}
+                      >
+                        {lang === 'ar'
+                          ? 'طلبات الفحوصات الصادرة من الطبيب'
+                          : 'Diagnostic orders submitted by doctors'}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: '0.75rem'
+                      }}
+                      onClick={refreshLabBillingQueue}
+                      disabled={labBillingLoading}
+                    >
+                      {labBillingLoading
+                        ? (lang === 'ar'
+                            ? 'جاري التحديث...'
+                            : 'Refreshing...')
+                        : (lang === 'ar'
+                            ? 'تحديث'
+                            : 'Refresh')}
+                    </button>
+                  </div>
+
+                  {labBillingOrders.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '1rem',
+                        textAlign: 'center',
+                        color: 'var(--text-secondary)',
+                        fontSize: '0.85rem'
+                      }}
+                    >
+                      {lang === 'ar'
+                        ? 'لا توجد طلبات مختبر تحتاج متابعة مالية حالياً.'
+                        : 'No laboratory orders currently require billing follow-up.'}
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.5rem'
+                      }}
+                    >
+                      {labBillingOrders.map((order) => {
+                        const remaining =
+                          order.invoice?.remainingBalanceSdg ??
+                          order.estimatedTotalSdg ??
+                          0;
+
+                        const paid = order.status === 'PAID';
+
+                        return (
+                          <button
+                            key={order.id}
+                            type="button"
+                            className={`queue-card-item glass-panel ${
+                              selectedLabBillingOrder?.id === order.id
+                                ? 'selected'
+                                : ''
+                            }`}
+                            style={{
+                              width: '100%',
+                              textAlign: 'start',
+                              cursor: 'pointer'
+                            }}
+                            onClick={() =>
+                              handleSelectLabBillingOrder(order)
+                            }
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                gap: '0.75rem',
+                                flexWrap: 'wrap'
+                              }}
+                            >
+                              <strong>
+                                {lang === 'ar'
+                                  ? order.patient.fullNameAr
+                                  : order.patient.fullNameEn}
+                              </strong>
+
+                              <span
+                                className={`badge ${
+                                  paid
+                                    ? 'badge-success'
+                                    : 'badge-warning'
+                                }`}
+                              >
+                                {order.pricingRequired
+                                  ? (lang === 'ar'
+                                      ? 'السعر يحتاج اعتماد'
+                                      : 'Pricing Required')
+                                  : paid
+                                    ? (lang === 'ar'
+                                        ? 'مدفوع'
+                                        : 'Paid')
+                                    : order.billingStatus ===
+                                        'PARTIALLY_PAID'
+                                      ? (lang === 'ar'
+                                          ? 'مدفوع جزئياً'
+                                          : 'Partially Paid')
+                                      : (lang === 'ar'
+                                          ? 'بانتظار الدفع'
+                                          : 'Waiting for Payment')}
+                              </span>
+                            </div>
+
+                            <div
+                              style={{
+                                fontSize: '0.8rem',
+                                color: 'var(--text-secondary)',
+                                marginTop: '0.35rem'
+                              }}
+                            >
+                              {order.items
+                                .map((item) =>
+                                  lang === 'ar'
+                                    ? item.service?.labelAr ||
+                                      item.customTestName
+                                    : item.service?.labelEn ||
+                                      item.customTestName
+                                )
+                                .filter(Boolean)
+                                .join(' • ')}
+                            </div>
+
+                            {!order.pricingRequired && (
+                              <div
+                                style={{
+                                  marginTop: '0.35rem',
+                                  fontWeight: '600'
+                                }}
+                              >
+                                {paid
+                                  ? (lang === 'ar'
+                                      ? 'جاهز للمختبر'
+                                      : 'Ready for Laboratory')
+                                  : `${lang === 'ar'
+                                      ? 'المتبقي'
+                                      : 'Remaining'}: ${Number(
+                                      remaining
+                                    ).toLocaleString(
+                                      lang === 'ar'
+                                        ? 'ar'
+                                        : 'en'
+                                    )} ${
+                                      lang === 'ar'
+                                        ? 'ج.س'
+                                        : 'SDG'
+                                    }`}
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+
                 {/* Search Patient */}
                 <div className="search-wrapper">
                   <Search className="search-icon-svg" size={16} />
@@ -1269,6 +1654,9 @@ export default function ReceptionDashboard({ lang, t }) {
                           key={p.id}
                           className="dropdown-item-patient"
                           onClick={() => {
+                            setSelectedLabBillingOrder(null);
+                            setBillingAppointment(null);
+                            setAddedServices([]);
                             setBillingPatient(p);
                             setSearchResults([]);
                             setSearchQuery('');
@@ -1320,6 +1708,7 @@ export default function ReceptionDashboard({ lang, t }) {
                         className="btn btn-secondary"
                         style={{ padding: '4px 8px', fontSize: '0.75rem' }}
                         onClick={() => handleAddBillingService(svc)}
+                        disabled={Boolean(selectedLabBillingOrder)}
                       >
                         {lang === 'ar' ? svc.labelAr : svc.labelEn}
                       </button>
@@ -1344,6 +1733,7 @@ export default function ReceptionDashboard({ lang, t }) {
                               type="button"
                               style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}
                               onClick={() => handleRemoveBillingService(idx)}
+                              disabled={Boolean(selectedLabBillingOrder)}
                             >
                               <Trash2 size={14} />
                             </button>
@@ -1359,6 +1749,7 @@ export default function ReceptionDashboard({ lang, t }) {
                         className="form-input"
                         value={insuranceCompanyId}
                         onChange={(e) => setInsuranceCompanyId(e.target.value)}
+                        disabled={Boolean(selectedLabBillingOrder)}
                       >
                         <option value="">
                           {lang === 'ar'
@@ -1461,14 +1852,38 @@ export default function ReceptionDashboard({ lang, t }) {
                       </button>
                     </div>
 
-                    <button className="btn btn-primary" style={{ width: '100%', marginTop: '1.5rem' }} onClick={handleCreateInvoice} disabled={billingSubmitting}>
+                    <button
+                      className="btn btn-primary"
+                      style={{
+                        width: '100%',
+                        marginTop: '1.5rem'
+                      }}
+                      onClick={handleCreateInvoice}
+                      disabled={
+                        billingSubmitting ||
+                        selectedLabBillingOrder?.status === 'PAID' ||
+                        selectedLabBillingOrder?.pricingRequired
+                      }
+                    >
                       {billingSubmitting
                         ? (lang === 'ar'
                             ? 'جاري معالجة الفاتورة...'
                             : 'Processing invoice...')
-                        : (lang === 'ar'
-                            ? 'إصدار الفاتورة وتأكيد الدفع'
-                            : 'Issue Invoice & Confirm Payment')}
+                        : selectedLabBillingOrder
+                          ? selectedLabBillingOrder.status === 'PAID'
+                            ? (lang === 'ar'
+                                ? 'مدفوع — جاهز للمختبر'
+                                : 'Paid — Ready for Laboratory')
+                            : selectedLabBillingOrder.billingStatus === 'PARTIALLY_PAID'
+                              ? (lang === 'ar'
+                                  ? 'إكمال دفع المختبر'
+                                  : 'Continue Laboratory Payment')
+                              : (lang === 'ar'
+                                  ? 'دفع رسوم المختبر'
+                                  : 'Pay Laboratory')
+                          : (lang === 'ar'
+                              ? 'إصدار الفاتورة وتأكيد الدفع'
+                              : 'Issue Invoice & Confirm Payment')}
                     </button>
                   </div>
                 )}

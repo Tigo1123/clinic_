@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, FileSpreadsheet, HelpCircle, Sliders, Stethoscope } from 'lucide-react';
-import { fetchWithAuth } from '../../services/staffApi';
+import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import RoleHero from '../../components/healthcare/RoleHero';
 
 export default function LaboratoryDashboard({ lang }) {
@@ -10,23 +10,101 @@ export default function LaboratoryDashboard({ lang }) {
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
-  const fetchPendingLabOrders = () => {
-    fetchWithAuth('/api/records/lab-orders/pending')
-      .then((res) => res.ok ? res.json() : [])
-      .then((data) => setOrders(Array.isArray(data) ? data : []))
-      .catch((err) => {
-        console.error(err);
+  const fetchPendingLabOrders = async (preferredOrderId = null) => {
+    try {
+      const res = await fetchWithAuth(
+        '/api/records/lab-orders/pending'
+      );
+
+      const data = await res.json().catch(() => []);
+
+      if (!res.ok) {
         setOrders([]);
-      });
+        return;
+      }
+
+      const nextOrders = Array.isArray(data) ? data : [];
+
+      setOrders(nextOrders);
+
+      if (preferredOrderId) {
+        setSelectedOrder(
+          nextOrders.find(
+            (order) => order.id === preferredOrderId
+          ) || null
+        );
+      }
+    } catch (err) {
+      console.error(err);
+      setOrders([]);
+    }
   };
 
   useEffect(() => {
     fetchPendingLabOrders();
   }, []);
 
+  const handleCollectSample = async () => {
+    if (!selectedOrder || selectedOrder.status !== 'PAID') {
+      return;
+    }
+
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    try {
+      const res = await fetchWithAuth(
+        `/api/records/lab-orders/${selectedOrder.id}/collect-sample`,
+        {
+          method: 'PUT'
+        }
+      );
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setErrorMsg(
+          apiErrorMessage(
+            data,
+            lang === 'ar'
+              ? 'تعذر تسجيل جمع العينة.'
+              : 'Failed to record sample collection.'
+          )
+        );
+        return;
+      }
+
+      setSuccessMsg(
+        lang === 'ar'
+          ? 'تم تسجيل جمع العينة. يمكن الآن إدخال نتائج الفحوصات.'
+          : 'Sample collected. Test results can now be entered.'
+      );
+
+      await fetchPendingLabOrders(selectedOrder.id);
+    } catch (err) {
+      console.error(err);
+
+      setErrorMsg(
+        lang === 'ar'
+          ? 'حدث خطأ أثناء تسجيل جمع العينة.'
+          : 'An error occurred while recording sample collection.'
+      );
+    }
+  };
+
   const handleSubmitResult = async (item) => {
     setErrorMsg('');
     setSuccessMsg('');
+
+    if (!selectedOrder || selectedOrder.status !== 'SAMPLE_COLLECTED') {
+      setErrorMsg(
+        lang === 'ar'
+          ? 'يجب إتمام الدفع وجمع العينة قبل إدخال النتائج.'
+          : 'Payment and sample collection must be completed before entering results.'
+      );
+      return;
+    }
+
     const form = resultForms[item.id] || {};
     if (!form.value?.trim()) return;
     const numericValue = Number(form.value);
@@ -78,12 +156,17 @@ export default function LaboratoryDashboard({ lang }) {
           };
         });
 
-        fetchPendingLabOrders();
+        await fetchPendingLabOrders(selectedOrder?.id);
       } else {
+        const errorData = await res.json().catch(() => ({}));
+
         setErrorMsg(
-          lang === 'ar'
-            ? 'تعذر حفظ نتيجة الفحص.'
-            : 'Failed to save the test result.'
+          apiErrorMessage(
+            errorData,
+            lang === 'ar'
+              ? 'تعذر حفظ نتيجة الفحص.'
+              : 'Failed to save the test result.'
+          )
         );
       }
     } catch (e) {
@@ -133,6 +216,32 @@ export default function LaboratoryDashboard({ lang }) {
                       )}
                     </span>
                   </div>
+
+                  <span
+                    className={`badge ${
+                      ord.status === 'PENDING_BILLING'
+                        ? 'badge-warning'
+                        : ord.status === 'PAID'
+                          ? 'badge-success'
+                          : 'badge-success'
+                    }`}
+                    style={{
+                      marginTop: '0.5rem',
+                      display: 'inline-flex'
+                    }}
+                  >
+                    {ord.status === 'PENDING_BILLING'
+                      ? (lang === 'ar'
+                          ? '🔒 بانتظار الدفع'
+                          : '🔒 Waiting for Payment')
+                      : ord.status === 'PAID'
+                        ? (lang === 'ar'
+                            ? '✓ مدفوع — جاهز لجمع العينة'
+                            : '✓ Paid — Ready for Sample')
+                        : (lang === 'ar'
+                            ? '🧪 تم جمع العينة'
+                            : '🧪 Sample Collected')}
+                  </span>
                 </div>
               ))
             )}
@@ -157,9 +266,72 @@ export default function LaboratoryDashboard({ lang }) {
                   {lang === 'ar' ? 'المريض:' : 'Patient:'}{' '}
                   {lang === 'ar' ? selectedOrder.patient.fullNameAr : selectedOrder.patient.fullNameEn}
                 </h4>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
                   {lang === 'ar' ? 'الطبيب طالب الفحص:' : 'Ordering Doctor:'} {lang === 'ar' ? selectedOrder.doctor.fullNameAr : selectedOrder.doctor.fullNameEn}
                 </p>
+
+                {selectedOrder.status === 'PENDING_BILLING' && (
+                  <div
+                    className="badge badge-warning"
+                    style={{
+                      display: 'block',
+                      padding: '0.85rem',
+                      marginBottom: '1rem'
+                    }}
+                  >
+                    {lang === 'ar'
+                      ? '🔒 الطلب بانتظار إتمام الدفع لدى الاستقبال. لا يمكن جمع العينة أو إدخال النتائج.'
+                      : '🔒 Waiting for payment at reception. Sample collection and result entry are locked.'}
+                  </div>
+                )}
+
+                {selectedOrder.status === 'PAID' && (
+                  <div
+                    className="glass-panel"
+                    style={{
+                      padding: '1rem',
+                      marginBottom: '1rem'
+                    }}
+                  >
+                    <div
+                      className="badge badge-success"
+                      style={{
+                        marginBottom: '0.75rem',
+                        padding: '0.6rem'
+                      }}
+                    >
+                      {lang === 'ar'
+                        ? 'تم الدفع بالكامل'
+                        : 'Payment Complete'}
+                    </div>
+
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ width: '100%' }}
+                      onClick={handleCollectSample}
+                    >
+                      {lang === 'ar'
+                        ? 'تأكيد جمع العينة'
+                        : 'Collect Sample'}
+                    </button>
+                  </div>
+                )}
+
+                {selectedOrder.status === 'SAMPLE_COLLECTED' && (
+                  <div
+                    className="badge badge-success"
+                    style={{
+                      display: 'block',
+                      padding: '0.75rem',
+                      marginBottom: '1rem'
+                    }}
+                  >
+                    {lang === 'ar'
+                      ? '🧪 تم جمع العينة — يمكن إدخال النتائج الآن.'
+                      : '🧪 Sample collected — results can now be entered.'}
+                  </div>
+                )}
 
                 {selectedOrder.items.map((item) => {
                   const isCompleted =
@@ -194,6 +366,22 @@ export default function LaboratoryDashboard({ lang }) {
                           {lang === 'ar'
                             ? `النتيجة المسجلة: ${item.resultValue}`
                             : `Recorded result: ${item.resultValue}`}
+                        </div>
+                      ) : selectedOrder.status !== 'SAMPLE_COLLECTED' ? (
+                        <div
+                          className="badge badge-warning"
+                          style={{
+                            marginTop: '0.75rem',
+                            padding: '0.65rem'
+                          }}
+                        >
+                          {selectedOrder.status === 'PAID'
+                            ? (lang === 'ar'
+                                ? 'يجب جمع العينة أولاً.'
+                                : 'Collect the sample first.')
+                            : (lang === 'ar'
+                                ? 'النتائج مقفلة حتى إتمام الدفع.'
+                                : 'Results are locked until payment is complete.')}
                         </div>
                       ) : (
                       <>
