@@ -60,6 +60,7 @@ export default function ReceptionDashboard({ lang, t }) {
   // Pending Approvals State
   const [pendingAppointments, setPendingAppointments] = useState([]);
   const [queueTab, setQueueTab] = useState('queue'); // 'queue' | 'pending'
+  const [billingAppointment, setBillingAppointment] = useState(null);
 
   const appointmentStatusLabels = {
     PENDING: {
@@ -463,8 +464,8 @@ export default function ReceptionDashboard({ lang, t }) {
       if (res.ok) {
         setSuccessMsg(
           lang === 'ar'
-            ? 'تم تسجيل وصول المريض وإضافته إلى طابور الطبيب.'
-            : 'Patient checked in and added to the doctor queue.'
+            ? 'تم تسجيل وصول المريض. يجب إتمام رسوم الكشف قبل أن يصبح جاهزًا للطبيب.'
+            : 'Patient checked in. The consultation fee must be paid before the patient is ready for the doctor.'
         );
         refreshDoctorQueue();
       } else {
@@ -488,8 +489,10 @@ export default function ReceptionDashboard({ lang, t }) {
   };
 
   const handleQuickBill = (app) => {
-    if (!app.patient) return;
+    if (!app.patient || app.status !== 'CHECKED_IN') return;
+
     setBillingPatient(app.patient);
+    setBillingAppointment(app);
     setActiveTab('billing');
 
     const consultService = clinicalServices.find(s =>
@@ -554,6 +557,8 @@ export default function ReceptionDashboard({ lang, t }) {
         method: 'POST',
         body: JSON.stringify({
           patientId: billingPatient.id,
+          appointmentId: billingAppointment?.id || undefined,
+          invoiceType: billingAppointment ? 'CONSULTATION' : 'GENERAL',
           insuranceCompanyId: insuranceCompanyId || undefined,
           items: addedServices.map((s) => ({
             descriptionAr: s.labelAr,
@@ -578,13 +583,45 @@ export default function ReceptionDashboard({ lang, t }) {
           })
         });
 
+        const paymentData = await paymentRes.json().catch(() => ({}));
+
         if (paymentRes.ok) {
-          setSuccessMsg(lang === 'ar' ? 'تم إصدار الفاتورة وإتمام الدفع بنجاح.' : 'Invoice issued and paid successfully.');
-          setAddedServices([]);
-          setBillingPatient(null);
-          setPaymentRows([{ amountSdg: '', paymentMethod: 'CASH', transactionReference: '' }]);
+          refreshDoctorQueue();
+
+          if (paymentData.paymentStatus === 'PAID') {
+            setSuccessMsg(
+              lang === 'ar'
+                ? 'تم دفع رسوم الكشف بالكامل. المريض الآن جاهز للطبيب.'
+                : 'Consultation fee paid in full. The patient is now ready for the doctor.'
+            );
+
+            setAddedServices([]);
+            setBillingPatient(null);
+            setBillingAppointment(null);
+            setPaymentRows([
+              {
+                amountSdg: '',
+                paymentMethod: 'CASH',
+                transactionReference: ''
+              }
+            ]);
+          } else {
+            setSuccessMsg(
+              lang === 'ar'
+                ? `تم تسجيل دفعة جزئية. المتبقي ${paymentData.remainingBalanceSdg ?? 0} SDG.`
+                : `Partial payment recorded. Remaining balance: ${paymentData.remainingBalanceSdg ?? 0} SDG.`
+            );
+
+            setPaymentRows([
+              {
+                amountSdg: String(paymentData.remainingBalanceSdg ?? ''),
+                paymentMethod: 'CASH',
+                transactionReference: ''
+              }
+            ]);
+          }
         } else {
-          const payError = await paymentRes.json();
+          const payError = paymentData;
           setErrorMsg(
             typeof payError.error === 'object'
               ? payError.error.message
@@ -832,9 +869,21 @@ export default function ReceptionDashboard({ lang, t }) {
                         <strong>{lang === 'ar' ? app.patient.fullNameAr : app.patient.fullNameEn}</strong>
                         <span className={`badge ${app.status === 'COMPLETED' ? 'badge-success' :
                           app.status === 'IN_CONSULTATION' ? 'badge-primary' :
-                            app.status === 'CHECKED_IN' ? 'badge-warning' : 'badge-secondary'
+                            app.status === 'CHECKED_IN'
+                              ? (app.consultationReady ? 'badge-success' : 'badge-warning')
+                              : 'badge-secondary'
                           }`}>
-                          {getAppointmentStatusLabel(app.status)}
+                          {app.status === 'CHECKED_IN'
+                            ? (
+                              app.consultationReady
+                                ? (lang === 'ar' ? 'جاهز للطبيب' : 'Ready for Doctor')
+                                : (
+                                  app.consultationPaymentStatus === 'PARTIALLY_PAID'
+                                    ? (lang === 'ar' ? 'دفع جزئي' : 'Partially Paid')
+                                    : (lang === 'ar' ? 'بانتظار الدفع' : 'Payment Pending')
+                                )
+                            )
+                            : getAppointmentStatusLabel(app.status)}
                         </span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.4rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
@@ -852,14 +901,18 @@ export default function ReceptionDashboard({ lang, t }) {
                             {lang === 'ar' ? 'تسجيل وصول' : 'Check In'}
                           </button>
                         )}
-                        <button
-                          className="btn btn-secondary"
-                          style={{ flex: 1, padding: '4px 8px', fontSize: '0.75rem', margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', minHeight: '32px' }}
-                          onClick={() => handleQuickBill(app)}
-                        >
-                          <DollarSign size={12} />
-                          {lang === 'ar' ? 'فتح الفاتورة' : 'Open Billing'}
-                        </button>
+                        {app.status === 'CHECKED_IN' && !app.consultationReady && (
+                          <button
+                            className="btn btn-secondary"
+                            style={{ flex: 1, padding: '4px 8px', fontSize: '0.75rem', margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', minHeight: '32px' }}
+                            onClick={() => handleQuickBill(app)}
+                          >
+                            <DollarSign size={12} />
+                            {app.consultationPaymentStatus === 'PARTIALLY_PAID'
+                              ? (lang === 'ar' ? 'إكمال الدفع' : 'Continue Payment')
+                              : (lang === 'ar' ? 'دفع رسوم الكشف' : 'Pay Consultation')}
+                          </button>
+                        )}
                         <a
                           href={getWhatsAppLink(
                             app.patient?.phone,

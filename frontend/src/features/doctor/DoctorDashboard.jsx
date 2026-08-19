@@ -188,6 +188,15 @@ export default function DoctorDashboard({ user, lang, t }) {
       return;
     }
 
+    if (appt.status === 'CHECKED_IN' && !appt.consultationReady) {
+      setErrorMsg(
+        lang === 'ar'
+          ? 'هذا المريض بانتظار إتمام رسوم الكشف في الاستقبال.'
+          : 'This patient is waiting for the consultation fee to be completed at reception.'
+      );
+      return;
+    }
+
     // The doctor must not reopen a patient while the laboratory is still working.
     if (appt.status === 'WAITING_LAB') {
       setErrorMsg(
@@ -229,7 +238,7 @@ export default function DoctorDashboard({ user, lang, t }) {
       // patient returning after laboratory results.
       let existingSummary = null;
 
-      if (appt.status === 'IN_CONSULTATION') {
+      if (appt.status === 'IN_CONSULTATION' && appt.medicalRecordId) {
         const summaryRes = await fetchWithAuth(`/api/records/${appt.id}/summary`);
 
         if (summaryRes.ok) {
@@ -554,12 +563,19 @@ export default function DoctorDashboard({ user, lang, t }) {
                     <strong>{lang === 'ar' ? appt.patient.fullNameAr : appt.patient.fullNameEn}</strong>
                     <span
                       className={
-                        appt.status === 'WAITING_LAB'
+                        appt.status === 'WAITING_LAB' ||
+                        (appt.status === 'CHECKED_IN' && !appt.consultationReady)
                           ? 'badge badge-warning'
                           : 'badge badge-success'
                       }
                     >
-                      {getAppointmentStatusLabel(appt.status)}
+                      {appt.status === 'CHECKED_IN'
+                        ? (
+                          appt.consultationReady
+                            ? (lang === 'ar' ? 'جاهز للكشف' : 'Ready')
+                            : (lang === 'ar' ? 'بانتظار الدفع' : 'Payment Pending')
+                        )
+                        : getAppointmentStatusLabel(appt.status)}
                     </span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem', fontSize: '0.8rem' }}>
@@ -586,6 +602,33 @@ export default function DoctorDashboard({ user, lang, t }) {
 
           {/* COLUMN 2: CLINICAL WORKSPACE */}
           <div className="panel-column glass-panel" style={{ padding: '1.25rem' }}>
+            {errorMsg && (
+              <div
+                className="badge badge-danger"
+                role="alert"
+                style={{
+                  padding: '0.75rem',
+                  width: '100%',
+                  marginBottom: '1rem'
+                }}
+              >
+                {errorMsg}
+              </div>
+            )}
+
+            {successMsg && (
+              <div
+                className="badge badge-success"
+                style={{
+                  padding: '0.75rem',
+                  width: '100%',
+                  marginBottom: '1rem'
+                }}
+              >
+                {successMsg}
+              </div>
+            )}
+
             {selectedPatient ? (
               <div>
                 <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem', marginBottom: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
@@ -609,8 +652,6 @@ export default function DoctorDashboard({ user, lang, t }) {
                   </button>
                 </div>
 
-                {errorMsg && <div className="badge badge-danger" style={{ padding: '0.5rem', width: '100%', marginBottom: '1rem' }}>{errorMsg}</div>}
-                {successMsg && <div className="badge badge-success" style={{ padding: '0.5rem', width: '100%', marginBottom: '1rem' }}>{successMsg}</div>}
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '1.5rem', alignItems: 'start' }}>
                   {/* Left Column: Full Patient History at a glance */}
@@ -1030,7 +1071,7 @@ export default function DoctorDashboard({ user, lang, t }) {
                                 style={{ padding: '2px 4px', fontSize: '0.65rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'rgba(255,255,255,0.03)', cursor: 'pointer', color: 'var(--text-secondary)' }}
                                 onClick={() => setDosage(p)}
                               >
-                                {lang === 'ar' ? preset.ar : preset.en}
+                                {p}
                               </button>
                             ))}
                           </div>
@@ -1056,7 +1097,7 @@ export default function DoctorDashboard({ user, lang, t }) {
                                 style={{ padding: '2px 4px', fontSize: '0.65rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'rgba(255,255,255,0.03)', cursor: 'pointer', color: 'var(--text-secondary)' }}
                                 onClick={() => setDuration(preset.value)}
                               >
-                                {p}
+                                {lang === 'ar' ? preset.ar : preset.en}
                               </button>
                             ))}
                           </div>

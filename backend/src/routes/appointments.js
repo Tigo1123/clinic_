@@ -294,7 +294,35 @@ router.get('/queue/:doctorId', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEP
       },
       include: {
         patient: true,
-        emergencyOverride: true
+        doctor: {
+          select: {
+            id: true,
+            fullNameAr: true,
+            fullNameEn: true,
+            consultationFee: true
+          }
+        },
+        emergencyOverride: true,
+        medicalRecord: {
+          select: {
+            id: true
+          }
+        },
+        invoices: {
+          where: {
+            invoiceType: 'CONSULTATION'
+          },
+          orderBy: {
+            invoiceDate: 'desc'
+          },
+          select: {
+            id: true,
+            paymentStatus: true,
+            totalAmountSdg: true,
+            invoiceDate: true
+          },
+          take: 1
+        }
       },
       orderBy: [
         { status: 'desc' }, // In Consultation, Checked In, Scheduled
@@ -302,8 +330,24 @@ router.get('/queue/:doctorId', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEP
       ]
     });
 
+    const paymentAwareQueue = queue.map((appointment) => {
+      const consultationInvoice = appointment.invoices?.[0] || null;
+      const medicalRecordId = appointment.medicalRecord?.id || null;
+      const { invoices, medicalRecord, ...safeAppointment } = appointment;
+
+      return {
+        ...safeAppointment,
+        medicalRecordId,
+        consultationInvoice,
+        consultationPaymentStatus:
+          consultationInvoice?.paymentStatus || 'NOT_BILLED',
+        consultationReady:
+          consultationInvoice?.paymentStatus === 'PAID'
+      };
+    });
+
     // Custom sorting: If emergencyOverride exists, put at the top of Checked In queue
-    const sortedQueue = queue.sort((a, b) => {
+    const sortedQueue = paymentAwareQueue.sort((a, b) => {
       const aHasEmergency = a.emergencyOverride ? 1 : 0;
       const bHasEmergency = b.emergencyOverride ? 1 : 0;
       if (aHasEmergency !== bHasEmergency) {

@@ -5,6 +5,7 @@ import { authenticate, checkRoles } from '../middleware/auth.js';
 import { allowRoles, ROLES } from '../middleware/policies.js';
 import { sendError } from '../utils/apiError.js';
 import { clinicDateSequence, clinicMonthBounds, getClinicDateString, instantToClinicDateString } from '../utils/clinicTime.js';
+import { emitQueueUpdate } from '../utils/socketEvents.js';
 
 const router = express.Router();
 
@@ -380,6 +381,28 @@ router.post('/invoice/:id/payments', authenticate, allowRoles(ROLES.ADMIN, ROLES
         const transactionContention = ['P2028', 'P2034'].includes(error.code) || /database is locked|write conflict|deadlock|serialization/i.test(error.message || '');
         if (!transactionContention || attempt === 2) throw error;
         await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)));
+      }
+    }
+
+    if (result.invoiceType === 'CONSULTATION' && result.appointmentId) {
+      const appointment = await prisma.appointment.findUnique({
+        where: { id: result.appointmentId },
+        select: { doctorId: true }
+      });
+
+      if (appointment) {
+        const io = req.app.get('io');
+
+        emitQueueUpdate(
+          io,
+          {
+            type: 'CONSULTATION_PAYMENT_UPDATE',
+            appointmentId: result.appointmentId,
+            paymentStatus: result.paymentStatus,
+            doctorId: appointment.doctorId
+          },
+          [appointment.doctorId]
+        );
       }
     }
 
