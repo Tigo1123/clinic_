@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Check, CheckCircle, Clock, DollarSign, HelpCircle, MessageCircle, Printer, Search, Trash2, Users } from 'lucide-react';
-import { PatientProfileModal, PostVisitSummaryModal } from '../clinical/ClinicalModals';
+import { AlertCircle, Check, CheckCircle, Clock, DollarSign, HelpCircle, MessageCircle, Search, Trash2, Users } from 'lucide-react';
+import { PatientProfileModal } from '../clinical/ClinicalModals';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import { getWhatsAppLink, SUDANESE_STATES } from './clinicData';
 import { staffSocket as socket } from '../../services/staffSocket';
@@ -54,7 +54,6 @@ export default function ReceptionDashboard({ lang, t }) {
   const [expectedCash, setExpectedCash] = useState('');
   const [reconcileResult, setReconcileResult] = useState(null);
   const [filterDate, setFilterDate] = useState(clinicDateString());
-  const [activeSummaryId, setActiveSummaryId] = useState(null);
   const [viewingProfilePatientId, setViewingProfilePatientId] = useState(null);
 
   // Pending Approvals State
@@ -1263,16 +1262,6 @@ export default function ReceptionDashboard({ lang, t }) {
                         >
                           <MessageCircle size={12} />
                         </a>
-                        {app.status === 'COMPLETED' && (
-                          <button
-                            className="btn btn-secondary"
-                            style={{ flex: 1, padding: '4px 8px', fontSize: '0.75rem', margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', minHeight: '32px' }}
-                            onClick={() => setActiveSummaryId(app.id)}
-                          >
-                            <Printer size={12} />
-                            {lang === 'ar' ? 'ملخص' : 'Summary'}
-                          </button>
-                        )}
                       </div>
                     </div>
                   );
@@ -2352,10 +2341,8 @@ export default function ReceptionDashboard({ lang, t }) {
           patientId={viewingProfilePatientId}
           onClose={() => setViewingProfilePatientId(null)}
           lang={lang}
-          onSelectSummary={(recId) => setActiveSummaryId(recId)}
         />
       )}
-      {activeSummaryId && <PostVisitSummaryModal summaryId={activeSummaryId} onClose={() => setActiveSummaryId(null)} lang={lang} />}
     </div>
   );
 }

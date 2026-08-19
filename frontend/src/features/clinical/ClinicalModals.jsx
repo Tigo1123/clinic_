@@ -501,18 +501,26 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
                           </div>
                         </div>
 
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          style={{ padding: '4px 10px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                          onClick={() => {
-                            const targetId = visit.recordId || visit.id || visit.appointmentId;
-                            onSelectSummary(targetId);
-                          }}
-                        >
-                          <Printer size={14} />
-                          {lang === 'ar' ? 'ملخص الزيارة والطباعة' : 'Visit Summary / Print'}
-                        </button>
+                        {typeof onSelectSummary === 'function' && (
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            style={{ padding: '4px 10px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                            onClick={() => {
+                              const targetId =
+                                visit.recordId ||
+                                visit.id ||
+                                visit.appointmentId;
+
+                              onSelectSummary(targetId);
+                            }}
+                          >
+                            <Printer size={14} />
+                            {lang === 'ar'
+                              ? 'ملخص الزيارة والطباعة'
+                              : 'Visit Summary / Print'}
+                          </button>
+                        )}
                       </div>
 
                       {/* Clinical Preview */}
