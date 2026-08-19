@@ -693,6 +693,127 @@ router.get('/lab-orders/pending', authenticate, allowRoles(ROLES.LAB_TECH), asyn
 });
 
 /**
+ * PUT /api/records/lab-orders/:id/collect-sample
+ * Allows the laboratory to collect/process a sample only after full payment.
+ */
+router.put('/lab-orders/:id/collect-sample', authenticate, allowRoles(ROLES.LAB_TECH), async (req, res) => {
+  const orderId = req.params.id;
+
+  try {
+    const order = await prisma.labOrder.findUnique({
+      where: { id: orderId },
+      include: {
+        patient: true
+      }
+    });
+
+    if (!order) {
+      return sendError(
+        res,
+        404,
+        'LAB_ORDER_NOT_FOUND',
+        'Laboratory order not found.'
+      );
+    }
+
+    if (order.status === 'PENDING_BILLING') {
+      return sendError(
+        res,
+        403,
+        'LAB_PAYMENT_REQUIRED',
+        'Laboratory work cannot start until the laboratory invoice is fully paid.'
+      );
+    }
+
+    if (order.status === 'SAMPLE_COLLECTED') {
+      return res.json({
+        ...order,
+        idempotentReplay: true
+      });
+    }
+
+    if (order.status !== 'PAID') {
+      return sendError(
+        res,
+        409,
+        'LAB_SAMPLE_COLLECTION_INVALID_STATE',
+        'Sample collection is only available for fully paid laboratory orders.'
+      );
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const claimed = await tx.labOrder.updateMany({
+        where: {
+          id: order.id,
+          status: 'PAID'
+        },
+        data: {
+          status: 'SAMPLE_COLLECTED'
+        }
+      });
+
+      if (claimed.count !== 1) {
+        const current = await tx.labOrder.findUnique({
+          where: { id: order.id },
+          select: { status: true }
+        });
+
+        if (current?.status === 'PENDING_BILLING') {
+          throw Object.assign(
+            new Error(
+              'Laboratory work cannot start until the laboratory invoice is fully paid.'
+            ),
+            { status: 403, code: 'LAB_PAYMENT_REQUIRED' }
+          );
+        }
+
+        if (current?.status === 'SAMPLE_COLLECTED') {
+          return tx.labOrder.findUnique({
+            where: { id: order.id }
+          });
+        }
+
+        throw Object.assign(
+          new Error(
+            'Sample collection is no longer available for this laboratory order.'
+          ),
+          { status: 409, code: 'LAB_SAMPLE_COLLECTION_INVALID_STATE' }
+        );
+      }
+
+      const collectedOrder = await tx.labOrder.findUnique({
+        where: { id: order.id }
+      });
+
+      await tx.tenantAuditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'LAB_SAMPLE_COLLECTED',
+          details: `Collected sample for Lab Order ${order.id} for Patient ${order.patient.fullNameEn}`,
+          ipAddress: req.ip || '127.0.0.1'
+        }
+      });
+
+      return collectedOrder;
+    });
+
+    return res.json(updated);
+  } catch (error) {
+    if (error.status && error.code) {
+      return sendError(res, error.status, error.code, error.message);
+    }
+
+    console.error('Collect laboratory sample error:', error);
+    return sendError(
+      res,
+      500,
+      'LAB_SAMPLE_COLLECTION_FAILED',
+      'Failed to record laboratory sample collection.'
+    );
+  }
+});
+
+/**
  * PUT /api/records/lab-orders/items/:id/results
  * Logs structured results and updates completed status.
  */
@@ -704,6 +825,53 @@ router.put('/lab-orders/items/:id/results', authenticate, allowRoles(ROLES.LAB_T
   const { resultValue, referenceRangeMin, referenceRangeMax, isOutOfRange, fileAttachmentPath } = req.body;
 
   try {
+    const existingItem = await prisma.labOrderItem.findUnique({
+      where: { id: itemId },
+      include: {
+        labOrder: {
+          include: {
+            patient: true
+          }
+        }
+      }
+    });
+
+    if (!existingItem) {
+      return sendError(
+        res,
+        404,
+        'LAB_ORDER_ITEM_NOT_FOUND',
+        'Laboratory order item not found.'
+      );
+    }
+
+    if (existingItem.labOrder.status === 'PENDING_BILLING') {
+      return sendError(
+        res,
+        403,
+        'LAB_PAYMENT_REQUIRED',
+        'Laboratory results cannot be entered until the laboratory invoice is fully paid.'
+      );
+    }
+
+    if (existingItem.labOrder.status === 'PAID') {
+      return sendError(
+        res,
+        409,
+        'LAB_SAMPLE_NOT_COLLECTED',
+        'The laboratory sample must be collected before results can be entered.'
+      );
+    }
+
+    if (existingItem.labOrder.status !== 'SAMPLE_COLLECTED') {
+      return sendError(
+        res,
+        409,
+        'LAB_ORDER_NOT_PROCESSABLE',
+        'This laboratory order is not available for result entry.'
+      );
+    }
+
     const item = await prisma.labOrderItem.update({
       where: { id: itemId },
       data: {

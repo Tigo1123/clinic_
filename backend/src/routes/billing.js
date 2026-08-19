@@ -20,6 +20,7 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
   const {
     patientId,
     appointmentId,
+    labOrderId,
     insuranceCompanyId,
     items,
     invoiceType = 'GENERAL'
@@ -46,7 +47,7 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
   }
 
   if (
-    normalizedInvoiceType !== 'CONSULTATION' &&
+    !['CONSULTATION', 'LABORATORY'].includes(normalizedInvoiceType) &&
     (!Array.isArray(items) || items.length === 0)
   ) {
     return sendError(
@@ -61,7 +62,8 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
     const lockedExchangeRate = 1500.00;
 
     let resolvedItems = items;
-    const resolvedAppointmentId = appointmentId || null;
+    let resolvedAppointmentId = appointmentId || null;
+    let resolvedLabOrderId = null;
 
     if (normalizedInvoiceType === 'CONSULTATION') {
       if (!appointmentId) {
@@ -123,6 +125,123 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
         qty: 1,
         unitPriceSdg: consultationFee
       }];
+    } else if (normalizedInvoiceType === 'LABORATORY') {
+      if (typeof labOrderId !== 'string' || !labOrderId.trim()) {
+        return sendError(
+          res,
+          422,
+          'LAB_ORDER_REQUIRED',
+          'Laboratory billing requires a lab order.'
+        );
+      }
+
+      const requestedLabOrderId = labOrderId.trim();
+
+      const labOrder = await prisma.labOrder.findUnique({
+        where: { id: requestedLabOrderId },
+        include: {
+          medicalRecord: {
+            select: {
+              appointmentId: true
+            }
+          },
+          items: {
+            include: {
+              service: true
+            }
+          }
+        }
+      });
+
+      if (!labOrder) {
+        return sendError(
+          res,
+          404,
+          'LAB_ORDER_NOT_FOUND',
+          'Laboratory order not found.'
+        );
+      }
+
+      if (labOrder.patientId !== patientId) {
+        return sendError(
+          res,
+          409,
+          'LAB_ORDER_PATIENT_MISMATCH',
+          'The invoice patient does not match the laboratory order patient.'
+        );
+      }
+
+      if (!['PENDING_BILLING', 'PAID'].includes(labOrder.status)) {
+        return sendError(
+          res,
+          409,
+          'LAB_BILLING_INVALID_STATE',
+          'This laboratory order can no longer be billed.'
+        );
+      }
+
+      if (!labOrder.items.length) {
+        return sendError(
+          res,
+          409,
+          'LAB_ORDER_EMPTY',
+          'The laboratory order does not contain billable tests.'
+        );
+      }
+
+      const unpricedCustomItem = labOrder.items.find(
+        (item) => !item.serviceId || !item.service
+      );
+
+      if (unpricedCustomItem) {
+        return sendError(
+          res,
+          409,
+          'LAB_CUSTOM_TEST_PRICING_REQUIRED',
+          'Custom laboratory tests require an approved catalogue price before billing.'
+        );
+      }
+
+      const invalidService = labOrder.items.find(
+        (item) =>
+          !['LABORATORY', 'RADIOLOGY'].includes(item.service.category)
+      );
+
+      if (invalidService) {
+        return sendError(
+          res,
+          409,
+          'LAB_ORDER_SERVICE_INVALID',
+          'The laboratory order contains a service that cannot be billed as a diagnostic test.'
+        );
+      }
+
+      const invalidPrice = labOrder.items.find((item) => {
+        const price = Number(item.service.baseFeeSdg);
+        return !Number.isFinite(price) || price <= 0;
+      });
+
+      if (invalidPrice) {
+        return sendError(
+          res,
+          409,
+          'LAB_SERVICE_PRICE_NOT_CONFIGURED',
+          'One or more ordered tests do not have a valid configured price.'
+        );
+      }
+
+      resolvedLabOrderId = labOrder.id;
+      resolvedAppointmentId =
+        labOrder.medicalRecord?.appointmentId || null;
+
+      // Security: diagnostic prices always come from ClinicalService,
+      // never from browser-supplied invoice items.
+      resolvedItems = labOrder.items.map((item) => ({
+        descriptionAr: item.service.labelAr,
+        descriptionEn: item.service.labelEn,
+        qty: 1,
+        unitPriceSdg: Number(item.service.baseFeeSdg)
+      }));
     }
 
     let totalSdg = 0;
@@ -188,6 +307,43 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
           }
         }
 
+        // Repeated laboratory checkout must not create another invoice
+        // for the same LabOrder.
+        if (normalizedInvoiceType === 'LABORATORY') {
+          const existingInvoice = await tx.invoice.findFirst({
+            where: {
+              labOrderId: resolvedLabOrderId,
+              invoiceType: 'LABORATORY',
+              paymentStatus: {
+                not: 'REFUNDED'
+              }
+            },
+            include: {
+              items: true,
+              insuranceClaim: true
+            },
+            orderBy: {
+              invoiceDate: 'desc'
+            }
+          });
+
+          if (existingInvoice) {
+            const claimAmount = existingInvoice.insuranceClaim
+              ? Number(existingInvoice.insuranceClaim.claimAmountSdg)
+              : 0;
+
+            return {
+              invoice: existingInvoice,
+              insuranceClaim: existingInvoice.insuranceClaim || null,
+              patientShareSdg: Math.max(
+                0,
+                Number(existingInvoice.totalAmountSdg) - claimAmount
+              ),
+              existing: true
+            };
+          }
+        }
+
         let insuranceClaim = null;
         let patientShareSdg = totalSdg;
 
@@ -195,6 +351,7 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
           data: {
             patientId,
             appointmentId: resolvedAppointmentId,
+            labOrderId: resolvedLabOrderId,
             invoiceType: normalizedInvoiceType,
             totalAmountSdg: totalSdg,
             totalAmountUsd: totalUsd,
@@ -369,7 +526,55 @@ router.post('/invoice/:id/payments', authenticate, allowRoles(ROLES.ADMIN, ROLES
         include: { payments: true }
       });
 
-      return { ...updatedInvoice, totalPaidSdg: resultingPaidSdg, remainingBalanceSdg: Math.max(0, invoiceTotal - resultingPaidSdg) };
+      if (
+        invoice.invoiceType === 'LABORATORY' &&
+        invoice.labOrderId &&
+        invoiceStatus === 'PAID'
+      ) {
+        const unlocked = await tx.labOrder.updateMany({
+          where: {
+            id: invoice.labOrderId,
+            status: 'PENDING_BILLING'
+          },
+          data: {
+            status: 'PAID'
+          }
+        });
+
+        if (unlocked.count === 0) {
+          const currentLabOrder = await tx.labOrder.findUnique({
+            where: { id: invoice.labOrderId },
+            select: { status: true }
+          });
+
+          if (!currentLabOrder) {
+            throw Object.assign(
+              new Error('Laboratory order linked to this invoice no longer exists.'),
+              { status: 409, code: 'LAB_ORDER_NOT_FOUND' }
+            );
+          }
+
+          if (
+            !['PAID', 'SAMPLE_COLLECTED', 'COMPLETED'].includes(
+              currentLabOrder.status
+            )
+          ) {
+            throw Object.assign(
+              new Error('Laboratory order could not be unlocked after payment.'),
+              { status: 409, code: 'LAB_PAYMENT_STATE_CONFLICT' }
+            );
+          }
+        }
+      }
+
+      return {
+        ...updatedInvoice,
+        totalPaidSdg: resultingPaidSdg,
+        remainingBalanceSdg: Math.max(
+          0,
+          invoiceTotal - resultingPaidSdg
+        )
+      };
     }, { maxWait: 5000, timeout: 10000 });
 
     let result;
@@ -455,7 +660,7 @@ router.post('/invoice/:id/refund', authenticate, allowRoles(ROLES.ADMIN, ROLES.R
     }
 
     // Refund Locker Check: If appointment is in consultation or completed, block it
-    if (invoice.appointment) {
+    if (invoice.appointment && invoice.invoiceType !== 'LABORATORY') {
       const activeStatus = invoice.appointment.status;
       if (['IN_CONSULTATION', 'COMPLETED'].includes(activeStatus)) {
         return res.status(403).json({
@@ -465,12 +670,118 @@ router.post('/invoice/:id/refund', authenticate, allowRoles(ROLES.ADMIN, ROLES.R
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      const financial = await tx.invoice.findUnique({ where: { id: invoice.id }, include: { payments: true, refunds: true } });
-      const paidSdg = financial.payments.reduce((sum, payment) => sum + Number(payment.amountSdg), 0);
+      const financial = await tx.invoice.findUnique({
+        where: { id: invoice.id },
+        include: {
+          payments: true,
+          refunds: true,
+          labOrder: true
+        }
+      });
+
+      const paidSdg = financial.payments.reduce(
+        (sum, payment) => sum + Number(payment.amountSdg),
+        0
+      );
       const previouslyRefundedSdg = financial.refunds.reduce((sum, refund) => sum + Number(refund.amountSdg), 0);
       const refundableSdg = paidSdg - previouslyRefundedSdg;
-      if (paidSdg <= 0) throw Object.assign(new Error('No paid funds are available to refund.'), { status: 409, code: 'NO_PAID_FUNDS' });
-      if (amountSdg > refundableSdg + 0.001) throw Object.assign(new Error('Refund exceeds the paid amount still available.'), { status: 409, code: 'REFUND_EXCEEDS_PAID_AMOUNT' });
+      if (paidSdg <= 0) {
+        throw Object.assign(
+          new Error('No paid funds are available to refund.'),
+          { status: 409, code: 'NO_PAID_FUNDS' }
+        );
+      }
+
+      if (amountSdg > refundableSdg + 0.001) {
+        throw Object.assign(
+          new Error('Refund exceeds the paid amount still available.'),
+          { status: 409, code: 'REFUND_EXCEEDS_PAID_AMOUNT' }
+        );
+      }
+
+      if (financial.invoiceType === 'LABORATORY') {
+        if (!financial.labOrderId || !financial.labOrder) {
+          throw Object.assign(
+            new Error('Laboratory invoice is not linked to a laboratory order.'),
+            { status: 409, code: 'LAB_ORDER_NOT_FOUND' }
+          );
+        }
+
+        if (financial.labOrder.status === 'SAMPLE_COLLECTED') {
+          throw Object.assign(
+            new Error(
+              'Laboratory payment cannot be refunded after sample collection has started.'
+            ),
+            { status: 409, code: 'LAB_SERVICE_ALREADY_STARTED' }
+          );
+        }
+
+        if (financial.labOrder.status === 'COMPLETED') {
+          throw Object.assign(
+            new Error(
+              'Laboratory payment cannot be refunded after laboratory work has been completed.'
+            ),
+            { status: 409, code: 'LAB_SERVICE_ALREADY_COMPLETED' }
+          );
+        }
+
+        // The current ledger intentionally prevents additional payments after
+        // any refund. A partial laboratory refund would therefore strand the
+        // order in an unpayable state. Require reversal of all currently
+        // collected funds instead.
+        if (Math.abs(amountSdg - refundableSdg) > 0.001) {
+          throw Object.assign(
+            new Error(
+              'Laboratory refunds must reverse the full refundable amount before sample collection.'
+            ),
+            { status: 409, code: 'LAB_PARTIAL_REFUND_NOT_SUPPORTED' }
+          );
+        }
+
+        // Atomically relock laboratory work. This also races safely against
+        // sample collection: whichever transition wins prevents the other.
+        const relocked = await tx.labOrder.updateMany({
+          where: {
+            id: financial.labOrderId,
+            status: {
+              in: ['PENDING_BILLING', 'PAID']
+            }
+          },
+          data: {
+            status: 'PENDING_BILLING'
+          }
+        });
+
+        if (relocked.count !== 1) {
+          const currentLabOrder = await tx.labOrder.findUnique({
+            where: { id: financial.labOrderId },
+            select: { status: true }
+          });
+
+          if (currentLabOrder?.status === 'SAMPLE_COLLECTED') {
+            throw Object.assign(
+              new Error(
+                'Laboratory payment cannot be refunded after sample collection has started.'
+              ),
+              { status: 409, code: 'LAB_SERVICE_ALREADY_STARTED' }
+            );
+          }
+
+          if (currentLabOrder?.status === 'COMPLETED') {
+            throw Object.assign(
+              new Error(
+                'Laboratory payment cannot be refunded after laboratory work has been completed.'
+              ),
+              { status: 409, code: 'LAB_SERVICE_ALREADY_COMPLETED' }
+            );
+          }
+
+          throw Object.assign(
+            new Error('Laboratory order is not in a refundable state.'),
+            { status: 409, code: 'LAB_REFUND_INVALID_STATE' }
+          );
+        }
+      }
 
       const claimed = await tx.invoice.updateMany({
         where: { id: invoice.id, ledgerVersion: financial.ledgerVersion },

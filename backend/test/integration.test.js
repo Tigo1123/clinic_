@@ -178,14 +178,344 @@ test('lab queue is lab-only', async () => {
   assert.equal((await api.get('/api/records/lab-orders/pending').set(auth('pharmacy'))).status, 403);
 });
 
-test('lab results persist and complete the order', async () => {
-  const record = await prisma.medicalRecord.findUnique({ where: { appointmentId: relatedAppointment.id } });
-  const order = await prisma.labOrder.create({ data: { medicalRecordId: record.id, patientId: patient1.id, doctorId: doctor1.id, status: 'PAID', items: { create: { serviceId: service.id } } }, include: { items: true } });
-  const response = await api.put(`/api/records/lab-orders/items/${order.items[0].id}/results`).set(auth('lab')).send({ resultValue: '13.5', referenceRangeMin: 12, referenceRangeMax: 16, isOutOfRange: false });
-  assert.equal(response.status, 200);
-  assert.equal((await prisma.labOrder.findUnique({ where: { id: order.id } })).status, 'COMPLETED');
+test('laboratory payment gate requires full payment and sample collection before results', async () => {
+  const record = await prisma.medicalRecord.findUnique({
+    where: { appointmentId: relatedAppointment.id }
+  });
+
+  const order = await prisma.labOrder.create({
+    data: {
+      medicalRecordId: record.id,
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      status: 'PENDING_BILLING',
+      items: {
+        create: {
+          serviceId: service.id
+        }
+      }
+    },
+    include: {
+      items: true
+    }
+  });
+
+  const itemId = order.items[0].id;
+
+  const unpaidResult = await api
+    .put(`/api/records/lab-orders/items/${itemId}/results`)
+    .set(auth('lab'))
+    .send({ resultValue: '13.5' });
+
+  assert.equal(unpaidResult.status, 403);
+  assert.equal(
+    unpaidResult.body?.error?.code || unpaidResult.body?.code,
+    'LAB_PAYMENT_REQUIRED'
+  );
+
+  const invoiceResponse = await api
+    .post('/api/billing/invoice')
+    .set(auth('reception'))
+    .send({
+      patientId: patient1.id,
+      labOrderId: order.id,
+      invoiceType: 'LABORATORY',
+      items: [{
+        descriptionAr: 'malicious browser item',
+        descriptionEn: 'malicious browser item',
+        qty: 99,
+        unitPriceSdg: 1
+      }]
+    });
+
+  assert.equal(invoiceResponse.status, 201);
+
+  const invoice = invoiceResponse.body.invoice;
+  const serverPrice = Number(service.baseFeeSdg);
+
+  assert.equal(invoice.labOrderId, order.id);
+  assert.equal(Number(invoice.totalAmountSdg), serverPrice);
+
+  const duplicateInvoiceResponse = await api
+    .post('/api/billing/invoice')
+    .set(auth('reception'))
+    .send({
+      patientId: patient1.id,
+      labOrderId: order.id,
+      invoiceType: 'LABORATORY'
+    });
+
+  assert.equal(duplicateInvoiceResponse.status, 200);
+  assert.equal(duplicateInvoiceResponse.body.invoice.id, invoice.id);
+
+  const partialAmount = serverPrice / 2;
+
+  const partialPayment = await api
+    .post(`/api/billing/invoice/${invoice.id}/payments`)
+    .set(auth('reception'))
+    .set('Idempotency-Key', `lab-partial-${order.id}`)
+    .send({
+      payments: [{
+        amountSdg: partialAmount,
+        paymentMethod: 'CASH'
+      }]
+    });
+
+  assert.equal(partialPayment.status, 200);
+  assert.equal(partialPayment.body.paymentStatus, 'PARTIALLY_PAID');
+
+  let storedOrder = await prisma.labOrder.findUnique({
+    where: { id: order.id }
+  });
+
+  assert.equal(storedOrder.status, 'PENDING_BILLING');
+
+  const partialResultAttempt = await api
+    .put(`/api/records/lab-orders/items/${itemId}/results`)
+    .set(auth('lab'))
+    .send({ resultValue: '13.5' });
+
+  assert.equal(partialResultAttempt.status, 403);
+
+  const finalPayment = await api
+    .post(`/api/billing/invoice/${invoice.id}/payments`)
+    .set(auth('reception'))
+    .set('Idempotency-Key', `lab-final-${order.id}`)
+    .send({
+      payments: [{
+        amountSdg: Number(partialPayment.body.remainingBalanceSdg),
+        paymentMethod: 'CASH'
+      }]
+    });
+
+  assert.equal(finalPayment.status, 200);
+  assert.equal(finalPayment.body.paymentStatus, 'PAID');
+
+  storedOrder = await prisma.labOrder.findUnique({
+    where: { id: order.id }
+  });
+
+  assert.equal(storedOrder.status, 'PAID');
+
+  const beforeCollection = await api
+    .put(`/api/records/lab-orders/items/${itemId}/results`)
+    .set(auth('lab'))
+    .send({ resultValue: '13.5' });
+
+  assert.equal(beforeCollection.status, 409);
+  assert.equal(
+    beforeCollection.body?.error?.code || beforeCollection.body?.code,
+    'LAB_SAMPLE_NOT_COLLECTED'
+  );
+
+  const collectResponse = await api
+    .put(`/api/records/lab-orders/${order.id}/collect-sample`)
+    .set(auth('lab'));
+
+  assert.equal(collectResponse.status, 200);
+  assert.equal(collectResponse.body.status, 'SAMPLE_COLLECTED');
+
+  const resultResponse = await api
+    .put(`/api/records/lab-orders/items/${itemId}/results`)
+    .set(auth('lab'))
+    .send({
+      resultValue: '13.5',
+      referenceRangeMin: 12,
+      referenceRangeMax: 16,
+      isOutOfRange: false
+    });
+
+  assert.equal(resultResponse.status, 200);
+
+  storedOrder = await prisma.labOrder.findUnique({
+    where: { id: order.id }
+  });
+
+  assert.equal(storedOrder.status, 'COMPLETED');
 });
 
+
+test('laboratory refund relocks unpaid work and is blocked after sample collection', async () => {
+  const record = await prisma.medicalRecord.findUnique({
+    where: {
+      appointmentId: relatedAppointment.id
+    }
+  });
+
+  const order = await prisma.labOrder.create({
+    data: {
+      medicalRecordId: record.id,
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      status: 'PENDING_BILLING',
+      items: {
+        create: {
+          serviceId: service.id
+        }
+      }
+    },
+    include: {
+      items: true
+    }
+  });
+
+  const servicePrice = Number(service.baseFeeSdg);
+
+  // Create and fully pay the first laboratory invoice.
+  const firstInvoiceResponse = await api
+    .post('/api/billing/invoice')
+    .set(auth('reception'))
+    .send({
+      patientId: patient1.id,
+      labOrderId: order.id,
+      invoiceType: 'LABORATORY'
+    });
+
+  assert.equal(firstInvoiceResponse.status, 201);
+
+  const firstInvoice = firstInvoiceResponse.body.invoice;
+
+  const firstPayment = await api
+    .post(`/api/billing/invoice/${firstInvoice.id}/payments`)
+    .set(auth('reception'))
+    .set('Idempotency-Key', `lab-refund-pay-${order.id}`)
+    .send({
+      payments: [{
+        amountSdg: servicePrice,
+        paymentMethod: 'CASH'
+      }]
+    });
+
+  assert.equal(firstPayment.status, 200);
+  assert.equal(firstPayment.body.paymentStatus, 'PAID');
+
+  let storedOrder = await prisma.labOrder.findUnique({
+    where: {
+      id: order.id
+    }
+  });
+
+  assert.equal(storedOrder.status, 'PAID');
+
+  // Partial laboratory refunds are deliberately not supported because
+  // invoices cannot accept more payments after any refund.
+  const partialRefund = await api
+    .post(`/api/billing/invoice/${firstInvoice.id}/refund`)
+    .set(auth('reception'))
+    .send({
+      amountSdg: servicePrice / 2,
+      refundMethod: 'CASH',
+      reason: 'Attempt partial laboratory refund'
+    });
+
+  assert.equal(partialRefund.status, 409);
+  assert.equal(
+    partialRefund.body?.error?.code || partialRefund.body?.code,
+    'LAB_PARTIAL_REFUND_NOT_SUPPORTED'
+  );
+
+  storedOrder = await prisma.labOrder.findUnique({
+    where: {
+      id: order.id
+    }
+  });
+
+  assert.equal(storedOrder.status, 'PAID');
+
+  // Full refund before sample collection relocks the laboratory order.
+  const fullRefund = await api
+    .post(`/api/billing/invoice/${firstInvoice.id}/refund`)
+    .set(auth('reception'))
+    .send({
+      amountSdg: servicePrice,
+      refundMethod: 'CASH',
+      reason: 'Patient requested refund before laboratory work started'
+    });
+
+  assert.equal(fullRefund.status, 201);
+  assert.equal(fullRefund.body.invoice.paymentStatus, 'REFUNDED');
+
+  storedOrder = await prisma.labOrder.findUnique({
+    where: {
+      id: order.id
+    }
+  });
+
+  assert.equal(storedOrder.status, 'PENDING_BILLING');
+
+  // A refunded laboratory invoice is historical; a fresh invoice can be
+  // generated for the same order if the patient later decides to proceed.
+  const secondInvoiceResponse = await api
+    .post('/api/billing/invoice')
+    .set(auth('reception'))
+    .send({
+      patientId: patient1.id,
+      labOrderId: order.id,
+      invoiceType: 'LABORATORY'
+    });
+
+  assert.equal(secondInvoiceResponse.status, 201);
+
+  const secondInvoice = secondInvoiceResponse.body.invoice;
+
+  assert.notEqual(secondInvoice.id, firstInvoice.id);
+  assert.equal(secondInvoice.labOrderId, order.id);
+  assert.equal(Number(secondInvoice.totalAmountSdg), servicePrice);
+
+  const secondPayment = await api
+    .post(`/api/billing/invoice/${secondInvoice.id}/payments`)
+    .set(auth('reception'))
+    .set('Idempotency-Key', `lab-repay-${order.id}`)
+    .send({
+      payments: [{
+        amountSdg: servicePrice,
+        paymentMethod: 'CASH'
+      }]
+    });
+
+  assert.equal(secondPayment.status, 200);
+  assert.equal(secondPayment.body.paymentStatus, 'PAID');
+
+  storedOrder = await prisma.labOrder.findUnique({
+    where: {
+      id: order.id
+    }
+  });
+
+  assert.equal(storedOrder.status, 'PAID');
+
+  // Laboratory work starts.
+  const collectResponse = await api
+    .put(`/api/records/lab-orders/${order.id}/collect-sample`)
+    .set(auth('lab'));
+
+  assert.equal(collectResponse.status, 200);
+  assert.equal(collectResponse.body.status, 'SAMPLE_COLLECTED');
+
+  // Once the sample has been collected, financial reversal is locked.
+  const lateRefund = await api
+    .post(`/api/billing/invoice/${secondInvoice.id}/refund`)
+    .set(auth('reception'))
+    .send({
+      amountSdg: servicePrice,
+      refundMethod: 'CASH',
+      reason: 'Attempt refund after sample collection'
+    });
+
+  assert.equal(lateRefund.status, 409);
+  assert.equal(
+    lateRefund.body?.error?.code || lateRefund.body?.code,
+    'LAB_SERVICE_ALREADY_STARTED'
+  );
+
+  storedOrder = await prisma.labOrder.findUnique({
+    where: {
+      id: order.id
+    }
+  });
+
+  assert.equal(storedOrder.status, 'SAMPLE_COLLECTED');
+});
 
 test('completed lab results return the patient to the doctor before final visit completion', async () => {
   fixtureCounter += 1;
@@ -229,6 +559,13 @@ test('completed lab results return the patient to the doctor before final visit 
       items: true
     }
   });
+
+  const collectResponse = await api
+    .put(`/api/records/lab-orders/${order.id}/collect-sample`)
+    .set(auth('lab'));
+
+  assert.equal(collectResponse.status, 200);
+  assert.equal(collectResponse.body.status, 'SAMPLE_COLLECTED');
 
   const resultResponse = await api
     .put(`/api/records/lab-orders/items/${order.items[0].id}/results`)
