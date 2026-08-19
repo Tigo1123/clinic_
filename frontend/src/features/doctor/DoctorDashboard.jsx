@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { Activity, Lock, MessageCircle, Printer, Sliders, Stethoscope, User } from 'lucide-react';
 import { PatientProfileModal, PostVisitSummaryModal } from '../clinical/ClinicalModals';
 import { getWhatsAppLink } from '../reception/clinicData';
@@ -51,6 +51,11 @@ export default function DoctorDashboard({ user, lang, t }) {
   // Messages
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Prevent duplicate consultation/finalize submissions.
+  // The ref blocks even two clicks fired before React can re-render.
+  const consultationSaveLock = useRef(false);
+  const [isSavingConsultation, setIsSavingConsultation] = useState(false);
 
   // Diagnosis, Dosage and Vitals presets
   const commonDiagnoses = [
@@ -394,6 +399,10 @@ export default function DoctorDashboard({ user, lang, t }) {
   };
 
   const handleSaveConsultation = async () => {
+    if (consultationSaveLock.current) {
+      return;
+    }
+
     setErrorMsg('');
     setSuccessMsg('');
 
@@ -411,6 +420,9 @@ export default function DoctorDashboard({ user, lang, t }) {
       setErrorMsg(t('requiredField'));
       return;
     }
+
+    consultationSaveLock.current = true;
+    setIsSavingConsultation(true);
 
     try {
 
@@ -525,6 +537,9 @@ export default function DoctorDashboard({ user, lang, t }) {
           ? 'فشل حفظ الكشف الطبي.'
           : 'EMR saving failed.'
       );
+    } finally {
+      consultationSaveLock.current = false;
+      setIsSavingConsultation(false);
     }
   };
 
@@ -1288,6 +1303,7 @@ export default function DoctorDashboard({ user, lang, t }) {
                       className="btn btn-primary"
                       style={{ width: '100%', padding: '12px', fontSize: '1rem', fontWeight: 'bold' }}
                       onClick={handleSaveConsultation}
+                      disabled={isSavingConsultation}
                     >
                       {isFinalizingVisit
                         ? (lang === 'ar'
