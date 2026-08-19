@@ -518,11 +518,32 @@ router.get('/prescriptions/pending', authenticate, allowRoles(ROLES.PHARMACIST),
               }
             }
           }
+        },
+        invoices: {
+          where: {
+            invoiceType: 'PHARMACY',
+            paymentStatus: {
+              not: 'REFUNDED'
+            }
+          },
+          select: {
+            paymentStatus: true
+          },
+          orderBy: {
+            invoiceDate: 'desc'
+          },
+          take: 1
         }
       },
       orderBy: { prescriptionDate: 'desc' }
     });
-    return res.json(prescriptions);
+
+    return res.json(
+      prescriptions.map(({ invoices, ...prescription }) => ({
+        ...prescription,
+        billingStatus: invoices[0]?.paymentStatus || 'UNBILLED'
+      }))
+    );
   } catch (error) {
     console.error('Fetch pending prescriptions error:', error);
     return res.status(500).json({ error: 'Failed to retrieve pending prescriptions.' });
@@ -548,6 +569,29 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
 
   try {
     await prisma.$transaction(async (tx) => {
+      // Financial hard gate: pharmacy dispensing is allowed only when
+      // the prescription has a fully paid PHARMACY invoice.
+      const paidPharmacyInvoice = await tx.invoice.findFirst({
+        where: {
+          prescriptionId,
+          invoiceType: 'PHARMACY',
+          paymentStatus: 'PAID'
+        },
+        select: {
+          id: true
+        }
+      });
+
+      if (!paidPharmacyInvoice) {
+        throw Object.assign(
+          new Error('Prescription dispensing requires full pharmacy payment.'),
+          {
+            status: 403,
+            code: 'PHARMACY_PAYMENT_REQUIRED'
+          }
+        );
+      }
+
       let allFilled = true;
 
       for (const item of items) {
@@ -653,6 +697,10 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
     return res.json({ success: true, message: 'Prescription dispensed successfully.' });
 
   } catch (error) {
+    if (error.status && error.code) {
+      return sendError(res, error.status, error.code, error.message);
+    }
+
     console.error('Dispense prescription error:', error);
     const knownValidation = [
       'positive whole number', 'does not belong', 'exceeds the remaining',

@@ -156,6 +156,7 @@ model Prescription {
   prescriptionDate DateTime         @default(now())
   status           String           @default("ACTIVE") // ACTIVE, FILLED, PARTIALLY_FILLED, CANCELLED
   prescribedDrugs  PrescribedDrug[]
+  invoices         Invoice[]
 }
 
 model DrugFormulary {
@@ -165,6 +166,7 @@ model DrugFormulary {
   genericName      String
   strength         String
   dosageForm       String
+  unitPriceSdg     Decimal?
   prescribedDrugs  PrescribedDrug[]
   inventoryBatches InventoryBatch[]
 }
@@ -297,6 +299,8 @@ model Invoice {
   appointment         Appointment?       @relation(fields: [appointmentId], references: [id])
   labOrderId          String?
   labOrder            LabOrder?          @relation(fields: [labOrderId], references: [id], onDelete: SetNull)
+  prescriptionId      String?
+  prescription        Prescription?       @relation(fields: [prescriptionId], references: [id], onDelete: SetNull)
   invoiceDate         DateTime           @default(now())
   totalAmountSdg      Decimal
   totalAmountUsd      Decimal
@@ -315,6 +319,7 @@ model Invoice {
   @@index([invoiceDate])
   @@index([appointmentId, invoiceType, paymentStatus])
   @@index([labOrderId, invoiceType, paymentStatus])
+  @@index([prescriptionId, invoiceType, paymentStatus])
 }
 
 model InvoiceItem {

@@ -1141,16 +1141,414 @@ test('patient login reports whether the medical record is linked', async () => {
   assert.ok(login.body.user.patientId);
 });
 
-async function createPrescriptionFixture() {
+
+test('pharmacy invoice uses server-authoritative formulary price and ignores browser pricing', async () => {
+  const fixture = await createPrescriptionFixture({ paid: false });
+
+  const response = await api
+    .post('/api/billing/invoice')
+    .set(auth('reception'))
+    .send({
+      patientId: patient1.id,
+      prescriptionId: fixture.rx.id,
+      invoiceType: 'PHARMACY',
+      items: [{
+        descriptionAr: 'سعر مزور',
+        descriptionEn: 'Malicious browser price',
+        qty: 1,
+        unitPriceSdg: 1
+      }]
+    });
+
+  assert.equal(response.status, 201);
+  assert.equal(response.body.invoice.prescriptionId, fixture.rx.id);
+  assert.equal(
+    Number(response.body.invoice.totalAmountSdg),
+    Number(fixture.unitPriceSdg) * fixture.item.qtyPrescribed
+  );
+
+  assert.equal(response.body.invoice.items.length, 1);
+  assert.equal(
+    Number(response.body.invoice.items[0].unitPriceSdg),
+    Number(fixture.unitPriceSdg)
+  );
+  assert.equal(
+    response.body.invoice.items[0].qty,
+    fixture.item.qtyPrescribed
+  );
+});
+
+test('duplicate pharmacy invoice requests reuse the same active invoice', async () => {
+  const fixture = await createPrescriptionFixture({ paid: false });
+
+  const payload = {
+    patientId: patient1.id,
+    prescriptionId: fixture.rx.id,
+    invoiceType: 'PHARMACY'
+  };
+
+  const first = await api
+    .post('/api/billing/invoice')
+    .set(auth('reception'))
+    .send(payload);
+
+  assert.equal(first.status, 201);
+
+  const second = await api
+    .post('/api/billing/invoice')
+    .set(auth('reception'))
+    .send(payload);
+
+  assert.equal(second.status, 200);
+  assert.equal(second.body.existing, true);
+  assert.equal(second.body.invoice.id, first.body.invoice.id);
+});
+
+test('pharmacy invoice rejects formulary medication without configured price', async () => {
+  const fixture = await createPrescriptionFixture({
+    paid: false,
+    unitPriceSdg: null
+  });
+
+  const response = await api
+    .post('/api/billing/invoice')
+    .set(auth('reception'))
+    .send({
+      patientId: patient1.id,
+      prescriptionId: fixture.rx.id,
+      invoiceType: 'PHARMACY'
+    });
+
+  assert.equal(response.status, 409);
+  assert.equal(
+    response.body.error.code,
+    'PHARMACY_PRICE_NOT_CONFIGURED'
+  );
+});
+
+test('pharmacy dispensing stays locked until the pharmacy invoice is fully paid', async () => {
+  const fixture = await createPrescriptionFixture({ paid: false });
+
+  const invoiceResponse = await api
+    .post('/api/billing/invoice')
+    .set(auth('reception'))
+    .send({
+      patientId: patient1.id,
+      prescriptionId: fixture.rx.id,
+      invoiceType: 'PHARMACY'
+    });
+
+  assert.equal(invoiceResponse.status, 201);
+
+  const invoice = invoiceResponse.body.invoice;
+  const invoiceTotal = Number(invoice.totalAmountSdg);
+
+  const beforeItem = await prisma.prescribedDrug.findUnique({
+    where: { id: fixture.item.id }
+  });
+
+  const beforeBatch = await prisma.inventoryBatch.findUnique({
+    where: { id: fixture.early.id }
+  });
+
+  const beforePayment = await api
+    .post(`/api/records/prescriptions/${fixture.rx.id}/dispense`)
+    .set(auth('pharmacy'))
+    .send({
+      items: [{
+        prescribedDrugId: fixture.item.id,
+        qtyToDispense: 1
+      }]
+    });
+
+  assert.equal(beforePayment.status, 403);
+  assert.equal(
+    beforePayment.body.error.code,
+    'PHARMACY_PAYMENT_REQUIRED'
+  );
+
+  assert.equal(
+    (await prisma.prescribedDrug.findUnique({
+      where: { id: fixture.item.id }
+    })).qtyDispensed,
+    beforeItem.qtyDispensed
+  );
+
+  assert.equal(
+    (await prisma.inventoryBatch.findUnique({
+      where: { id: fixture.early.id }
+    })).qtyOnHand,
+    beforeBatch.qtyOnHand
+  );
+
+  const partialAmount = invoiceTotal / 2;
+
+  const partialPayment = await api
+    .post(`/api/billing/invoice/${invoice.id}/payments`)
+    .set(paymentAuth('reception'))
+    .send({
+      payments: [{
+        amountSdg: partialAmount,
+        paymentMethod: 'CASH'
+      }]
+    });
+
+  assert.equal(partialPayment.status, 200);
+  assert.equal(partialPayment.body.paymentStatus, 'PARTIALLY_PAID');
+
+  const afterPartial = await api
+    .post(`/api/records/prescriptions/${fixture.rx.id}/dispense`)
+    .set(auth('pharmacy'))
+    .send({
+      items: [{
+        prescribedDrugId: fixture.item.id,
+        qtyToDispense: 1
+      }]
+    });
+
+  assert.equal(afterPartial.status, 403);
+  assert.equal(
+    afterPartial.body.error.code,
+    'PHARMACY_PAYMENT_REQUIRED'
+  );
+
+  const fullPayment = await api
+    .post(`/api/billing/invoice/${invoice.id}/payments`)
+    .set(paymentAuth('reception'))
+    .send({
+      payments: [{
+        amountSdg: invoiceTotal - partialAmount,
+        paymentMethod: 'CASH'
+      }]
+    });
+
+  assert.equal(fullPayment.status, 200);
+  assert.equal(fullPayment.body.paymentStatus, 'PAID');
+
+  const dispense = await api
+    .post(`/api/records/prescriptions/${fixture.rx.id}/dispense`)
+    .set(auth('pharmacy'))
+    .send({
+      items: [{
+        prescribedDrugId: fixture.item.id,
+        qtyToDispense: 1
+      }]
+    });
+
+  assert.equal(dispense.status, 200);
+
+  const afterItem = await prisma.prescribedDrug.findUnique({
+    where: { id: fixture.item.id }
+  });
+
+  const afterBatch = await prisma.inventoryBatch.findUnique({
+    where: { id: fixture.early.id }
+  });
+
+  assert.equal(afterItem.qtyDispensed, beforeItem.qtyDispensed + 1);
+  assert.equal(afterBatch.qtyOnHand, beforeBatch.qtyOnHand - 1);
+});
+
+
+test('reception can view pharmacy billing queue while pharmacist receives read-only payment state', async () => {
+  const fixture = await createPrescriptionFixture({ paid: false });
+
+  const receptionQueue = await api
+    .get('/api/billing/prescriptions/pending')
+    .set(auth('reception'));
+
+  assert.equal(receptionQueue.status, 200);
+
+  const queuedPrescription = receptionQueue.body.find(
+    (candidate) => candidate.id === fixture.rx.id
+  );
+
+  assert.ok(queuedPrescription);
+  assert.equal(queuedPrescription.billingStatus, 'UNBILLED');
+  assert.equal(queuedPrescription.invoice, null);
+  assert.equal(queuedPrescription.pricingRequired, false);
+  assert.equal(queuedPrescription.automaticBillingAvailable, true);
+  assert.equal(
+    Number(queuedPrescription.estimatedTotalSdg),
+    Number(fixture.unitPriceSdg) * fixture.item.qtyPrescribed
+  );
+
+  const forbidden = await api
+    .get('/api/billing/prescriptions/pending')
+    .set(auth('pharmacy'));
+
+  assert.equal(forbidden.status, 403);
+
+  const pharmacyQueueBeforeInvoice = await api
+    .get('/api/records/prescriptions/pending')
+    .set(auth('pharmacy'));
+
+  assert.equal(pharmacyQueueBeforeInvoice.status, 200);
+
+  const pharmacyRxBeforeInvoice =
+    pharmacyQueueBeforeInvoice.body.find(
+      (candidate) => candidate.id === fixture.rx.id
+    );
+
+  assert.ok(pharmacyRxBeforeInvoice);
+  assert.equal(
+    pharmacyRxBeforeInvoice.billingStatus,
+    'UNBILLED'
+  );
+
+  const invoiceResponse = await api
+    .post('/api/billing/invoice')
+    .set(auth('reception'))
+    .send({
+      patientId: patient1.id,
+      prescriptionId: fixture.rx.id,
+      invoiceType: 'PHARMACY'
+    });
+
+  assert.equal(invoiceResponse.status, 201);
+
+  const pharmacyQueueAfterInvoice = await api
+    .get('/api/records/prescriptions/pending')
+    .set(auth('pharmacy'));
+
+  assert.equal(pharmacyQueueAfterInvoice.status, 200);
+
+  const pharmacyRxAfterInvoice =
+    pharmacyQueueAfterInvoice.body.find(
+      (candidate) => candidate.id === fixture.rx.id
+    );
+
+  assert.ok(pharmacyRxAfterInvoice);
+  assert.equal(
+    pharmacyRxAfterInvoice.billingStatus,
+    'UNPAID'
+  );
+});
+
+async function createPrescriptionFixture({ paid = true, unitPriceSdg = 2500 } = {}) {
   fixtureCounter += 1;
-  const fixtureDrug = await prisma.drugFormulary.create({ data: { labelAr: 'دواء اختبار', labelEn: 'Fixture Drug', genericName: `Fixture-${fixtureCounter}-${Date.now()}`, strength: '1mg', dosageForm: 'Tablet' } });
-  const appointment = await prisma.appointment.create({ data: { patientId: patient1.id, doctorId: doctor1.id, appointmentDate: `2031-02-${String(fixtureCounter).padStart(2, '0')}`, appointmentTime: '10:00', status: 'COMPLETED' } });
-  const record = await prisma.medicalRecord.create({ data: { patientId: patient1.id, doctorId: doctor1.id, appointmentId: appointment.id, symptomsEncrypted: '', diagnosisEncrypted: '', treatmentEncrypted: '', vitalSignsJson: '{}', clinicalNotesEncrypted: '' } });
-  const rx = await prisma.prescription.create({ data: { medicalRecordId: record.id, patientId: patient1.id, doctorId: doctor1.id, prescribedDrugs: { create: { drugId: fixtureDrug.id, dosage: '1 daily', duration: '10 days', instructionsAr: '', instructionsEn: '', qtyPrescribed: 10 } } }, include: { prescribedDrugs: true } });
+
+  const fixtureDrug = await prisma.drugFormulary.create({
+    data: {
+      labelAr: 'دواء اختبار',
+      labelEn: 'Fixture Drug',
+      genericName: `Fixture-${fixtureCounter}-${Date.now()}`,
+      strength: '1mg',
+      dosageForm: 'Tablet',
+      unitPriceSdg
+    }
+  });
+
+  const appointment = await prisma.appointment.create({
+    data: {
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      appointmentDate: `2031-02-${String(fixtureCounter).padStart(2, '0')}`,
+      appointmentTime: '10:00',
+      status: 'COMPLETED'
+    }
+  });
+
+  const record = await prisma.medicalRecord.create({
+    data: {
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      appointmentId: appointment.id,
+      symptomsEncrypted: '',
+      diagnosisEncrypted: '',
+      treatmentEncrypted: '',
+      vitalSignsJson: '{}',
+      clinicalNotesEncrypted: ''
+    }
+  });
+
+  const rx = await prisma.prescription.create({
+    data: {
+      medicalRecordId: record.id,
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      prescribedDrugs: {
+        create: {
+          drugId: fixtureDrug.id,
+          dosage: '1 daily',
+          duration: '10 days',
+          instructionsAr: '',
+          instructionsEn: '',
+          qtyPrescribed: 10
+        }
+      }
+    },
+    include: {
+      prescribedDrugs: true
+    }
+  });
+
   const suffix = `${Date.now()}-${Math.random()}`;
-  const early = await prisma.inventoryBatch.create({ data: { drugId: fixtureDrug.id, batchNumber: `EARLY-${suffix}`, expiryDate: '2029-01-01', qtyOnHand: 20 } });
-  const late = await prisma.inventoryBatch.create({ data: { drugId: fixtureDrug.id, batchNumber: `LATE-${suffix}`, expiryDate: '2030-01-01', qtyOnHand: 20 } });
-  return { rx, item: rx.prescribedDrugs[0], early, late };
+
+  const early = await prisma.inventoryBatch.create({
+    data: {
+      drugId: fixtureDrug.id,
+      batchNumber: `EARLY-${suffix}`,
+      expiryDate: '2029-01-01',
+      qtyOnHand: 20
+    }
+  });
+
+  const late = await prisma.inventoryBatch.create({
+    data: {
+      drugId: fixtureDrug.id,
+      batchNumber: `LATE-${suffix}`,
+      expiryDate: '2030-01-01',
+      qtyOnHand: 20
+    }
+  });
+
+  let invoice = null;
+
+  if (paid) {
+    const price = Number(unitPriceSdg);
+
+    if (!Number.isFinite(price) || price <= 0) {
+      throw new Error('Paid pharmacy fixture requires a positive unit price.');
+    }
+
+    const total = price * 10;
+
+    invoice = await prisma.invoice.create({
+      data: {
+        patientId: patient1.id,
+        appointmentId: appointment.id,
+        prescriptionId: rx.id,
+        invoiceType: 'PHARMACY',
+        totalAmountSdg: total,
+        totalAmountUsd: total / 1500,
+        invoiceExchangeRate: 1500,
+        paymentStatus: 'PAID',
+        createdBy: 'integration-test-fixture',
+        items: {
+          create: {
+            descriptionAr: fixtureDrug.labelAr,
+            descriptionEn: fixtureDrug.labelEn,
+            qty: 10,
+            unitPriceSdg: price,
+            unitPriceUsd: price / 1500
+          }
+        }
+      }
+    });
+  }
+
+  return {
+    rx,
+    item: rx.prescribedDrugs[0],
+    drug: fixtureDrug,
+    appointment,
+    record,
+    early,
+    late,
+    invoice,
+    unitPriceSdg
+  };
 }
 
 async function bookingPayload(date, time, phone) {

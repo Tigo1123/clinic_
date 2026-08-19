@@ -21,6 +21,7 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
     patientId,
     appointmentId,
     labOrderId,
+    prescriptionId,
     insuranceCompanyId,
     items,
     invoiceType = 'GENERAL'
@@ -47,7 +48,7 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
   }
 
   if (
-    !['CONSULTATION', 'LABORATORY'].includes(normalizedInvoiceType) &&
+    !['CONSULTATION', 'LABORATORY', 'PHARMACY'].includes(normalizedInvoiceType) &&
     (!Array.isArray(items) || items.length === 0)
   ) {
     return sendError(
@@ -64,6 +65,7 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
     let resolvedItems = items;
     let resolvedAppointmentId = appointmentId || null;
     let resolvedLabOrderId = null;
+    let resolvedPrescriptionId = null;
 
     if (normalizedInvoiceType === 'CONSULTATION') {
       if (!appointmentId) {
@@ -242,6 +244,105 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
         qty: 1,
         unitPriceSdg: Number(item.service.baseFeeSdg)
       }));
+    } else if (normalizedInvoiceType === 'PHARMACY') {
+      if (typeof prescriptionId !== 'string' || !prescriptionId.trim()) {
+        return sendError(
+          res,
+          422,
+          'PHARMACY_PRESCRIPTION_REQUIRED',
+          'Pharmacy billing requires a prescription.'
+        );
+      }
+
+      const requestedPrescriptionId = prescriptionId.trim();
+
+      const prescription = await prisma.prescription.findUnique({
+        where: { id: requestedPrescriptionId },
+        include: {
+          medicalRecord: {
+            select: {
+              appointmentId: true
+            }
+          },
+          prescribedDrugs: {
+            include: {
+              drug: true
+            }
+          }
+        }
+      });
+
+      if (!prescription) {
+        return sendError(
+          res,
+          404,
+          'PHARMACY_PRESCRIPTION_NOT_FOUND',
+          'Prescription not found.'
+        );
+      }
+
+      if (prescription.patientId !== patientId) {
+        return sendError(
+          res,
+          409,
+          'PHARMACY_PRESCRIPTION_PATIENT_MISMATCH',
+          'The invoice patient does not match the prescription patient.'
+        );
+      }
+
+      if (!['ACTIVE', 'PARTIALLY_FILLED'].includes(prescription.status)) {
+        return sendError(
+          res,
+          409,
+          'PHARMACY_BILLING_INVALID_STATE',
+          'This prescription can no longer be billed.'
+        );
+      }
+
+      const billableDrugs = prescription.prescribedDrugs
+        .filter((item) => item.drugId && item.drug)
+        .map((item) => ({
+          item,
+          remainingQty:
+            Number(item.qtyPrescribed) - Number(item.qtyDispensed)
+        }))
+        .filter(({ remainingQty }) => remainingQty > 0);
+
+      if (!billableDrugs.length) {
+        return sendError(
+          res,
+          409,
+          'PHARMACY_NO_BILLABLE_ITEMS',
+          'The prescription does not contain remaining formulary medications that can be billed.'
+        );
+      }
+
+      const unpricedDrug = billableDrugs.find(({ item }) => {
+        const price = Number(item.drug.unitPriceSdg);
+        return !Number.isFinite(price) || price <= 0;
+      });
+
+      if (unpricedDrug) {
+        return sendError(
+          res,
+          409,
+          'PHARMACY_PRICE_NOT_CONFIGURED',
+          'One or more prescribed medications do not have a valid configured pharmacy price.'
+        );
+      }
+
+      resolvedPrescriptionId = prescription.id;
+      resolvedAppointmentId =
+        prescription.medicalRecord?.appointmentId || null;
+
+      // Security: pharmacy prices and quantities are derived from the
+      // prescription and DrugFormulary, never browser-supplied invoice items.
+      resolvedItems = billableDrugs.map(({ item, remainingQty }) => ({
+        descriptionAr: item.drug.labelAr,
+        descriptionEn: item.drug.labelEn,
+        qty: remainingQty,
+        unitPriceSdg: Number(item.drug.unitPriceSdg)
+      }));
     }
 
     let totalSdg = 0;
@@ -344,6 +445,43 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
           }
         }
 
+        // Repeated pharmacy checkout must reuse the newest active invoice
+        // linked to the same prescription.
+        if (normalizedInvoiceType === 'PHARMACY') {
+          const existingInvoice = await tx.invoice.findFirst({
+            where: {
+              prescriptionId: resolvedPrescriptionId,
+              invoiceType: 'PHARMACY',
+              paymentStatus: {
+                not: 'REFUNDED'
+              }
+            },
+            include: {
+              items: true,
+              insuranceClaim: true
+            },
+            orderBy: {
+              invoiceDate: 'desc'
+            }
+          });
+
+          if (existingInvoice) {
+            const claimAmount = existingInvoice.insuranceClaim
+              ? Number(existingInvoice.insuranceClaim.claimAmountSdg)
+              : 0;
+
+            return {
+              invoice: existingInvoice,
+              insuranceClaim: existingInvoice.insuranceClaim || null,
+              patientShareSdg: Math.max(
+                0,
+                Number(existingInvoice.totalAmountSdg) - claimAmount
+              ),
+              existing: true
+            };
+          }
+        }
+
         let insuranceClaim = null;
         let patientShareSdg = totalSdg;
 
@@ -352,6 +490,7 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
             patientId,
             appointmentId: resolvedAppointmentId,
             labOrderId: resolvedLabOrderId,
+            prescriptionId: resolvedPrescriptionId,
             invoiceType: normalizedInvoiceType,
             totalAmountSdg: totalSdg,
             totalAmountUsd: totalUsd,
@@ -987,6 +1126,220 @@ router.get(
         500,
         'LAB_BILLING_QUEUE_FAILED',
         'Failed to retrieve laboratory billing queue.'
+      );
+    }
+  }
+);
+
+/**
+ * GET /api/billing/prescriptions/pending
+ * Reception/admin financial queue for active clinic pharmacy prescriptions.
+ *
+ * Prices are derived from DrugFormulary. Custom/free-text medications are
+ * reported for visibility but are never automatically priced.
+ */
+router.get(
+  '/prescriptions/pending',
+  authenticate,
+  allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST),
+  async (req, res) => {
+    try {
+      const prescriptions = await prisma.prescription.findMany({
+        where: {
+          status: {
+            in: ['ACTIVE', 'PARTIALLY_FILLED']
+          }
+        },
+        include: {
+          patient: {
+            select: {
+              id: true,
+              fullNameAr: true,
+              fullNameEn: true,
+              phone: true
+            }
+          },
+          doctor: {
+            select: {
+              id: true,
+              fullNameAr: true,
+              fullNameEn: true
+            }
+          },
+          medicalRecord: {
+            select: {
+              appointmentId: true
+            }
+          },
+          prescribedDrugs: {
+            include: {
+              drug: {
+                select: {
+                  id: true,
+                  labelAr: true,
+                  labelEn: true,
+                  genericName: true,
+                  strength: true,
+                  dosageForm: true,
+                  unitPriceSdg: true
+                }
+              }
+            }
+          },
+          invoices: {
+            where: {
+              invoiceType: 'PHARMACY',
+              paymentStatus: {
+                not: 'REFUNDED'
+              }
+            },
+            include: {
+              payments: true,
+              refunds: true
+            },
+            orderBy: {
+              invoiceDate: 'desc'
+            },
+            take: 1
+          }
+        },
+        orderBy: {
+          prescriptionDate: 'desc'
+        }
+      });
+
+      const queue = prescriptions.map((prescription) => {
+        const invoice = prescription.invoices[0] || null;
+
+        const mappedItems = prescription.prescribedDrugs.map((item) => {
+          const remainingQty = Math.max(
+            0,
+            Number(item.qtyPrescribed) - Number(item.qtyDispensed)
+          );
+
+          return {
+            id: item.id,
+            drugId: item.drugId,
+            customDrugName: item.customDrugName,
+            qtyPrescribed: item.qtyPrescribed,
+            qtyDispensed: item.qtyDispensed,
+            remainingQty,
+            drug: item.drug
+              ? {
+                  id: item.drug.id,
+                  labelAr: item.drug.labelAr,
+                  labelEn: item.drug.labelEn,
+                  genericName: item.drug.genericName,
+                  strength: item.drug.strength,
+                  dosageForm: item.drug.dosageForm,
+                  unitPriceSdg:
+                    item.drug.unitPriceSdg == null
+                      ? null
+                      : Number(item.drug.unitPriceSdg)
+                }
+              : null
+          };
+        });
+
+        const billableItems = mappedItems.filter(
+          (item) =>
+            item.drugId &&
+            item.drug &&
+            item.remainingQty > 0
+        );
+
+        const pricingRequired = billableItems.some((item) => {
+          const price = Number(item.drug.unitPriceSdg);
+          return !Number.isFinite(price) || price <= 0;
+        });
+
+        const estimatedTotalSdg = billableItems.reduce(
+          (sum, item) => {
+            const price = Number(item.drug.unitPriceSdg);
+
+            if (!Number.isFinite(price) || price <= 0) {
+              return sum;
+            }
+
+            return sum + (price * item.remainingQty);
+          },
+          0
+        );
+
+        let totalPaidSdg = 0;
+        let refundedSdg = 0;
+        let remainingBalanceSdg = estimatedTotalSdg;
+
+        if (invoice) {
+          totalPaidSdg = invoice.payments.reduce(
+            (sum, payment) => sum + Number(payment.amountSdg),
+            0
+          );
+
+          refundedSdg = invoice.refunds.reduce(
+            (sum, refund) => sum + Number(refund.amountSdg),
+            0
+          );
+
+          const netCollectedSdg = Math.max(
+            0,
+            totalPaidSdg - refundedSdg
+          );
+
+          remainingBalanceSdg = Math.max(
+            0,
+            Number(invoice.totalAmountSdg) - netCollectedSdg
+          );
+        }
+
+        return {
+          id: prescription.id,
+          prescriptionDate: prescription.prescriptionDate,
+          status: prescription.status,
+          appointmentId:
+            prescription.medicalRecord?.appointmentId || null,
+
+          patient: prescription.patient,
+          doctor: prescription.doctor,
+          items: mappedItems,
+
+          customMedicationCount: mappedItems.filter(
+            (item) => !item.drugId
+          ).length,
+
+          automaticBillingAvailable: billableItems.length > 0,
+          pricingRequired,
+          estimatedTotalSdg,
+
+          billingStatus: invoice
+            ? invoice.paymentStatus
+            : 'UNBILLED',
+
+          invoice: invoice
+            ? {
+                id: invoice.id,
+                paymentStatus: invoice.paymentStatus,
+                totalAmountSdg: Number(invoice.totalAmountSdg),
+                totalPaidSdg,
+                refundedSdg,
+                remainingBalanceSdg
+              }
+            : null
+        };
+      });
+
+      return res.json(queue);
+    } catch (error) {
+      console.error(
+        'Fetch pharmacy billing queue error:',
+        error
+      );
+
+      return sendError(
+        res,
+        500,
+        'PHARMACY_BILLING_QUEUE_FAILED',
+        'Failed to retrieve pharmacy billing queue.'
       );
     }
   }

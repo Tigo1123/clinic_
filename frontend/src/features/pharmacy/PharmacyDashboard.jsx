@@ -16,7 +16,19 @@ export default function PharmacyDashboard({ lang, t }) {
   const fetchPendingRx = () => {
     fetchWithAuth('/api/records/prescriptions/pending')
       .then((res) => res.ok ? res.json() : [])
-      .then((data) => setPrescriptions(Array.isArray(data) ? data : []))
+      .then((data) => {
+        const queue = Array.isArray(data) ? data : [];
+        setPrescriptions(queue);
+
+        setSelectedRx((current) => {
+          if (!current) return null;
+
+          return (
+            queue.find((rx) => rx.id === current.id) ||
+            null
+          );
+        });
+      })
       .catch((err) => {
         console.error(err);
         setPrescriptions([]);
@@ -121,14 +133,26 @@ export default function PharmacyDashboard({ lang, t }) {
     setErrorMsg('');
     setSuccessMsg('');
 
+    if (rx.billingStatus !== 'PAID') {
+      setErrorMsg(
+        lang === 'ar'
+          ? 'لا يمكن صرف هذه الوصفة قبل دفع فاتورة الصيدلية بالكامل.'
+          : 'This prescription cannot be dispensed until the pharmacy invoice is fully paid.'
+      );
+      return;
+    }
+
     const items = rx.prescribedDrugs
-      .filter((item) => item.drug)
-      .map((item) => {
-        return {
-          prescribedDrugId: item.id,
-          qtyToDispense: item.qtyPrescribed - item.qtyDispensed
-        };
-      });
+      .filter(
+        (item) =>
+          item.drug &&
+          Number(item.qtyPrescribed) - Number(item.qtyDispensed) > 0
+      )
+      .map((item) => ({
+        prescribedDrugId: item.id,
+        qtyToDispense:
+          Number(item.qtyPrescribed) - Number(item.qtyDispensed)
+      }));
 
     if (items.length === 0) {
       setErrorMsg(
@@ -172,6 +196,18 @@ export default function PharmacyDashboard({ lang, t }) {
       ? 'الوصفات الطبية بانتظار الصرف'
       : 'Prescriptions Awaiting Dispensing'}
               </span>
+
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '0.75rem'
+                }}
+                onClick={fetchPendingRx}
+              >
+                {lang === 'ar' ? 'تحديث' : 'Refresh'}
+              </button>
             </div>
             {prescriptions.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
@@ -185,13 +221,110 @@ export default function PharmacyDashboard({ lang, t }) {
                   className={`queue-card-item glass-panel ${selectedRx?.id === rx.id ? 'selected' : ''}`}
                   onClick={() => setSelectedRx(rx)}
                 >
-                  <strong>{lang === 'ar' ? rx.patient.fullNameAr : rx.patient.fullNameEn}</strong>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-                    <span>
-      {new Date(rx.prescriptionDate).toLocaleDateString(
-        lang === 'ar' ? 'ar' : 'en'
-      )}
-    </span>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-start',
+                      gap: '0.75rem'
+                    }}
+                  >
+                    <strong>
+                      {lang === 'ar'
+                        ? rx.patient.fullNameAr
+                        : rx.patient.fullNameEn}
+                    </strong>
+
+                    <span
+                      className={`badge ${
+                        rx.billingStatus === 'PAID'
+                          ? 'badge-success'
+                          : 'badge-warning'
+                      }`}
+                      style={{
+                        fontSize: '0.68rem',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {rx.billingStatus === 'PAID'
+                        ? (lang === 'ar' ? 'مدفوع' : 'PAID')
+                        : rx.billingStatus === 'PARTIALLY_PAID'
+                          ? (lang === 'ar' ? 'مدفوع جزئياً' : 'PARTIAL')
+                          : rx.billingStatus === 'UNPAID'
+                            ? (lang === 'ar' ? 'غير مدفوع' : 'UNPAID')
+                            : (lang === 'ar' ? 'غير مفوتر' : 'UNBILLED')}
+                    </span>
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: '0.55rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.3rem'
+                    }}
+                  >
+                    {(rx.prescribedDrugs || []).map((item) => {
+                      const remainingQty = Math.max(
+                        0,
+                        Number(item.qtyPrescribed || 0) -
+                          Number(item.qtyDispensed || 0)
+                      );
+
+                      const drugName = item.drug
+                        ? (
+                            lang === 'ar'
+                              ? item.drug.labelAr
+                              : item.drug.labelEn
+                          )
+                        : item.customDrugName;
+
+                      return (
+                        <div
+                          key={item.id}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            fontSize: '0.8rem'
+                          }}
+                        >
+                          <span>
+                            {drugName ||
+                              (lang === 'ar'
+                                ? 'دواء غير مسمى'
+                                : 'Unnamed medication')}
+                          </span>
+
+                          <span
+                            style={{
+                              fontWeight: 600,
+                              color: 'var(--primary)'
+                            }}
+                          >
+                            {lang === 'ar' ? 'المتبقي:' : 'Remaining:'}{' '}
+                            {remainingQty}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div
+                    style={{
+                      fontSize: '0.74rem',
+                      color: 'var(--text-secondary)',
+                      marginTop: '0.55rem'
+                    }}
+                  >
+                    {new Date(rx.prescriptionDate).toLocaleString(
+                      lang === 'ar' ? 'ar-SD' : 'en-GB',
+                      {
+                        dateStyle: 'medium',
+                        timeStyle: 'short'
+                      }
+                    )}
                   </div>
                 </div>
               ))
@@ -218,6 +351,35 @@ export default function PharmacyDashboard({ lang, t }) {
                 <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
                   {lang === 'ar' ? 'الطبيب المعالج:' : 'Doctor:'} {lang === 'ar' ? selectedRx.doctor.fullNameAr : selectedRx.doctor.fullNameEn}
                 </p>
+
+                <div
+                  className={`badge ${
+                    selectedRx.billingStatus === 'PAID'
+                      ? 'badge-success'
+                      : 'badge-warning'
+                  }`}
+                  style={{
+                    padding: '0.6rem',
+                    marginBottom: '1rem',
+                    display: 'block'
+                  }}
+                >
+                  {selectedRx.billingStatus === 'PAID'
+                    ? (lang === 'ar'
+                        ? '✓ تم الدفع بالكامل — الوصفة جاهزة للصرف'
+                        : '✓ Paid in Full — Ready to Dispense')
+                    : selectedRx.billingStatus === 'PARTIALLY_PAID'
+                      ? (lang === 'ar'
+                          ? '🔒 تم الدفع جزئياً — يجب إكمال الدفع عند الاستقبال'
+                          : '🔒 Partially Paid — Payment must be completed at Reception')
+                      : selectedRx.billingStatus === 'UNPAID'
+                        ? (lang === 'ar'
+                            ? '🔒 الفاتورة غير مدفوعة — راجع الاستقبال'
+                            : '🔒 Invoice Unpaid — Refer to Reception')
+                        : (lang === 'ar'
+                            ? '🔒 لم تصدر فاتورة الصيدلية بعد — راجع الاستقبال'
+                            : '🔒 Pharmacy Invoice Not Issued — Refer to Reception')}
+                </div>
 
                 {selectedRx.prescribedDrugs.map((item) => {
                   const isCustom = !item.drug;
@@ -359,8 +521,22 @@ export default function PharmacyDashboard({ lang, t }) {
                   );
                 })}
 
-                <button className="btn btn-primary" style={{ width: '100%', marginTop: '1.5rem' }} onClick={() => handleDispense(selectedRx)}>
-                  {lang === 'ar' ? 'صرف الأدوية وتحديث المستودع' : 'Confirm Dispensation'}
+                <button
+                  className="btn btn-primary"
+                  style={{
+                    width: '100%',
+                    marginTop: '1.5rem'
+                  }}
+                  onClick={() => handleDispense(selectedRx)}
+                  disabled={selectedRx.billingStatus !== 'PAID'}
+                >
+                  {selectedRx.billingStatus === 'PAID'
+                    ? (lang === 'ar'
+                        ? 'صرف الأدوية وتحديث المستودع'
+                        : 'Confirm Dispensation')
+                    : (lang === 'ar'
+                        ? '🔒 الدفع الكامل مطلوب قبل الصرف'
+                        : '🔒 Full Payment Required Before Dispensing')}
                 </button>
               </div>
             ) : (
