@@ -225,6 +225,7 @@ model LabOrder {
   orderDate           DateTime       @default(now())
   status              String         @default("PENDING_BILLING") // PENDING_BILLING, PAID, SAMPLE_COLLECTED, COMPLETED
   items               LabOrderItem[]
+  invoices            Invoice[]
   releasedToPatientAt DateTime?
 }
 
@@ -294,6 +295,8 @@ model Invoice {
   patient             Patient            @relation(fields: [patientId], references: [id])
   appointmentId       String?
   appointment         Appointment?       @relation(fields: [appointmentId], references: [id])
+  labOrderId          String?
+  labOrder            LabOrder?          @relation(fields: [labOrderId], references: [id], onDelete: SetNull)
   invoiceDate         DateTime           @default(now())
   totalAmountSdg      Decimal
   totalAmountUsd      Decimal
@@ -311,6 +314,7 @@ model Invoice {
 
   @@index([invoiceDate])
   @@index([appointmentId, invoiceType, paymentStatus])
+  @@index([labOrderId, invoiceType, paymentStatus])
 }
 
 model InvoiceItem {
