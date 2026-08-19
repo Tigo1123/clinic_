@@ -299,8 +299,34 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
         );
       }
 
+      // A custom medicine must be reviewed by pharmacy before
+      // reception can generate a pharmacy invoice.
+      const pendingPharmacyReview =
+        prescription.prescribedDrugs.find(
+          (item) =>
+            item.pharmacyReviewStatus === 'PENDING_REVIEW' ||
+            (
+              !item.drugId &&
+              item.pharmacyReviewStatus !== 'EXTERNAL'
+            )
+        );
+
+      if (pendingPharmacyReview) {
+        return sendError(
+          res,
+          409,
+          'PHARMACY_REVIEW_PENDING',
+          'One or more prescribed medications are awaiting pharmacy review.'
+        );
+      }
+
       const billableDrugs = prescription.prescribedDrugs
-        .filter((item) => item.drugId && item.drug)
+        .filter(
+          (item) =>
+            item.drugId &&
+            item.drug &&
+            item.pharmacyReviewStatus !== 'EXTERNAL'
+        )
         .map((item) => ({
           item,
           remainingQty:

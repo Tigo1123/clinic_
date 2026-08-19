@@ -20,6 +20,45 @@ export default function PharmacyDashboard({ lang, t }) {
   const [pricingSuccessMsg, setPricingSuccessMsg] = useState('');
   const [pricingErrorMsg, setPricingErrorMsg] = useState('');
 
+  // Custom medications awaiting pharmacist review
+  const [medicationReviews, setMedicationReviews] = useState([]);
+  const [reviewModeById, setReviewModeById] = useState({});
+  const [reviewForms, setReviewForms] = useState({});
+  const [reviewSavingId, setReviewSavingId] = useState(null);
+  const [reviewSuccessMsg, setReviewSuccessMsg] = useState('');
+  const [reviewErrorMsg, setReviewErrorMsg] = useState('');
+
+  const fetchMedicationReviews = () => {
+    fetchWithAuth('/api/records/medication-reviews/pending')
+      .then(async (res) => {
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({}));
+          throw new Error(
+            apiErrorMessage(
+              payload,
+              'Failed to load medication review requests.'
+            )
+          );
+        }
+
+        return res.json();
+      })
+      .then((data) => {
+        setMedicationReviews(
+          Array.isArray(data) ? data : []
+        );
+      })
+      .catch((error) => {
+        console.error(error);
+        setMedicationReviews([]);
+        setReviewErrorMsg(
+          lang === 'ar'
+            ? 'تعذر تحميل طلبات مراجعة الأدوية.'
+            : 'Unable to load medication review requests.'
+        );
+      });
+  };
+
   const fetchPendingRx = () => {
     fetchWithAuth('/api/records/prescriptions/pending')
       .then((res) => res.ok ? res.json() : [])
@@ -44,6 +83,7 @@ export default function PharmacyDashboard({ lang, t }) {
 
   useEffect(() => {
     fetchPendingRx();
+    fetchMedicationReviews();
 
     fetchWithAuth('/api/records/drugs')
       .then((res) => res.ok ? res.json() : [])
@@ -139,6 +179,297 @@ export default function PharmacyDashboard({ lang, t }) {
         setInventoryAlerts([]);
       });
   }, []);
+
+  const setReviewMode = (item, mode) => {
+    setReviewErrorMsg('');
+    setReviewSuccessMsg('');
+
+    setReviewModeById((current) => ({
+      ...current,
+      [item.id]: mode
+    }));
+
+    setReviewForms((current) => {
+      if (current[item.id]) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [item.id]: {
+          drugId: '',
+          note: '',
+
+          labelEn: item.customDrugName || '',
+          labelAr: '',
+          genericName: '',
+          strength: '',
+          dosageForm: '',
+          unitPriceSdg: '',
+
+          batchNumber: '',
+          expiryDate: '',
+          qtyOnHand: String(
+            Math.max(
+              1,
+              Number(item.qtyPrescribed || 1) -
+                Number(item.qtyDispensed || 0)
+            )
+          ),
+          minReorderLevel: '10'
+        }
+      };
+    });
+  };
+
+  const updateReviewForm = (id, field, value) => {
+    setReviewForms((current) => ({
+      ...current,
+      [id]: {
+        ...(current[id] || {}),
+        [field]: value
+      }
+    }));
+  };
+
+  const getUsableStock = (drug) => {
+    const today = clinicDateString();
+
+    return (Array.isArray(drug.inventoryBatches)
+      ? drug.inventoryBatches
+      : []
+    )
+      .filter(
+        (batch) =>
+          Number(batch.qtyOnHand) > 0 &&
+          batch.expiryDate >= today
+      )
+      .reduce(
+        (total, batch) =>
+          total + Number(batch.qtyOnHand || 0),
+        0
+      );
+  };
+
+  const handleMedicationReview = async (item, decision) => {
+    setReviewErrorMsg('');
+    setReviewSuccessMsg('');
+
+    const form = reviewForms[item.id] || {};
+
+    const body = {
+      decision,
+      note:
+        typeof form.note === 'string'
+          ? form.note.trim()
+          : ''
+    };
+
+    if (decision === 'LINK_EXISTING') {
+      if (!form.drugId) {
+        setReviewErrorMsg(
+          lang === 'ar'
+            ? 'اختر دواءً من قائمة الصيدلية أولاً.'
+            : 'Select an existing formulary medication first.'
+        );
+        return;
+      }
+
+      body.drugId = form.drugId;
+    }
+
+    if (decision === 'CREATE_FORMULARY') {
+      const unitPriceSdg = Number(form.unitPriceSdg);
+      const qtyOnHand = Number(form.qtyOnHand);
+      const minReorderLevel = Number(
+        form.minReorderLevel
+      );
+
+      if (
+        !form.genericName?.trim() ||
+        !form.strength?.trim() ||
+        !form.dosageForm?.trim()
+      ) {
+        setReviewErrorMsg(
+          lang === 'ar'
+            ? 'الاسم العلمي والتركيز والشكل الدوائي مطلوبة.'
+            : 'Generic name, strength, and dosage form are required.'
+        );
+        return;
+      }
+
+      if (
+        !Number.isSafeInteger(unitPriceSdg) ||
+        unitPriceSdg <= 0
+      ) {
+        setReviewErrorMsg(
+          lang === 'ar'
+            ? 'أدخل سعرًا صحيحًا أكبر من صفر.'
+            : 'Enter a valid positive whole-number price.'
+        );
+        return;
+      }
+
+      if (!form.batchNumber?.trim()) {
+        setReviewErrorMsg(
+          lang === 'ar'
+            ? 'رقم التشغيلة مطلوب.'
+            : 'Batch number is required.'
+        );
+        return;
+      }
+
+      if (!form.expiryDate) {
+        setReviewErrorMsg(
+          lang === 'ar'
+            ? 'تاريخ الصلاحية مطلوب.'
+            : 'Expiry date is required.'
+        );
+        return;
+      }
+
+      if (
+        !Number.isSafeInteger(qtyOnHand) ||
+        qtyOnHand <= 0
+      ) {
+        setReviewErrorMsg(
+          lang === 'ar'
+            ? 'كمية المخزون يجب أن تكون أكبر من صفر.'
+            : 'Initial stock must be a positive whole number.'
+        );
+        return;
+      }
+
+      if (
+        !Number.isSafeInteger(minReorderLevel) ||
+        minReorderLevel < 0
+      ) {
+        setReviewErrorMsg(
+          lang === 'ar'
+            ? 'حد إعادة الطلب غير صحيح.'
+            : 'Reorder level must be a non-negative whole number.'
+        );
+        return;
+      }
+
+      body.formulary = {
+        labelEn:
+          form.labelEn?.trim() ||
+          item.customDrugName,
+        labelAr:
+          form.labelAr?.trim() ||
+          form.labelEn?.trim() ||
+          item.customDrugName,
+        genericName: form.genericName.trim(),
+        strength: form.strength.trim(),
+        dosageForm: form.dosageForm.trim(),
+        unitPriceSdg
+      };
+
+      body.inventory = {
+        batchNumber: form.batchNumber.trim(),
+        expiryDate: form.expiryDate,
+        qtyOnHand,
+        minReorderLevel
+      };
+    }
+
+    try {
+      setReviewSavingId(item.id);
+
+      const response = await fetchWithAuth(
+        `/api/records/prescribed-drugs/${item.id}/pharmacy-review`,
+        {
+          method: 'POST',
+          body: JSON.stringify(body)
+        }
+      );
+
+      const payload =
+        await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setReviewErrorMsg(
+          apiErrorMessage(
+            payload,
+            'Failed to review medication.'
+          )
+        );
+        return;
+      }
+
+      setMedicationReviews((current) =>
+        current.filter(
+          (request) => request.id !== item.id
+        )
+      );
+
+      setReviewModeById((current) => {
+        const next = { ...current };
+        delete next[item.id];
+        return next;
+      });
+
+      setReviewForms((current) => {
+        const next = { ...current };
+        delete next[item.id];
+        return next;
+      });
+
+      // CREATE_FORMULARY returns the newly created drug and batch.
+      // Add it immediately to the pharmacist catalog without refresh.
+      if (
+        decision === 'CREATE_FORMULARY' &&
+        payload.drug
+      ) {
+        const createdDrug = {
+          ...payload.drug,
+          inventoryBatches:
+            payload.inventoryBatch
+              ? [payload.inventoryBatch]
+              : []
+        };
+
+        setDrugCatalog((current) => {
+          if (
+            current.some(
+              (drug) => drug.id === createdDrug.id
+            )
+          ) {
+            return current;
+          }
+
+          return [...current, createdDrug];
+        });
+      }
+
+      fetchPendingRx();
+
+      setReviewSuccessMsg(
+        decision === 'EXTERNAL'
+          ? (
+              lang === 'ar'
+                ? `تم تحديد ${item.customDrugName} كدواء خارجي.`
+                : `${item.customDrugName} was marked as an external medication.`
+            )
+          : (
+              lang === 'ar'
+                ? `تم اعتماد ${item.customDrugName} بنجاح.`
+                : `${item.customDrugName} was approved successfully.`
+            )
+      );
+    } catch (error) {
+      console.error(error);
+
+      setReviewErrorMsg(
+        lang === 'ar'
+          ? 'تعذر إكمال مراجعة الدواء.'
+          : 'Unable to complete medication review.'
+      );
+    } finally {
+      setReviewSavingId(null);
+    }
+  };
 
   const handlePriceUpdate = async (drug) => {
     setPricingErrorMsg('');
@@ -276,6 +607,828 @@ export default function PharmacyDashboard({ lang, t }) {
     <div className="dashboard-wrapper">
       <div className="workspace-panel" style={{ padding: '1rem' }}>
         <RoleHero role="pharmacy" lang={lang}/>
+
+        <div
+          className="glass-panel"
+          style={{
+            padding: '1rem',
+            marginBottom: '1rem'
+          }}
+        >
+          <div
+            className="panel-header"
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: '1rem',
+              alignItems: 'center'
+            }}
+          >
+            <span className="panel-title">
+              <AlertTriangle
+                size={18}
+                color="var(--warning)"
+              />
+              {lang === 'ar'
+                ? 'طلبات الأدوية الجديدة'
+                : 'New Medication Requests'}
+            </span>
+
+            <span
+              className={
+                medicationReviews.length
+                  ? 'badge badge-warning'
+                  : 'badge badge-success'
+              }
+            >
+              {medicationReviews.length}
+            </span>
+          </div>
+
+          <p
+            style={{
+              color: 'var(--text-secondary)',
+              fontSize: '0.82rem',
+              marginBottom: '1rem'
+            }}
+          >
+            {lang === 'ar'
+              ? 'الأدوية التي كتبها الطبيب ولم يتم اعتمادها بعد من الصيدلية. يجب ربط الدواء بالمخزون أو إضافته وتسعيره أو تحديده كدواء خارجي.'
+              : 'Custom medicines entered by doctors must be reviewed before reception billing. Link them to existing stock, create and stock them, or mark them for external purchase.'}
+          </p>
+
+          {reviewErrorMsg && (
+            <div
+              className="badge badge-danger"
+              style={{
+                display: 'block',
+                padding: '0.65rem',
+                marginBottom: '0.75rem'
+              }}
+            >
+              {reviewErrorMsg}
+            </div>
+          )}
+
+          {reviewSuccessMsg && (
+            <div
+              className="badge badge-success"
+              style={{
+                display: 'block',
+                padding: '0.65rem',
+                marginBottom: '0.75rem'
+              }}
+            >
+              {reviewSuccessMsg}
+            </div>
+          )}
+
+          {medicationReviews.length === 0 ? (
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '1.5rem',
+                color: 'var(--text-secondary)'
+              }}
+            >
+              <strong>
+                {lang === 'ar'
+                  ? 'لا توجد طلبات أدوية جديدة حالياً.'
+                  : 'No medication requests awaiting review.'}
+              </strong>
+            </div>
+          ) : (
+            <div
+              style={{
+                display: 'grid',
+                gap: '0.85rem'
+              }}
+            >
+              {medicationReviews.map((item) => {
+                const form =
+                  reviewForms[item.id] || {};
+
+                const mode =
+                  reviewModeById[item.id] || '';
+
+                const remainingQty =
+                  Number(item.qtyPrescribed || 0) -
+                  Number(item.qtyDispensed || 0);
+
+                const selectedExistingDrug =
+                  drugCatalog.find(
+                    (drug) =>
+                      drug.id === form.drugId
+                  );
+
+                const selectedStock =
+                  selectedExistingDrug
+                    ? getUsableStock(
+                        selectedExistingDrug
+                      )
+                    : 0;
+
+                const tomorrow = (() => {
+                  const today =
+                    clinicDateString();
+
+                  const date =
+                    new Date(
+                      `${today}T00:00:00Z`
+                    );
+
+                  date.setUTCDate(
+                    date.getUTCDate() + 1
+                  );
+
+                  return date
+                    .toISOString()
+                    .slice(0, 10);
+                })();
+
+                return (
+                  <div
+                    key={item.id}
+                    className="glass-panel"
+                    style={{
+                      padding: '1rem',
+                      borderLeft:
+                        '4px solid var(--warning)'
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent:
+                          'space-between',
+                        gap: '1rem',
+                        flexWrap: 'wrap'
+                      }}
+                    >
+                      <div>
+                        <strong
+                          style={{
+                            fontSize: '1rem'
+                          }}
+                        >
+                          {item.customDrugName}
+                        </strong>
+
+                        <div
+                          style={{
+                            marginTop: '0.35rem',
+                            color:
+                              'var(--text-secondary)',
+                            fontSize: '0.8rem'
+                          }}
+                        >
+                          {lang === 'ar'
+                            ? 'المريض'
+                            : 'Patient'}
+                          :{' '}
+                          <strong>
+                            {lang === 'ar'
+                              ? (
+                                  item.patient
+                                    ?.fullNameAr ||
+                                  item.patient
+                                    ?.fullNameEn
+                                )
+                              : (
+                                  item.patient
+                                    ?.fullNameEn ||
+                                  item.patient
+                                    ?.fullNameAr
+                                )}
+                          </strong>
+                        </div>
+                      </div>
+
+                      <span className="badge badge-warning">
+                        {lang === 'ar'
+                          ? 'بانتظار مراجعة الصيدلية'
+                          : 'AWAITING PHARMACY REVIEW'}
+                      </span>
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns:
+                          'repeat(auto-fit, minmax(150px, 1fr))',
+                        gap: '0.6rem',
+                        marginTop: '0.85rem',
+                        fontSize: '0.8rem'
+                      }}
+                    >
+                      <div>
+                        <span
+                          style={{
+                            color:
+                              'var(--text-secondary)'
+                          }}
+                        >
+                          {lang === 'ar'
+                            ? 'الكمية:'
+                            : 'Quantity:'}
+                        </span>{' '}
+                        <strong>
+                          {remainingQty}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span
+                          style={{
+                            color:
+                              'var(--text-secondary)'
+                          }}
+                        >
+                          {lang === 'ar'
+                            ? 'الجرعة:'
+                            : 'Dosage:'}
+                        </span>{' '}
+                        <strong>
+                          {item.dosage || '—'}
+                        </strong>
+                      </div>
+
+                      <div>
+                        <span
+                          style={{
+                            color:
+                              'var(--text-secondary)'
+                          }}
+                        >
+                          {lang === 'ar'
+                            ? 'المدة:'
+                            : 'Duration:'}
+                        </span>{' '}
+                        <strong>
+                          {item.duration || '—'}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: '0.5rem',
+                        flexWrap: 'wrap',
+                        marginTop: '1rem'
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={() =>
+                          setReviewMode(
+                            item,
+                            'LINK_EXISTING'
+                          )
+                        }
+                      >
+                        {lang === 'ar'
+                          ? 'ربط بدواء موجود'
+                          : 'Link Existing'}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={() =>
+                          setReviewMode(
+                            item,
+                            'CREATE_FORMULARY'
+                          )
+                        }
+                      >
+                        {lang === 'ar'
+                          ? 'إضافة وتسعير ومخزون'
+                          : 'Create & Stock'}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={() =>
+                          setReviewMode(
+                            item,
+                            'EXTERNAL'
+                          )
+                        }
+                      >
+                        {lang === 'ar'
+                          ? 'دواء خارجي'
+                          : 'External'}
+                      </button>
+                    </div>
+
+                    {mode === 'LINK_EXISTING' && (
+                      <div
+                        style={{
+                          marginTop: '1rem',
+                          padding: '0.9rem',
+                          border:
+                            '1px solid var(--border)',
+                          borderRadius: '12px'
+                        }}
+                      >
+                        <strong>
+                          {lang === 'ar'
+                            ? 'ربط الدواء بقائمة الصيدلية'
+                            : 'Link to Existing Formulary'}
+                        </strong>
+
+                        <select
+                          value={
+                            form.drugId || ''
+                          }
+                          onChange={(event) =>
+                            updateReviewForm(
+                              item.id,
+                              'drugId',
+                              event.target.value
+                            )
+                          }
+                          style={{
+                            width: '100%',
+                            marginTop: '0.7rem'
+                          }}
+                        >
+                          <option value="">
+                            {lang === 'ar'
+                              ? 'اختر الدواء'
+                              : 'Select medication'}
+                          </option>
+
+                          {[...drugCatalog]
+                            .sort((a, b) =>
+                              String(
+                                a.labelEn || ''
+                              ).localeCompare(
+                                String(
+                                  b.labelEn || ''
+                                )
+                              )
+                            )
+                            .map((drug) => (
+                              <option
+                                key={drug.id}
+                                value={drug.id}
+                              >
+                                {drug.labelEn}
+                                {' — '}
+                                {drug.strength}
+                                {' — '}
+                                {drug.unitPriceSdg
+                                  ? `${Number(
+                                      drug.unitPriceSdg
+                                    ).toLocaleString()} SDG`
+                                  : 'No price'}
+                              </option>
+                            ))}
+                        </select>
+
+                        {selectedExistingDrug && (
+                          <div
+                            style={{
+                              marginTop: '0.6rem',
+                              fontSize: '0.8rem'
+                            }}
+                          >
+                            <strong>
+                              {lang === 'ar'
+                                ? 'المخزون القابل للصرف:'
+                                : 'Usable stock:'}
+                            </strong>{' '}
+                            {selectedStock}
+                            {' • '}
+
+                            <strong>
+                              {lang === 'ar'
+                                ? 'السعر:'
+                                : 'Price:'}
+                            </strong>{' '}
+                            {selectedExistingDrug
+                              .unitPriceSdg
+                              ? `${Number(
+                                  selectedExistingDrug
+                                    .unitPriceSdg
+                                ).toLocaleString()} SDG`
+                              : (
+                                  lang === 'ar'
+                                    ? 'غير محدد'
+                                    : 'Not set'
+                                )}
+                          </div>
+                        )}
+
+                        <textarea
+                          value={form.note || ''}
+                          onChange={(event) =>
+                            updateReviewForm(
+                              item.id,
+                              'note',
+                              event.target.value
+                            )
+                          }
+                          placeholder={
+                            lang === 'ar'
+                              ? 'ملاحظة اختيارية'
+                              : 'Optional review note'
+                          }
+                          style={{
+                            width: '100%',
+                            marginTop: '0.7rem'
+                          }}
+                        />
+
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          disabled={
+                            reviewSavingId ===
+                            item.id
+                          }
+                          onClick={() =>
+                            handleMedicationReview(
+                              item,
+                              'LINK_EXISTING'
+                            )
+                          }
+                          style={{
+                            marginTop: '0.7rem'
+                          }}
+                        >
+                          {reviewSavingId ===
+                          item.id
+                            ? (
+                                lang === 'ar'
+                                  ? 'جارٍ الاعتماد...'
+                                  : 'Approving...'
+                              )
+                            : (
+                                lang === 'ar'
+                                  ? 'اعتماد وربط'
+                                  : 'Approve & Link'
+                              )}
+                        </button>
+                      </div>
+                    )}
+
+                    {mode === 'CREATE_FORMULARY' && (
+                      <div
+                        style={{
+                          marginTop: '1rem',
+                          padding: '0.9rem',
+                          border:
+                            '1px solid var(--border)',
+                          borderRadius: '12px'
+                        }}
+                      >
+                        <strong>
+                          {lang === 'ar'
+                            ? 'إنشاء دواء جديد وإدخال المخزون'
+                            : 'Create Medication & Initial Stock'}
+                        </strong>
+
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns:
+                              'repeat(auto-fit, minmax(180px, 1fr))',
+                            gap: '0.65rem',
+                            marginTop: '0.8rem'
+                          }}
+                        >
+                          <input
+                            value={
+                              form.labelEn ??
+                              item.customDrugName ??
+                              ''
+                            }
+                            onChange={(event) =>
+                              updateReviewForm(
+                                item.id,
+                                'labelEn',
+                                event.target.value
+                              )
+                            }
+                            placeholder="English name"
+                          />
+
+                          <input
+                            value={
+                              form.labelAr || ''
+                            }
+                            onChange={(event) =>
+                              updateReviewForm(
+                                item.id,
+                                'labelAr',
+                                event.target.value
+                              )
+                            }
+                            placeholder={
+                              lang === 'ar'
+                                ? 'الاسم العربي'
+                                : 'Arabic name'
+                            }
+                          />
+
+                          <input
+                            value={
+                              form.genericName || ''
+                            }
+                            onChange={(event) =>
+                              updateReviewForm(
+                                item.id,
+                                'genericName',
+                                event.target.value
+                              )
+                            }
+                            placeholder={
+                              lang === 'ar'
+                                ? 'الاسم العلمي'
+                                : 'Generic name'
+                            }
+                          />
+
+                          <input
+                            value={
+                              form.strength || ''
+                            }
+                            onChange={(event) =>
+                              updateReviewForm(
+                                item.id,
+                                'strength',
+                                event.target.value
+                              )
+                            }
+                            placeholder={
+                              lang === 'ar'
+                                ? 'التركيز مثل 400mg'
+                                : 'Strength e.g. 400mg'
+                            }
+                          />
+
+                          <input
+                            value={
+                              form.dosageForm || ''
+                            }
+                            onChange={(event) =>
+                              updateReviewForm(
+                                item.id,
+                                'dosageForm',
+                                event.target.value
+                              )
+                            }
+                            placeholder={
+                              lang === 'ar'
+                                ? 'الشكل: Tablet / Syrup'
+                                : 'Dosage form'
+                            }
+                          />
+
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={
+                              form.unitPriceSdg || ''
+                            }
+                            onChange={(event) =>
+                              updateReviewForm(
+                                item.id,
+                                'unitPriceSdg',
+                                event.target.value
+                              )
+                            }
+                            placeholder={
+                              lang === 'ar'
+                                ? 'السعر بالجنيه'
+                                : 'Unit price SDG'
+                            }
+                          />
+
+                          <input
+                            value={
+                              form.batchNumber || ''
+                            }
+                            onChange={(event) =>
+                              updateReviewForm(
+                                item.id,
+                                'batchNumber',
+                                event.target.value
+                              )
+                            }
+                            placeholder={
+                              lang === 'ar'
+                                ? 'رقم التشغيلة'
+                                : 'Batch number'
+                            }
+                          />
+
+                          <input
+                            type="date"
+                            min={tomorrow}
+                            value={
+                              form.expiryDate || ''
+                            }
+                            onChange={(event) =>
+                              updateReviewForm(
+                                item.id,
+                                'expiryDate',
+                                event.target.value
+                              )
+                            }
+                          />
+
+                          <input
+                            type="number"
+                            min={remainingQty}
+                            step="1"
+                            value={
+                              form.qtyOnHand ??
+                              String(remainingQty)
+                            }
+                            onChange={(event) =>
+                              updateReviewForm(
+                                item.id,
+                                'qtyOnHand',
+                                event.target.value
+                              )
+                            }
+                            placeholder={
+                              lang === 'ar'
+                                ? 'كمية المخزون'
+                                : 'Initial quantity'
+                            }
+                          />
+
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={
+                              form.minReorderLevel ??
+                              '10'
+                            }
+                            onChange={(event) =>
+                              updateReviewForm(
+                                item.id,
+                                'minReorderLevel',
+                                event.target.value
+                              )
+                            }
+                            placeholder={
+                              lang === 'ar'
+                                ? 'حد إعادة الطلب'
+                                : 'Reorder level'
+                            }
+                          />
+                        </div>
+
+                        <textarea
+                          value={form.note || ''}
+                          onChange={(event) =>
+                            updateReviewForm(
+                              item.id,
+                              'note',
+                              event.target.value
+                            )
+                          }
+                          placeholder={
+                            lang === 'ar'
+                              ? 'ملاحظة اختيارية'
+                              : 'Optional review note'
+                          }
+                          style={{
+                            width: '100%',
+                            marginTop: '0.7rem'
+                          }}
+                        />
+
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          disabled={
+                            reviewSavingId ===
+                            item.id
+                          }
+                          onClick={() =>
+                            handleMedicationReview(
+                              item,
+                              'CREATE_FORMULARY'
+                            )
+                          }
+                          style={{
+                            marginTop: '0.7rem'
+                          }}
+                        >
+                          {reviewSavingId ===
+                          item.id
+                            ? (
+                                lang === 'ar'
+                                  ? 'جارٍ الإنشاء...'
+                                  : 'Creating...'
+                              )
+                            : (
+                                lang === 'ar'
+                                  ? 'إنشاء وإضافة المخزون واعتماد'
+                                  : 'Create, Stock & Approve'
+                              )}
+                        </button>
+                      </div>
+                    )}
+
+                    {mode === 'EXTERNAL' && (
+                      <div
+                        style={{
+                          marginTop: '1rem',
+                          padding: '0.9rem',
+                          border:
+                            '1px solid var(--border)',
+                          borderRadius: '12px'
+                        }}
+                      >
+                        <strong>
+                          {lang === 'ar'
+                            ? 'تحديد الدواء كدواء خارجي'
+                            : 'Mark as External Medication'}
+                        </strong>
+
+                        <p
+                          style={{
+                            color:
+                              'var(--text-secondary)',
+                            fontSize: '0.8rem',
+                            marginTop: '0.45rem'
+                          }}
+                        >
+                          {lang === 'ar'
+                            ? 'لن يتم إدخال هذا الدواء في فاتورة صيدلية العيادة، وسيشتريه المريض من الخارج.'
+                            : 'This medication will not be included in the clinic pharmacy invoice. The patient will purchase it externally.'}
+                        </p>
+
+                        <textarea
+                          value={form.note || ''}
+                          onChange={(event) =>
+                            updateReviewForm(
+                              item.id,
+                              'note',
+                              event.target.value
+                            )
+                          }
+                          placeholder={
+                            lang === 'ar'
+                              ? 'سبب أو ملاحظة للصيدلية'
+                              : 'Reason or pharmacy note'
+                          }
+                          style={{
+                            width: '100%',
+                            marginTop: '0.6rem'
+                          }}
+                        />
+
+                        <button
+                          type="button"
+                          className="btn"
+                          disabled={
+                            reviewSavingId ===
+                            item.id
+                          }
+                          onClick={() =>
+                            handleMedicationReview(
+                              item,
+                              'EXTERNAL'
+                            )
+                          }
+                          style={{
+                            marginTop: '0.7rem'
+                          }}
+                        >
+                          {reviewSavingId ===
+                          item.id
+                            ? (
+                                lang === 'ar'
+                                  ? 'جارٍ الحفظ...'
+                                  : 'Saving...'
+                              )
+                            : (
+                                lang === 'ar'
+                                  ? 'تأكيد كدواء خارجي'
+                                  : 'Confirm External'
+                              )}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         <div
           className="glass-panel"

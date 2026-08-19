@@ -191,6 +191,17 @@ model PrescribedDrug {
   qtyPrescribed  Int
   qtyDispensed   Int    @default(0)
   ledgerVersion  Int    @default(0)
+
+  // Pharmacy review is required when a doctor enters a free-text medicine.
+  // NOT_REQUIRED: existing formulary medicine
+  // PENDING_REVIEW: custom medicine waiting for pharmacy
+  // APPROVED: pharmacist linked/created an approved formulary medicine
+  // EXTERNAL: medicine will be purchased outside the clinic
+  pharmacyReviewStatus String    @default("NOT_REQUIRED")
+  pharmacyReviewedAt   DateTime?
+  pharmacyReviewNote   String?
+
+  @@index([pharmacyReviewStatus])
 }
 
 model InventoryBatch {
@@ -300,7 +311,7 @@ model Invoice {
   labOrderId          String?
   labOrder            LabOrder?          @relation(fields: [labOrderId], references: [id], onDelete: SetNull)
   prescriptionId      String?
-  prescription        Prescription?       @relation(fields: [prescriptionId], references: [id], onDelete: SetNull)
+  prescription        Prescription?      @relation(fields: [prescriptionId], references: [id], onDelete: SetNull)
   invoiceDate         DateTime           @default(now())
   totalAmountSdg      Decimal
   totalAmountUsd      Decimal

@@ -158,7 +158,10 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
               duration: drug.duration,
               instructionsAr: drug.instructionsAr || '',
               instructionsEn: drug.instructionsEn || '',
-              qtyPrescribed: parseInt(drug.qtyPrescribed)
+              qtyPrescribed: parseInt(drug.qtyPrescribed),
+              pharmacyReviewStatus: drug.drugId
+                ? 'NOT_REQUIRED'
+                : 'PENDING_REVIEW'
             }
           });
         }
@@ -372,7 +375,10 @@ router.put('/:id/finalize', authenticate, checkRoles('DOCTOR'), validate(z.objec
               duration: drug.duration,
               instructionsAr: drug.instructionsAr || '',
               instructionsEn: drug.instructionsEn || '',
-              qtyPrescribed: Number(drug.qtyPrescribed)
+              qtyPrescribed: Number(drug.qtyPrescribed),
+              pharmacyReviewStatus: drug.drugId
+                ? 'NOT_REQUIRED'
+                : 'PENDING_REVIEW'
             }
           });
         }
@@ -584,6 +590,756 @@ router.patch(
 
       return res.status(500).json({
         error: 'Failed to update medicine price.'
+      });
+    }
+  }
+);
+
+
+/**
+ * GET /api/records/medication-reviews/pending
+ *
+ * Pharmacist-only queue for free-text medicines entered by doctors
+ * that have not yet been linked to the clinic formulary or marked
+ * as external.
+ */
+router.get(
+  '/medication-reviews/pending',
+  authenticate,
+  allowRoles(ROLES.PHARMACIST),
+  async (req, res) => {
+    try {
+      const items = await prisma.prescribedDrug.findMany({
+        where: {
+          pharmacyReviewStatus: 'PENDING_REVIEW',
+          drugId: null,
+          customDrugName: {
+            not: null
+          },
+          prescription: {
+            status: {
+              in: ['ACTIVE', 'PARTIALLY_FILLED']
+            }
+          }
+        },
+        include: {
+          prescription: {
+            select: {
+              id: true,
+              prescriptionDate: true,
+              status: true,
+              doctorId: true,
+              patient: {
+                select: {
+                  id: true,
+                  fullNameAr: true,
+                  fullNameEn: true
+                }
+              }
+            }
+          }
+        }
+      });
+
+      const queue = items
+        .filter(
+          (item) =>
+            typeof item.customDrugName === 'string' &&
+            item.customDrugName.trim().length > 0
+        )
+        .sort(
+          (a, b) =>
+            new Date(a.prescription.prescriptionDate) -
+            new Date(b.prescription.prescriptionDate)
+        )
+        .map((item) => ({
+          id: item.id,
+          prescriptionId: item.prescriptionId,
+
+          patient: item.prescription.patient,
+
+          doctorId: item.prescription.doctorId,
+
+          prescriptionDate:
+            item.prescription.prescriptionDate,
+
+          prescriptionStatus:
+            item.prescription.status,
+
+          customDrugName:
+            item.customDrugName,
+
+          dosage:
+            item.dosage,
+
+          duration:
+            item.duration,
+
+          instructionsAr:
+            item.instructionsAr,
+
+          instructionsEn:
+            item.instructionsEn,
+
+          qtyPrescribed:
+            Number(item.qtyPrescribed),
+
+          qtyDispensed:
+            Number(item.qtyDispensed),
+
+          pharmacyReviewStatus:
+            item.pharmacyReviewStatus,
+
+          pharmacyReviewNote:
+            item.pharmacyReviewNote
+        }));
+
+      return res.json(queue);
+    } catch (error) {
+      console.error(
+        'Fetch pending medication reviews error:',
+        error
+      );
+
+      return res.status(500).json({
+        error:
+          'Failed to retrieve pending medication reviews.'
+      });
+    }
+  }
+);
+
+
+/**
+ * POST /api/records/prescribed-drugs/:id/pharmacy-review
+ *
+ * Pharmacist decisions:
+ * - LINK_EXISTING
+ * - CREATE_FORMULARY
+ * - EXTERNAL
+ */
+router.post(
+  '/prescribed-drugs/:id/pharmacy-review',
+  authenticate,
+  allowRoles(ROLES.PHARMACIST),
+  async (req, res) => {
+    const prescribedDrugId = req.params.id;
+
+    const decision =
+      typeof req.body?.decision === 'string'
+        ? req.body.decision.trim().toUpperCase()
+        : '';
+
+    const note =
+      typeof req.body?.note === 'string' &&
+      req.body.note.trim()
+        ? req.body.note.trim()
+        : null;
+
+    const allowedDecisions = [
+      'LINK_EXISTING',
+      'CREATE_FORMULARY',
+      'EXTERNAL'
+    ];
+
+    if (!allowedDecisions.includes(decision)) {
+      return res.status(422).json({
+        error:
+          'decision must be LINK_EXISTING, CREATE_FORMULARY, or EXTERNAL.'
+      });
+    }
+
+    const fail = (status, code, message) => {
+      const error = new Error(message);
+      error.httpStatus = status;
+      error.publicCode = code;
+      return error;
+    };
+
+    try {
+      const result = await prisma.$transaction(
+        async (tx) => {
+          const prescribedDrug =
+            await tx.prescribedDrug.findUnique({
+              where: {
+                id: prescribedDrugId
+              },
+              include: {
+                prescription: {
+                  select: {
+                    id: true,
+                    status: true,
+                    patientId: true
+                  }
+                }
+              }
+            });
+
+          if (!prescribedDrug) {
+            throw fail(
+              404,
+              'PRESCRIBED_DRUG_NOT_FOUND',
+              'Prescribed medication was not found.'
+            );
+          }
+
+          if (
+            prescribedDrug.pharmacyReviewStatus !==
+            'PENDING_REVIEW'
+          ) {
+            throw fail(
+              409,
+              'MEDICATION_ALREADY_REVIEWED',
+              'This medication is no longer awaiting pharmacy review.'
+            );
+          }
+
+          if (
+            !['ACTIVE', 'PARTIALLY_FILLED'].includes(
+              prescribedDrug.prescription.status
+            )
+          ) {
+            throw fail(
+              409,
+              'PRESCRIPTION_NOT_ACTIVE',
+              'This prescription is no longer active.'
+            );
+          }
+
+          if (
+            prescribedDrug.drugId ||
+            !prescribedDrug.customDrugName?.trim()
+          ) {
+            throw fail(
+              409,
+              'INVALID_MEDICATION_REVIEW_STATE',
+              'Only unresolved custom medications can be reviewed.'
+            );
+          }
+
+          let linkedDrug = null;
+          let createdBatch = null;
+
+          // --------------------------------------------------
+          // EXTERNAL
+          // --------------------------------------------------
+          if (decision === 'EXTERNAL') {
+            const claim =
+              await tx.prescribedDrug.updateMany({
+                where: {
+                  id: prescribedDrug.id,
+                  pharmacyReviewStatus: 'PENDING_REVIEW',
+                  drugId: null
+                },
+                data: {
+                  pharmacyReviewStatus: 'EXTERNAL',
+                  pharmacyReviewedAt: new Date(),
+                  pharmacyReviewNote: note
+                }
+              });
+
+            if (claim.count !== 1) {
+              throw fail(
+                409,
+                'MEDICATION_REVIEW_CONFLICT',
+                'This medication was already reviewed by another pharmacist.'
+              );
+            }
+
+            const updated =
+              await tx.prescribedDrug.findUnique({
+                where: {
+                  id: prescribedDrug.id
+                }
+              });
+
+            await tx.tenantAuditLog.create({
+              data: {
+                userId: req.user.id,
+                action:
+                  `PHARMACY_CUSTOM_MEDICATION_EXTERNAL:${prescribedDrug.id}`,
+                details: JSON.stringify({
+                  prescribedDrugId:
+                    prescribedDrug.id,
+                  prescriptionId:
+                    prescribedDrug.prescriptionId,
+                  customDrugName:
+                    prescribedDrug.customDrugName,
+                  decision: 'EXTERNAL',
+                  note
+                }),
+                ipAddress:
+                  req.ip || '127.0.0.1'
+              }
+            });
+
+            return {
+              decision,
+              prescribedDrug: updated,
+              drug: null,
+              inventoryBatch: null
+            };
+          }
+
+          // --------------------------------------------------
+          // LINK EXISTING
+          // --------------------------------------------------
+          if (decision === 'LINK_EXISTING') {
+            const targetDrugId =
+              typeof req.body?.drugId === 'string'
+                ? req.body.drugId.trim()
+                : '';
+
+            if (!targetDrugId) {
+              throw fail(
+                422,
+                'DRUG_ID_REQUIRED',
+                'drugId is required when linking an existing formulary medication.'
+              );
+            }
+
+            linkedDrug =
+              await tx.drugFormulary.findUnique({
+                where: {
+                  id: targetDrugId
+                },
+                include: {
+                  inventoryBatches: true
+                }
+              });
+
+            if (!linkedDrug) {
+              throw fail(
+                404,
+                'FORMULARY_DRUG_NOT_FOUND',
+                'The selected formulary medication was not found.'
+              );
+            }
+
+            const price =
+              Number(linkedDrug.unitPriceSdg);
+
+            if (
+              !Number.isFinite(price) ||
+              price <= 0
+            ) {
+              throw fail(
+                409,
+                'PHARMACY_PRICE_NOT_CONFIGURED',
+                'The selected medication must have a valid pharmacy price before approval.'
+              );
+            }
+
+            const remainingQty =
+              Number(prescribedDrug.qtyPrescribed) -
+              Number(prescribedDrug.qtyDispensed);
+
+            const today =
+              new Date().toISOString().slice(0, 10);
+
+            const usableStock =
+              linkedDrug.inventoryBatches
+                .filter(
+                  (batch) =>
+                    Number(batch.qtyOnHand) > 0 &&
+                    batch.expiryDate >= today
+                )
+                .reduce(
+                  (total, batch) =>
+                    total + Number(batch.qtyOnHand),
+                  0
+                );
+
+            if (
+              remainingQty > 0 &&
+              usableStock < remainingQty
+            ) {
+              throw fail(
+                409,
+                'PHARMACY_INSUFFICIENT_STOCK_FOR_APPROVAL',
+                `Only ${usableStock} usable units are currently available; ${remainingQty} are required.`
+              );
+            }
+
+            const claim =
+              await tx.prescribedDrug.updateMany({
+                where: {
+                  id: prescribedDrug.id,
+                  pharmacyReviewStatus: 'PENDING_REVIEW',
+                  drugId: null
+                },
+                data: {
+                  drugId: linkedDrug.id,
+                  pharmacyReviewStatus: 'APPROVED',
+                  pharmacyReviewedAt: new Date(),
+                  pharmacyReviewNote: note
+                }
+              });
+
+            if (claim.count !== 1) {
+              throw fail(
+                409,
+                'MEDICATION_REVIEW_CONFLICT',
+                'This medication was already reviewed by another pharmacist.'
+              );
+            }
+
+            const updated =
+              await tx.prescribedDrug.findUnique({
+                where: {
+                  id: prescribedDrug.id
+                }
+              });
+
+            await tx.tenantAuditLog.create({
+              data: {
+                userId: req.user.id,
+                action:
+                  `PHARMACY_CUSTOM_MEDICATION_LINKED:${prescribedDrug.id}`,
+                details: JSON.stringify({
+                  prescribedDrugId:
+                    prescribedDrug.id,
+                  prescriptionId:
+                    prescribedDrug.prescriptionId,
+                  customDrugName:
+                    prescribedDrug.customDrugName,
+                  linkedDrugId:
+                    linkedDrug.id,
+                  linkedDrugName:
+                    linkedDrug.labelEn,
+                  unitPriceSdg: price,
+                  decision: 'LINK_EXISTING',
+                  note
+                }),
+                ipAddress:
+                  req.ip || '127.0.0.1'
+              }
+            });
+
+            return {
+              decision,
+              prescribedDrug: updated,
+              drug: linkedDrug,
+              inventoryBatch: null
+            };
+          }
+
+          // --------------------------------------------------
+          // CREATE FORMULARY + INITIAL STOCK
+          // --------------------------------------------------
+
+          const form =
+            req.body?.formulary || {};
+
+          const inventory =
+            req.body?.inventory || {};
+
+          const labelEn =
+            typeof form.labelEn === 'string' &&
+            form.labelEn.trim()
+              ? form.labelEn.trim()
+              : prescribedDrug.customDrugName.trim();
+
+          const labelAr =
+            typeof form.labelAr === 'string' &&
+            form.labelAr.trim()
+              ? form.labelAr.trim()
+              : labelEn;
+
+          const genericName =
+            typeof form.genericName === 'string'
+              ? form.genericName.trim()
+              : '';
+
+          const strength =
+            typeof form.strength === 'string'
+              ? form.strength.trim()
+              : '';
+
+          const dosageForm =
+            typeof form.dosageForm === 'string'
+              ? form.dosageForm.trim()
+              : '';
+
+          const unitPriceSdg =
+            Number(form.unitPriceSdg);
+
+          const batchNumber =
+            typeof inventory.batchNumber === 'string'
+              ? inventory.batchNumber.trim()
+              : '';
+
+          const expiryDate =
+            typeof inventory.expiryDate === 'string'
+              ? inventory.expiryDate.trim()
+              : '';
+
+          const qtyOnHand =
+            Number(inventory.qtyOnHand);
+
+          const minReorderLevel =
+            inventory.minReorderLevel == null ||
+            inventory.minReorderLevel === ''
+              ? 10
+              : Number(inventory.minReorderLevel);
+
+          if (
+            !genericName ||
+            !strength ||
+            !dosageForm
+          ) {
+            throw fail(
+              422,
+              'FORMULARY_DETAILS_REQUIRED',
+              'genericName, strength, and dosageForm are required.'
+            );
+          }
+
+          if (
+            !Number.isSafeInteger(unitPriceSdg) ||
+            unitPriceSdg <= 0
+          ) {
+            throw fail(
+              422,
+              'INVALID_MEDICATION_PRICE',
+              'unitPriceSdg must be a positive whole number.'
+            );
+          }
+
+          if (!batchNumber) {
+            throw fail(
+              422,
+              'BATCH_NUMBER_REQUIRED',
+              'An initial inventory batch number is required.'
+            );
+          }
+
+          if (
+            !/^\d{4}-\d{2}-\d{2}$/.test(
+              expiryDate
+            )
+          ) {
+            throw fail(
+              422,
+              'INVALID_EXPIRY_DATE',
+              'expiryDate must use YYYY-MM-DD format.'
+            );
+          }
+
+          const today =
+            new Date().toISOString().slice(0, 10);
+
+          if (expiryDate <= today) {
+            throw fail(
+              422,
+              'INVALID_EXPIRY_DATE',
+              'The initial stock batch must expire after today.'
+            );
+          }
+
+          if (
+            !Number.isSafeInteger(qtyOnHand) ||
+            qtyOnHand <= 0
+          ) {
+            throw fail(
+              422,
+              'INVALID_STOCK_QUANTITY',
+              'qtyOnHand must be a positive whole number.'
+            );
+          }
+
+          if (
+            !Number.isSafeInteger(minReorderLevel) ||
+            minReorderLevel < 0
+          ) {
+            throw fail(
+              422,
+              'INVALID_REORDER_LEVEL',
+              'minReorderLevel must be a non-negative whole number.'
+            );
+          }
+
+          const remainingQty =
+            Number(prescribedDrug.qtyPrescribed) -
+            Number(prescribedDrug.qtyDispensed);
+
+          if (qtyOnHand < remainingQty) {
+            throw fail(
+              409,
+              'INITIAL_STOCK_BELOW_PRESCRIPTION_REQUIREMENT',
+              `Initial stock must contain at least ${remainingQty} units for this prescription.`
+            );
+          }
+
+          const duplicateDrug =
+            await tx.drugFormulary.findFirst({
+              where: {
+                OR: [
+                  {
+                    labelEn: {
+                      equals: labelEn,
+                      mode: 'insensitive'
+                    }
+                  },
+                  {
+                    genericName: {
+                      equals: genericName,
+                      mode: 'insensitive'
+                    },
+                    strength: {
+                      equals: strength,
+                      mode: 'insensitive'
+                    },
+                    dosageForm: {
+                      equals: dosageForm,
+                      mode: 'insensitive'
+                    }
+                  }
+                ]
+              },
+              select: {
+                id: true,
+                labelEn: true,
+                genericName: true,
+                strength: true,
+                dosageForm: true
+              }
+            });
+
+          if (duplicateDrug) {
+            throw fail(
+              409,
+              'FORMULARY_DRUG_ALREADY_EXISTS',
+              'A matching medication already exists in the formulary. Link the existing medication instead.'
+            );
+          }
+
+          linkedDrug =
+            await tx.drugFormulary.create({
+              data: {
+                labelAr,
+                labelEn,
+                genericName,
+                strength,
+                dosageForm,
+                unitPriceSdg
+              }
+            });
+
+          createdBatch =
+            await tx.inventoryBatch.create({
+              data: {
+                drugId: linkedDrug.id,
+                batchNumber,
+                expiryDate,
+                qtyOnHand,
+                minReorderLevel
+              }
+            });
+
+          const claim =
+            await tx.prescribedDrug.updateMany({
+              where: {
+                id: prescribedDrug.id,
+                pharmacyReviewStatus: 'PENDING_REVIEW',
+                drugId: null
+              },
+              data: {
+                drugId: linkedDrug.id,
+                pharmacyReviewStatus: 'APPROVED',
+                pharmacyReviewedAt: new Date(),
+                pharmacyReviewNote: note
+              }
+            });
+
+          if (claim.count !== 1) {
+            throw fail(
+              409,
+              'MEDICATION_REVIEW_CONFLICT',
+              'This medication was already reviewed by another pharmacist.'
+            );
+          }
+
+          const updated =
+            await tx.prescribedDrug.findUnique({
+              where: {
+                id: prescribedDrug.id
+              }
+            });
+
+          await tx.tenantAuditLog.create({
+            data: {
+              userId: req.user.id,
+              action:
+                `PHARMACY_CUSTOM_MEDICATION_CREATED:${prescribedDrug.id}`,
+              details: JSON.stringify({
+                prescribedDrugId:
+                  prescribedDrug.id,
+                prescriptionId:
+                  prescribedDrug.prescriptionId,
+                customDrugName:
+                  prescribedDrug.customDrugName,
+                createdDrugId:
+                  linkedDrug.id,
+                createdDrugName:
+                  linkedDrug.labelEn,
+                unitPriceSdg,
+                inventoryBatchId:
+                  createdBatch.id,
+                batchNumber,
+                expiryDate,
+                qtyOnHand,
+                minReorderLevel,
+                decision:
+                  'CREATE_FORMULARY',
+                note
+              }),
+              ipAddress:
+                req.ip || '127.0.0.1'
+            }
+          });
+
+          return {
+            decision,
+            prescribedDrug: updated,
+            drug: linkedDrug,
+            inventoryBatch: createdBatch
+          };
+        }
+      );
+
+      return res.json({
+        success: true,
+        message:
+          result.decision === 'EXTERNAL'
+            ? 'Medication marked for external purchase.'
+            : 'Medication approved by pharmacy.',
+        ...result
+      });
+    } catch (error) {
+      if (error?.httpStatus) {
+        return res
+          .status(error.httpStatus)
+          .json({
+            error: {
+              code: error.publicCode,
+              message: error.message
+            }
+          });
+      }
+
+      console.error(
+        'Pharmacy medication review error:',
+        error
+      );
+
+      return res.status(500).json({
+        error: {
+          code:
+            'PHARMACY_MEDICATION_REVIEW_FAILED',
+          message:
+            'Failed to complete pharmacy medication review.'
+        }
       });
     }
   }

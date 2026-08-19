@@ -336,6 +336,408 @@ test('medication pricing rejects invalid prices without changing the drug', asyn
   assert.equal(afterPrice, beforePrice);
 });
 
+
+test('pharmacy medication review queue is pharmacist-only and lists pending custom medicines', async () => {
+  const fixture =
+    await createCustomMedicationReviewFixture({
+      customDrugName: `Pending Queue Medicine ${Date.now()}`
+    });
+
+  const pharmacyResponse = await api
+    .get('/api/records/medication-reviews/pending')
+    .set(auth('pharmacy'));
+
+  assert.equal(pharmacyResponse.status, 200);
+  assert.ok(Array.isArray(pharmacyResponse.body));
+
+  const queuedItem = pharmacyResponse.body.find(
+    (item) => item.id === fixture.prescribedDrug.id
+  );
+
+  assert.ok(
+    queuedItem,
+    'Pending custom medication must appear in pharmacy review queue'
+  );
+
+  assert.equal(
+    queuedItem.pharmacyReviewStatus,
+    'PENDING_REVIEW'
+  );
+
+  for (const role of [
+    'admin',
+    'reception',
+    'doctor',
+    'lab'
+  ]) {
+    const forbidden = await api
+      .get('/api/records/medication-reviews/pending')
+      .set(auth(role));
+
+    assert.equal(
+      forbidden.status,
+      403,
+      `${role} must not access pharmacy medication review queue`
+    );
+  }
+});
+
+test('reception cannot bill a prescription while medication review is pending', async () => {
+  const fixture =
+    await createCustomMedicationReviewFixture();
+
+  const response =
+    await requestPharmacyInvoiceForFixture(fixture);
+
+  assert.equal(response.status, 409);
+  assert.equal(
+    response.body.error?.code,
+    'PHARMACY_REVIEW_PENDING'
+  );
+
+  const invoiceCount = await prisma.invoice.count({
+    where: {
+      prescriptionId: fixture.rx.id
+    }
+  });
+
+  assert.equal(invoiceCount, 0);
+});
+
+test('only pharmacist can make a medication review decision', async () => {
+  const fixture =
+    await createCustomMedicationReviewFixture();
+
+  for (const role of [
+    'admin',
+    'reception',
+    'doctor',
+    'lab'
+  ]) {
+    const response = await api
+      .post(
+        `/api/records/prescribed-drugs/${fixture.prescribedDrug.id}/pharmacy-review`
+      )
+      .set(auth(role))
+      .send({
+        decision: 'EXTERNAL'
+      });
+
+    assert.equal(
+      response.status,
+      403,
+      `${role} must not review custom medications`
+    );
+  }
+
+  const stored = await prisma.prescribedDrug.findUnique({
+    where: {
+      id: fixture.prescribedDrug.id
+    }
+  });
+
+  assert.equal(
+    stored.pharmacyReviewStatus,
+    'PENDING_REVIEW'
+  );
+});
+
+test('pharmacist can link a custom medication to an existing stocked formulary drug', async () => {
+  const fixture =
+    await createCustomMedicationReviewFixture();
+
+  const targetDrug = await prisma.drugFormulary.create({
+    data: {
+      labelAr: 'دواء ربط اختبار',
+      labelEn: `Linked Review Drug ${fixture.unique}`,
+      genericName: `LinkedGeneric-${fixture.unique}`,
+      strength: '500mg',
+      dosageForm: 'Tablet',
+      unitPriceSdg: 4500
+    }
+  });
+
+  await prisma.inventoryBatch.create({
+    data: {
+      drugId: targetDrug.id,
+      batchNumber: `LINK-${fixture.unique}`,
+      expiryDate: '2035-12-31',
+      qtyOnHand: 50,
+      minReorderLevel: 10
+    }
+  });
+
+  const review = await api
+    .post(
+      `/api/records/prescribed-drugs/${fixture.prescribedDrug.id}/pharmacy-review`
+    )
+    .set(auth('pharmacy'))
+    .send({
+      decision: 'LINK_EXISTING',
+      drugId: targetDrug.id,
+      note: 'Matched to existing stocked medicine.'
+    });
+
+  assert.equal(review.status, 200);
+  assert.equal(review.body.success, true);
+  assert.equal(review.body.decision, 'LINK_EXISTING');
+
+  const stored = await prisma.prescribedDrug.findUnique({
+    where: {
+      id: fixture.prescribedDrug.id
+    }
+  });
+
+  assert.equal(stored.drugId, targetDrug.id);
+  assert.equal(
+    stored.pharmacyReviewStatus,
+    'APPROVED'
+  );
+
+  assert.ok(stored.pharmacyReviewedAt);
+
+  const billing =
+    await requestPharmacyInvoiceForFixture(fixture);
+
+  assert.equal(billing.status, 201);
+
+  const invoice = await prisma.invoice.findFirst({
+    where: {
+      prescriptionId: fixture.rx.id,
+      invoiceType: 'PHARMACY'
+    }
+  });
+
+  assert.ok(
+    invoice,
+    'Approved linked medication must become billable'
+  );
+});
+
+test('pharmacist can create a new formulary medicine with price and initial stock', async () => {
+  const fixture =
+    await createCustomMedicationReviewFixture({
+      customDrugName: `Cefixime Review ${Date.now()}`
+    });
+
+  const labelEn =
+    `Cefixime Review ${fixture.unique}`;
+
+  const genericName =
+    `Cefixime-${fixture.unique}`;
+
+  const review = await api
+    .post(
+      `/api/records/prescribed-drugs/${fixture.prescribedDrug.id}/pharmacy-review`
+    )
+    .set(auth('pharmacy'))
+    .send({
+      decision: 'CREATE_FORMULARY',
+      note: 'Approved as a clinic-stocked medication.',
+
+      formulary: {
+        labelAr: 'سيفيكسيم اختبار',
+        labelEn,
+        genericName,
+        strength: '400mg',
+        dosageForm: 'Tablet',
+        unitPriceSdg: 6000
+      },
+
+      inventory: {
+        batchNumber: `CEF-${fixture.unique}`,
+        expiryDate: '2035-12-31',
+        qtyOnHand: 40,
+        minReorderLevel: 10
+      }
+    });
+
+  assert.equal(review.status, 200);
+  assert.equal(review.body.success, true);
+  assert.equal(
+    review.body.decision,
+    'CREATE_FORMULARY'
+  );
+
+  const stored = await prisma.prescribedDrug.findUnique({
+    where: {
+      id: fixture.prescribedDrug.id
+    },
+    include: {
+      drug: {
+        include: {
+          inventoryBatches: true
+        }
+      }
+    }
+  });
+
+  assert.equal(
+    stored.pharmacyReviewStatus,
+    'APPROVED'
+  );
+
+  assert.ok(stored.drugId);
+  assert.ok(stored.pharmacyReviewedAt);
+
+  assert.equal(
+    stored.drug.labelEn,
+    labelEn
+  );
+
+  assert.equal(
+    Number(stored.drug.unitPriceSdg),
+    6000
+  );
+
+  assert.equal(
+    stored.drug.inventoryBatches.length,
+    1
+  );
+
+  assert.equal(
+    stored.drug.inventoryBatches[0].qtyOnHand,
+    40
+  );
+
+  const audit = await prisma.tenantAuditLog.findFirst({
+    where: {
+      action:
+        `PHARMACY_CUSTOM_MEDICATION_CREATED:${fixture.prescribedDrug.id}`
+    }
+  });
+
+  assert.ok(
+    audit,
+    'Creating a formulary medication must be audited'
+  );
+
+  const billing =
+    await requestPharmacyInvoiceForFixture(fixture);
+
+  assert.equal(billing.status, 201);
+
+  const invoiceCount = await prisma.invoice.count({
+    where: {
+      prescriptionId: fixture.rx.id,
+      invoiceType: 'PHARMACY'
+    }
+  });
+
+  assert.equal(invoiceCount, 1);
+});
+
+test('pharmacist can mark a custom medication as external without creating a clinic pharmacy invoice', async () => {
+  const fixture =
+    await createCustomMedicationReviewFixture();
+
+  const review = await api
+    .post(
+      `/api/records/prescribed-drugs/${fixture.prescribedDrug.id}/pharmacy-review`
+    )
+    .set(auth('pharmacy'))
+    .send({
+      decision: 'EXTERNAL',
+      note: 'Patient should purchase this medication externally.'
+    });
+
+  assert.equal(review.status, 200);
+  assert.equal(review.body.success, true);
+  assert.equal(review.body.decision, 'EXTERNAL');
+
+  const stored = await prisma.prescribedDrug.findUnique({
+    where: {
+      id: fixture.prescribedDrug.id
+    }
+  });
+
+  assert.equal(stored.drugId, null);
+  assert.equal(
+    stored.pharmacyReviewStatus,
+    'EXTERNAL'
+  );
+
+  assert.ok(stored.pharmacyReviewedAt);
+
+  const billing =
+    await requestPharmacyInvoiceForFixture(fixture);
+
+  assert.equal(billing.status, 409);
+
+  assert.equal(
+    billing.body.error?.code,
+    'PHARMACY_NO_BILLABLE_ITEMS'
+  );
+
+  const invoiceCount = await prisma.invoice.count({
+    where: {
+      prescriptionId: fixture.rx.id
+    }
+  });
+
+  assert.equal(invoiceCount, 0);
+});
+
+test('concurrent pharmacy review attempts can approve a pending medication only once', async () => {
+  const fixture =
+    await createCustomMedicationReviewFixture();
+
+  const endpoint =
+    `/api/records/prescribed-drugs/${fixture.prescribedDrug.id}/pharmacy-review`;
+
+  const [first, second] = await Promise.all([
+    api
+      .post(endpoint)
+      .set(auth('pharmacy'))
+      .send({
+        decision: 'EXTERNAL',
+        note: 'Concurrent review A'
+      }),
+
+    api
+      .post(endpoint)
+      .set(auth('pharmacy'))
+      .send({
+        decision: 'EXTERNAL',
+        note: 'Concurrent review B'
+      })
+  ]);
+
+  const statuses = [
+    first.status,
+    second.status
+  ].sort((a, b) => a - b);
+
+  assert.deepEqual(
+    statuses,
+    [200, 409]
+  );
+
+  const stored = await prisma.prescribedDrug.findUnique({
+    where: {
+      id: fixture.prescribedDrug.id
+    }
+  });
+
+  assert.equal(
+    stored.pharmacyReviewStatus,
+    'EXTERNAL'
+  );
+
+  const audits = await prisma.tenantAuditLog.count({
+    where: {
+      action:
+        `PHARMACY_CUSTOM_MEDICATION_EXTERNAL:${fixture.prescribedDrug.id}`
+    }
+  });
+
+  assert.equal(
+    audits,
+    1,
+    'Only one successful pharmacy review may be audited'
+  );
+});
+
 test('lab queue is lab-only', async () => {
   assert.equal((await api.get('/api/records/lab-orders/pending').set(auth('lab'))).status, 200);
   assert.equal((await api.get('/api/records/lab-orders/pending').set(auth('pharmacy'))).status, 403);
@@ -1587,6 +1989,97 @@ test('reception can view pharmacy billing queue while pharmacist receives read-o
     'UNPAID'
   );
 });
+
+
+async function createCustomMedicationReviewFixture({
+  customDrugName
+} = {}) {
+  fixtureCounter += 1;
+
+  const unique = `${fixtureCounter}-${Date.now()}-${Math.random()}`;
+  const day = String((fixtureCounter % 20) + 1).padStart(2, '0');
+  const minute = String(fixtureCounter % 60).padStart(2, '0');
+
+  const appointment = await prisma.appointment.create({
+    data: {
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      appointmentDate: `2032-06-${day}`,
+      appointmentTime: `11:${minute}`,
+      status: 'COMPLETED'
+    }
+  });
+
+  const record = await prisma.medicalRecord.create({
+    data: {
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      appointmentId: appointment.id,
+      symptomsEncrypted: '',
+      diagnosisEncrypted: '',
+      treatmentEncrypted: '',
+      vitalSignsJson: '{}',
+      clinicalNotesEncrypted: ''
+    }
+  });
+
+  const rx = await prisma.prescription.create({
+    data: {
+      medicalRecordId: record.id,
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      status: 'ACTIVE',
+      prescribedDrugs: {
+        create: {
+          drugId: null,
+          customDrugName:
+            customDrugName ||
+            `Custom Medication ${unique}`,
+          dosage: '1 tablet twice daily',
+          duration: '5 days',
+          instructionsAr: '',
+          instructionsEn: '',
+          qtyPrescribed: 4,
+          pharmacyReviewStatus: 'PENDING_REVIEW'
+        }
+      }
+    },
+    include: {
+      prescribedDrugs: true
+    }
+  });
+
+  return {
+    appointment,
+    record,
+    rx,
+    prescribedDrug: rx.prescribedDrugs[0],
+    unique
+  };
+}
+
+async function requestPharmacyInvoiceForFixture(fixture) {
+  return api
+    .post('/api/billing/invoice')
+    .set(auth('reception'))
+    .send({
+      patientId: patient1.id,
+      appointmentId: fixture.appointment.id,
+      prescriptionId: fixture.rx.id,
+      invoiceType: 'PHARMACY',
+
+      // The server must ignore browser pricing for pharmacy
+      // prescriptions and derive the real amount itself.
+      items: [
+        {
+          descriptionAr: 'ignored',
+          descriptionEn: 'ignored',
+          qty: 1,
+          unitPriceSdg: 1
+        }
+      ]
+    });
+}
 
 async function createPrescriptionFixture({ paid = true, unitPriceSdg = 2500 } = {}) {
   fixtureCounter += 1;
