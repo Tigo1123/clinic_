@@ -12,13 +12,13 @@ import { createVerificationChallenge, consumeVerificationChallenge } from '../se
 import { ApiError, sendError } from '../utils/apiError.js';
 import { rateLimits } from '../config.js';
 import { getClinicDateString } from '../utils/clinicTime.js';
+import { passwordSchema } from '../utils/passwordPolicy.js';
 
 const router = express.Router();
 const limiter = (limit) => rateLimit({ windowMs: rateLimits.windowMs, limit, standardHeaders: 'draft-7', legacyHeaders: false, handler: (req, res) => sendError(res, 429, 'RATE_LIMITED', 'Too many attempts. Please try again later.') });
 const registrationLimiter = limiter(rateLimits.registration);
 const verificationLimiter = limiter(rateLimits.verification);
 const claimLimiter = limiter(rateLimits.claim);
-const passwordSchema = z.string().min(10).max(200).regex(/[A-Z]/, 'Password requires an uppercase letter.').regex(/[a-z]/, 'Password requires a lowercase letter.').regex(/\d/, 'Password requires a number.');
 const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
 
 async function audit(userId, action, details, req) {
