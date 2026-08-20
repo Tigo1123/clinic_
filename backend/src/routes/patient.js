@@ -916,4 +916,149 @@ router.get('/medical-records', async (req, res) => {
   return res.json(records.map((record) => ({ id: record.id, visitDate: record.visitDate, doctor: record.doctor, diagnosis: safeDecrypt(record.diagnosisEncrypted), treatment: safeDecrypt(record.treatmentEncrypted), prescriptions: record.prescriptions, releasedLabResults: record.labOrders, attachmentPath: record.attachmentPath ? `/api/upload/${record.attachmentPath.split('/').pop()}` : null })));
 });
 
+
+router.get('/medical-records/:id', async (req, res) => {
+  try {
+    const record = await prisma.medicalRecord.findFirst({
+      where: {
+        id: req.params.id,
+        patientId: req.patient.id
+      },
+      include: {
+        doctor: {
+          select: doctorSelect
+        },
+        prescriptions: {
+          include: {
+            prescribedDrugs: {
+              include: {
+                drug: true
+              }
+            }
+          }
+        },
+        labOrders: {
+          where: {
+            releasedToPatientAt: {
+              not: null
+            }
+          },
+          include: {
+            items: {
+              include: {
+                service: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!record) {
+      return res.status(404).json({
+        error: {
+          code: 'MEDICAL_RECORD_NOT_FOUND',
+          message: 'Medical record not found.'
+        }
+      });
+    }
+
+    let vitalSigns = {};
+
+    try {
+      vitalSigns =
+        typeof record.vitalSignsJson === 'string'
+          ? JSON.parse(record.vitalSignsJson || '{}')
+          : record.vitalSignsJson || {};
+    } catch {
+      vitalSigns = {};
+    }
+
+    return res.json({
+      id: record.id,
+      visitDate: record.visitDate,
+
+      doctor: record.doctor,
+
+      symptoms: safeDecrypt(record.symptomsEncrypted),
+      diagnosis: safeDecrypt(record.diagnosisEncrypted),
+      treatment: safeDecrypt(record.treatmentEncrypted),
+
+      vitalSigns,
+
+      prescriptions: (record.prescriptions || []).map((prescription) => ({
+        id: prescription.id,
+        status: prescription.status,
+
+        medicines: (prescription.prescribedDrugs || []).map((item) => ({
+          id: item.id,
+
+          medicine: item.drug || {
+            labelAr: item.customDrugName || '',
+            labelEn: item.customDrugName || '',
+            genericName: item.customDrugName || '',
+            strength: '',
+            dosageForm: ''
+          },
+
+          customDrugName: item.customDrugName,
+          dosage: item.dosage,
+          duration: item.duration,
+          instructionsAr: item.instructionsAr,
+          instructionsEn: item.instructionsEn,
+          qtyPrescribed: item.qtyPrescribed,
+          qtyDispensed: item.qtyDispensed
+        }))
+      })),
+
+      releasedLabResults: (record.labOrders || []).flatMap((order) =>
+        (order.items || []).map((item) => ({
+          id: item.id,
+
+          testNameAr:
+            item.service?.labelAr ||
+            item.customTestName ||
+            '',
+
+          testNameEn:
+            item.service?.labelEn ||
+            item.customTestName ||
+            '',
+
+          resultValue: item.resultValue || '',
+
+          referenceRangeMin:
+            item.referenceRangeMin == null
+              ? ''
+              : String(item.referenceRangeMin),
+
+          referenceRangeMax:
+            item.referenceRangeMax == null
+              ? ''
+              : String(item.referenceRangeMax),
+
+          isOutOfRange: Boolean(item.isOutOfRange),
+
+          releasedToPatientAt:
+            order.releasedToPatientAt
+        }))
+      ),
+
+      attachmentPath: record.attachmentPath
+        ? `/api/upload/${record.attachmentPath.split('/').pop()}`
+        : null
+    });
+  } catch (error) {
+    console.error('Fetch patient medical record detail error:', error);
+
+    return res.status(500).json({
+      error: {
+        code: 'MEDICAL_RECORD_DETAIL_FAILED',
+        message: 'Failed to retrieve medical record.'
+      }
+    });
+  }
+});
+
+
 export default router;

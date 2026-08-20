@@ -26,18 +26,198 @@ function useApi(path){
 }
 function State({loading,error,children}){if(loading)return <div className="patient-card"><Skeleton/></div>;if(error)return <ErrorState message={error}/>;return children}
 function Empty({children}){return <div className="patient-card patient-empty">{children}</div>}
-const doctorName=(doctor,lang)=>lang==='ar'?doctor?.fullNameAr:doctor?.fullNameEn;
+const doctorName=(doctor,lang)=>
+  lang==='ar'
+    ? (doctor?.fullNameAr || doctor?.fullNameEn)
+    : (doctor?.fullNameEn || doctor?.fullNameAr);
 
-export function Dashboard(){const{t,i18n}=useTranslation();const profile=useApi('/api/patient/me');const appointments=useApi('/api/patient/appointments?group=upcoming');const labs=useApi('/api/patient/lab-results');const prescriptions=useApi('/api/patient/prescriptions');if(profile.error?.includes('not linked'))return <><div className="patient-alert error">{profile.error}</div><Link className="patient-button" to="/patient/claim">{t('claimRecord')}</Link></>;const next=appointments.data?.[0];return <State loading={profile.loading} error={profile.error}><section className="patient-hero patient-hero--care"><div className="patient-hero__copy"><span className="patient-hero__eyebrow"><HeartPulse size={15}/>{t('welcome')}</span><h1>{profile.data?.fullNameEn}</h1><p>{t('patientHeroText')}</p><Link className="patient-button" to="/patient/doctors"><CalendarDays size={18}/>{t('bookAppointment')}</Link></div><HealthcareIllustration variant="patient"/></section><div className="section-heading-row"><h2>{t('healthServices')}</h2></div><div className="service-grid"><Service to="/patient/doctors" icon={<Stethoscope/>} label={t('doctors')}/><Service to="/patient/appointments" icon={<CalendarDays/>} label={t('myAppointments')}/><Service to="/patient/lab-results" icon={<FlaskConical/>} label={t('labResults')}/><Service to="/patient/records" icon={<FileHeart/>} label={t('medicalRecords')}/></div><div className="section-heading-row"><h2>{t('upcomingAppointments')}</h2><Link to="/patient/appointments">{t('all')}</Link></div>{next?<article className="patient-card appointment-card"><div className="appointment-card__date"><span>{new Date(`${next.appointmentDate}T00:00:00`).toLocaleDateString(i18n.language,{month:'short'})}</span><strong>{new Date(`${next.appointmentDate}T00:00:00`).getDate()}</strong></div><div><h2>{doctorName(next.doctor,i18n.language)}</h2><p>{next.doctor?.specialtyEn}</p><p>{next.appointmentTime} · <StatusBadge status={next.status}/></p></div><Link className="patient-button secondary" to={`/patient/appointments/${next.id}`}>{t('details')}</Link></article>:<Empty>{t('noAppointments')}</Empty>}<div className="section-heading-row"><h2>{t('recentPatientInfo')}</h2></div><div className="patient-grid"><Summary icon={<CalendarDays/>} title={t('upcomingAppointments')} value={appointments.data?.length||0}/><Summary icon={<FlaskConical/>} title={t('recentLabResults')} value={labs.data?.length||0}/><Summary icon={<Pill/>} title={t('prescriptions')} value={prescriptions.data?.length||0}/></div></State>}
+const patientGreeting = (profile, language) => {
+  const lang = language?.startsWith('ar') ? 'ar' : 'en';
+  const hour = new Date().getHours();
+
+  const name =
+    lang === 'ar'
+      ? (profile?.fullNameAr || profile?.fullNameEn || '')
+      : (profile?.fullNameEn || profile?.fullNameAr || '');
+
+  if (lang === 'ar') {
+    return hour >= 5 && hour < 12
+      ? `صباح الخير${name ? ` ${name}` : ''}`
+      : `مساء الخير${name ? ` ${name}` : ''}`;
+  }
+
+  return hour >= 5 && hour < 12
+    ? `Good morning${name ? `, ${name}` : ''}`
+    : `Good evening${name ? `, ${name}` : ''}`;
+};
+
+const normalizeDoctorSearch = (value = '') =>
+  String(value)
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u064B-\u065F\u0670]/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ؤ/g, 'و')
+    .replace(/ئ/g, 'ي')
+    .replace(/ى/g, 'ي')
+    .replace(/(^|\s)(دكتور|دكتورة|د\.?|doctor|dr\.?)\s*/gi, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+export function Dashboard(){const{t,i18n}=useTranslation();const profile=useApi('/api/patient/me');const appointments=useApi('/api/patient/appointments?group=upcoming');const labs=useApi('/api/patient/lab-results');const prescriptions=useApi('/api/patient/prescriptions');if(profile.error?.includes('not linked'))return <><div className="patient-alert error">{profile.error}</div><Link className="patient-button" to="/patient/claim">{t('claimRecord')}</Link></>;const next=appointments.data?.[0];return <State loading={profile.loading} error={profile.error}><section className="patient-hero patient-hero--care"><div className="patient-hero__copy"><span className="patient-hero__eyebrow"><HeartPulse size={15}/>{t('welcome')}</span><h1>{patientGreeting(profile.data, i18n.language)}</h1><p>{t('patientHeroText')}</p><Link className="patient-button" to="/patient/doctors"><CalendarDays size={18}/>{t('bookAppointment')}</Link></div><HealthcareIllustration variant="patient"/></section><div className="section-heading-row"><h2>{t('healthServices')}</h2></div><div className="service-grid"><Service to="/patient/doctors" icon={<Stethoscope/>} label={t('doctors')}/><Service to="/patient/appointments" icon={<CalendarDays/>} label={t('myAppointments')}/><Service to="/patient/lab-results" icon={<FlaskConical/>} label={t('labResults')}/><Service to="/patient/records" icon={<FileHeart/>} label={t('medicalRecords')}/></div><div className="section-heading-row"><h2>{t('upcomingAppointments')}</h2><Link to="/patient/appointments">{t('all')}</Link></div>{next?<article className="patient-card appointment-card"><div className="appointment-card__date"><span>{new Date(`${next.appointmentDate}T00:00:00`).toLocaleDateString(i18n.language,{month:'short'})}</span><strong>{new Date(`${next.appointmentDate}T00:00:00`).getDate()}</strong></div><div><h2>{doctorName(next.doctor,i18n.language)}</h2><p>{next.doctor?.specialtyEn}</p><p>{next.appointmentTime} · <StatusBadge status={next.status}/></p></div><Link className="patient-button secondary" to={`/patient/appointments/${next.id}`}>{t('details')}</Link></article>:<Empty>{t('noAppointments')}</Empty>}<div className="section-heading-row"><h2>{t('recentPatientInfo')}</h2></div><div className="patient-grid"><Summary to="/patient/appointments" icon={<CalendarDays/>} title={t('upcomingAppointments')} value={appointments.data?.length||0}/><Summary to="/patient/lab-results" icon={<FlaskConical/>} title={t('recentLabResults')} value={labs.data?.length||0}/><Summary to="/patient/prescriptions" icon={<Pill/>} title={t('prescriptions')} value={prescriptions.data?.length||0}/></div></State>}
 function Service({to,icon,label}){return <Link className="service-card" to={to}><span className="service-card__icon">{icon}</span><strong>{label}</strong></Link>}
-function Summary({icon,title,value}){return <div className="patient-card"><div style={{color:'var(--color-primary)'}}>{icon}</div><h3>{title}</h3><strong>{value}</strong></div>}
+function Summary({to,icon,title,value}){return <Link className="patient-card health-summary-card" to={to}><div style={{color:'var(--color-primary)'}}>{icon}</div><h3>{title}</h3><strong>{value}</strong></Link>}
 
-export function Doctors(){const{t,i18n}=useTranslation();const{data,error,loading}=useApi('/api/patient/doctors');const[query,setQuery]=useState('');const[specialty,setSpecialty]=useState('');const specialties=[...new Set((data||[]).map(d=>i18n.language==='ar'?d.specialtyAr:d.specialtyEn).filter(Boolean))];const filtered=(data||[]).filter(d=>{const name=doctorName(d,i18n.language)||'';const spec=i18n.language==='ar'?d.specialtyAr:d.specialtyEn;return(!query||`${name} ${spec}`.toLowerCase().includes(query.toLowerCase()))&&(!specialty||spec===specialty)});return <State loading={loading} error={error}><header className="doctor-search-header"><div><span>{t('healthServices')}</span><h1>{t('doctors')}</h1></div><label className="doctor-search"><Search size={19}/><span className="sr-only">{t('search')}</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder={t('search')}/></label></header>{specialties.length>0&&<div className="specialty-chips" aria-label={t('selectSpecialty')}><button className={!specialty?'selected':''} onClick={()=>setSpecialty('')}>{t('all')}</button>{specialties.map(s=><button className={specialty===s?'selected':''} onClick={()=>setSpecialty(s)} key={s}>{s}</button>)}</div>}<div className="section-heading-row"><h2>{t('doctors')}</h2><span>{filtered.length}</span></div>{!filtered.length?<Empty>{t('noDoctors')}</Empty>:<div className="doctor-list">{filtered.map(d=><article className="patient-card doctor-card" key={d.id}><div className="doctor-card__avatar"><UserRound/></div><div className="doctor-card__body"><h2>{doctorName(d,i18n.language)}</h2><p>{i18n.language==='ar'?d.specialtyAr:d.specialtyEn}</p><strong>
-      {Number(d.consultationFee).toLocaleString(
-        i18n.language === 'ar' ? 'ar' : 'en'
-      )}{' '}
-      {i18n.language === 'ar' ? 'ج.س' : 'SDG'}
-    </strong><div className="patient-actions"><Link className="patient-button secondary" to={`/patient/doctors/${d.id}`}>{t('details')}</Link><Link className="patient-button" to={`/patient/book/${d.id}`}>{t('book')}</Link></div></div></article>)}</div>}</State>}
+export function Doctors(){
+  const { t, i18n } = useTranslation();
+  const { data, error, loading } = useApi('/api/patient/doctors');
+  const [query, setQuery] = useState('');
+  const [specialty, setSpecialty] = useState('');
+
+  const specialties = [
+    ...new Set(
+      (data || [])
+        .map((doctor) =>
+          i18n.language === 'ar'
+            ? doctor.specialtyAr
+            : doctor.specialtyEn
+        )
+        .filter(Boolean)
+    )
+  ];
+
+  const normalizedQuery = normalizeDoctorSearch(query);
+
+  const filtered = (data || []).filter((doctor) => {
+    const displayedSpecialty =
+      i18n.language === 'ar'
+        ? doctor.specialtyAr
+        : doctor.specialtyEn;
+
+    const searchableText = normalizeDoctorSearch(
+      [
+        doctor.fullNameAr,
+        doctor.fullNameEn,
+        doctor.specialtyAr,
+        doctor.specialtyEn
+      ]
+        .filter(Boolean)
+        .join(' ')
+    );
+
+    const matchesQuery =
+      !normalizedQuery ||
+      searchableText.includes(normalizedQuery);
+
+    const matchesSpecialty =
+      !specialty ||
+      displayedSpecialty === specialty;
+
+    return matchesQuery && matchesSpecialty;
+  });
+
+  return (
+    <State loading={loading} error={error}>
+      <header className="doctor-search-header">
+        <div>
+          <span>{t('healthServices')}</span>
+          <h1>{t('doctors')}</h1>
+        </div>
+
+        <label className="doctor-search">
+          <Search size={19}/>
+          <span className="sr-only">{t('search')}</span>
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t('search')}
+          />
+        </label>
+      </header>
+
+      {specialties.length > 0 && (
+        <div
+          className="specialty-chips"
+          aria-label={t('selectSpecialty')}
+        >
+          <button
+            className={!specialty ? 'selected' : ''}
+            onClick={() => setSpecialty('')}
+          >
+            {t('all')}
+          </button>
+
+          {specialties.map((item) => (
+            <button
+              className={specialty === item ? 'selected' : ''}
+              onClick={() => setSpecialty(item)}
+              key={item}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="section-heading-row">
+        <h2>{t('doctors')}</h2>
+        <span>{filtered.length}</span>
+      </div>
+
+      {!filtered.length ? (
+        <Empty>{t('noDoctors')}</Empty>
+      ) : (
+        <div className="doctor-list">
+          {filtered.map((doctor) => (
+            <article
+              className="patient-card doctor-card"
+              key={doctor.id}
+            >
+              <div className="doctor-card__avatar">
+                <UserRound/>
+              </div>
+
+              <div className="doctor-card__body">
+                <h2>{doctorName(doctor, i18n.language)}</h2>
+
+                <p>
+                  {i18n.language === 'ar'
+                    ? doctor.specialtyAr
+                    : doctor.specialtyEn}
+                </p>
+
+                <strong>
+                  {Number(doctor.consultationFee).toLocaleString(
+                    i18n.language === 'ar' ? 'ar' : 'en'
+                  )}{' '}
+                  {i18n.language === 'ar' ? 'ج.س' : 'SDG'}
+                </strong>
+
+                <div className="patient-actions">
+                  <Link
+                    className="patient-button secondary"
+                    to={`/patient/doctors/${doctor.id}`}
+                  >
+                    {t('details')}
+                  </Link>
+
+                  <Link
+                    className="patient-button"
+                    to={`/patient/book/${doctor.id}`}
+                  >
+                    {t('book')}
+                  </Link>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </State>
+  );
+}
+
 export function DoctorDetails(){const{id}=useParams();const{t,i18n}=useTranslation();const{data,error,loading,reload}=useApi(`/api/patient/doctors/${id}`);if(loading)return <div className="patient-card"><Skeleton/></div>;if(error)return <ErrorState message={error} onRetry={reload}/>;if(!data)return <EmptyState title={t('doctorNotFound')}/>;return <article className="patient-card doctor-profile"><div className="doctor-profile__avatar"><UserRound/></div><div><span className="doctor-profile__label"><Stethoscope size={16}/>{t('doctors')}</span><h1>{doctorName(data,i18n.language)}</h1><p>{i18n.language==='ar'?data.specialtyAr:data.specialtyEn}</p><strong>
       {Number(data.consultationFee).toLocaleString(
         i18n.language === 'ar' ? 'ar' : 'en'
@@ -303,21 +483,453 @@ export function Prescriptions(){
 }
 export function MedicalRecords(){
   const { t, i18n } = useTranslation();
+  const {
+    data,
+    error,
+    loading
+  } = useApi('/api/patient/medical-records');
+
+  const [selectedRecord, setSelectedRecord] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState('');
+
+  const lang =
+    i18n.language?.startsWith('ar')
+      ? 'ar'
+      : 'en';
+
+  const openRecord = async (recordId) => {
+    setDetailLoading(true);
+    setDetailError('');
+    setSelectedRecord({ id: recordId });
+
+    try {
+      const details = await apiRequest(
+        `/api/patient/medical-records/${recordId}`
+      );
+
+      setSelectedRecord(details);
+    } catch (requestError) {
+      setDetailError(
+        requestError?.message ||
+        (
+          lang === 'ar'
+            ? 'تعذر تحميل تفاصيل السجل الطبي.'
+            : 'Unable to load medical record details.'
+        )
+      );
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const closeRecord = () => {
+    setSelectedRecord(null);
+    setDetailError('');
+    setDetailLoading(false);
+  };
 
   return (
-    <Collection
-      path="/api/patient/medical-records"
-      titleKey="medicalRecords"
-      render={item=>(
-        <>
-          <h2>{new Date(item.visitDate).toLocaleDateString(i18n.language)}</h2>
-          <p><strong>{t('diagnosisLabel')}:</strong>{' '}{item.diagnosis}</p>
-          <p><strong>{t('treatmentLabel')}:</strong>{' '}{item.treatment}</p>
-        </>
+    <State loading={loading} error={error}>
+      <h1>{t('medicalRecords')}</h1>
+
+      {!data?.length ? (
+        <Empty>{t('noRecords')}</Empty>
+      ) : (
+        <div className="patient-list">
+          {data.map((item) => (
+            <button
+              type="button"
+              className="patient-card medical-record-card"
+              key={item.id}
+              onClick={() => openRecord(item.id)}
+            >
+              <div className="medical-record-card__header">
+                <div>
+                  <span className="medical-record-card__date">
+                    <CalendarDays size={17}/>
+
+                    {new Date(item.visitDate)
+                      .toLocaleDateString(i18n.language)}
+                  </span>
+
+                  <h2>
+                    {doctorName(
+                      item.doctor,
+                      i18n.language
+                    )}
+                  </h2>
+
+                  <p>
+                    {lang === 'ar'
+                      ? (
+                          item.doctor?.specialtyAr ||
+                          item.doctor?.specialtyEn
+                        )
+                      : (
+                          item.doctor?.specialtyEn ||
+                          item.doctor?.specialtyAr
+                        )}
+                  </p>
+                </div>
+
+                <span className="medical-record-card__open">
+                  {lang === 'ar'
+                    ? 'عرض التفاصيل'
+                    : 'View details'}
+                </span>
+              </div>
+
+              <div className="medical-record-card__summary">
+                <p>
+                  <strong>
+                    {t('diagnosisLabel')}:
+                  </strong>{' '}
+                  {item.diagnosis || '—'}
+                </p>
+
+                <p>
+                  <strong>
+                    {t('treatmentLabel')}:
+                  </strong>{' '}
+                  {item.treatment || '—'}
+                </p>
+              </div>
+            </button>
+          ))}
+        </div>
       )}
-    />
+
+      <Dialog
+        open={Boolean(selectedRecord)}
+        title={
+          lang === 'ar'
+            ? 'تفاصيل السجل الطبي'
+            : 'Medical Record Details'
+        }
+        description={
+          lang === 'ar'
+            ? 'تفاصيل الزيارة والتشخيص والعلاج والوصفات والنتائج المتاحة لك.'
+            : 'Visit details, diagnosis, treatment, prescriptions and released results.'
+        }
+        onClose={closeRecord}
+      >
+        {detailLoading ? (
+          <div style={{ padding: '1rem 0' }}>
+            <Skeleton/>
+          </div>
+        ) : detailError ? (
+          <div className="patient-alert error">
+            {detailError}
+          </div>
+        ) : selectedRecord?.visitDate ? (
+          <div className="medical-record-details">
+
+            <section>
+              <h3>
+                {lang === 'ar'
+                  ? 'معلومات الزيارة'
+                  : 'Visit Information'}
+              </h3>
+
+              <p>
+                <strong>
+                  {lang === 'ar'
+                    ? 'التاريخ:'
+                    : 'Date:'}
+                </strong>{' '}
+
+                {new Date(
+                  selectedRecord.visitDate
+                ).toLocaleString(i18n.language)}
+              </p>
+
+              <p>
+                <strong>
+                  {lang === 'ar'
+                    ? 'الطبيب:'
+                    : 'Doctor:'}
+                </strong>{' '}
+
+                {doctorName(
+                  selectedRecord.doctor,
+                  i18n.language
+                )}
+              </p>
+
+              <p>
+                <strong>
+                  {lang === 'ar'
+                    ? 'التخصص:'
+                    : 'Specialty:'}
+                </strong>{' '}
+
+                {lang === 'ar'
+                  ? (
+                      selectedRecord.doctor
+                        ?.specialtyAr ||
+                      selectedRecord.doctor
+                        ?.specialtyEn
+                    )
+                  : (
+                      selectedRecord.doctor
+                        ?.specialtyEn ||
+                      selectedRecord.doctor
+                        ?.specialtyAr
+                    )}
+              </p>
+            </section>
+
+            <section>
+              <h3>
+                {lang === 'ar'
+                  ? 'التقييم الطبي'
+                  : 'Clinical Assessment'}
+              </h3>
+
+              <p>
+                <strong>
+                  {lang === 'ar'
+                    ? 'الأعراض:'
+                    : 'Symptoms:'}
+                </strong>{' '}
+
+                {selectedRecord.symptoms || '—'}
+              </p>
+
+              <p>
+                <strong>
+                  {t('diagnosisLabel')}:
+                </strong>{' '}
+
+                {selectedRecord.diagnosis || '—'}
+              </p>
+
+              <p>
+                <strong>
+                  {t('treatmentLabel')}:
+                </strong>{' '}
+
+                {selectedRecord.treatment || '—'}
+              </p>
+            </section>
+
+            {selectedRecord.vitalSigns &&
+              Object.keys(
+                selectedRecord.vitalSigns
+              ).length > 0 && (
+              <section>
+                <h3>
+                  {lang === 'ar'
+                    ? 'العلامات الحيوية'
+                    : 'Vital Signs'}
+                </h3>
+
+                <div className="medical-vitals-grid">
+                  {Object.entries(
+                    selectedRecord.vitalSigns
+                  ).map(([key, value]) => (
+                    <div key={key}>
+                      <span>
+                        {key.replaceAll('_', ' ')}
+                      </span>
+
+                      <strong>
+                        {value || '—'}
+                      </strong>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            <section>
+              <h3>
+                {lang === 'ar'
+                  ? 'الوصفات الطبية'
+                  : 'Prescriptions'}
+              </h3>
+
+              {!selectedRecord.prescriptions
+                ?.some(
+                  (prescription) =>
+                    prescription.medicines?.length
+                ) ? (
+                <p>
+                  {lang === 'ar'
+                    ? 'لا توجد أدوية في هذه الزيارة.'
+                    : 'No medicines were prescribed during this visit.'}
+                </p>
+              ) : (
+                selectedRecord.prescriptions
+                  .flatMap(
+                    (prescription) =>
+                      prescription.medicines || []
+                  )
+                  .map((medicine) => (
+                    <div
+                      key={medicine.id}
+                      className="medical-detail-item"
+                    >
+                      <strong>
+                        {lang === 'ar'
+                          ? (
+                              medicine.medicine
+                                ?.labelAr ||
+                              medicine.medicine
+                                ?.labelEn ||
+                              medicine.customDrugName
+                            )
+                          : (
+                              medicine.medicine
+                                ?.labelEn ||
+                              medicine.medicine
+                                ?.labelAr ||
+                              medicine.customDrugName
+                            )}
+                      </strong>
+
+                      <p>
+                        {lang === 'ar'
+                          ? 'الجرعة'
+                          : 'Dosage'}
+                        :{' '}
+                        {medicine.dosage || '—'}
+                      </p>
+
+                      <p>
+                        {lang === 'ar'
+                          ? 'المدة'
+                          : 'Duration'}
+                        :{' '}
+                        {medicine.duration || '—'}
+                      </p>
+
+                      {(medicine.instructionsAr ||
+                        medicine.instructionsEn) && (
+                        <p>
+                          {lang === 'ar'
+                            ? 'التعليمات'
+                            : 'Instructions'}
+                          :{' '}
+
+                          {lang === 'ar'
+                            ? (
+                                medicine.instructionsAr ||
+                                medicine.instructionsEn
+                              )
+                            : (
+                                medicine.instructionsEn ||
+                                medicine.instructionsAr
+                              )}
+                        </p>
+                      )}
+                    </div>
+                  ))
+              )}
+            </section>
+
+            <section>
+              <h3>
+                {lang === 'ar'
+                  ? 'نتائج المختبر'
+                  : 'Laboratory Results'}
+              </h3>
+
+              {!selectedRecord
+                .releasedLabResults?.length ? (
+                <p>
+                  {lang === 'ar'
+                    ? 'لا توجد نتائج مختبر مفرج عنها لهذه الزيارة.'
+                    : 'No released laboratory results are available for this visit.'}
+                </p>
+              ) : (
+                selectedRecord.releasedLabResults
+                  .map((result) => (
+                    <div
+                      key={result.id}
+                      className="medical-detail-item"
+                    >
+                      <strong>
+                        {lang === 'ar'
+                          ? (
+                              result.testNameAr ||
+                              result.testNameEn
+                            )
+                          : (
+                              result.testNameEn ||
+                              result.testNameAr
+                            )}
+                      </strong>
+
+                      <p>
+                        {lang === 'ar'
+                          ? 'النتيجة'
+                          : 'Result'}
+                        :{' '}
+                        {result.resultValue || '—'}
+                      </p>
+
+                      {(result.referenceRangeMin ||
+                        result.referenceRangeMax) && (
+                        <p>
+                          {lang === 'ar'
+                            ? 'المدى المرجعي'
+                            : 'Reference range'}
+                          :{' '}
+
+                          {result.referenceRangeMin || '—'}
+                          {' – '}
+                          {result.referenceRangeMax || '—'}
+                        </p>
+                      )}
+
+                      {result.isOutOfRange && (
+                        <span
+                          className="badge badge-warning"
+                        >
+                          {lang === 'ar'
+                            ? 'خارج المعدل المرجعي'
+                            : 'Outside reference range'}
+                        </span>
+                      )}
+                    </div>
+                  ))
+              )}
+            </section>
+
+            {selectedRecord.attachmentPath && (
+              <section>
+                <a
+                  className="patient-button secondary"
+                  href={selectedRecord.attachmentPath}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {lang === 'ar'
+                    ? 'فتح المرفق'
+                    : 'Open Attachment'}
+                </a>
+              </section>
+            )}
+
+            <button
+              type="button"
+              className="patient-button secondary"
+              onClick={closeRecord}
+              style={{ width: '100%' }}
+            >
+              {lang === 'ar'
+                ? 'إغلاق'
+                : 'Close'}
+            </button>
+          </div>
+        ) : null}
+      </Dialog>
+    </State>
   );
 }
+
 function Collection({path,titleKey,render}){const{t}=useTranslation();const{data,error,loading}=useApi(path);return <State loading={loading} error={error}><h1>{t(titleKey)}</h1>{!data?.length?<Empty>{t('noRecords')}</Empty>:data.map(item=><article className="patient-card" key={item.id}>{render(item)}</article>)}</State>}
 export function Profile() {
   const { t, i18n } = useTranslation();
