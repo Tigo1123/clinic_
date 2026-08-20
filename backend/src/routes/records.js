@@ -185,6 +185,7 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
               labOrderId: labOrder.id,
               serviceId,
               customTestName: null,
+              labReviewStatus: 'NOT_REQUIRED',
               isOutOfRange: false
             }
           });
@@ -196,6 +197,7 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
               labOrderId: labOrder.id,
               serviceId: null,
               customTestName: customTestName.trim(),
+              labReviewStatus: 'PENDING_REVIEW',
               isOutOfRange: false
             }
           });
@@ -1564,6 +1566,150 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
  * GET /api/records/lab-orders/pending
  * Returns test orders.
  */
+router.get('/lab-order-items/pending-review', authenticate, allowRoles(ROLES.LAB_TECH), async (req, res) => {
+  try {
+    const items = await prisma.labOrderItem.findMany({
+      where: { labReviewStatus: 'PENDING_REVIEW', serviceId: null },
+      select: {
+        id: true,
+        customTestName: true,
+        labOrder: {
+          select: {
+            id: true,
+            orderDate: true,
+            status: true,
+            patient: { select: { id: true, fullNameAr: true, fullNameEn: true } },
+            doctor: { select: { id: true, fullNameAr: true, fullNameEn: true } }
+          }
+        }
+      },
+      orderBy: { labOrder: { orderDate: 'asc' } }
+    });
+    return res.json(items);
+  } catch (error) {
+    console.error('Fetch pending lab reviews error:', error);
+    return sendError(res, 500, 'LAB_REVIEW_QUEUE_FAILED', 'Failed to retrieve custom laboratory test requests.');
+  }
+});
+
+router.post('/lab-order-items/:id/review', authenticate, allowRoles(ROLES.LAB_TECH), async (req, res) => {
+  const decision = typeof req.body?.decision === 'string' ? req.body.decision.trim().toUpperCase() : '';
+  const note = typeof req.body?.note === 'string' && req.body.note.trim() ? req.body.note.trim() : null;
+  const allowed = ['LINK_EXISTING', 'CREATE_SERVICE', 'EXTERNAL'];
+  if (!allowed.includes(decision)) {
+    return sendError(res, 422, 'LAB_REVIEW_DECISION_INVALID', 'decision must be LINK_EXISTING, CREATE_SERVICE, or EXTERNAL.');
+  }
+
+  const fail = (status, code, message) => Object.assign(new Error(message), { status, code });
+  const normalizeName = (value) => String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en');
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const item = await tx.labOrderItem.findUnique({
+        where: { id: req.params.id },
+        include: { labOrder: { select: { id: true, status: true, medicalRecord: { select: { appointmentId: true } } } } }
+      });
+      if (!item) throw fail(404, 'LAB_ORDER_ITEM_NOT_FOUND', 'Laboratory order item was not found.');
+      if (item.labReviewStatus !== 'PENDING_REVIEW') throw fail(409, 'LAB_TEST_ALREADY_REVIEWED', 'This laboratory test is no longer awaiting review.');
+      if (item.serviceId || !item.customTestName?.trim()) throw fail(409, 'LAB_REVIEW_STATE_INVALID', 'Only unresolved custom laboratory tests can be reviewed.');
+      if (item.labOrder.status !== 'PENDING_BILLING') throw fail(409, 'LAB_REVIEW_ORDER_STATE_INVALID', 'This laboratory order can no longer be reviewed.');
+
+      let service = null;
+      if (decision === 'LINK_EXISTING') {
+        const serviceId = typeof req.body?.serviceId === 'string' ? req.body.serviceId.trim() : '';
+        if (!serviceId) throw fail(422, 'LAB_SERVICE_ID_REQUIRED', 'serviceId is required when linking an existing service.');
+        service = await tx.clinicalService.findUnique({ where: { id: serviceId } });
+        if (!service || service.category !== 'LABORATORY') throw fail(404, 'LAB_SERVICE_NOT_FOUND', 'The selected laboratory service was not found.');
+        const price = Number(service.baseFeeSdg);
+        if (!Number.isFinite(price) || price <= 0) throw fail(409, 'LAB_SERVICE_PRICE_NOT_CONFIGURED', 'The selected service must have a valid configured price.');
+      }
+
+      if (decision === 'CREATE_SERVICE') {
+        const form = req.body?.service || {};
+        const labelEn = typeof form.labelEn === 'string' ? form.labelEn.trim() : '';
+        const labelAr = typeof form.labelAr === 'string' ? form.labelAr.trim() : '';
+        const baseFeeSdg = Number(form.baseFeeSdg);
+        if (!labelEn || !labelAr || labelEn.length > 150 || labelAr.length > 150) {
+          throw fail(422, 'LAB_SERVICE_LABELS_REQUIRED', 'Arabic and English service labels are required and must not exceed 150 characters.');
+        }
+        if (!Number.isSafeInteger(baseFeeSdg) || baseFeeSdg <= 0) {
+          throw fail(422, 'LAB_SERVICE_PRICE_INVALID', 'baseFeeSdg must be a positive whole number.');
+        }
+
+        const normalizedEn = normalizeName(labelEn);
+        const normalizedAr = normalizeName(labelAr);
+        const duplicateLocks = [...new Set([normalizedEn, normalizedAr])].sort();
+        for (const normalizedLabel of duplicateLocks) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'lab-service:' + normalizedLabel}))`;
+        }
+        const existing = (await tx.clinicalService.findMany({ where: { category: 'LABORATORY' } })).find(
+          (candidate) => normalizeName(candidate.labelEn) === normalizedEn || normalizeName(candidate.labelAr) === normalizedAr
+        );
+        if (existing) throw fail(409, 'LAB_SERVICE_ALREADY_EXISTS', 'A laboratory service with the same normalized name already exists. Link the existing service instead.');
+
+        service = await tx.clinicalService.create({
+          data: { labelAr, labelEn, baseFeeSdg, baseFeeUsd: baseFeeSdg / 1500, category: 'LABORATORY' }
+        });
+      }
+
+      const nextStatus = decision === 'EXTERNAL' ? 'EXTERNAL' : 'APPROVED';
+      const claimed = await tx.labOrderItem.updateMany({
+        where: { id: item.id, labReviewStatus: 'PENDING_REVIEW', serviceId: null },
+        data: {
+          serviceId: service?.id || null,
+          labReviewStatus: nextStatus,
+          labReviewedAt: new Date(),
+          labReviewNote: note
+        }
+      });
+      if (claimed.count !== 1) throw fail(409, 'LAB_REVIEW_CONFLICT', 'This laboratory test was already reviewed by another lab technician.');
+
+      let returnedAppointmentId = null;
+      if (decision === 'EXTERNAL') {
+        const remainingClinicItems = await tx.labOrderItem.count({
+          where: { labOrderId: item.labOrderId, labReviewStatus: { not: 'EXTERNAL' } }
+        });
+        if (remainingClinicItems === 0) {
+          await tx.labOrder.update({ where: { id: item.labOrderId }, data: { status: 'COMPLETED' } });
+          returnedAppointmentId = item.labOrder.medicalRecord?.appointmentId || null;
+          if (returnedAppointmentId) {
+            await tx.appointment.updateMany({
+              where: { id: returnedAppointmentId, status: 'WAITING_LAB' },
+              data: { status: 'IN_CONSULTATION' }
+            });
+          }
+        }
+      }
+
+      await tx.tenantAuditLog.create({
+        data: {
+          userId: req.user.id,
+          action: `LAB_CUSTOM_TEST_${decision}:${item.id}`,
+          details: JSON.stringify({ labOrderItemId: item.id, labOrderId: item.labOrderId, customTestName: item.customTestName, decision, serviceId: service?.id || null, note }),
+          ipAddress: req.ip || '127.0.0.1'
+        }
+      });
+
+      const updated = await tx.labOrderItem.findUnique({ where: { id: item.id }, include: { service: true } });
+      return { decision, item: updated, service, returnedAppointmentId };
+    });
+
+    emitQueueUpdate(
+      req.app.get('io'),
+      { type: 'LAB_REVIEW_RESOLVED', labOrderItemId: result.item.id, labOrderId: result.item.labOrderId, decision: result.decision },
+      []
+    );
+    if (result.returnedAppointmentId) {
+      emitQueueUpdate(req.app.get('io'), { type: 'LAB_RESULTS_COMPLETED', appointmentId: result.returnedAppointmentId, status: 'IN_CONSULTATION' }, []);
+    }
+    return res.json(result);
+  } catch (error) {
+    if (error.status && error.code) return sendError(res, error.status, error.code, error.message);
+    console.error('Review custom laboratory test error:', error);
+    return sendError(res, 500, 'LAB_REVIEW_FAILED', 'Failed to review the custom laboratory test.');
+  }
+});
+
 router.get('/lab-orders/pending', authenticate, allowRoles(ROLES.LAB_TECH), async (req, res) => {
   try {
     const orders = await prisma.labOrder.findMany({
@@ -1598,9 +1744,7 @@ router.put('/lab-orders/:id/collect-sample', authenticate, allowRoles(ROLES.LAB_
   try {
     const order = await prisma.labOrder.findUnique({
       where: { id: orderId },
-      include: {
-        patient: true
-      }
+      include: { patient: true, items: { select: { labReviewStatus: true } } }
     });
 
     if (!order) {
@@ -1610,6 +1754,10 @@ router.put('/lab-orders/:id/collect-sample', authenticate, allowRoles(ROLES.LAB_
         'LAB_ORDER_NOT_FOUND',
         'Laboratory order not found.'
       );
+    }
+
+    if (order.items.some((item) => item.labReviewStatus === 'PENDING_REVIEW')) {
+      return sendError(res, 409, 'LAB_REVIEW_PENDING', 'Custom laboratory tests must be reviewed before sample collection.');
     }
 
     if (order.status === 'PENDING_BILLING') {
@@ -1768,6 +1916,14 @@ router.put('/lab-orders/items/:id/results', authenticate, allowRoles(ROLES.LAB_T
       );
     }
 
+    if (existingItem.labReviewStatus === 'EXTERNAL') {
+      return sendError(res, 409, 'LAB_EXTERNAL_TEST', 'External laboratory tests do not accept clinic results.');
+    }
+
+    if (existingItem.labReviewStatus === 'PENDING_REVIEW' || !existingItem.serviceId) {
+      return sendError(res, 409, 'LAB_REVIEW_PENDING', 'This laboratory test must be reviewed before results can be entered.');
+    }
+
     const item = await prisma.labOrderItem.update({
       where: { id: itemId },
       data: {
@@ -1790,6 +1946,7 @@ router.put('/lab-orders/items/:id/results', authenticate, allowRoles(ROLES.LAB_T
     const remainingItems = await prisma.labOrderItem.count({
       where: {
         labOrderId: orderId,
+        labReviewStatus: { not: 'EXTERNAL' },
         resultValue: null
       }
     });

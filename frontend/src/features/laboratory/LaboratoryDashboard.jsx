@@ -9,6 +9,10 @@ export default function LaboratoryDashboard({ lang }) {
   const [resultForms, setResultForms] = useState({});
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [reviewRequests, setReviewRequests] = useState([]);
+  const [labServices, setLabServices] = useState([]);
+  const [reviewForms, setReviewForms] = useState({});
+  const [reviewingId, setReviewingId] = useState(null);
 
   const fetchPendingLabOrders = async (preferredOrderId = null) => {
     try {
@@ -42,7 +46,58 @@ export default function LaboratoryDashboard({ lang }) {
 
   useEffect(() => {
     fetchPendingLabOrders();
+    fetchReviewRequests();
+    fetchWithAuth('/api/billing/services')
+      .then((res) => res.ok ? res.json() : [])
+      .then((services) => setLabServices((Array.isArray(services) ? services : []).filter((service) => service.category === 'LABORATORY')))
+      .catch(() => setLabServices([]));
   }, []);
+
+  const fetchReviewRequests = async () => {
+    try {
+      const res = await fetchWithAuth('/api/records/lab-order-items/pending-review');
+      const data = await res.json().catch(() => []);
+      setReviewRequests(res.ok && Array.isArray(data) ? data : []);
+    } catch {
+      setReviewRequests([]);
+    }
+  };
+
+  const updateReviewForm = (id, changes) => {
+    setReviewForms((current) => ({ ...current, [id]: { ...(current[id] || {}), ...changes } }));
+  };
+
+  const handleReview = async (request, decision) => {
+    const form = reviewForms[request.id] || {};
+    const body = { decision };
+    if (decision === 'LINK_EXISTING') body.serviceId = form.serviceId;
+    if (decision === 'CREATE_SERVICE') {
+      body.service = { labelAr: form.labelAr, labelEn: form.labelEn, baseFeeSdg: Number(form.baseFeeSdg) };
+    }
+    setReviewingId(request.id);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const res = await fetchWithAuth(`/api/records/lab-order-items/${request.id}/review`, {
+        method: 'POST',
+        body: JSON.stringify(body)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErrorMsg(apiErrorMessage(data, lang === 'ar' ? 'تعذرت مراجعة الفحص.' : 'The test review could not be completed.'));
+        return;
+      }
+      setSuccessMsg(lang === 'ar' ? 'تمت مراجعة الفحص المختبري بنجاح.' : 'Laboratory test review completed.');
+      if (data.service) {
+        setLabServices((current) => current.some((service) => service.id === data.service.id) ? current : [...current, data.service]);
+      }
+      await Promise.all([fetchReviewRequests(), fetchPendingLabOrders(selectedOrder?.id)]);
+    } catch {
+      setErrorMsg(lang === 'ar' ? 'تعذرت مراجعة الفحص.' : 'The test review could not be completed.');
+    } finally {
+      setReviewingId(null);
+    }
+  };
 
   const handleCollectSample = async () => {
     if (!selectedOrder || selectedOrder.status !== 'PAID') {
@@ -183,6 +238,56 @@ export default function LaboratoryDashboard({ lang }) {
     <div className="dashboard-wrapper">
       <div className="workspace-panel" style={{ padding: '1rem' }}>
         <RoleHero role="laboratory" lang={lang}/>
+        <section className="glass-panel" style={{ padding: '1rem', marginBottom: '1rem' }}>
+          <div className="panel-header">
+            <span className="panel-title">
+              <AlertTriangle size={18} />
+              {lang === 'ar' ? 'طلبات فحوصات مختبرية جديدة' : 'New Lab Test Requests'}
+            </span>
+          </div>
+          {reviewRequests.length === 0 ? (
+            <p style={{ color: 'var(--text-secondary)' }}>
+              {lang === 'ar' ? 'لا توجد فحوصات مخصصة بانتظار المراجعة.' : 'No custom tests are awaiting review.'}
+            </p>
+          ) : reviewRequests.map((request) => {
+            const form = reviewForms[request.id] || {};
+            const mode = form.mode || '';
+            return (
+              <div key={request.id} className="glass-panel" style={{ padding: '1rem', marginTop: '0.75rem' }}>
+                <strong>{request.customTestName}</strong>
+                <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', margin: '0.35rem 0 0.75rem' }}>
+                  {lang === 'ar' ? request.labOrder.patient.fullNameAr : request.labOrder.patient.fullNameEn}
+                  {' • '}
+                  {lang === 'ar' ? request.labOrder.doctor.fullNameAr : request.labOrder.doctor.fullNameEn}
+                  {' • '}
+                  {new Date(request.labOrder.orderDate).toLocaleDateString(lang === 'ar' ? 'ar' : 'en')}
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button className="btn btn-secondary" type="button" onClick={() => updateReviewForm(request.id, { mode: 'LINK_EXISTING' })}>{lang === 'ar' ? 'ربط بخدمة موجودة' : 'Link Existing'}</button>
+                  <button className="btn btn-secondary" type="button" onClick={() => updateReviewForm(request.id, { mode: 'CREATE_SERVICE', labelEn: form.labelEn || request.customTestName, labelAr: form.labelAr || request.customTestName })}>{lang === 'ar' ? 'إنشاء وتسعير' : 'Create & Price'}</button>
+                  <button className="btn btn-secondary" type="button" disabled={reviewingId === request.id} onClick={() => handleReview(request, 'EXTERNAL')}>{lang === 'ar' ? 'خارجي / غير متوفر' : 'External / Not Available'}</button>
+                </div>
+                {mode === 'LINK_EXISTING' && (
+                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
+                    <select className="form-input" value={form.serviceId || ''} onChange={(event) => updateReviewForm(request.id, { serviceId: event.target.value })} style={{ flex: 1 }}>
+                      <option value="">{lang === 'ar' ? 'اختر خدمة مختبرية' : 'Select a laboratory service'}</option>
+                      {labServices.map((service) => <option key={service.id} value={service.id}>{lang === 'ar' ? service.labelAr : service.labelEn} — {Number(service.baseFeeSdg).toLocaleString()} SDG</option>)}
+                    </select>
+                    <button className="btn btn-primary" type="button" disabled={!form.serviceId || reviewingId === request.id} onClick={() => handleReview(request, 'LINK_EXISTING')}>{lang === 'ar' ? 'تأكيد الربط' : 'Confirm Link'}</button>
+                  </div>
+                )}
+                {mode === 'CREATE_SERVICE' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem', marginTop: '0.75rem' }}>
+                    <input className="form-input" placeholder={lang === 'ar' ? 'الاسم بالعربية' : 'Arabic label'} value={form.labelAr || ''} onChange={(event) => updateReviewForm(request.id, { labelAr: event.target.value })}/>
+                    <input className="form-input" placeholder={lang === 'ar' ? 'الاسم بالإنجليزية' : 'English label'} value={form.labelEn || ''} onChange={(event) => updateReviewForm(request.id, { labelEn: event.target.value })}/>
+                    <input className="form-input" type="number" min="1" step="1" placeholder={lang === 'ar' ? 'السعر بالجنيه السوداني' : 'Price in SDG'} value={form.baseFeeSdg || ''} onChange={(event) => updateReviewForm(request.id, { baseFeeSdg: event.target.value })}/>
+                    <button className="btn btn-primary" type="button" disabled={!form.labelAr?.trim() || !form.labelEn?.trim() || !(Number(form.baseFeeSdg) > 0) || reviewingId === request.id} onClick={() => handleReview(request, 'CREATE_SERVICE')}>{lang === 'ar' ? 'إنشاء وربط الخدمة' : 'Create and Link'}</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </section>
         <div className="panel-grid-2">
           {/* COLUMN 1: PENDING ORDERS QUEUE */}
           <div className="panel-column glass-panel" style={{ padding: '1rem' }}>
@@ -230,7 +335,11 @@ export default function LaboratoryDashboard({ lang }) {
                       display: 'inline-flex'
                     }}
                   >
-                    {ord.status === 'PENDING_BILLING'
+                    {ord.items.some((item) => item.labReviewStatus === 'PENDING_REVIEW')
+                      ? (lang === 'ar'
+                          ? '⚠ بانتظار مراجعة فحص مخصص'
+                          : '⚠ Custom Test Review Required')
+                      : ord.status === 'PENDING_BILLING'
                       ? (lang === 'ar'
                           ? '🔒 بانتظار الدفع'
                           : '🔒 Waiting for Payment')
@@ -270,7 +379,13 @@ export default function LaboratoryDashboard({ lang }) {
                   {lang === 'ar' ? 'الطبيب طالب الفحص:' : 'Ordering Doctor:'} {lang === 'ar' ? selectedOrder.doctor.fullNameAr : selectedOrder.doctor.fullNameEn}
                 </p>
 
-                {selectedOrder.status === 'PENDING_BILLING' && (
+                {selectedOrder.items.some((item) => item.labReviewStatus === 'PENDING_REVIEW') ? (
+                  <div className="badge badge-warning" style={{ display: 'block', padding: '0.85rem', marginBottom: '1rem' }}>
+                    {lang === 'ar'
+                      ? 'يجب مراجعة الفحص المخصص وربطه أو تسعيره قبل إصدار الفاتورة.'
+                      : 'The custom test must be reviewed, linked, or priced before billing.'}
+                  </div>
+                ) : selectedOrder.status === 'PENDING_BILLING' && (
                   <div
                     className="badge badge-warning"
                     style={{
@@ -333,7 +448,7 @@ export default function LaboratoryDashboard({ lang }) {
                   </div>
                 )}
 
-                {selectedOrder.items.map((item) => {
+                {selectedOrder.items.filter((item) => item.labReviewStatus !== 'EXTERNAL').map((item) => {
                   const isCompleted =
                     item.resultValue !== null &&
                     item.resultValue !== undefined &&

@@ -30,6 +30,43 @@ function paymentAuth(role, key = `payment-test-${Date.now()}-${++fixtureCounter}
   return { ...auth(role), 'Idempotency-Key': key };
 }
 
+async function createLabReviewFixture(customName, { includeStandard = true } = {}) {
+  fixtureCounter += 1;
+  const appointment = await prisma.appointment.create({
+    data: {
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      appointmentDate: `2035-04-${String((fixtureCounter % 27) + 1).padStart(2, '0')}`,
+      appointmentTime: '14:00',
+      status: 'WAITING_LAB'
+    }
+  });
+  const record = await prisma.medicalRecord.create({
+    data: {
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      appointmentId: appointment.id,
+      symptomsEncrypted: '', diagnosisEncrypted: '', treatmentEncrypted: '', vitalSignsJson: '{}', clinicalNotesEncrypted: ''
+    }
+  });
+  const order = await prisma.labOrder.create({
+    data: {
+      medicalRecordId: record.id,
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      status: 'PENDING_BILLING',
+      items: {
+        create: [
+          ...(includeStandard ? [{ serviceId: service.id, labReviewStatus: 'NOT_REQUIRED' }] : []),
+          { customTestName: customName, labReviewStatus: 'PENDING_REVIEW' }
+        ]
+      }
+    },
+    include: { items: true }
+  });
+  return { appointment, order, customItem: order.items.find((item) => item.customTestName === customName) };
+}
+
 test('queue socket updates target operational staff rooms only', () => {
   const rooms = [];
   let emitted;
@@ -741,6 +778,130 @@ test('concurrent pharmacy review attempts can approve a pending medication only 
 test('lab queue is lab-only', async () => {
   assert.equal((await api.get('/api/records/lab-orders/pending').set(auth('lab'))).status, 200);
   assert.equal((await api.get('/api/records/lab-orders/pending').set(auth('pharmacy'))).status, 403);
+});
+
+test('doctor free-text laboratory requests are created pending review without a price', async () => {
+  fixtureCounter += 1;
+  const appointment = await prisma.appointment.create({
+    data: {
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      appointmentDate: `2036-05-${String((fixtureCounter % 27) + 1).padStart(2, '0')}`,
+      appointmentTime: '10:30',
+      status: 'IN_CONSULTATION'
+    }
+  });
+  const response = await api.post('/api/records').set(auth('doctor')).send({
+    patientId: patient1.id,
+    appointmentId: appointment.id,
+    customTests: [`Doctor Custom Test ${fixtureCounter}`]
+  });
+  assert.equal(response.status, 201);
+  const item = await prisma.labOrderItem.findFirst({
+    where: { labOrder: { medicalRecord: { appointmentId: appointment.id } } }
+  });
+  assert.equal(item.serviceId, null);
+  assert.equal(item.labReviewStatus, 'PENDING_REVIEW');
+});
+
+test('custom lab tests wait for lab review and block reception billing until linked', async () => {
+  const fixture = await createLabReviewFixture(`Custom Link ${fixtureCounter}`);
+  const queue = await api.get('/api/records/lab-order-items/pending-review').set(auth('lab'));
+  assert.equal(queue.status, 200);
+  assert.ok(queue.body.some((item) => item.id === fixture.customItem.id));
+
+  const blocked = await api.post('/api/billing/invoice').set(auth('reception')).send({
+    patientId: patient1.id, labOrderId: fixture.order.id, invoiceType: 'LABORATORY'
+  });
+  assert.equal(blocked.status, 409);
+  assert.equal(blocked.body?.error?.code || blocked.body?.code, 'LAB_REVIEW_PENDING');
+
+  const linked = await api.post(`/api/records/lab-order-items/${fixture.customItem.id}/review`).set(auth('lab')).send({
+    decision: 'LINK_EXISTING', serviceId: service.id
+  });
+  assert.equal(linked.status, 200);
+  assert.equal(linked.body.item.labReviewStatus, 'APPROVED');
+
+  const invoice = await api.post('/api/billing/invoice').set(auth('reception')).send({
+    patientId: patient1.id, labOrderId: fixture.order.id, invoiceType: 'LABORATORY',
+    items: [{ descriptionEn: 'untrusted', descriptionAr: 'untrusted', qty: 1, unitPriceSdg: 1 }]
+  });
+  assert.equal(invoice.status, 201);
+  assert.equal(Number(invoice.body.invoice.totalAmountSdg), Number(service.baseFeeSdg) * 2);
+});
+
+test('lab tech can create and price a reusable service while invalid and duplicate prices are rejected', async () => {
+  const invalid = await createLabReviewFixture(`Invalid Price ${fixtureCounter}`, { includeStandard: false });
+  for (const price of [0, -1, 1.5]) {
+    const response = await api.post(`/api/records/lab-order-items/${invalid.customItem.id}/review`).set(auth('lab')).send({
+      decision: 'CREATE_SERVICE', service: { labelAr: 'فحص سعر غير صالح', labelEn: `Invalid Price ${fixtureCounter}`, baseFeeSdg: price }
+    });
+    assert.equal(response.status, 422);
+    assert.equal(response.body?.error?.code || response.body?.code, 'LAB_SERVICE_PRICE_INVALID');
+  }
+
+  const fixture = await createLabReviewFixture(`Reusable Test ${fixtureCounter}`, { includeStandard: false });
+  const labelEn = `Reusable Test ${fixtureCounter}`;
+  const created = await api.post(`/api/records/lab-order-items/${fixture.customItem.id}/review`).set(auth('lab')).send({
+    decision: 'CREATE_SERVICE', service: { labelAr: `فحص قابل لإعادة الاستخدام ${fixtureCounter}`, labelEn, baseFeeSdg: 23000 }
+  });
+  assert.equal(created.status, 200);
+  assert.equal(created.body.service.category, 'LABORATORY');
+  assert.equal(Number(created.body.service.baseFeeSdg), 23000);
+
+  const futureOrder = await prisma.labOrder.create({
+    data: {
+      medicalRecordId: (await prisma.medicalRecord.findUnique({ where: { appointmentId: fixture.appointment.id } })).id,
+      patientId: patient1.id, doctorId: doctor1.id, status: 'PENDING_BILLING',
+      items: { create: { serviceId: created.body.service.id, labReviewStatus: 'NOT_REQUIRED' } }
+    }
+  });
+  const futureInvoice = await api.post('/api/billing/invoice').set(auth('reception')).send({
+    patientId: patient1.id, labOrderId: futureOrder.id, invoiceType: 'LABORATORY'
+  });
+  assert.equal(futureInvoice.status, 201);
+  assert.equal(Number(futureInvoice.body.invoice.totalAmountSdg), 23000);
+
+  const duplicate = await createLabReviewFixture(`Duplicate ${fixtureCounter}`, { includeStandard: false });
+  const duplicateResponse = await api.post(`/api/records/lab-order-items/${duplicate.customItem.id}/review`).set(auth('lab')).send({
+    decision: 'CREATE_SERVICE', service: { labelAr: `  ${created.body.service.labelAr.toUpperCase()}  `, labelEn: `  ${labelEn.toUpperCase()}  `, baseFeeSdg: 24000 }
+  });
+  assert.equal(duplicateResponse.status, 409);
+  assert.equal(duplicateResponse.body?.error?.code || duplicateResponse.body?.code, 'LAB_SERVICE_ALREADY_EXISTS');
+});
+
+test('external custom lab tests are not billed and all-external orders return to the doctor', async () => {
+  const fixture = await createLabReviewFixture(`External Test ${fixtureCounter}`);
+  const external = await api.post(`/api/records/lab-order-items/${fixture.customItem.id}/review`).set(auth('lab')).send({ decision: 'EXTERNAL' });
+  assert.equal(external.status, 200);
+  assert.equal(external.body.item.labReviewStatus, 'EXTERNAL');
+
+  const invoice = await api.post('/api/billing/invoice').set(auth('reception')).send({
+    patientId: patient1.id, labOrderId: fixture.order.id, invoiceType: 'LABORATORY'
+  });
+  assert.equal(invoice.status, 201);
+  assert.equal(Number(invoice.body.invoice.totalAmountSdg), Number(service.baseFeeSdg));
+
+  const onlyExternal = await createLabReviewFixture(`External Only ${fixtureCounter}`, { includeStandard: false });
+  assert.equal((await api.post(`/api/records/lab-order-items/${onlyExternal.customItem.id}/review`).set(auth('lab')).send({ decision: 'EXTERNAL' })).status, 200);
+  assert.equal((await prisma.labOrder.findUnique({ where: { id: onlyExternal.order.id } })).status, 'COMPLETED');
+  assert.equal((await prisma.appointment.findUnique({ where: { id: onlyExternal.appointment.id } })).status, 'IN_CONSULTATION');
+});
+
+test('lab review is lab-only and concurrent review has exactly one winner', async () => {
+  const fixture = await createLabReviewFixture(`Concurrent Test ${fixtureCounter}`, { includeStandard: false });
+  const path = `/api/records/lab-order-items/${fixture.customItem.id}/review`;
+  assert.equal((await api.post(path).set(auth('reception')).send({ decision: 'EXTERNAL' })).status, 403);
+  assert.equal((await api.post(path).set(auth('doctor')).send({ decision: 'EXTERNAL' })).status, 403);
+
+  const responses = await Promise.all([
+    api.post(path).set(auth('lab')).send({ decision: 'LINK_EXISTING', serviceId: service.id }),
+    api.post(path).set(auth('lab')).send({ decision: 'EXTERNAL' })
+  ]);
+  assert.deepEqual(responses.map((response) => response.status).sort(), [200, 409]);
+  const stored = await prisma.labOrderItem.findUnique({ where: { id: fixture.customItem.id } });
+  assert.ok(['APPROVED', 'EXTERNAL'].includes(stored.labReviewStatus));
+  assert.equal(await prisma.tenantAuditLog.count({ where: { action: { startsWith: 'LAB_CUSTOM_TEST_', endsWith: `:${fixture.customItem.id}` } } }), 1);
 });
 
 test('reception can view the laboratory billing queue and lab staff cannot', async () => {

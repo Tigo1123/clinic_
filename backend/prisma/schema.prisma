@@ -295,11 +295,22 @@ model LabOrderItem {
   // Free-text test requested by the doctor when it is not in the catalogue.
   customTestName String?
 
+  // Lab review is required when a doctor enters a free-text test.
+  // NOT_REQUIRED: existing catalogue service
+  // PENDING_REVIEW: custom test waiting for laboratory review
+  // APPROVED: linked to an approved catalogue service
+  // EXTERNAL: test is not provided by this clinic and is not billable
+  labReviewStatus String    @default("NOT_REQUIRED")
+  labReviewedAt   DateTime?
+  labReviewNote   String?
+
   resultValue        String?
   referenceRangeMin  Decimal?
   referenceRangeMax  Decimal?
   isOutOfRange       Boolean  @default(false)
   fileAttachmentPath String?
+
+  @@index([labReviewStatus])
 }
 
 model Invoice {

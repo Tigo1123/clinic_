@@ -191,20 +191,36 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
         );
       }
 
-      const unpricedCustomItem = labOrder.items.find(
+      const pendingReviewItem = labOrder.items.find(
+        (item) => item.labReviewStatus === 'PENDING_REVIEW'
+      );
+
+      if (pendingReviewItem) {
+        return sendError(
+          res,
+          409,
+          'LAB_REVIEW_PENDING',
+          'A laboratory test requires review and pricing before the invoice can be issued.'
+        );
+      }
+
+      const billableLabItems = labOrder.items.filter(
+        (item) => item.labReviewStatus !== 'EXTERNAL'
+      );
+
+      if (!billableLabItems.length) {
+        return sendError(res, 409, 'LAB_NO_BILLABLE_TESTS', 'This laboratory order contains only external tests and has no clinic charge.');
+      }
+
+      const unpricedCustomItem = billableLabItems.find(
         (item) => !item.serviceId || !item.service
       );
 
       if (unpricedCustomItem) {
-        return sendError(
-          res,
-          409,
-          'LAB_CUSTOM_TEST_PRICING_REQUIRED',
-          'Custom laboratory tests require an approved catalogue price before billing.'
-        );
+        return sendError(res, 409, 'LAB_REVIEW_STATE_INVALID', 'A clinic-provided laboratory test is not linked to a catalogue service.');
       }
 
-      const invalidService = labOrder.items.find(
+      const invalidService = billableLabItems.find(
         (item) =>
           !['LABORATORY', 'RADIOLOGY'].includes(item.service.category)
       );
@@ -218,7 +234,7 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
         );
       }
 
-      const invalidPrice = labOrder.items.find((item) => {
+      const invalidPrice = billableLabItems.find((item) => {
         const price = Number(item.service.baseFeeSdg);
         return !Number.isFinite(price) || price <= 0;
       });
@@ -238,7 +254,7 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
 
       // Security: diagnostic prices always come from ClinicalService,
       // never from browser-supplied invoice items.
-      resolvedItems = labOrder.items.map((item) => ({
+      resolvedItems = billableLabItems.map((item) => ({
         descriptionAr: item.service.labelAr,
         descriptionEn: item.service.labelEn,
         qty: 1,
@@ -1063,14 +1079,14 @@ router.get(
       const queue = orders.map((order) => {
         const invoice = order.invoices[0] || null;
 
-        const estimatedTotalSdg = order.items.reduce((sum, item) => {
+        const billableItems = order.items.filter((item) => item.labReviewStatus !== 'EXTERNAL');
+        const estimatedTotalSdg = billableItems.reduce((sum, item) => {
           const price = Number(item.service?.baseFeeSdg);
           return Number.isFinite(price) ? sum + price : sum;
         }, 0);
 
-        const pricingRequired = order.items.some(
-          (item) => !item.service
-        );
+        const reviewPending = order.items.some((item) => item.labReviewStatus === 'PENDING_REVIEW');
+        const pricingRequired = reviewPending || billableItems.some((item) => !item.service);
 
         let totalPaidSdg = 0;
         let refundedSdg = 0;
@@ -1109,6 +1125,8 @@ router.get(
           items: order.items.map((item) => ({
             id: item.id,
             customTestName: item.customTestName,
+            labReviewStatus: item.labReviewStatus,
+            labReviewNote: item.labReviewNote,
             service: item.service
               ? {
                   id: item.service.id,
@@ -1121,6 +1139,7 @@ router.get(
           })),
 
           pricingRequired,
+          reviewPending,
           estimatedTotalSdg,
 
           billingStatus: invoice

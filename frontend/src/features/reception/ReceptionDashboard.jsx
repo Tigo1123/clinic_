@@ -231,7 +231,7 @@ export default function ReceptionDashboard({ lang, t }) {
     setInsuranceCompanyId('');
 
     setAddedServices(
-      order.items.map((item) => ({
+      order.items.filter((item) => item.labReviewStatus !== 'EXTERNAL').map((item) => ({
         id: item.id,
         labelAr:
           item.service?.labelAr ||
@@ -747,8 +747,8 @@ export default function ReceptionDashboard({ lang, t }) {
     ) {
       setErrorMsg(
         lang === 'ar'
-          ? 'يحتوي طلب المختبر على فحص مخصص بدون سعر معتمد. يجب ضبط السعر في كتالوج الخدمات أولاً.'
-          : 'This laboratory order contains a custom test without an approved catalogue price.'
+          ? 'يوجد فحص مختبري جديد يحتاج إلى مراجعة وتسعير من المختبر قبل إصدار الفاتورة.'
+          : 'A laboratory test requires review and pricing before the invoice can be issued.'
       );
       return;
     }
@@ -1700,8 +1700,8 @@ export default function ReceptionDashboard({ lang, t }) {
                               >
                                 {order.pricingRequired
                                   ? (lang === 'ar'
-                                      ? 'السعر يحتاج اعتماد'
-                                      : 'Pricing Required')
+                                      ? 'بانتظار مراجعة المختبر'
+                                      : 'Lab Review Pending')
                                   : paid
                                     ? (lang === 'ar'
                                         ? 'مدفوع'
@@ -1728,9 +1728,9 @@ export default function ReceptionDashboard({ lang, t }) {
                                 .map((item) =>
                                   lang === 'ar'
                                     ? item.service?.labelAr ||
-                                      item.customTestName
+                                      `${item.customTestName}${item.labReviewStatus === 'EXTERNAL' ? ' — خارجي' : ''}`
                                     : item.service?.labelEn ||
-                                      item.customTestName
+                                      `${item.customTestName}${item.labReviewStatus === 'EXTERNAL' ? ' — External' : ''}`
                                 )
                                 .filter(Boolean)
                                 .join(' • ')}
