@@ -234,6 +234,24 @@ export default function LaboratoryDashboard({ lang }) {
     }
   };
 
+  const handleReleaseResults = async () => {
+    if (!selectedOrder || selectedOrder.status !== 'COMPLETED') return;
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const res = await fetchWithAuth(`/api/records/lab-orders/${selectedOrder.id}/release`, { method: 'PUT' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErrorMsg(apiErrorMessage(data, lang === 'ar' ? 'تعذر الإفراج عن النتائج للمريض.' : 'Failed to release results to the patient.'));
+        return;
+      }
+      setSuccessMsg(lang === 'ar' ? 'تم الإفراج عن النتائج للمريض.' : 'Results released to the patient.');
+      await fetchPendingLabOrders(selectedOrder.id);
+    } catch {
+      setErrorMsg(lang === 'ar' ? 'تعذر الإفراج عن النتائج للمريض.' : 'Failed to release results to the patient.');
+    }
+  };
+
   return (
     <div className="dashboard-wrapper">
       <div className="workspace-panel" style={{ padding: '1rem' }}>
@@ -347,7 +365,11 @@ export default function LaboratoryDashboard({ lang }) {
                         ? (lang === 'ar'
                             ? '✓ مدفوع — جاهز لجمع العينة'
                             : '✓ Paid — Ready for Sample')
-                        : (lang === 'ar'
+                        : ord.status === 'COMPLETED'
+                          ? (lang === 'ar'
+                              ? '✓ مكتمل — بانتظار الإفراج'
+                              : '✓ Completed — Release Pending')
+                          : (lang === 'ar'
                             ? '🧪 تم جمع العينة'
                             : '🧪 Sample Collected')}
                   </span>
@@ -445,6 +467,22 @@ export default function LaboratoryDashboard({ lang }) {
                     {lang === 'ar'
                       ? '🧪 تم جمع العينة — يمكن إدخال النتائج الآن.'
                       : '🧪 Sample collected — results can now be entered.'}
+                  </div>
+                )}
+
+                {selectedOrder.status === 'COMPLETED' && (
+                  <div className="glass-panel" style={{ padding: '1rem', marginBottom: '1rem' }}>
+                    <div className="badge badge-success" style={{ marginBottom: '0.75rem', padding: '0.6rem' }}>
+                      {lang === 'ar' ? 'اكتملت جميع النتائج' : 'All Results Completed'}
+                    </div>
+                    <p style={{ color: 'var(--text-secondary)' }}>
+                      {lang === 'ar'
+                        ? 'راجع النتائج ثم أفرج عنها لتظهر في بوابة المريض.'
+                        : 'Review the results, then release them for the Patient Portal.'}
+                    </p>
+                    <button type="button" className="btn btn-primary" style={{ width: '100%' }} onClick={handleReleaseResults}>
+                      {lang === 'ar' ? 'الإفراج عن النتائج للمريض' : 'Release Results to Patient'}
+                    </button>
                   </div>
                 )}
 

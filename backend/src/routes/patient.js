@@ -820,6 +820,38 @@ router.put('/appointments/:id/reschedule', validate(bookingSchema), async (req, 
   }
 });
 
+const patientLabItemSelect = {
+  id: true,
+  customTestName: true,
+  labReviewStatus: true,
+  resultValue: true,
+  referenceRangeMin: true,
+  referenceRangeMax: true,
+  isOutOfRange: true,
+  fileAttachmentPath: true,
+  service: { select: { labelAr: true, labelEn: true, category: true } }
+};
+
+function mapPatientSafeLabTests(order) {
+  return (order.items || [])
+    .filter((item) => item.labReviewStatus !== 'EXTERNAL' && item.resultValue != null)
+    .map((item) => ({
+      id: item.id,
+      service: item.service,
+      customTestName: item.customTestName,
+      testNameAr: item.service?.labelAr || item.customTestName || '',
+      testNameEn: item.service?.labelEn || item.customTestName || '',
+      resultValue: item.resultValue,
+      referenceRangeMin: item.referenceRangeMin == null ? '' : String(item.referenceRangeMin),
+      referenceRangeMax: item.referenceRangeMax == null ? '' : String(item.referenceRangeMax),
+      isOutOfRange: Boolean(item.isOutOfRange),
+      releasedToPatientAt: order.releasedToPatientAt,
+      attachmentPath: item.fileAttachmentPath
+        ? `/api/upload/${item.fileAttachmentPath.split('/').pop()}`
+        : null
+    }));
+}
+
 router.get('/lab-results', async (req, res, next) => {
   try {
     const orders = await prisma.labOrder.findMany({
@@ -835,24 +867,7 @@ router.get('/lab-results', async (req, res, next) => {
         doctor: {
           select: doctorSelect
         },
-        items: {
-          select: {
-            id: true,
-            customTestName: true,
-            resultValue: true,
-            referenceRangeMin: true,
-            referenceRangeMax: true,
-            isOutOfRange: true,
-            fileAttachmentPath: true,
-            service: {
-              select: {
-                labelAr: true,
-                labelEn: true,
-                category: true
-              }
-            }
-          }
-        }
+        items: { select: patientLabItemSelect }
       },
       orderBy: {
         orderDate: 'desc'
@@ -865,18 +880,7 @@ router.get('/lab-results', async (req, res, next) => {
         orderDate: order.orderDate,
         releasedAt: order.releasedToPatientAt,
         doctor: order.doctor,
-        tests: order.items.map((item) => ({
-          id: item.id,
-          service: item.service,
-          customTestName: item.customTestName,
-          resultValue: item.resultValue,
-          referenceRangeMin: item.referenceRangeMin,
-          referenceRangeMax: item.referenceRangeMax,
-          isOutOfRange: item.isOutOfRange,
-          attachmentPath: item.fileAttachmentPath
-            ? `/api/upload/${item.fileAttachmentPath.split('/').pop()}`
-            : null
-        }))
+        tests: mapPatientSafeLabTests(order)
       }))
     );
   } catch (error) {
@@ -943,12 +947,9 @@ router.get('/medical-records/:id', async (req, res) => {
               not: null
             }
           },
-          include: {
-            items: {
-              include: {
-                service: true
-              }
-            }
+          select: {
+            releasedToPatientAt: true,
+            items: { select: patientLabItemSelect }
           }
         }
       }
@@ -1011,38 +1012,7 @@ router.get('/medical-records/:id', async (req, res) => {
         }))
       })),
 
-      releasedLabResults: (record.labOrders || []).flatMap((order) =>
-        (order.items || []).map((item) => ({
-          id: item.id,
-
-          testNameAr:
-            item.service?.labelAr ||
-            item.customTestName ||
-            '',
-
-          testNameEn:
-            item.service?.labelEn ||
-            item.customTestName ||
-            '',
-
-          resultValue: item.resultValue || '',
-
-          referenceRangeMin:
-            item.referenceRangeMin == null
-              ? ''
-              : String(item.referenceRangeMin),
-
-          referenceRangeMax:
-            item.referenceRangeMax == null
-              ? ''
-              : String(item.referenceRangeMax),
-
-          isOutOfRange: Boolean(item.isOutOfRange),
-
-          releasedToPatientAt:
-            order.releasedToPatientAt
-        }))
-      ),
+      releasedLabResults: (record.labOrders || []).flatMap(mapPatientSafeLabTests),
 
       attachmentPath: record.attachmentPath
         ? `/api/upload/${record.attachmentPath.split('/').pop()}`

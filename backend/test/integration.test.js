@@ -2738,6 +2738,7 @@ test('patient lab results stay hidden until released and expose released standar
         create: [
           {
             serviceId: service.id,
+            labReviewStatus: 'NOT_REQUIRED',
             resultValue: '13.5',
             referenceRangeMin: 12,
             referenceRangeMax: 16,
@@ -2745,10 +2746,17 @@ test('patient lab results stay hidden until released and expose released standar
           },
           {
             customTestName: 'Custom Vitamin Test',
+            serviceId: service.id,
+            labReviewStatus: 'APPROVED',
             resultValue: '7.2',
             referenceRangeMin: 8,
             referenceRangeMax: 20,
             isOutOfRange: true
+          },
+          {
+            customTestName: 'External Referral Test',
+            labReviewStatus: 'EXTERNAL',
+            resultValue: 'must-not-be-exposed'
           }
         ]
       }
@@ -2773,6 +2781,12 @@ test('patient lab results stay hidden until released and expose released standar
     ),
     false
   );
+
+  const recordBeforeRelease = await api
+    .get(`/api/patient/medical-records/${record.id}`)
+    .set('Authorization', `Bearer ${patientToken}`);
+  assert.equal(recordBeforeRelease.status, 200);
+  assert.deepEqual(recordBeforeRelease.body.releasedLabResults, []);
 
   // -------------------------------------------------------
   // 5. Lab technician explicitly releases results.
@@ -2801,6 +2815,18 @@ test('patient lab results stay hidden until released and expose released standar
   assert.ok(releasedOrder);
   assert.ok(releasedOrder.releasedAt);
   assert.equal(releasedOrder.tests.length, 2);
+  assert.equal(releasedOrder.tests.some((item) => item.customTestName === 'External Referral Test'), false);
+
+  const recordAfterRelease = await api
+    .get(`/api/patient/medical-records/${record.id}`)
+    .set('Authorization', `Bearer ${patientToken}`);
+  assert.equal(recordAfterRelease.status, 200);
+  assert.equal(recordAfterRelease.body.releasedLabResults.length, 2);
+  assert.deepEqual(
+    recordAfterRelease.body.releasedLabResults.map((item) => item.resultValue).sort(),
+    ['13.5', '7.2']
+  );
+  assert.equal(recordAfterRelease.body.releasedLabResults.some((item) => item.testNameEn === 'External Referral Test'), false);
 
   // -------------------------------------------------------
   // 7. Standard catalogue test.
@@ -2855,10 +2881,8 @@ test('patient lab results stay hidden until released and expose released standar
     true
   );
 
-  assert.equal(
-    customTest.service,
-    null
-  );
+  assert.ok(customTest.service);
+  assert.ok(customTest.service.labelEn);
 
   assert.equal(
     Number(customTest.referenceRangeMin),

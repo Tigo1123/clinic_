@@ -1715,7 +1715,12 @@ router.get('/lab-orders/pending', authenticate, allowRoles(ROLES.LAB_TECH), asyn
     const orders = await prisma.labOrder.findMany({
       // PENDING_BILLING remains visible to preserve the existing workflow until
       // invoices are explicitly linked to lab orders in a later forward migration.
-      where: { status: { in: ['PENDING_BILLING', 'PAID', 'SAMPLE_COLLECTED'] } },
+      where: {
+        OR: [
+          { status: { in: ['PENDING_BILLING', 'PAID', 'SAMPLE_COLLECTED'] } },
+          { status: 'COMPLETED', releasedToPatientAt: null }
+        ]
+      },
       include: {
         patient: true,
         doctor: true,

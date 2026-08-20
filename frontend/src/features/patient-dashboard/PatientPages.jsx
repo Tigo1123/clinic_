@@ -893,6 +893,13 @@ export function MedicalRecords(){
                             : 'Outside reference range'}
                         </span>
                       )}
+
+                      {result.releasedToPatientAt && (
+                        <p>
+                          {lang === 'ar' ? 'تاريخ الإفراج' : 'Released'}:{' '}
+                          {formatDateTime(result.releasedToPatientAt)}
+                        </p>
+                      )}
                     </div>
                   ))
               )}

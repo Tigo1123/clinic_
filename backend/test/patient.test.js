@@ -262,6 +262,14 @@ test('patient only receives own released labs, prescriptions, and patient-safe v
   assert.equal(Object.hasOwn(safe, 'clinicalNotes'), false);
   assert.equal(Object.hasOwn(safe, 'symptoms'), false);
   assert.equal((await api.get('/api/patient/lab-results').set(auth(patientB.token))).body.some((item) => item.id === lab.id), false);
+  const detail = await api.get(`/api/patient/medical-records/${record.id}`).set(auth(patientA.token));
+  assert.equal(detail.status, 200);
+  assert.equal(detail.body.diagnosis, 'patient diagnosis');
+  assert.equal(detail.body.treatment, 'patient treatment');
+  assert.equal(detail.body.prescriptions[0].medicines.length, 1);
+  assert.equal(detail.body.releasedLabResults.length, 1);
+  assert.equal(detail.body.releasedLabResults[0].resultValue, '13.5');
+  assert.equal((await api.get(`/api/patient/medical-records/${record.id}`).set(auth(patientB.token))).status, 404);
 });
 
 
