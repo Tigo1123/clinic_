@@ -6,7 +6,7 @@ import { getWhatsAppLink, SUDANESE_STATES } from './clinicData';
 import { staffSocket as socket } from '../../services/staffSocket';
 import RoleHero from '../../components/healthcare/RoleHero';
 import { clinicDateString } from '../../utils/clinicTime';
-import { apiRequest } from '../../services/apiClient';
+import { staffApiRequest as apiRequest } from '../../services/apiClient';
 
 export default function ReceptionDashboard({ lang, t }) {
   const [doctors, setDoctors] = useState([]);

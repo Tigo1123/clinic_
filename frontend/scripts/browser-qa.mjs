@@ -58,7 +58,7 @@ async function navigate(url) {
   await delay(1400);
 }
 async function authenticate(username, destination = '/staff') {
-  const result = await evaluate(`(async()=>{const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:${JSON.stringify(username)},password:${JSON.stringify(process.env.QA_PASSWORD)}})});const d=await r.json();if(!r.ok)throw new Error('login '+r.status);localStorage.setItem('cms_user',JSON.stringify(d.user));localStorage.setItem('cms_token',d.token);return {role:d.user.role,status:r.status}})()`);
+  const result = await evaluate(`(async()=>{const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:${JSON.stringify(username)},password:${JSON.stringify(process.env.QA_PASSWORD)}})});const d=await r.json();if(!r.ok)throw new Error('login '+r.status);sessionStorage.setItem('cms_staff_user',JSON.stringify(d.user));sessionStorage.setItem('cms_staff_token',d.token);return {role:d.user.role,status:r.status}})()`);
   await navigate(`${origin}${destination}`);
   return result;
 }

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { Check, Eye, EyeOff, HeartPulse } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { apiRequest } from '../../services/apiClient';
+import { patientApiRequest, publicApiRequest as apiRequest } from '../../services/apiClient';
 import { useAuth } from '../../app/auth/auth-context';
 
 export function PatientLogin(){
@@ -648,7 +648,7 @@ export function PatientClaim() {
     setMessage('');
 
     try {
-      const data = await apiRequest('/api/patient-auth/claim', {
+      const data = await patientApiRequest('/api/patient-auth/claim', {
         method: 'POST',
         body: JSON.stringify({
           code: form.code.trim(),

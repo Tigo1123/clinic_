@@ -6,7 +6,7 @@ import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import { staffSocket as socket } from '../../services/staffSocket';
 import RoleHero from '../../components/healthcare/RoleHero';
 import { clinicDateString } from '../../utils/clinicTime';
-import { apiRequest } from '../../services/apiClient';
+import { staffApiRequest as apiRequest } from '../../services/apiClient';
 
 export default function DoctorDashboard({ user, lang, t }) {
   const [queue, setQueue] = useState([]);

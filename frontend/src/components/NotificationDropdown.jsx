@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Bell, CheckCheck } from 'lucide-react';
 import { io } from 'socket.io-client';
-import { apiRequest } from '../services/apiClient';
+import { staffApiRequest as apiRequest } from '../services/apiClient';
+import { readStaffSession } from '../services/authStorage';
 
 const SOCKET_URL = import.meta.env.VITE_STAFF_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:5000' : window.location.origin);
 let socket;
@@ -15,7 +16,7 @@ export default function NotificationDropdown({ userId, lang = 'ar' }) {
   // Fetch initial notifications
   const fetchNotifications = async () => {
     try {
-      if (!localStorage.getItem('cms_token')) return;
+      if (!readStaffSession()) return;
       const data = await apiRequest('/api/notifications');
       setNotifications(data.notifications || []);
       setUnreadCount(data.unreadCount || 0);
@@ -30,7 +31,7 @@ export default function NotificationDropdown({ userId, lang = 'ar' }) {
     fetchNotifications();
 
     // Connect to Socket.io server
-    socket = io(SOCKET_URL, { auth: { token: localStorage.getItem('cms_token') } });
+    socket = io(SOCKET_URL, { auth: { token: readStaffSession()?.token } });
 
     // Listen for real-time notifications
     socket.on('notification', (newNotif) => {

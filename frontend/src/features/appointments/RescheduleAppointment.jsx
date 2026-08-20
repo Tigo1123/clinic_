@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { apiRequest } from '../../services/apiClient';
+import { patientApiRequest as apiRequest } from '../../services/apiClient';
 import { clinicDateString } from '../../utils/clinicTime';
 
 export default function RescheduleAppointment() {

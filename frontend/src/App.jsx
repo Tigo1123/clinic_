@@ -8,7 +8,8 @@ import {
 } from 'lucide-react';
 
 import NotificationDropdown from './components/NotificationDropdown';
-import { apiRequest } from './services/apiClient';
+import { publicApiRequest } from './services/apiClient';
+import { clearStaffSession, readStaffSession, writeStaffSession } from './services/authStorage';
 import { staffSocket as socket } from './services/staffSocket';
 
 import './App.css';
@@ -33,13 +34,12 @@ export default function App({ initialView = 'login' }) {
 
   // Load state on mount
   useEffect(() => {
-    const savedUser = localStorage.getItem('cms_user');
-    const savedToken = localStorage.getItem('cms_token');
+    const staffSession = readStaffSession();
     const savedTheme = localStorage.getItem('cms_theme') || 'light';
 
-    if (savedUser && savedToken) {
-      try { setUser(JSON.parse(savedUser)); setView('dashboard'); }
-      catch { localStorage.removeItem('cms_user'); localStorage.removeItem('cms_token'); }
+    if (staffSession) {
+      setUser(staffSession.user);
+      setView('dashboard');
     }
     setTheme(savedTheme);
     document.documentElement.setAttribute('data-theme', savedTheme);
@@ -59,22 +59,20 @@ export default function App({ initialView = 'login' }) {
   };
 
   const handleLogin = (userData, token) => {
-    localStorage.setItem('cms_user', JSON.stringify(userData));
-    localStorage.setItem('cms_token', token);
+    writeStaffSession(userData, token);
     setUser(userData);
     setView('dashboard');
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('cms_user');
-    localStorage.removeItem('cms_token');
+    clearStaffSession();
     setUser(null);
     setView(initialView);
     socket.disconnect();
   };
 
   useEffect(() => {
-    if (user && localStorage.getItem('cms_token')) socket.connect();
+    if (user && readStaffSession()) socket.connect();
     return () => socket.disconnect();
   }, [user]);
 
@@ -131,7 +129,7 @@ function LoginView({ onLogin, t }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const data = await apiRequest('/api/auth/login', {
+      const data = await publicApiRequest('/api/auth/login', {
         method: 'POST',
         body: JSON.stringify({ username, password })
       });

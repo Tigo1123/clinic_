@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { apiRequest } from '../../services/apiClient';
+import { patientApiRequest as apiRequest } from '../../services/apiClient';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { CalendarDays, FileHeart, FlaskConical, HeartPulse, Pill, Search, Stethoscope, UserRound } from 'lucide-react';
 import Dialog from '../../components/ui/Dialog';

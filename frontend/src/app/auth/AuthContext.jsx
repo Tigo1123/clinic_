@@ -1,18 +1,14 @@
 import { useMemo, useState } from 'react';
 import { AuthContext } from './auth-context';
+import { clearPatientSession, readPatientSession, updateStoredPatient, writePatientSession } from '../../services/authStorage';
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('cms_user'));
-    } catch {
-      return null;
-    }
+    return readPatientSession()?.user || null;
   });
 
   const login = (nextUser, token) => {
-    localStorage.setItem('cms_user', JSON.stringify(nextUser));
-    localStorage.setItem('cms_token', token);
+    writePatientSession(nextUser, token);
     setUser(nextUser);
   };
 
@@ -25,15 +21,14 @@ export function AuthProvider({ children }) {
         ...changes
       };
 
-      localStorage.setItem('cms_user', JSON.stringify(updatedUser));
+      updateStoredPatient(updatedUser);
 
       return updatedUser;
     });
   };
 
   const logout = () => {
-    localStorage.removeItem('cms_user');
-    localStorage.removeItem('cms_token');
+    clearPatientSession();
     setUser(null);
   };
 
