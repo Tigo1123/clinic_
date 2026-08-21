@@ -3,13 +3,14 @@ import { useTranslation } from 'react-i18next';
 import {
   LogOut,
   HeartPulse,
+  ShieldCheck,
   Sun,
   Moon
 } from 'lucide-react';
 
 import NotificationDropdown from './components/NotificationDropdown';
-import { publicApiRequest } from './services/apiClient';
 import { clearStaffSession, readStaffSession, writeStaffSession } from './services/authStorage';
+import { completeStaffMfa, isTerminalMfaError, startStaffLogin } from './services/staffLogin';
 import { staffSocket as socket } from './services/staffSocket';
 
 import './App.css';
@@ -124,36 +125,126 @@ export default function App({ initialView = 'login' }) {
 function LoginView({ onLogin, t }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [mfaChallenge, setMfaChallenge] = useState(null);
+  const [mfaCode, setMfaCode] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!mfaChallenge) return undefined;
+    const remainingMs = new Date(mfaChallenge.expiresAt).getTime() - Date.now();
+    const expire = () => {
+      setMfaChallenge(null);
+      setMfaCode('');
+      setErrorMsg(t('mfaChallengeExpired'));
+    };
+    if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
+      expire();
+      return undefined;
+    }
+    const timer = window.setTimeout(expire, remainingMs);
+    return () => window.clearTimeout(timer);
+  }, [mfaChallenge, t]);
+
+  const cancelMfa = () => {
+    setMfaChallenge(null);
+    setMfaCode('');
+    setErrorMsg('');
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
+    setErrorMsg('');
     try {
-      const data = await publicApiRequest('/api/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ username, password })
-      });
-      onLogin(data.user, data.token);
+      const result = await startStaffLogin({ username, password }, onLogin);
+      if (result.state === 'MFA_REQUIRED') {
+        setPassword('');
+        setMfaChallenge({ token: result.challengeToken, expiresAt: result.expiresAt });
+      }
     } catch (err) {
-      console.error(err);
       setErrorMsg(err?.status ? err.message : 'Cannot connect to authorization service.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
+  const handleMfaSubmit = async (e) => {
+    e.preventDefault();
+    if (submitting || !mfaChallenge) return;
+    setSubmitting(true);
+    setErrorMsg('');
+    try {
+      await completeStaffMfa(mfaChallenge.token, mfaCode, onLogin);
+      setMfaChallenge(null);
+      setMfaCode('');
+    } catch (err) {
+      if (isTerminalMfaError(err)) {
+        setMfaChallenge(null);
+        setMfaCode('');
+        setErrorMsg(t('mfaChallengeExpired'));
+      } else if (err?.status === 429) {
+        setErrorMsg(t('mfaRateLimited'));
+      } else if (err?.code === 'MFA_CODE_INVALID') {
+        setErrorMsg(t('mfaCodeInvalid'));
+      } else {
+        setErrorMsg(t('mfaServiceUnavailable'));
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (mfaChallenge) return (
+    <div className="portal-container glass-panel staff-login-card">
+      <div className="staff-mfa-icon" aria-hidden="true"><ShieldCheck size={30} /></div>
+      <h3 className="staff-login-title">{t('twoFactorAuthentication')}</h3>
+      <p className="staff-login-description">{t('mfaCodeInstructions')}</p>
+      {errorMsg && <div role="alert" className="badge badge-danger staff-login-error">{errorMsg}</div>}
+      <form onSubmit={handleMfaSubmit} className="staff-login-form">
+        <div className="form-group">
+          <label className="form-label" htmlFor="staff-mfa-code">{t('authenticatorCode')}</label>
+          <input
+            id="staff-mfa-code"
+            type="text"
+            required
+            autoFocus
+            autoComplete="one-time-code"
+            inputMode="numeric"
+            pattern="[0-9]{6}"
+            maxLength={6}
+            className="form-input staff-mfa-code"
+            value={mfaCode}
+            onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+          />
+        </div>
+        <button type="submit" disabled={submitting || mfaCode.length !== 6} className="btn btn-primary staff-login-submit">
+          {submitting ? t('verifying') : t('verify')}
+        </button>
+        <button type="button" disabled={submitting} className="btn btn-secondary staff-login-submit" onClick={cancelMfa}>
+          {t('backToLogin')}
+        </button>
+      </form>
+    </div>
+  );
+
   return (
-    <div className="portal-container glass-panel" style={{ maxWidth: '450px' }}>
-      <h3 style={{ textAlign: 'center', marginBottom: '2rem' }}>{t('login')}</h3>
+    <div className="portal-container glass-panel staff-login-card">
+      <h3 className="staff-login-title">{t('login')}</h3>
       {errorMsg && (
-        <div className="badge badge-danger" style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem' }}>
+        <div role="alert" className="badge badge-danger staff-login-error">
           {errorMsg}
         </div>
       )}
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      <form onSubmit={handleSubmit} className="staff-login-form">
         <div className="form-group">
-          <label className="form-label">{t('username')}</label>
+          <label className="form-label" htmlFor="staff-username">{t('username')}</label>
           <input
+            id="staff-username"
             type="email"
             required
+            autoComplete="username"
             className="form-input"
             placeholder="staff@cms.com"
             value={username}
@@ -161,18 +252,20 @@ function LoginView({ onLogin, t }) {
           />
         </div>
         <div className="form-group">
-          <label className="form-label">{t('password')}</label>
+          <label className="form-label" htmlFor="staff-password">{t('password')}</label>
           <input
+            id="staff-password"
             type="password"
             required
+            autoComplete="current-password"
             className="form-input"
             placeholder="••••••••"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
         </div>
-        <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }}>
-          {t('login')}
+        <button type="submit" disabled={submitting} className="btn btn-primary staff-login-submit">
+          {submitting ? t('loading') : t('login')}
         </button>
       </form>
     </div>

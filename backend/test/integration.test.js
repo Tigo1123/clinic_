@@ -257,7 +257,7 @@ test('WebSocket authentication uses the strict access-token contract', async () 
   }
 });
 
-test('staff MFA enrollment, recovery, challenge, and disable lifecycle is secure while login remains unchanged', async () => {
+test('staff MFA enrollment, enforced login, recovery, challenge, and disable lifecycle is secure', async () => {
   const username = `mfa-staff-${Date.now()}@example.test`;
   const password = 'MfaFoundationPass123';
   const passwordHash = await bcrypt.hash(password, 10);
@@ -325,10 +325,105 @@ test('staff MFA enrollment, recovery, challenge, and disable lifecycle is secure
     assert.equal(confirmation.body.recoveryCodes.some((code) => record.codeHash.includes(code.replaceAll('-', ''))), false);
   }
 
-  // SEC-FINAL-002C is intentionally not active yet.
+  await prisma.mfaConfiguration.update({ where: { userId: staff.id }, data: { lastTotpStep: null } });
   const loginWithMfaEnabled = await api.post('/api/auth/login').send({ username, password });
   assert.equal(loginWithMfaEnabled.status, 200);
-  assert.equal(verifyAccessToken(loginWithMfaEnabled.body.token).typ, 'access');
+  assert.equal(loginWithMfaEnabled.body.mfaRequired, true);
+  assert.equal(Object.hasOwn(loginWithMfaEnabled.body, 'token'), false);
+  assert.equal(Object.hasOwn(loginWithMfaEnabled.body, 'user'), false);
+
+  const loginChallenge = await findMfaChallenge(loginWithMfaEnabled.body.challengeToken);
+  assert.equal(loginChallenge.userId, staff.id);
+  assert.throws(() => verifyAccessToken(loginWithMfaEnabled.body.challengeToken));
+  assert.equal((await api.get('/api/auth/users').set({ Authorization: `Bearer ${loginWithMfaEnabled.body.challengeToken}` })).status, 401);
+  assert.ok((await checkSocketToken(loginWithMfaEnabled.body.challengeToken)).error instanceof Error);
+
+  const validLoginCode = totpFor(secondEnrollment.body.secret).generate();
+  const invalidLoginCode = validLoginCode === '000000' ? '000001' : '000000';
+  let verification = await api.post('/api/auth/mfa/verify').send({
+    challengeToken: loginWithMfaEnabled.body.challengeToken,
+    code: invalidLoginCode
+  });
+  assert.equal(verification.status, 401);
+  assert.equal(Object.hasOwn(verification.body, 'token'), false);
+  assert.equal((await prisma.mfaChallenge.findUnique({ where: { id: loginChallenge.id } })).attemptCount, 1);
+
+  verification = await api.post('/api/auth/mfa/verify').send({
+    challengeToken: loginWithMfaEnabled.body.challengeToken,
+    code: validLoginCode
+  });
+  assert.equal(verification.status, 200);
+  assert.equal(verifyAccessToken(verification.body.token).typ, 'access');
+  assert.equal((await api.get('/api/patients').set({ Authorization: `Bearer ${verification.body.token}` })).status, 200);
+  assert.equal((await api.get('/api/auth/users').set({ Authorization: `Bearer ${verification.body.token}` })).status, 403);
+  assert.notEqual((await prisma.mfaChallenge.findUnique({ where: { id: loginChallenge.id } })).usedAt, null);
+  assert.equal((await api.post('/api/auth/mfa/verify').send({
+    challengeToken: loginWithMfaEnabled.body.challengeToken,
+    code: validLoginCode
+  })).status, 401);
+
+  const concurrentLogin = await api.post('/api/auth/login').send({ username, password });
+  await prisma.mfaConfiguration.update({ where: { userId: staff.id }, data: { lastTotpStep: null } });
+  const concurrentCode = totpFor(secondEnrollment.body.secret).generate();
+  const concurrentResults = await Promise.all([
+    api.post('/api/auth/mfa/verify').send({ challengeToken: concurrentLogin.body.challengeToken, code: concurrentCode }),
+    api.post('/api/auth/mfa/verify').send({ challengeToken: concurrentLogin.body.challengeToken, code: concurrentCode })
+  ]);
+  assert.deepEqual(concurrentResults.map((response) => response.status).sort(), [200, 401]);
+
+  const attemptLimitedLogin = await api.post('/api/auth/login').send({ username, password });
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const failedAttempt = await api.post('/api/auth/mfa/verify').send({
+      challengeToken: attemptLimitedLogin.body.challengeToken,
+      code: invalidLoginCode
+    });
+    assert.equal(failedAttempt.status, 401);
+    assert.equal(failedAttempt.body.error.code, attempt === 4 ? 'MFA_CHALLENGE_INVALID' : 'MFA_CODE_INVALID');
+  }
+  assert.equal(await findMfaChallenge(attemptLimitedLogin.body.challengeToken), null);
+
+  const expiredLogin = await api.post('/api/auth/login').send({ username, password });
+  const expiredLoginChallenge = await findMfaChallenge(expiredLogin.body.challengeToken);
+  await prisma.mfaChallenge.update({ where: { id: expiredLoginChallenge.id }, data: { expiresAt: new Date(Date.now() - 1) } });
+  assert.equal((await api.post('/api/auth/mfa/verify').send({
+    challengeToken: expiredLogin.body.challengeToken,
+    code: validLoginCode
+  })).status, 401);
+
+  const inactiveLogin = await api.post('/api/auth/login').send({ username, password });
+  await prisma.user.update({ where: { id: staff.id }, data: { status: 'INACTIVE' } });
+  try {
+    assert.equal((await api.post('/api/auth/mfa/verify').send({
+      challengeToken: inactiveLogin.body.challengeToken,
+      code: validLoginCode
+    })).status, 401);
+  } finally {
+    await prisma.user.update({ where: { id: staff.id }, data: { status: 'ACTIVE' } });
+  }
+
+  const changedRoleLogin = await api.post('/api/auth/login').send({ username, password });
+  await prisma.user.update({ where: { id: staff.id }, data: { role: 'PHARMACIST' } });
+  await prisma.mfaConfiguration.update({ where: { userId: staff.id }, data: { lastTotpStep: null } });
+  try {
+    const changedRoleVerification = await api.post('/api/auth/mfa/verify').send({
+      challengeToken: changedRoleLogin.body.challengeToken,
+      code: totpFor(secondEnrollment.body.secret).generate()
+    });
+    assert.equal(changedRoleVerification.status, 200);
+    assert.equal(verifyAccessToken(changedRoleVerification.body.token).role, 'PHARMACIST');
+  } finally {
+    await prisma.user.update({ where: { id: staff.id }, data: { role: 'RECEPTIONIST' } });
+  }
+
+  assert.equal((await api.post('/api/auth/mfa/verify').send({
+    challengeToken: 'A'.repeat(43),
+    code: validLoginCode
+  })).status, 401);
+  const tamperedChallenge = `${changedRoleLogin.body.challengeToken.slice(0, -1)}${changedRoleLogin.body.challengeToken.endsWith('A') ? 'B' : 'A'}`;
+  assert.equal((await api.post('/api/auth/mfa/verify').send({
+    challengeToken: tamperedChallenge,
+    code: validLoginCode
+  })).status, 401);
 
   const challenge = await createMfaChallenge(staff.id);
   assert.equal((await findMfaChallenge(challenge.token)).userId, staff.id);
@@ -389,7 +484,7 @@ test('staff MFA enrollment, recovery, challenge, and disable lifecycle is secure
     where: { userId: staff.id, action: { startsWith: 'MFA_' } },
     select: { action: true, details: true }
   });
-  for (const action of ['MFA_ENROLLMENT_STARTED', 'MFA_ENABLED', 'MFA_ENROLLMENT_FAILED', 'MFA_RECOVERY_CODES_REGENERATED', 'MFA_DISABLED']) {
+  for (const action of ['MFA_ENROLLMENT_STARTED', 'MFA_ENABLED', 'MFA_ENROLLMENT_FAILED', 'MFA_CHALLENGE_CREATED', 'MFA_VERIFICATION_FAILED', 'MFA_VERIFICATION_SUCCEEDED', 'MFA_RECOVERY_CODES_REGENERATED', 'MFA_DISABLED']) {
     assert.ok(audits.some((entry) => entry.action === action));
   }
   const forbiddenValues = [firstEnrollment.body.secret, secondEnrollment.body.secret, ...confirmation.body.recoveryCodes, ...regenerate.body.recoveryCodes];

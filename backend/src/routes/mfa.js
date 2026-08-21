@@ -11,12 +11,17 @@ import { rateLimits } from '../config.js';
 import {
   MfaError,
   confirmMfaEnrollment,
+  consumeMfaChallenge,
   consumeRecoveryCode,
   consumeTotp,
+  findMfaChallenge,
   generateRecoveryCodes,
   hashRecoveryCodes,
+  recordMfaChallengeFailure,
   startMfaEnrollment
 } from '../services/mfa.js';
+import { signAccessToken } from '../services/accessTokens.js';
+import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 const STAFF_ROLES = [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.DOCTOR, ROLES.LAB_TECH, ROLES.PHARMACIST];
@@ -30,6 +35,10 @@ const mfaLimiter = rateLimit({
 
 const currentPasswordSchema = z.string().min(1).max(200);
 const codeSchema = z.string().regex(/^\d{6}$/);
+const loginVerificationSchema = z.object({
+  challengeToken: z.string().trim().min(40).max(200),
+  code: codeSchema
+}).strict();
 const proofSchema = z.object({
   currentPassword: currentPasswordSchema,
   totpCode: codeSchema.optional(),
@@ -70,6 +79,77 @@ function handleMfaError(res, error) {
   if (error instanceof MfaError) return sendError(res, error.status, error.code, error.message);
   throw error;
 }
+
+router.post('/verify', mfaLimiter, validate(loginVerificationSchema), async (req, res, next) => {
+  try {
+    const challenge = await findMfaChallenge(req.body.challengeToken);
+    if (!challenge) {
+      logger.security('auth.mfa_verification_rejected', { requestId: req.id, reason: 'invalid_or_expired_challenge', ip: req.ip });
+      return sendError(res, 401, 'MFA_CHALLENGE_INVALID', 'The MFA challenge is invalid or expired.');
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: challenge.userId },
+      select: {
+        id: true,
+        username: true,
+        role: true,
+        status: true,
+        preferredLanguage: true,
+        email: true,
+        phoneNormalized: true,
+        mfaEnabled: true,
+        mfaConfiguration: { select: { state: true } },
+        doctor: { select: { id: true, fullNameEn: true } }
+      }
+    });
+    const isStaff = user && STAFF_ROLES.includes(user.role);
+    if (!isStaff || user.status !== 'ACTIVE' || !user.mfaEnabled || user.mfaConfiguration?.state !== 'ACTIVE') {
+      await consumeMfaChallenge(challenge.id, challenge.userId);
+      logger.security('auth.mfa_verification_rejected', { requestId: req.id, userId: challenge.userId, reason: 'account_not_eligible', ip: req.ip });
+      return sendError(res, 401, 'MFA_CHALLENGE_INVALID', 'The MFA challenge is invalid or expired.');
+    }
+
+    if (!await consumeTotp(user.id, req.body.code)) {
+      const failureRecorded = await recordMfaChallengeFailure(challenge.id, new Date(), req.ip || 'unknown');
+      logger.security('auth.mfa_verification_failed', { requestId: req.id, userId: user.id, ip: req.ip });
+      if (!failureRecorded || !await findMfaChallenge(req.body.challengeToken)) {
+        return sendError(res, 401, 'MFA_CHALLENGE_INVALID', 'The MFA challenge is invalid or expired.');
+      }
+      return sendError(res, 401, 'MFA_CODE_INVALID', 'The authenticator code is invalid.');
+    }
+
+    const consumed = await consumeMfaChallenge(challenge.id, user.id, new Date(), req.ip || 'unknown');
+    if (!consumed) {
+      logger.security('auth.mfa_verification_rejected', { requestId: req.id, userId: user.id, reason: 'challenge_replayed', ip: req.ip });
+      return sendError(res, 401, 'MFA_CHALLENGE_INVALID', 'The MFA challenge is invalid or expired.');
+    }
+
+    const token = signAccessToken({
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      doctorId: user.doctor?.id || null
+    });
+    logger.security('auth.mfa_verification_succeeded', { requestId: req.id, userId: user.id, role: user.role, ip: req.ip });
+    return res.json({
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        preferredLanguage: user.preferredLanguage,
+        mfaEnabled: true,
+        doctorId: user.doctor?.id || null,
+        doctorName: user.doctor?.fullNameEn || null,
+        patientLinked: null,
+        patientId: null,
+        email: user.email,
+        phone: user.phoneNormalized
+      }
+    });
+  } catch (error) { next(error); }
+});
 
 router.use(authenticate, allowRoles(...STAFF_ROLES), mfaLimiter);
 

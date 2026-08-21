@@ -83,6 +83,57 @@
   padding: 2.5rem;
 }
 
+.staff-login-card {
+  max-width: 450px;
+}
+
+.staff-login-title {
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+.staff-login-description {
+  color: var(--text-secondary);
+  line-height: 1.6;
+  text-align: center;
+  margin: 0 0 1.5rem;
+}
+
+.staff-login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.staff-login-error {
+  width: 100%;
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.staff-login-submit {
+  width: 100%;
+}
+
+.staff-mfa-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 1rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--primary);
+  background: rgba(20, 184, 166, 0.12);
+}
+
+.staff-mfa-code {
+  text-align: center;
+  direction: ltr;
+  letter-spacing: 0.4em;
+  font-size: 1.3rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .wizard-steps {
   display: flex;
   justify-content: space-between;
@@ -697,4 +748,3 @@
     padding: 1rem;
   }
 }
-

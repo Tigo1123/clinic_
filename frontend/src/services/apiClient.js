@@ -1,6 +1,6 @@
-import { clearPatientSession, clearStaffSession, readPatientSession, readStaffSession } from './authStorage';
+import { clearPatientSession, clearStaffSession, readPatientSession, readStaffSession } from './authStorage.js';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE = import.meta.env?.VITE_API_BASE_URL || '';
 
 export class ApiClientError extends Error {
   constructor(status, code, message, details) {

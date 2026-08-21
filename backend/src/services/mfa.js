@@ -160,7 +160,7 @@ function challengeTokenHash(token) {
   return crypto.createHash('sha256').update(token, 'utf8').digest('hex');
 }
 
-export async function createMfaChallenge(userId, purpose = 'LOGIN') {
+export async function createMfaChallenge(userId, purpose = 'LOGIN', ipAddress = 'unknown') {
   const token = crypto.randomBytes(32).toString('base64url');
   const now = new Date();
   const expiresAt = new Date(now.getTime() + CHALLENGE_MINUTES * 60 * 1000);
@@ -169,10 +169,14 @@ export async function createMfaChallenge(userId, purpose = 'LOGIN') {
       where: { userId, purpose, usedAt: null },
       data: { usedAt: now }
     });
-    return tx.mfaChallenge.create({
+    const created = await tx.mfaChallenge.create({
       data: { userId, purpose, tokenHash: challengeTokenHash(token), expiresAt, maxAttempts: CHALLENGE_MAX_ATTEMPTS },
       select: { id: true, expiresAt: true }
     });
+    await tx.tenantAuditLog.create({
+      data: { userId, action: 'MFA_CHALLENGE_CREATED', details: 'Staff login MFA challenge created.', ipAddress }
+    });
+    return created;
   });
   return { token, challengeId: challenge.id, expiresAt: challenge.expiresAt };
 }
@@ -186,21 +190,34 @@ export async function findMfaChallenge(token, purpose = 'LOGIN', now = new Date(
   return challenge;
 }
 
-export async function recordMfaChallengeFailure(challengeId, now = new Date()) {
-  const updated = await prisma.mfaChallenge.updateMany({
-    where: { id: challengeId, usedAt: null, expiresAt: { gt: now }, attemptCount: { lt: CHALLENGE_MAX_ATTEMPTS } },
-    data: { attemptCount: { increment: 1 } }
+export async function recordMfaChallengeFailure(challengeId, now = new Date(), ipAddress = 'unknown') {
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.mfaChallenge.updateMany({
+      where: { id: challengeId, usedAt: null, expiresAt: { gt: now }, attemptCount: { lt: CHALLENGE_MAX_ATTEMPTS } },
+      data: { attemptCount: { increment: 1 } }
+    });
+    if (updated.count === 1) {
+      const challenge = await tx.mfaChallenge.findUnique({ where: { id: challengeId }, select: { userId: true } });
+      if (challenge) await tx.tenantAuditLog.create({
+        data: { userId: challenge.userId, action: 'MFA_VERIFICATION_FAILED', details: 'Staff login MFA verification failed.', ipAddress }
+      });
+    }
+    return updated.count === 1;
   });
-  return updated.count === 1;
 }
 
-export async function consumeMfaChallenge(challengeId, userId, now = new Date()) {
-  const consumed = await prisma.mfaChallenge.updateMany({
-    where: {
-      id: challengeId, userId, usedAt: null, expiresAt: { gt: now },
-      attemptCount: { lt: CHALLENGE_MAX_ATTEMPTS }
-    },
-    data: { usedAt: now }
+export async function consumeMfaChallenge(challengeId, userId, now = new Date(), ipAddress = null) {
+  return prisma.$transaction(async (tx) => {
+    const consumed = await tx.mfaChallenge.updateMany({
+      where: {
+        id: challengeId, userId, usedAt: null, expiresAt: { gt: now },
+        attemptCount: { lt: CHALLENGE_MAX_ATTEMPTS }
+      },
+      data: { usedAt: now }
+    });
+    if (consumed.count === 1 && ipAddress !== null) await tx.tenantAuditLog.create({
+      data: { userId, action: 'MFA_VERIFICATION_SUCCEEDED', details: 'Staff login MFA verification succeeded.', ipAddress }
+    });
+    return consumed.count === 1;
   });
-  return consumed.count === 1;
 }

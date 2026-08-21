@@ -10,6 +10,7 @@ import { normalizeEmail, normalizePhone } from '../utils/identity.js';
 import { rateLimits } from '../config.js';
 import { logger } from '../utils/logger.js';
 import { signAccessToken } from '../services/accessTokens.js';
+import { createMfaChallenge } from '../services/mfa.js';
 
 const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
 
@@ -87,7 +88,36 @@ router.post('/login', loginLimiter, validate(z.object({
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
 
-    // 4. Resolve role-specific profile linkage.
+    // 4. Enforce the second authentication factor for enrolled staff before
+    // resolving profiles or issuing a normal application access token.
+    if (STAFF_ROLES.includes(user.role)) {
+      const mfaConfiguration = await prisma.mfaConfiguration.findUnique({
+        where: { userId: user.id },
+        select: { state: true }
+      });
+      const hasActiveMfa = user.mfaEnabled && mfaConfiguration?.state === 'ACTIVE';
+      const hasInconsistentMfaState = user.mfaEnabled !== (mfaConfiguration?.state === 'ACTIVE');
+
+      if (hasInconsistentMfaState) {
+        logger.security('auth.mfa_configuration_invalid', { requestId: req.id, userId: user.id, ip: req.ip });
+        return res.status(403).json({
+          error: 'Multi-factor authentication is unavailable for this account. Contact Admin.',
+          code: 'MFA_CONFIGURATION_INVALID'
+        });
+      }
+
+      if (hasActiveMfa) {
+        const challenge = await createMfaChallenge(user.id, 'LOGIN', req.ip || 'unknown');
+        logger.security('auth.mfa_challenge_created', { requestId: req.id, userId: user.id, ip: req.ip });
+        return res.json({
+          mfaRequired: true,
+          challengeToken: challenge.token,
+          expiresAt: challenge.expiresAt
+        });
+      }
+    }
+
+    // 5. Resolve role-specific profile linkage.
     //
     // Authentication and medical-record linkage are intentionally separate:
     // a valid PATIENT account may authenticate even if a legacy patient
@@ -205,7 +235,7 @@ router.post('/login', loginLimiter, validate(z.object({
       }
     }
 
-    // 5. Sign JWT
+    // 6. Sign JWT
     const token = signAccessToken({
       id: user.id,
       username: user.username,
@@ -213,7 +243,7 @@ router.post('/login', loginLimiter, validate(z.object({
       doctorId: doctorDetails ? doctorDetails.id : null
     });
 
-    // 6. Return response
+    // 7. Return response
     logger.security('auth.login_succeeded', { requestId: req.id, userId: user.id, role: user.role, ip: req.ip });
     return res.json({
       token,
