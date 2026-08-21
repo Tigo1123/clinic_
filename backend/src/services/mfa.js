@@ -36,10 +36,13 @@ function createTotp(secret, label) {
   });
 }
 
-export function generateTotpEnrollment(label) {
-  const secret = new OTPAuth.Secret({ size: 20 }).base32;
+export function buildTotpEnrollment(secret, label) {
   const totp = createTotp(secret, label);
   return { secret, otpauthUri: totp.toString() };
+}
+
+export function generateTotpEnrollment(label) {
+  return buildTotpEnrollment(new OTPAuth.Secret({ size: 20 }).base32, label);
 }
 
 export function validateTotp(secret, code, timestamp = Date.now()) {

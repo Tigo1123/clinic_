@@ -180,6 +180,17 @@ router.post('/enroll/confirm', validate(z.object({ code: codeSchema }).strict())
   } catch (error) {
     if (error instanceof MfaError) {
       await audit(req, 'MFA_ENROLLMENT_FAILED', `Staff MFA enrollment confirmation failed: ${error.code}.`);
+      logger.security('auth.mfa_enrollment_verification_failed', {
+        requestId: req.id,
+        userId: req.user.id,
+        reason: error.code,
+        algorithm: 'SHA1',
+        digits: 6,
+        periodSeconds: 30,
+        windowSteps: 1,
+        serverTimeStep: Math.floor(Date.now() / 30_000),
+        ip: req.ip
+      });
       return handleMfaError(res, error);
     }
     next(error);
