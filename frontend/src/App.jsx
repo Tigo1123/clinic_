@@ -13,6 +13,7 @@ import StaffSecurityDialog from './components/StaffSecurityDialog';
 import { clearStaffSession, readStaffSession, writeStaffSession } from './services/authStorage';
 import { completeStaffMfa, isTerminalMfaError, startStaffLogin } from './services/staffLogin';
 import { staffSocket as socket } from './services/staffSocket';
+import { normalizeTotpCode } from './utils/mfaCode';
 
 import './App.css';
 
@@ -228,10 +229,9 @@ function LoginView({ onLogin, t }) {
             autoComplete="one-time-code"
             inputMode="numeric"
             pattern="[0-9]{6}"
-            maxLength={6}
             className="form-input staff-mfa-code"
             value={mfaCode}
-            onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+            onChange={(event) => setMfaCode(normalizeTotpCode(event.target.value))}
           />
         </div>
         <button type="submit" disabled={submitting || mfaCode.length !== 6} className="btn btn-primary staff-login-submit">

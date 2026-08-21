@@ -7,10 +7,7 @@ import {
   regenerateMfaRecoveryCodes,
   startMfaEnrollment
 } from '../services/staffMfa';
-
-function numericCode(value) {
-  return value.replace(/\D/g, '').slice(0, 6);
-}
+import { normalizeTotpCode } from '../utils/mfaCode';
 
 function ProofFields({ currentPassword, setCurrentPassword, proofType, setProofType, proof, setProof, t }) {
   return <>
@@ -25,7 +22,7 @@ function ProofFields({ currentPassword, setCurrentPassword, proofType, setProofT
     </fieldset>
     <div className="form-group">
       <label className="form-label" htmlFor="mfa-proof">{proofType === 'totp' ? t('authenticatorCode') : t('recoveryCode')}</label>
-      <input id="mfa-proof" className="form-input" type="text" autoComplete="one-time-code" inputMode={proofType === 'totp' ? 'numeric' : 'text'} required value={proof} onChange={(event) => setProof(proofType === 'totp' ? numericCode(event.target.value) : event.target.value.trim().slice(0, 30))} />
+      <input id="mfa-proof" className="form-input" type="text" autoComplete="one-time-code" inputMode={proofType === 'totp' ? 'numeric' : 'text'} required value={proof} onChange={(event) => setProof(proofType === 'totp' ? normalizeTotpCode(event.target.value) : event.target.value.trim().slice(0, 30))} />
     </div>
   </>;
 }
@@ -146,7 +143,7 @@ export default function StaffSecurityDialog({ user, onUserChange, onClose, t }) 
         <p className="staff-login-description">{t('mfaScanInstructions')}</p>
         <div className="security-qr" aria-label={t('mfaQrCode')}><QRCodeSVG value={enrollment.otpauthUri} size={190} level="M" /></div>
         <details className="security-manual"><summary>{t('manualSetup')}</summary><p>{t('manualSetupInstructions')}</p><code dir="ltr">{enrollment.secret}</code></details>
-        <div className="form-group"><label className="form-label" htmlFor="mfa-enrollment-code">{t('authenticatorCode')}</label><input id="mfa-enrollment-code" className="form-input staff-mfa-code" type="text" autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} required value={code} onChange={(event) => setCode(numericCode(event.target.value))} /></div>
+        <div className="form-group"><label className="form-label" htmlFor="mfa-enrollment-code">{t('authenticatorCode')}</label><input id="mfa-enrollment-code" className="form-input staff-mfa-code" type="text" autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6}" required value={code} onChange={(event) => setCode(normalizeTotpCode(event.target.value))} /></div>
         <button className="btn btn-primary" disabled={pending || code.length !== 6} type="submit">{pending ? t('verifying') : t('confirmAndEnable')}</button>
         <button className="btn btn-secondary" disabled={pending} type="button" onClick={() => resetSensitive()}>{t('cancel')}</button>
       </form>}
