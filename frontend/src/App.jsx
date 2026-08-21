@@ -10,10 +10,10 @@ import {
 
 import NotificationDropdown from './components/NotificationDropdown';
 import StaffSecurityDialog from './components/StaffSecurityDialog';
+import MfaCodeInput from './components/MfaCodeInput';
 import { clearStaffSession, readStaffSession, writeStaffSession } from './services/authStorage';
 import { completeStaffMfa, isTerminalMfaError, startStaffLogin } from './services/staffLogin';
 import { staffSocket as socket } from './services/staffSocket';
-import { normalizeTotpCode } from './utils/mfaCode';
 
 import './App.css';
 
@@ -221,17 +221,13 @@ function LoginView({ onLogin, t }) {
       <form onSubmit={handleMfaSubmit} className="staff-login-form">
         <div className="form-group">
           <label className="form-label" htmlFor="staff-mfa-code">{t('authenticatorCode')}</label>
-          <input
+          <MfaCodeInput
             id="staff-mfa-code"
-            type="text"
             required
             autoFocus
-            autoComplete="one-time-code"
-            inputMode="numeric"
-            pattern="[0-9]{6}"
             className="form-input staff-mfa-code"
             value={mfaCode}
-            onChange={(event) => setMfaCode(normalizeTotpCode(event.target.value))}
+            onValueChange={setMfaCode}
           />
         </div>
         <button type="submit" disabled={submitting || mfaCode.length !== 6} className="btn btn-primary staff-login-submit">
