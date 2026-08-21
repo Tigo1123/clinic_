@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 
 import NotificationDropdown from './components/NotificationDropdown';
+import StaffSecurityDialog from './components/StaffSecurityDialog';
 import { clearStaffSession, readStaffSession, writeStaffSession } from './services/authStorage';
 import { completeStaffMfa, isTerminalMfaError, startStaffLogin } from './services/staffLogin';
 import { staffSocket as socket } from './services/staffSocket';
@@ -32,6 +33,7 @@ export default function App({ initialView = 'login' }) {
   const lang = (i18n.resolvedLanguage || i18n.language || 'ar')
     .split('-')[0];
   const [theme, setTheme] = useState('light');
+  const [securityOpen, setSecurityOpen] = useState(false);
 
   // Load state on mount
   useEffect(() => {
@@ -66,10 +68,18 @@ export default function App({ initialView = 'login' }) {
   };
 
   const handleLogout = () => {
+    setSecurityOpen(false);
     clearStaffSession();
     setUser(null);
     setView(initialView);
     socket.disconnect();
+  };
+
+  const handleUserChange = (nextUser) => {
+    const session = readStaffSession();
+    if (!session) return handleLogout();
+    writeStaffSession(nextUser, session.token);
+    setUser(nextUser);
   };
 
   useEffect(() => {
@@ -99,6 +109,10 @@ export default function App({ initialView = 'login' }) {
               <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
                 {user.username} ({user.role})
               </span>
+              <button className="btn btn-secondary" onClick={() => setSecurityOpen(true)}>
+                <ShieldCheck size={16} />
+                {t('securitySettings')}
+              </button>
               <button className="btn btn-secondary" onClick={handleLogout}>
                 <LogOut size={16} />
                 {t('logout')}
@@ -115,6 +129,7 @@ export default function App({ initialView = 'login' }) {
           <DashboardContainer user={user} lang={lang} t={t} />
         )}
       </main>
+      {securityOpen && user && <StaffSecurityDialog user={user} onUserChange={handleUserChange} onClose={() => setSecurityOpen(false)} t={t} />}
     </div>
   );
 }
