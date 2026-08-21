@@ -2,7 +2,7 @@ import express from 'express';
 import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
 import { decrypt } from '../utils/encryption.js';
-import { allowRoles, doctorHasPatientAccess, ROLES } from '../middleware/policies.js';
+import { allowRoles, doctorHasPatientAccess, getDoctorMedicalRecordAccess, ROLES } from '../middleware/policies.js';
 import { sendError } from '../utils/apiError.js';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
@@ -211,9 +211,9 @@ router.get('/:id', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST, ROL
 /**
  * GET /api/patients/:id/history
  * Retrieves EMR timeline history. Evaluates role-permission boundaries:
- * - Decrypts clinical details (symptoms, diagnosis, notes) if the doctor owns the record,
- *   or if a valid Consent / active Break-the-Glass exists.
- * - Otherwise, masks clinical details with a LOCKED status.
+ * - Returns records owned by the doctor, or all patient records if verified
+ *   Consent / active Break-the-Glass access exists.
+ * - Filters unauthorized records in the database query before decryption.
  */
 router.get('/:id/history', authenticate, allowRoles(ROLES.DOCTOR), async (req, res) => {
   const patientId = req.params.id;
@@ -232,9 +232,11 @@ router.get('/:id/history', authenticate, allowRoles(ROLES.DOCTOR), async (req, r
       return res.status(404).json({ error: 'Patient not found.' });
     }
 
-    // 2. Fetch all medical records (visits)
+    const recordAccess = await getDoctorMedicalRecordAccess(user, patientId);
+
+    // 2. Fetch only medical records authorized for this doctor.
     const records = await prisma.medicalRecord.findMany({
-      where: { patientId },
+      where: recordAccess.where,
       include: {
         doctor: true,
         appointment: true
@@ -242,41 +244,8 @@ router.get('/:id/history', authenticate, allowRoles(ROLES.DOCTOR), async (req, r
       orderBy: { visitDate: 'desc' }
     });
 
-    // 3. Check for active consent or active Break-the-Glass logs
-    let hasFullAccess = false;
-
-    // Check EMR Consent table
-    const activeConsent = await prisma.consent.findFirst({
-      where: {
-        patientId,
-        consentType: 'EMR_ACCESS',
-        timestamp: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } // valid for 24h
-      }
-    });
-
-    if (activeConsent) {
-      hasFullAccess = true;
-    }
-
-    // Check if Doctor requested Break-the-Glass override in the last 2 hours
-    if (user.role === 'DOCTOR') {
-      const activeBypass = await prisma.tenantAuditLog.findFirst({
-        where: {
-          userId: user.id,
-          action: `EMR_BREAK_THE_GLASS_BYPASS:${patientId}`,
-          timestamp: { gte: new Date(Date.now() - 2 * 60 * 60 * 1000) } // valid for 2h
-        }
-      });
-      if (activeBypass) {
-        hasFullAccess = true;
-      }
-    }
-
-    // 4. Map records according to access level
+    // 3. Every selected record is authorized before decryption.
     const parsedHistory = records.map((rec) => {
-      const isRecordOwner = user.role === 'DOCTOR' && rec.doctor.userId === user.id;
-      const canViewClinical = hasFullAccess || isRecordOwner;
-
       return {
         id: rec.id,
         recordId: rec.id,
@@ -287,13 +256,12 @@ router.get('/:id/history', authenticate, allowRoles(ROLES.DOCTOR), async (req, r
         specialtyAr: rec.doctor.specialtyAr,
         specialtyEn: rec.doctor.specialtyEn,
         vitalSigns: JSON.parse(rec.vitalSignsJson),
-        isLocked: !canViewClinical,
-        // Decrypt values if authorized, otherwise return masked placeholder
-        symptoms: canViewClinical ? decrypt(rec.symptomsEncrypted) : '[LOCKED - Requires Consent]',
-        diagnosis: canViewClinical ? decrypt(rec.diagnosisEncrypted) : '[LOCKED - Requires Consent]',
-        treatment: canViewClinical ? decrypt(rec.treatmentEncrypted) : '[LOCKED - Requires Consent]',
-        clinicalNotes: canViewClinical ? decrypt(rec.clinicalNotesEncrypted) : '[LOCKED - Requires Consent]',
-        attachmentPath: canViewClinical ? rec.attachmentPath : null
+        isLocked: false,
+        symptoms: decrypt(rec.symptomsEncrypted),
+        diagnosis: decrypt(rec.diagnosisEncrypted),
+        treatment: decrypt(rec.treatmentEncrypted),
+        clinicalNotes: decrypt(rec.clinicalNotesEncrypted),
+        attachmentPath: rec.attachmentPath
       };
     });
 
@@ -301,7 +269,7 @@ router.get('/:id/history', authenticate, allowRoles(ROLES.DOCTOR), async (req, r
       patientId: patient.id,
       fullNameAr: patient.fullNameAr,
       fullNameEn: patient.fullNameEn,
-      hasFullAccess,
+      hasFullAccess: recordAccess.hasCrossDoctorAccess,
       history: parsedHistory
     });
 
@@ -340,10 +308,14 @@ router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTION
   }
 
   try {
-    const canViewClinical = req.user.role === ROLES.DOCTOR && await doctorHasPatientAccess(req.user, patientId);
-    if (req.user.role === ROLES.DOCTOR && !canViewClinical) {
+    const isDoctor = req.user.role === ROLES.DOCTOR;
+    const canViewPatientProfile = isDoctor && await doctorHasPatientAccess(req.user, patientId);
+    if (isDoctor && !canViewPatientProfile) {
       return sendError(res, 403, 'PATIENT_ACCESS_FORBIDDEN', 'This patient is not assigned to the authenticated doctor.');
     }
+    const recordAccess = isDoctor
+      ? await getDoctorMedicalRecordAccess(req.user, patientId)
+      : null;
     const patient = await prisma.patient.findUnique({
       where: { id: patientId },
       include: {
@@ -354,6 +326,7 @@ router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTION
           }
         },
         medicalRecords: {
+          where: recordAccess?.where,
           orderBy: { visitDate: 'desc' },
           include: {
             doctor: true,
@@ -404,10 +377,10 @@ router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTION
           specialtyEn: rec.doctor?.specialtyEn || ''
         },
         vitals,
-        symptoms: canViewClinical ? safeDecryptField(rec.symptomsEncrypted) : undefined,
-        diagnosis: canViewClinical ? safeDecryptField(rec.diagnosisEncrypted) : undefined,
-        treatment: canViewClinical ? safeDecryptField(rec.treatmentEncrypted) : undefined,
-        clinicalNotes: canViewClinical ? safeDecryptField(rec.clinicalNotesEncrypted) : undefined,
+        symptoms: isDoctor ? safeDecryptField(rec.symptomsEncrypted) : undefined,
+        diagnosis: isDoctor ? safeDecryptField(rec.diagnosisEncrypted) : undefined,
+        treatment: isDoctor ? safeDecryptField(rec.treatmentEncrypted) : undefined,
+        clinicalNotes: isDoctor ? safeDecryptField(rec.clinicalNotesEncrypted) : undefined,
         prescriptionsCount: (rec.prescriptions || []).reduce((acc, p) => acc + (p.prescribedDrugs?.length || 0), 0),
         labOrdersCount: (rec.labOrders || []).reduce((acc, lo) => acc + (lo.items?.length || 0), 0)
       };

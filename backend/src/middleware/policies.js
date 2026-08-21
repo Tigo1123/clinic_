@@ -33,6 +33,48 @@ export async function doctorHasPatientAccess(user, patientId) {
   return Boolean(appointment);
 }
 
+const EMR_CONSENT_VALIDITY_MS = 24 * 60 * 60 * 1000;
+const BREAK_GLASS_VALIDITY_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Builds the record-level visibility policy for a doctor and patient.
+ *
+ * Ordinary patient access only exposes records owned by the authenticated
+ * doctor's profile. A verified, recent EMR consent or a doctor/user-specific
+ * break-glass grant permits the existing patient-wide cross-doctor access.
+ */
+export async function getDoctorMedicalRecordAccess(user, patientId, now = new Date()) {
+  if (user.role !== ROLES.DOCTOR || !user.doctorId) {
+    return { hasCrossDoctorAccess: false, where: { id: { in: [] } } };
+  }
+
+  const [verifiedConsent, activeBreakGlass] = await Promise.all([
+    prisma.consent.findFirst({
+      where: {
+        patientId,
+        consentType: 'EMR_ACCESS',
+        otpVerified: true,
+        timestamp: { gte: new Date(now.getTime() - EMR_CONSENT_VALIDITY_MS) }
+      },
+      select: { id: true }
+    }),
+    prisma.tenantAuditLog.findFirst({
+      where: {
+        userId: user.id,
+        action: `EMR_BREAK_THE_GLASS_BYPASS:${patientId}`,
+        timestamp: { gte: new Date(now.getTime() - BREAK_GLASS_VALIDITY_MS) }
+      },
+      select: { id: true }
+    })
+  ]);
+
+  const hasCrossDoctorAccess = Boolean(verifiedConsent || activeBreakGlass);
+  return {
+    hasCrossDoctorAccess,
+    where: hasCrossDoctorAccess ? { patientId } : { patientId, doctorId: user.doctorId }
+  };
+}
+
 export async function requireDoctorPatientAccess(req, res, next) {
   try {
     const patientId = req.params.id || req.params.patientId || req.body.patientId;

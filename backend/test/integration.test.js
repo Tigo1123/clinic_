@@ -6,6 +6,7 @@ import prisma from '../src/db.js';
 import { app, httpServer } from '../src/server.js';
 import { validateEnvironment } from '../src/config.js';
 import { emitQueueUpdate } from '../src/utils/socketEvents.js';
+import { encrypt } from '../src/utils/encryption.js';
 
 const api = request(app);
 const tokens = {};
@@ -65,6 +66,49 @@ async function createLabReviewFixture(customName, { includeStandard = true } = {
     include: { items: true }
   });
   return { appointment, order, customItem: order.items.find((item) => item.customTestName === customName) };
+}
+
+async function createCrossDoctorRecordFixture(label) {
+  fixtureCounter += 1;
+  const appointmentDate = new Date(Date.UTC(2040, 0, 1 + fixtureCounter))
+    .toISOString()
+    .slice(0, 10);
+  const patient = await prisma.patient.create({
+    data: {
+      fullNameAr: `مريض صلاحيات ${label}`,
+      fullNameEn: `Record Access ${label}`,
+      gender: 'MALE',
+      dateOfBirth: '1985-05-05',
+      phone: `0992${String(fixtureCounter).padStart(6, '0')}`,
+      addressStateId: 1,
+      emergencyContact: 'Self'
+    }
+  });
+  const [ownAppointment, otherAppointment] = await Promise.all([
+    prisma.appointment.create({
+      data: { patientId: patient.id, doctorId: doctor1.id, appointmentDate, appointmentTime: '09:00', status: 'COMPLETED' }
+    }),
+    prisma.appointment.create({
+      data: { patientId: patient.id, doctorId: doctor2.id, appointmentDate, appointmentTime: '10:00', status: 'COMPLETED' }
+    })
+  ]);
+  const createRecord = (doctorId, appointmentId, marker) => prisma.medicalRecord.create({
+    data: {
+      patientId: patient.id,
+      doctorId,
+      appointmentId,
+      symptomsEncrypted: encrypt(`${marker} symptoms`),
+      diagnosisEncrypted: encrypt(`${marker} diagnosis`),
+      treatmentEncrypted: encrypt(`${marker} treatment`),
+      clinicalNotesEncrypted: encrypt(`${marker} notes`),
+      vitalSignsJson: '{}'
+    }
+  });
+  const [ownRecord, otherRecord] = await Promise.all([
+    createRecord(doctor1.id, ownAppointment.id, `${label}-own`),
+    createRecord(doctor2.id, otherAppointment.id, `${label}-other`)
+  ]);
+  return { patient, ownRecord, otherRecord };
 }
 
 test('queue socket updates target operational staff rooms only', () => {
@@ -177,6 +221,94 @@ test('pharmacist cannot retrieve complete patient profile', async () => {
 
 test('doctor cannot access an unrelated patient', async () => {
   assert.equal((await api.get(`/api/patients/${patient2.id}/history`).set(auth('doctor'))).status, 403);
+  assert.equal((await api.get(`/api/patients/${patient2.id}/profile`).set(auth('doctor'))).status, 403);
+});
+
+test('a cancelled appointment alone does not grant patient profile access', async () => {
+  fixtureCounter += 1;
+  const patient = await prisma.patient.create({
+    data: {
+      fullNameAr: 'مريض موعد ملغي', fullNameEn: 'Cancelled Appointment Patient', gender: 'FEMALE',
+      dateOfBirth: '1988-08-08', phone: `0993${String(fixtureCounter).padStart(6, '0')}`,
+      addressStateId: 1, emergencyContact: 'Self'
+    }
+  });
+  await prisma.appointment.create({
+    data: { patientId: patient.id, doctorId: doctor1.id, appointmentDate: '2036-02-01', appointmentTime: '09:00', status: 'CANCELLED' }
+  });
+
+  const response = await api.get(`/api/patients/${patient.id}/profile`).set(auth('doctor'));
+  assert.equal(response.status, 403);
+  assert.equal(response.body.error.code, 'PATIENT_ACCESS_FORBIDDEN');
+});
+
+test('doctor profile and history expose own records but not another doctor records', async () => {
+  const fixture = await createCrossDoctorRecordFixture('default');
+
+  const profile = await api.get(`/api/patients/${fixture.patient.id}/profile`).set(auth('doctor'));
+  assert.equal(profile.status, 200);
+  assert.deepEqual(profile.body.visits.map((visit) => visit.id), [fixture.ownRecord.id]);
+  assert.equal(profile.body.visits[0].diagnosis, 'default-own diagnosis');
+
+  const history = await api.get(`/api/patients/${fixture.patient.id}/history`).set(auth('doctor'));
+  assert.equal(history.status, 200);
+  assert.deepEqual(history.body.history.map((record) => record.id), [fixture.ownRecord.id]);
+  assert.equal(history.body.history.some((record) => record.id === fixture.otherRecord.id), false);
+});
+
+test('only recent OTP-verified EMR consent permits cross-doctor records', async () => {
+  const fixture = await createCrossDoctorRecordFixture('consent');
+
+  await prisma.consent.create({
+    data: { patientId: fixture.patient.id, consentType: 'EMR_ACCESS', otpVerified: false }
+  });
+  let profile = await api.get(`/api/patients/${fixture.patient.id}/profile`).set(auth('doctor'));
+  assert.deepEqual(profile.body.visits.map((visit) => visit.id), [fixture.ownRecord.id]);
+
+  await prisma.consent.create({
+    data: {
+      patientId: fixture.patient.id,
+      consentType: 'EMR_ACCESS',
+      otpVerified: true,
+      timestamp: new Date(Date.now() - 25 * 60 * 60 * 1000)
+    }
+  });
+  profile = await api.get(`/api/patients/${fixture.patient.id}/profile`).set(auth('doctor'));
+  assert.deepEqual(profile.body.visits.map((visit) => visit.id), [fixture.ownRecord.id]);
+
+  await prisma.consent.create({
+    data: { patientId: fixture.patient.id, consentType: 'EMR_ACCESS', otpVerified: true }
+  });
+  profile = await api.get(`/api/patients/${fixture.patient.id}/profile`).set(auth('doctor'));
+  assert.deepEqual(new Set(profile.body.visits.map((visit) => visit.id)), new Set([fixture.ownRecord.id, fixture.otherRecord.id]));
+});
+
+test('break-glass access is patient-scoped, doctor-specific, and time-limited', async () => {
+  const fixture = await createCrossDoctorRecordFixture('break-glass');
+  const doctorUser = await prisma.user.findUnique({ where: { username: 'doctor@cms.com' } });
+
+  await prisma.tenantAuditLog.create({
+    data: {
+      userId: doctorUser.id,
+      action: `EMR_BREAK_THE_GLASS_BYPASS:${fixture.patient.id}`,
+      details: 'Expired test-only emergency access grant.',
+      ipAddress: '127.0.0.1',
+      timestamp: new Date(Date.now() - 3 * 60 * 60 * 1000)
+    }
+  });
+  let profile = await api.get(`/api/patients/${fixture.patient.id}/profile`).set(auth('doctor'));
+  assert.deepEqual(profile.body.visits.map((visit) => visit.id), [fixture.ownRecord.id]);
+
+  await prisma.tenantAuditLog.create({
+    data: {
+      userId: doctorUser.id,
+      action: `EMR_BREAK_THE_GLASS_BYPASS:${fixture.patient.id}`,
+      details: 'Active test-only emergency access grant.',
+      ipAddress: '127.0.0.1'
+    }
+  });
+  profile = await api.get(`/api/patients/${fixture.patient.id}/profile`).set(auth('doctor'));
+  assert.deepEqual(new Set(profile.body.visits.map((visit) => visit.id)), new Set([fixture.ownRecord.id, fixture.otherRecord.id]));
 });
 
 test('pending appointments are restricted to reception/admin', async () => {
