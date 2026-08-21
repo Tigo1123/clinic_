@@ -16,6 +16,7 @@ import adminRoutes from './routes/admin.js';
 import notificationRoutes from './routes/notifications.js';
 import patientAuthRoutes from './routes/patientAuth.js';
 import patientSelfRoutes from './routes/patient.js';
+import mfaRoutes from './routes/mfa.js';
 import { ApiError, errorHandler, notFoundHandler } from './utils/apiError.js';
 import { fileURLToPath } from 'url';
 import { validateEnvironment } from './config.js';
@@ -109,6 +110,7 @@ app.get(['/api/health', '/api/health/ready'], async (req, res) => {
 
 // Mount modular API routes
 app.use('/api/auth', authRoutes);
+app.use('/api/auth/mfa', mfaRoutes);
 app.use('/api/patients', patientRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/records', recordRoutes);

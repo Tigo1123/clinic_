@@ -18,6 +18,7 @@ const env = {
   DATABASE_URL: parsedTestUrl.toString(),
   JWT_SECRET: 'test-jwt-secret-at-least-thirty-two-characters',
   MEDICAL_ENCRYPTION_KEY: 'test-medical-key-separate-at-least-thirty-two',
+  MFA_ENCRYPTION_KEY: 'test-mfa-key-separate-at-least-thirty-two-characters',
   CORS_ALLOWED_ORIGINS: 'http://localhost:5173',
   NOTIFICATIONS_DISABLED: 'true'
   ,VERIFICATION_PROVIDER: 'development'
@@ -25,9 +26,10 @@ const env = {
 };
 
 for (const [command, args] of [
+  ['npx', ['prisma', 'generate']],
   ['npx', ['prisma', 'migrate', 'deploy']],
   ['node', ['prisma/seed.js']],
-  ['node', ['--test', '--test-concurrency=1', 'test/access-token.test.js', 'test/clinic-time.test.js', 'test/integration.test.js', 'test/password-policy.test.js', 'test/patient.test.js', 'test/seed-security.test.js']]
+  ['node', ['--test', '--test-concurrency=1', 'test/access-token.test.js', 'test/clinic-time.test.js', 'test/integration.test.js', 'test/mfa.test.js', 'test/password-policy.test.js', 'test/patient.test.js', 'test/seed-security.test.js']]
 ]) {
   const result = spawnSync(command, args, { cwd: backendDir, env, stdio: 'inherit' });
   if (result.status !== 0) process.exit(result.status || 1);

@@ -33,6 +33,7 @@
     "luxon": "^3.7.2",
     "multer": "^2.2.0",
     "nodemailer": "^9.0.3",
+    "otpauth": "^9.4.1",
     "prisma": "^5.22.0",
     "socket.io": "^4.8.3",
     "zod": "^4.4.3"

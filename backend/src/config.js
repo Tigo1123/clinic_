@@ -4,7 +4,8 @@ import { DEFAULT_CLINIC_TIME_ZONE, isValidClinicTimeZone } from './utils/clinicT
 const INSECURE_SECRETS = new Set([
   'secret', 'changeme', 'development-secret',
   'replace-with-a-long-random-jwt-signing-secret',
-  'replace-with-a-separate-long-random-medical-encryption-key'
+  'replace-with-a-separate-long-random-medical-encryption-key',
+  'replace-with-a-dedicated-long-random-mfa-encryption-key'
 ]);
 
 function csv(value) {
@@ -23,6 +24,7 @@ export function validateEnvironment() {
   const databaseUrl = process.env.DATABASE_URL;
   const jwtSecret = process.env.JWT_SECRET;
   const encryptionKey = process.env.MEDICAL_ENCRYPTION_KEY;
+  const mfaEncryptionKey = process.env.MFA_ENCRYPTION_KEY;
   const origins = csv(process.env.CORS_ALLOWED_ORIGINS);
   const clinicTimeZone = process.env.CLINIC_TIME_ZONE || (production ? '' : DEFAULT_CLINIC_TIME_ZONE);
 
@@ -35,7 +37,9 @@ export function validateEnvironment() {
   if (production) {
     if (!jwtSecret || jwtSecret.length < 32 || INSECURE_SECRETS.has(jwtSecret.toLowerCase())) errors.push('JWT_SECRET must be a unique secret of at least 32 characters.');
     if (!encryptionKey || encryptionKey.length < 32 || INSECURE_SECRETS.has(encryptionKey.toLowerCase())) errors.push('MEDICAL_ENCRYPTION_KEY must be a separate secret of at least 32 characters.');
+    if (!mfaEncryptionKey || mfaEncryptionKey.length < 32 || INSECURE_SECRETS.has(mfaEncryptionKey.toLowerCase())) errors.push('MFA_ENCRYPTION_KEY must be a separate secret of at least 32 characters.');
     if (jwtSecret && encryptionKey && jwtSecret === encryptionKey) errors.push('JWT_SECRET and MEDICAL_ENCRYPTION_KEY must be different.');
+    if (mfaEncryptionKey && [jwtSecret, encryptionKey].includes(mfaEncryptionKey)) errors.push('MFA_ENCRYPTION_KEY must be different from JWT_SECRET and MEDICAL_ENCRYPTION_KEY.');
     if (!origins.length) errors.push('CORS_ALLOWED_ORIGINS must list trusted HTTPS origins.');
     if (origins.some((origin) => origin === '*' || !origin.startsWith('https://'))) errors.push('Production CORS origins must be explicit HTTPS URLs and cannot use wildcards.');
     if (process.env.VERIFICATION_PROVIDER === 'development') errors.push('The development verification provider is forbidden in production.');

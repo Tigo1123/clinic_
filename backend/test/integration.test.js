@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import request from 'supertest';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import * as OTPAuth from 'otpauth';
 import prisma from '../src/db.js';
 import { app, httpServer } from '../src/server.js';
 import { validateEnvironment } from '../src/config.js';
@@ -16,6 +17,14 @@ import {
   signAccessToken,
   verifyAccessToken
 } from '../src/services/accessTokens.js';
+import { decryptMfaSecret } from '../src/services/mfaCrypto.js';
+import {
+  consumeMfaChallenge,
+  consumeRecoveryCode,
+  createMfaChallenge,
+  findMfaChallenge,
+  recordMfaChallengeFailure
+} from '../src/services/mfa.js';
 
 const api = request(app);
 const tokens = {};
@@ -248,6 +257,151 @@ test('WebSocket authentication uses the strict access-token contract', async () 
   }
 });
 
+test('staff MFA enrollment, recovery, challenge, and disable lifecycle is secure while login remains unchanged', async () => {
+  const username = `mfa-staff-${Date.now()}@example.test`;
+  const password = 'MfaFoundationPass123';
+  const passwordHash = await bcrypt.hash(password, 10);
+  const staff = await prisma.user.create({
+    data: { username, passwordHash, role: 'RECEPTIONIST', status: 'ACTIVE', preferredLanguage: 'en' }
+  });
+  const patient = await prisma.user.create({
+    data: { username: `mfa-patient-${Date.now()}@example.test`, passwordHash, role: 'PATIENT', status: 'ACTIVE', preferredLanguage: 'en' }
+  });
+  const staffToken = signAccessToken({ id: staff.id, username: staff.username, role: staff.role });
+  const patientToken = signAccessToken({ id: patient.id, username: patient.username, role: patient.role });
+
+  assert.equal((await api.post('/api/auth/mfa/enroll').send({ currentPassword: password })).status, 401);
+  assert.equal((await api.post('/api/auth/mfa/enroll').set({ Authorization: `Bearer ${patientToken}` }).send({ currentPassword: password })).status, 403);
+  assert.equal((await api.post('/api/auth/mfa/enroll').set({ Authorization: `Bearer ${staffToken}` }).send({ currentPassword: 'wrong-password' })).status, 401);
+
+  const firstEnrollment = await api.post('/api/auth/mfa/enroll')
+    .set({ Authorization: `Bearer ${staffToken}` }).send({ currentPassword: password });
+  assert.equal(firstEnrollment.status, 201);
+  assert.equal(firstEnrollment.body.state, 'PENDING');
+  let configuration = await prisma.mfaConfiguration.findUnique({ where: { userId: staff.id } });
+  assert.equal(configuration.state, 'PENDING');
+  assert.equal((await prisma.user.findUnique({ where: { id: staff.id } })).mfaEnabled, false);
+  assert.notEqual(configuration.secretEncrypted, firstEnrollment.body.secret);
+  assert.equal(configuration.secretEncrypted.includes(firstEnrollment.body.secret), false);
+  assert.equal(decryptMfaSecret(configuration.secretEncrypted, staff.id), firstEnrollment.body.secret);
+
+  const totpFor = (secret) => new OTPAuth.TOTP({
+    issuer: process.env.MFA_TOTP_ISSUER || 'Clinic Management System',
+    label: username, algorithm: 'SHA1', digits: 6, period: 30,
+    secret: OTPAuth.Secret.fromBase32(secret)
+  });
+  await prisma.mfaConfiguration.update({
+    where: { userId: staff.id }, data: { enrollmentExpiresAt: new Date(Date.now() - 1) }
+  });
+  let confirmation = await api.post('/api/auth/mfa/enroll/confirm')
+    .set({ Authorization: `Bearer ${staffToken}` }).send({ code: totpFor(firstEnrollment.body.secret).generate() });
+  assert.equal(confirmation.status, 422);
+  assert.equal(confirmation.body.error.code, 'MFA_ENROLLMENT_EXPIRED');
+
+  const secondEnrollment = await api.post('/api/auth/mfa/enroll')
+    .set({ Authorization: `Bearer ${staffToken}` }).send({ currentPassword: password });
+  assert.equal(secondEnrollment.status, 201);
+  assert.notEqual(secondEnrollment.body.secret, firstEnrollment.body.secret);
+
+  confirmation = await api.post('/api/auth/mfa/enroll/confirm')
+    .set({ Authorization: `Bearer ${staffToken}` }).send({ code: totpFor(firstEnrollment.body.secret).generate() });
+  assert.equal(confirmation.status, 422);
+  assert.equal((await prisma.user.findUnique({ where: { id: staff.id } })).mfaEnabled, false);
+
+  confirmation = await api.post('/api/auth/mfa/enroll/confirm')
+    .set({ Authorization: `Bearer ${staffToken}` }).send({ code: totpFor(secondEnrollment.body.secret).generate() });
+  assert.equal(confirmation.status, 200);
+  assert.equal(confirmation.body.state, 'ENABLED');
+  assert.equal(confirmation.body.recoveryCodes.length, 10);
+  assert.equal(Object.hasOwn(confirmation.body, 'secret'), false);
+  configuration = await prisma.mfaConfiguration.findUnique({ where: { userId: staff.id } });
+  assert.equal(configuration.state, 'ACTIVE');
+  assert.equal((await prisma.user.findUnique({ where: { id: staff.id } })).mfaEnabled, true);
+
+  const storedRecovery = await prisma.mfaRecoveryCode.findMany({ where: { userId: staff.id } });
+  assert.equal(storedRecovery.length, 10);
+  for (const record of storedRecovery) {
+    assert.equal(confirmation.body.recoveryCodes.includes(record.codeHash), false);
+    assert.equal(confirmation.body.recoveryCodes.some((code) => record.codeHash.includes(code.replaceAll('-', ''))), false);
+  }
+
+  // SEC-FINAL-002C is intentionally not active yet.
+  const loginWithMfaEnabled = await api.post('/api/auth/login').send({ username, password });
+  assert.equal(loginWithMfaEnabled.status, 200);
+  assert.equal(verifyAccessToken(loginWithMfaEnabled.body.token).typ, 'access');
+
+  const challenge = await createMfaChallenge(staff.id);
+  assert.equal((await findMfaChallenge(challenge.token)).userId, staff.id);
+  assert.throws(() => verifyAccessToken(challenge.token));
+  assert.equal((await api.get('/api/auth/users').set({ Authorization: `Bearer ${challenge.token}` })).status, 401);
+  assert.ok((await checkSocketToken(challenge.token)).error instanceof Error);
+  assert.equal(await consumeMfaChallenge(challenge.challengeId, patient.id), false);
+  const consumed = await Promise.all([
+    consumeMfaChallenge(challenge.challengeId, staff.id),
+    consumeMfaChallenge(challenge.challengeId, staff.id)
+  ]);
+  assert.deepEqual(consumed.sort(), [false, true]);
+
+  const limited = await createMfaChallenge(staff.id);
+  const limitedRecord = await findMfaChallenge(limited.token);
+  for (let attempt = 0; attempt < 5; attempt += 1) await recordMfaChallengeFailure(limitedRecord.id);
+  assert.equal(await findMfaChallenge(limited.token), null);
+
+  const expired = await createMfaChallenge(staff.id);
+  await prisma.mfaChallenge.update({ where: { id: expired.challengeId }, data: { expiresAt: new Date(Date.now() - 1) } });
+  assert.equal(await findMfaChallenge(expired.token), null);
+
+  const replayCode = confirmation.body.recoveryCodes[0];
+  const recoveryResults = await Promise.all([
+    consumeRecoveryCode(staff.id, replayCode),
+    consumeRecoveryCode(staff.id, replayCode)
+  ]);
+  assert.deepEqual(recoveryResults.sort(), [false, true]);
+
+  let regenerate = await api.post('/api/auth/mfa/recovery/regenerate')
+    .set({ Authorization: `Bearer ${staffToken}` })
+    .send({ currentPassword: 'wrong-password', recoveryCode: confirmation.body.recoveryCodes[1] });
+  assert.equal(regenerate.status, 401);
+  regenerate = await api.post('/api/auth/mfa/recovery/regenerate')
+    .set({ Authorization: `Bearer ${staffToken}` })
+    .send({ currentPassword: password, recoveryCode: 'AAAAA-AAAAA-AAAAA-AAAAA' });
+  assert.equal(regenerate.status, 401);
+  regenerate = await api.post('/api/auth/mfa/recovery/regenerate')
+    .set({ Authorization: `Bearer ${staffToken}` })
+    .send({ currentPassword: password, recoveryCode: confirmation.body.recoveryCodes[1] });
+  assert.equal(regenerate.status, 200);
+  assert.equal(regenerate.body.recoveryCodes.length, 10);
+
+  let disable = await api.delete('/api/auth/mfa').set({ Authorization: `Bearer ${staffToken}` })
+    .send({ currentPassword: 'wrong-password', recoveryCode: regenerate.body.recoveryCodes[0] });
+  assert.equal(disable.status, 401);
+  disable = await api.delete('/api/auth/mfa').set({ Authorization: `Bearer ${staffToken}` })
+    .send({ currentPassword: password, recoveryCode: 'AAAAA-AAAAA-AAAAA-AAAAA' });
+  assert.equal(disable.status, 401);
+  disable = await api.delete('/api/auth/mfa').set({ Authorization: `Bearer ${staffToken}` })
+    .send({ currentPassword: password, recoveryCode: regenerate.body.recoveryCodes[0] });
+  assert.equal(disable.status, 200);
+  assert.equal((await prisma.user.findUnique({ where: { id: staff.id } })).mfaEnabled, false);
+  assert.equal(await prisma.mfaConfiguration.findUnique({ where: { userId: staff.id } }), null);
+  assert.equal(await prisma.mfaRecoveryCode.count({ where: { userId: staff.id } }), 0);
+
+  const audits = await prisma.tenantAuditLog.findMany({
+    where: { userId: staff.id, action: { startsWith: 'MFA_' } },
+    select: { action: true, details: true }
+  });
+  for (const action of ['MFA_ENROLLMENT_STARTED', 'MFA_ENABLED', 'MFA_ENROLLMENT_FAILED', 'MFA_RECOVERY_CODES_REGENERATED', 'MFA_DISABLED']) {
+    assert.ok(audits.some((entry) => entry.action === action));
+  }
+  const forbiddenValues = [firstEnrollment.body.secret, secondEnrollment.body.secret, ...confirmation.body.recoveryCodes, ...regenerate.body.recoveryCodes];
+  assert.equal(audits.some((entry) => forbiddenValues.some((value) => entry.details.includes(value))), false);
+
+  const userList = await api.get('/api/auth/users').set(auth('admin'));
+  const serialized = JSON.stringify(userList.body);
+  assert.equal(serialized.includes('secretEncrypted'), false);
+  assert.equal(serialized.includes('codeHash'), false);
+  assert.equal(serialized.includes('mfaSecret'), false);
+});
+
 test('staff login rejects invalid credentials', async () => {
   const response = await api.post('/api/auth/login').send({ username: 'admin@cms.com', password: 'wrong-password' });
   assert.equal(response.status, 401);
@@ -277,7 +431,7 @@ test('production environment validation rejects insecure secrets and wildcard CO
 
 test('production environment requires a valid explicit clinic IANA timezone', () => {
   const previous = { ...process.env };
-  const secure = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://clinic.invalid/clinic', JWT_SECRET: 'a-secure-jwt-secret-that-is-longer-than-32', MEDICAL_ENCRYPTION_KEY: 'a-distinct-medical-key-that-is-over-32-chars', CORS_ALLOWED_ORIGINS: 'https://clinic.example', VERIFICATION_PROVIDER: 'disabled' };
+  const secure = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://clinic.invalid/clinic', JWT_SECRET: 'a-secure-jwt-secret-that-is-longer-than-32', MEDICAL_ENCRYPTION_KEY: 'a-distinct-medical-key-that-is-over-32-chars', MFA_ENCRYPTION_KEY: 'a-third-distinct-mfa-key-that-is-over-32-chars', CORS_ALLOWED_ORIGINS: 'https://clinic.example', VERIFICATION_PROVIDER: 'disabled' };
   try {
     Object.assign(process.env, secure);
     delete process.env.CLINIC_TIME_ZONE;

@@ -18,6 +18,9 @@ model User {
   lastPasswordChange         DateTime?
   mfaSecret                  String?
   mfaEnabled                 Boolean                 @default(false)
+  mfaConfiguration           MfaConfiguration?
+  mfaRecoveryCodes           MfaRecoveryCode[]
+  mfaChallenges              MfaChallenge[]
   preferredLanguage          String                  @default("ar") // ar, en
   createdAt                  DateTime                @default(now())
   doctor                     Doctor?
@@ -256,6 +259,43 @@ model VerificationChallenge {
   createdAt        DateTime  @default(now())
 
   @@index([userId, type, createdAt])
+}
+
+model MfaConfiguration {
+  userId              String    @id
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  secretEncrypted     String
+  state               String    @default("PENDING") // PENDING, ACTIVE
+  enrollmentExpiresAt DateTime?
+  lastTotpStep        BigInt?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}
+
+model MfaRecoveryCode {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, usedAt])
+}
+
+model MfaChallenge {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose      String    @default("LOGIN")
+  tokenHash    String    @unique
+  expiresAt    DateTime
+  attemptCount Int       @default(0)
+  maxAttempts  Int       @default(5)
+  usedAt       DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([userId, purpose, createdAt])
 }
 
 model PatientClaimCode {
