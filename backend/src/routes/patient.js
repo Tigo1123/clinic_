@@ -852,6 +852,25 @@ function mapPatientSafeLabTests(order) {
     }));
 }
 
+function parsePatientVitalSigns(value) {
+  try {
+    const parsed = typeof value === 'string'
+      ? JSON.parse(value || '{}')
+      : value;
+
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+      return {};
+    }
+
+    return Object.fromEntries(
+      Object.entries(parsed)
+        .filter(([, item]) => ['string', 'number'].includes(typeof item))
+    );
+  } catch {
+    return {};
+  }
+}
+
 router.get('/lab-results', async (req, res, next) => {
   try {
     const orders = await prisma.labOrder.findMany({
@@ -964,16 +983,7 @@ router.get('/medical-records/:id', async (req, res) => {
       });
     }
 
-    let vitalSigns = {};
-
-    try {
-      vitalSigns =
-        typeof record.vitalSignsJson === 'string'
-          ? JSON.parse(record.vitalSignsJson || '{}')
-          : record.vitalSignsJson || {};
-    } catch {
-      vitalSigns = {};
-    }
+    const vitalSigns = parsePatientVitalSigns(record.vitalSignsJson);
 
     return res.json({
       id: record.id,

@@ -8,6 +8,7 @@ import Dialog from '../../components/ui/Dialog';
 import { EmptyState, ErrorState, Skeleton } from '../../components/feedback/States';
 import HealthcareIllustration from '../../components/healthcare/HealthcareIllustration';
 import { clinicCalendarDays } from '../../utils/clinicTime';
+import { formatPatientDateTime } from '../../utils/patientRecord';
 
 function useApi(path){
   const [result,setResult]=useState({path:null,data:null,error:null,loading:true});
@@ -306,27 +307,6 @@ export function LabResults() {
     );
   };
 
-  const formatDateTime = (value) => {
-    if (!value) return t('notAvailable');
-
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) {
-      return t('notAvailable');
-    }
-
-    return date.toLocaleString(
-      lang === 'ar' ? 'ar' : 'en',
-      {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      }
-    );
-  };
-
   return (
     <Collection
       path="/api/patient/lab-results"
@@ -363,7 +343,7 @@ export function LabResults() {
 
               <div>
                 <span>{t('releasedAt')}</span>
-                <strong>{formatDateTime(item.releasedAt)}</strong>
+                <strong>{formatPatientDateTime(item.releasedAt, lang, t('notAvailable'))}</strong>
               </div>
 
               <div>
@@ -897,7 +877,7 @@ export function MedicalRecords(){
                       {result.releasedToPatientAt && (
                         <p>
                           {lang === 'ar' ? 'تاريخ الإفراج' : 'Released'}:{' '}
-                          {formatDateTime(result.releasedToPatientAt)}
+                          {formatPatientDateTime(result.releasedToPatientAt, lang)}
                         </p>
                       )}
                     </div>

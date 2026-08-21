@@ -272,6 +272,76 @@ test('patient only receives own released labs, prescriptions, and patient-safe v
   assert.equal((await api.get(`/api/patient/medical-records/${record.id}`).set(auth(patientB.token))).status, 404);
 });
 
+test('patient medical-record details keep a stable contract for optional visit data', async () => {
+  const scenarios = [
+    {
+      label: 'complete legacy-style record',
+      diagnosis: 'Complete diagnosis',
+      treatment: 'Complete treatment',
+      vitalSignsJson: JSON.stringify({ blood_pressure: '120/80', heart_rate: 72 })
+    },
+    {
+      label: 'record without diagnosis or treatment',
+      diagnosis: '',
+      treatment: '',
+      vitalSignsJson: '{}'
+    },
+    {
+      label: 'record with partial vitals',
+      diagnosis: 'Partial vitals',
+      treatment: '',
+      vitalSignsJson: JSON.stringify({ temperature: '36.8' })
+    },
+    {
+      label: 'record with malformed optional vitals',
+      diagnosis: 'Safe malformed vitals',
+      treatment: '',
+      vitalSignsJson: JSON.stringify({ temperature: { value: '36.8' } })
+    }
+  ];
+
+  for (const [index, scenario] of scenarios.entries()) {
+    const appointment = await prisma.appointment.create({
+      data: {
+        patientId: patientA.patient.id,
+        doctorId: doctor.id,
+        appointmentDate: `2031-02-${String(index + 1).padStart(2, '0')}`,
+        appointmentTime: '14:00',
+        status: 'COMPLETED'
+      }
+    });
+    const record = await prisma.medicalRecord.create({
+      data: {
+        patientId: patientA.patient.id,
+        doctorId: doctor.id,
+        appointmentId: appointment.id,
+        symptomsEncrypted: encrypt(''),
+        diagnosisEncrypted: encrypt(scenario.diagnosis),
+        treatmentEncrypted: encrypt(scenario.treatment),
+        clinicalNotesEncrypted: encrypt('must remain private'),
+        vitalSignsJson: scenario.vitalSignsJson
+      }
+    });
+
+    const detail = await api
+      .get(`/api/patient/medical-records/${record.id}`)
+      .set(auth(patientA.token));
+
+    assert.equal(detail.status, 200, scenario.label);
+    assert.equal(detail.body.diagnosis, scenario.diagnosis);
+    assert.equal(detail.body.treatment, scenario.treatment);
+    assert.ok(Array.isArray(detail.body.prescriptions));
+    assert.ok(Array.isArray(detail.body.releasedLabResults));
+    assert.equal(detail.body.prescriptions.length, 0);
+    assert.equal(detail.body.releasedLabResults.length, 0);
+    assert.equal(Object.hasOwn(detail.body, 'clinicalNotes'), false);
+
+    for (const value of Object.values(detail.body.vitalSigns)) {
+      assert.ok(['string', 'number'].includes(typeof value));
+    }
+  }
+});
+
 
 test('forgot password sends a reset challenge without exposing unknown emails', async () => {
   const account = await registerAndVerify(
