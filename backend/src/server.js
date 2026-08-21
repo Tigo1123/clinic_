@@ -5,7 +5,6 @@ import helmet from 'helmet';
 import crypto from 'crypto';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import jwt from 'jsonwebtoken';
 import prisma from './db.js';
 import authRoutes from './routes/auth.js';
 import patientRoutes from './routes/patients.js';
@@ -21,6 +20,7 @@ import { ApiError, errorHandler, notFoundHandler } from './utils/apiError.js';
 import { fileURLToPath } from 'url';
 import { validateEnvironment } from './config.js';
 import { logger } from './utils/logger.js';
+import { authenticateSocketAccessToken } from './middleware/auth.js';
 
 // Load environment configuration
 dotenv.config();
@@ -48,18 +48,7 @@ const io = new Server(httpServer, {
   }
 });
 
-io.use(async (socket, next) => {
-  try {
-    const token = socket.handshake.auth?.token;
-    if (!token || !process.env.JWT_SECRET) return next(new Error('Authentication required.'));
-    socket.user = jwt.verify(token, process.env.JWT_SECRET);
-    const activeUser = await prisma.user.findUnique({ where: { id: socket.user.id }, select: { status: true, role: true } });
-    if (!activeUser || activeUser.status !== 'ACTIVE' || activeUser.role !== socket.user.role) return next(new Error('Session is no longer active.'));
-    return next();
-  } catch (error) {
-    return next(new Error('Invalid or expired token.'));
-  }
-});
+io.use(authenticateSocketAccessToken);
 
 // Attach socket.io server to express app so it can be referenced in routes
 app.set('io', io);

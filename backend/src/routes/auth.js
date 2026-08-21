@@ -1,6 +1,5 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
 import rateLimit from 'express-rate-limit';
@@ -10,6 +9,7 @@ import { sendError } from '../utils/apiError.js';
 import { normalizeEmail, normalizePhone } from '../utils/identity.js';
 import { rateLimits } from '../config.js';
 import { logger } from '../utils/logger.js';
+import { signAccessToken } from '../services/accessTokens.js';
 
 const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
 
@@ -206,16 +206,12 @@ router.post('/login', loginLimiter, validate(z.object({
     }
 
     // 5. Sign JWT
-    const token = jwt.sign(
-      {
-        id: user.id,
-        username: user.username,
-        role: user.role,
-        doctorId: doctorDetails ? doctorDetails.id : null
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
-    );
+    const token = signAccessToken({
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      doctorId: doctorDetails ? doctorDetails.id : null
+    });
 
     // 6. Return response
     logger.security('auth.login_succeeded', { requestId: req.id, userId: user.id, role: user.role, ip: req.ip });

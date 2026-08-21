@@ -2,11 +2,20 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import request from 'supertest';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import prisma from '../src/db.js';
 import { app, httpServer } from '../src/server.js';
 import { validateEnvironment } from '../src/config.js';
 import { emitQueueUpdate } from '../src/utils/socketEvents.js';
 import { encrypt } from '../src/utils/encryption.js';
+import { authenticateSocketAccessToken } from '../src/middleware/auth.js';
+import {
+  ACCESS_TOKEN_ALGORITHM,
+  accessTokenAudience,
+  accessTokenIssuer,
+  signAccessToken,
+  verifyAccessToken
+} from '../src/services/accessTokens.js';
 
 const api = request(app);
 const tokens = {};
@@ -27,6 +36,23 @@ async function login(username, password) {
 }
 
 function auth(role) { return { Authorization: `Bearer ${tokens[role]}` }; }
+function signTestToken(payload, options = {}) {
+  return jwt.sign(payload, process.env.JWT_SECRET, {
+    algorithm: ACCESS_TOKEN_ALGORITHM,
+    audience: accessTokenAudience(),
+    issuer: accessTokenIssuer(),
+    subject: payload.id,
+    expiresIn: '5m',
+    ...options
+  });
+}
+async function checkSocketToken(token) {
+  const socket = { handshake: { auth: { token } } };
+  const error = await new Promise((resolve) => {
+    authenticateSocketAccessToken(socket, (result) => resolve(result || null));
+  });
+  return { socket, error };
+}
 function paymentAuth(role, key = `payment-test-${Date.now()}-${++fixtureCounter}`) {
   return { ...auth(role), 'Idempotency-Key': key };
 }
@@ -149,6 +175,77 @@ test('staff login succeeds with valid credentials', async () => {
   const response = await api.post('/api/auth/login').send({ username: 'admin@cms.com', password: 'Admin@123' });
   assert.equal(response.status, 200);
   assert.equal(response.body.user.role, 'ADMIN');
+  const claims = verifyAccessToken(response.body.token);
+  assert.equal(claims.typ, 'access');
+  assert.equal(claims.iss, accessTokenIssuer());
+  assert.equal(claims.aud, accessTokenAudience());
+  assert.equal(claims.sub, response.body.user.id);
+});
+
+test('strict access-token contract protects HTTP authentication', async () => {
+  const admin = await prisma.user.findUnique({ where: { username: 'admin@cms.com' } });
+  const baseClaims = { id: admin.id, username: admin.username, role: admin.role };
+  const protectedPath = '/api/auth/users';
+
+  assert.equal((await api.get(protectedPath).set(auth('admin'))).status, 200);
+
+  const invalidTokens = [
+    signTestToken({ ...baseClaims, typ: 'mfa_challenge' }),
+    signTestToken(baseClaims),
+    signTestToken({ ...baseClaims, typ: 'access' }, { issuer: 'wrong-issuer' }),
+    signTestToken({ ...baseClaims, typ: 'access' }, { audience: 'wrong-audience' }),
+    signTestToken({ ...baseClaims, typ: 'access' }, { expiresIn: -1 }),
+    jwt.sign(
+      { ...baseClaims, typ: 'access' },
+      process.env.JWT_SECRET,
+      { algorithm: 'HS384', issuer: accessTokenIssuer(), audience: accessTokenAudience(), subject: admin.id, expiresIn: '5m' }
+    )
+  ];
+
+  for (const token of invalidTokens) {
+    const response = await api.get(protectedPath).set({ Authorization: `Bearer ${token}` });
+    assert.equal(response.status, 401);
+    assert.equal(response.body.error.code, 'INVALID_TOKEN');
+  }
+
+  const tampered = `${tokens.admin.slice(0, -2)}aa`;
+  assert.equal((await api.get(protectedPath).set({ Authorization: `Bearer ${tampered}` })).status, 401);
+});
+
+test('active-user and role consistency remain enforced for access tokens', async () => {
+  const reception = await prisma.user.findUnique({ where: { username: 'recep@cms.com' } });
+  const roleMismatch = signAccessToken({ id: reception.id, username: reception.username, role: 'ADMIN' });
+  let response = await api.get('/api/auth/users').set({ Authorization: `Bearer ${roleMismatch}` });
+  assert.equal(response.status, 401);
+  assert.equal(response.body.error.code, 'SESSION_REVOKED');
+
+  await prisma.user.update({ where: { id: reception.id }, data: { status: 'INACTIVE' } });
+  try {
+    response = await api.get('/api/patients').set(auth('reception'));
+    assert.equal(response.status, 401);
+    assert.equal(response.body.error.code, 'SESSION_REVOKED');
+  } finally {
+    await prisma.user.update({ where: { id: reception.id }, data: { status: 'ACTIVE' } });
+  }
+});
+
+test('WebSocket authentication uses the strict access-token contract', async () => {
+  const valid = await checkSocketToken(tokens.doctor);
+  assert.equal(valid.error, null);
+  assert.equal(valid.socket.user.typ, 'access');
+  assert.equal(valid.socket.user.role, 'DOCTOR');
+
+  const doctor = await prisma.user.findUnique({ where: { username: 'doctor@cms.com' } });
+  const baseClaims = { id: doctor.id, username: doctor.username, role: doctor.role };
+  for (const token of [
+    signTestToken({ ...baseClaims, typ: 'mfa_challenge' }),
+    signTestToken({ ...baseClaims, typ: 'access' }, { issuer: 'wrong-issuer' }),
+    signTestToken({ ...baseClaims, typ: 'access' }, { audience: 'wrong-audience' })
+  ]) {
+    const rejected = await checkSocketToken(token);
+    assert.ok(rejected.error instanceof Error);
+    assert.equal(rejected.socket.user, undefined);
+  }
 });
 
 test('staff login rejects invalid credentials', async () => {

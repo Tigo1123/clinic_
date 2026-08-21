@@ -1,12 +1,5 @@
-import jwt from 'jsonwebtoken';
 import { sendError } from '../utils/apiError.js';
-import prisma from '../db.js';
-
-function jwtSecret() {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) throw new Error('JWT_SECRET is required.');
-  return secret;
-}
+import { AccessTokenError, verifyActiveAccessToken } from '../services/accessTokens.js';
 
 /**
  * Middleware to verify JWT token.
@@ -19,15 +12,27 @@ export async function authenticate(req, res, next) {
 
   const token = authHeader.split(' ')[1];
   try {
-    const decoded = jwt.verify(token, jwtSecret());
-    const activeUser = await prisma.user.findUnique({ where: { id: decoded.id }, select: { status: true, role: true } });
-    if (!activeUser || activeUser.status !== 'ACTIVE' || activeUser.role !== decoded.role) {
-      return sendError(res, 401, 'SESSION_REVOKED', 'This session is no longer active.');
-    }
-    req.user = decoded; // { id, username, role }
+    req.user = await verifyActiveAccessToken(token);
     next();
   } catch (error) {
+    if (error instanceof AccessTokenError && error.code === 'SESSION_REVOKED') {
+      return sendError(res, 401, error.code, error.message);
+    }
     return sendError(res, 401, 'INVALID_TOKEN', 'Invalid or expired token.');
+  }
+}
+
+export async function authenticateSocketAccessToken(socket, next) {
+  try {
+    const token = socket.handshake.auth?.token;
+    if (!token) return next(new Error('Authentication required.'));
+    socket.user = await verifyActiveAccessToken(token);
+    return next();
+  } catch (error) {
+    if (error instanceof AccessTokenError && error.code === 'SESSION_REVOKED') {
+      return next(new Error('Session is no longer active.'));
+    }
+    return next(new Error('Invalid or expired token.'));
   }
 }
 

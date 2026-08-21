@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import prisma from '../src/db.js';
 import { app, httpServer } from '../src/server.js';
 import { encrypt } from '../src/utils/encryption.js';
+import { accessTokenAudience, accessTokenIssuer, verifyAccessToken } from '../src/services/accessTokens.js';
 
 const api = request(app);
 const password = 'StrongPass123';
@@ -56,6 +57,15 @@ test('patient registration creates verified user and linked new patient record',
   assert.equal(patientA.user.role, 'PATIENT');
   assert.ok(patientA.user.phoneVerifiedAt);
   assert.equal(patientA.patient.userId, patientA.user.id);
+});
+
+test('patient login uses the strict application access-token contract', async () => {
+  const claims = verifyAccessToken(patientA.token);
+  assert.equal(claims.typ, 'access');
+  assert.equal(claims.iss, accessTokenIssuer());
+  assert.equal(claims.aud, accessTokenAudience());
+  assert.equal(claims.role, 'PATIENT');
+  assert.equal((await api.get('/api/patient/me').set(auth(patientA.token))).status, 200);
 });
 
 test('duplicate phone and email are rejected', async () => {
