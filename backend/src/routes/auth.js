@@ -10,7 +10,7 @@ import { normalizeEmail, normalizePhone } from '../utils/identity.js';
 import { rateLimits } from '../config.js';
 import { logger } from '../utils/logger.js';
 import { signAccessToken } from '../services/accessTokens.js';
-import { createMfaChallenge } from '../services/mfa.js';
+import { createMfaChallenge, MfaError } from '../services/mfa.js';
 
 const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
 
@@ -107,7 +107,7 @@ router.post('/login', loginLimiter, validate(z.object({
       }
 
       if (hasActiveMfa) {
-        const challenge = await createMfaChallenge(user.id, 'LOGIN', req.ip || 'unknown');
+        const challenge = await createMfaChallenge(user.id, user.authVersion, 'LOGIN', req.ip || 'unknown');
         logger.security('auth.mfa_challenge_created', { requestId: req.id, userId: user.id, ip: req.ip });
         return res.json({
           mfaRequired: true,
@@ -240,6 +240,7 @@ router.post('/login', loginLimiter, validate(z.object({
       id: user.id,
       username: user.username,
       role: user.role,
+      authVersion: user.authVersion,
       doctorId: doctorDetails ? doctorDetails.id : null
     });
 
@@ -269,6 +270,10 @@ router.post('/login', loginLimiter, validate(z.object({
     });
 
   } catch (error) {
+    if (error instanceof MfaError && error.code === 'MFA_CREDENTIALS_CHANGED') {
+      logger.security('auth.mfa_challenge_rejected', { requestId: req.id, reason: 'credentials_changed', ip: req.ip });
+      return sendError(res, 401, error.code, error.message);
+    }
     console.error('Login error:', error);
     return res.status(500).json({ error: 'Internal server error during authentication.' });
   }

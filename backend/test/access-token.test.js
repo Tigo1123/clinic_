@@ -14,7 +14,8 @@ process.env.JWT_SECRET ||= 'test-jwt-secret-at-least-thirty-two-characters';
 const identity = {
   id: '00000000-0000-4000-8000-000000000001',
   username: 'token-test@example.invalid',
-  role: 'ADMIN'
+  role: 'ADMIN',
+  authVersion: 0
 };
 
 function rawToken(payload, options = {}) {
@@ -35,6 +36,14 @@ test('issued access token has the strict application claims', () => {
   assert.equal(claims.aud, accessTokenAudience());
   assert.equal(claims.sub, identity.id);
   assert.equal(claims.id, identity.id);
+  assert.equal(claims.av, identity.authVersion);
+});
+
+test('access-token generation is explicit and strictly validated', () => {
+  assert.throws(() => signAccessToken({ id: identity.id, username: identity.username, role: identity.role }));
+  for (const av of [undefined, null, '0', -1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.throws(() => verifyAccessToken(rawToken({ ...identity, typ: 'access', av })));
+  }
 });
 
 test('wrong-purpose and missing-purpose tokens are rejected', () => {

@@ -189,17 +189,35 @@ function challengeTokenHash(token) {
   return crypto.createHash('sha256').update(token, 'utf8').digest('hex');
 }
 
-export async function createMfaChallenge(userId, purpose = 'LOGIN', ipAddress = 'unknown') {
+function isValidAuthVersion(value) {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
+export async function createMfaChallenge(userId, expectedAuthVersion, purpose = 'LOGIN', ipAddress = 'unknown') {
+  if (!isValidAuthVersion(expectedAuthVersion)) {
+    throw new MfaError(401, 'MFA_CREDENTIALS_CHANGED', 'Credentials changed during login. Please sign in again.');
+  }
   const token = crypto.randomBytes(32).toString('base64url');
   const now = new Date();
   const expiresAt = new Date(now.getTime() + CHALLENGE_MINUTES * 60 * 1000);
   const challenge = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE`;
+    const credentialState = await tx.user.findUnique({
+      where: { id: userId },
+      select: { authVersion: true }
+    });
+    if (!credentialState || credentialState.authVersion !== expectedAuthVersion) {
+      throw new MfaError(401, 'MFA_CREDENTIALS_CHANGED', 'Credentials changed during login. Please sign in again.');
+    }
     await tx.mfaChallenge.updateMany({
       where: { userId, purpose, usedAt: null },
       data: { usedAt: now }
     });
     const created = await tx.mfaChallenge.create({
-      data: { userId, purpose, tokenHash: challengeTokenHash(token), expiresAt, maxAttempts: CHALLENGE_MAX_ATTEMPTS },
+      data: {
+        userId, purpose, authVersion: expectedAuthVersion,
+        tokenHash: challengeTokenHash(token), expiresAt, maxAttempts: CHALLENGE_MAX_ATTEMPTS
+      },
       select: { id: true, expiresAt: true }
     });
     await tx.tenantAuditLog.create({
@@ -208,6 +226,75 @@ export async function createMfaChallenge(userId, purpose = 'LOGIN', ipAddress = 
     return created;
   });
   return { token, challengeId: challenge.id, expiresAt: challenge.expiresAt };
+}
+
+export async function verifyTotpLoginChallenge(token, code, staffRoles, now = new Date(), ipAddress = 'unknown') {
+  const tokenHash = challengeTokenHash(String(token || ''));
+  return prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw`SELECT "id" FROM "MfaChallenge" WHERE "tokenHash" = ${tokenHash} FOR UPDATE`;
+    if (locked.length !== 1) return { status: 'CHALLENGE_INVALID' };
+
+    const challenge = await tx.mfaChallenge.findUnique({ where: { tokenHash } });
+    if (!challenge || challenge.purpose !== 'LOGIN' || challenge.usedAt || challenge.expiresAt <= now || challenge.attemptCount >= challenge.maxAttempts) {
+      return { status: 'CHALLENGE_INVALID' };
+    }
+
+    await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${challenge.userId} FOR UPDATE`;
+    const user = await tx.user.findUnique({
+      where: { id: challenge.userId },
+      select: {
+        id: true, username: true, role: true, status: true, preferredLanguage: true,
+        email: true, phoneNormalized: true, authVersion: true, mfaEnabled: true,
+        mfaConfiguration: { select: { state: true, secretEncrypted: true, lastTotpStep: true } },
+        doctor: { select: { id: true, fullNameEn: true } }
+      }
+    });
+    const eligible = user && staffRoles.includes(user.role) && user.status === 'ACTIVE' &&
+      user.mfaEnabled && user.mfaConfiguration?.state === 'ACTIVE';
+    const currentGeneration = eligible && isValidAuthVersion(challenge.authVersion) &&
+      challenge.authVersion === user.authVersion;
+    if (!currentGeneration) {
+      await tx.mfaChallenge.update({ where: { id: challenge.id }, data: { usedAt: now } });
+      await tx.tenantAuditLog.create({
+        data: { userId: challenge.userId, action: 'MFA_VERIFICATION_FAILED', details: 'Staff login MFA challenge was no longer eligible.', ipAddress }
+      });
+      return { status: 'CHALLENGE_INVALID' };
+    }
+
+    const secret = decryptMfaSecret(user.mfaConfiguration.secretEncrypted, user.id);
+    const acceptedStep = validateTotp(secret, code, now.getTime());
+    const previousStep = user.mfaConfiguration.lastTotpStep;
+    if (acceptedStep === null || (previousStep !== null && acceptedStep <= previousStep)) {
+      const updated = await tx.mfaChallenge.update({
+        where: { id: challenge.id },
+        data: { attemptCount: { increment: 1 } },
+        select: { attemptCount: true, maxAttempts: true }
+      });
+      await tx.tenantAuditLog.create({
+        data: { userId: user.id, action: 'MFA_VERIFICATION_FAILED', details: 'Staff login MFA verification failed.', ipAddress }
+      });
+      return { status: updated.attemptCount >= updated.maxAttempts ? 'CHALLENGE_INVALID' : 'INVALID' };
+    }
+
+    const totpConsumed = await tx.mfaConfiguration.updateMany({
+      where: {
+        userId: user.id, state: 'ACTIVE',
+        OR: [{ lastTotpStep: null }, { lastTotpStep: { lt: acceptedStep } }]
+      },
+      data: { lastTotpStep: acceptedStep }
+    });
+    const challengeConsumed = await tx.mfaChallenge.updateMany({
+      where: { id: challenge.id, userId: user.id, usedAt: null, expiresAt: { gt: now }, attemptCount: { lt: challenge.maxAttempts } },
+      data: { usedAt: now }
+    });
+    if (totpConsumed.count !== 1 || challengeConsumed.count !== 1) {
+      throw new Error('Atomic TOTP login consumption failed.');
+    }
+    await tx.tenantAuditLog.create({
+      data: { userId: user.id, action: 'MFA_VERIFICATION_SUCCEEDED', details: 'Staff login MFA verification succeeded.', ipAddress }
+    });
+    return { status: 'SUCCESS', user };
+  });
 }
 
 export async function findMfaChallenge(token, purpose = 'LOGIN', now = new Date()) {
@@ -271,12 +358,14 @@ export async function verifyRecoveryLoginChallenge(token, recoveryCode, staffRol
       where: { id: challenge.userId },
       select: {
         id: true, username: true, role: true, status: true, preferredLanguage: true,
-        email: true, phoneNormalized: true, mfaEnabled: true,
+        email: true, phoneNormalized: true, authVersion: true, mfaEnabled: true,
         mfaConfiguration: { select: { state: true } },
         doctor: { select: { id: true, fullNameEn: true } }
       }
     });
-    if (!user || !staffRoles.includes(user.role) || user.status !== 'ACTIVE' || !user.mfaEnabled || user.mfaConfiguration?.state !== 'ACTIVE') {
+    const currentGeneration = isValidAuthVersion(challenge.authVersion) &&
+      user && challenge.authVersion === user.authVersion;
+    if (!user || !staffRoles.includes(user.role) || user.status !== 'ACTIVE' || !user.mfaEnabled || user.mfaConfiguration?.state !== 'ACTIVE' || !currentGeneration) {
       await tx.mfaChallenge.update({ where: { id: challenge.id }, data: { usedAt: now } });
       await tx.tenantAuditLog.create({
         data: { userId: challenge.userId, action: 'MFA_RECOVERY_LOGIN_FAILED', details: 'Recovery-code login rejected because the account was not eligible.', ipAddress }

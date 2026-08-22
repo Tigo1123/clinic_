@@ -65,6 +65,7 @@ test('patient login uses the strict application access-token contract', async ()
   assert.equal(claims.iss, accessTokenIssuer());
   assert.equal(claims.aud, accessTokenAudience());
   assert.equal(claims.role, 'PATIENT');
+  assert.equal(claims.av, patientA.user.authVersion);
   assert.equal((await api.get('/api/patient/me').set(auth(patientA.token))).status, 200);
 });
 
@@ -380,7 +381,7 @@ test('forgot password sends a reset challenge without exposing unknown emails', 
 });
 
 test('wrong password reset code is rejected', async () => {
-  await registerAndVerify(
+  const account = await registerAndVerify(
     '+250788100031',
     'reset-wrong@example.com'
   );
@@ -404,6 +405,7 @@ test('wrong password reset code is rejected', async () => {
     response.body.error.code,
     'PASSWORD_RESET_CODE_INCORRECT'
   );
+  assert.equal((await prisma.user.findUnique({ where: { id: account.user.id } })).authVersion, account.user.authVersion);
 });
 
 test('password reset changes password and reset code is single-use', async () => {
@@ -411,15 +413,25 @@ test('password reset changes password and reset code is single-use', async () =>
   const email = 'reset-success@example.com';
   const newPassword = 'NewStrongPass123';
 
-  await registerAndVerify(phone, email);
+  const account = await registerAndVerify(phone, email);
+  const secondSession = await login(phone);
+  assert.equal(secondSession.status, 200);
+  const patientIdBefore = account.patient.id;
+  assert.equal((await api.get('/api/patient/me').set(auth(account.token))).status, 200);
+  assert.equal((await api.get('/api/patient/me').set(auth(secondSession.body.token))).status, 200);
 
   const forgot = await api
+    .post('/api/patient-auth/forgot-password')
+    .send({ email });
+
+  const siblingForgot = await api
     .post('/api/patient-auth/forgot-password')
     .send({ email });
 
   assert.equal(forgot.status, 200);
   assert.ok(forgot.body.challengeId);
   assert.ok(forgot.body.developmentCode);
+  assert.equal(siblingForgot.status, 200);
 
   const reset = await api
     .post('/api/patient-auth/reset-password')
@@ -431,12 +443,31 @@ test('password reset changes password and reset code is single-use', async () =>
 
   assert.equal(reset.status, 200);
   assert.equal(reset.body.success, true);
+  const resetUser = await prisma.user.findUnique({ where: { id: account.user.id }, include: { patient: true } });
+  assert.equal(resetUser.authVersion, account.user.authVersion + 1);
+  assert.equal(resetUser.patient.id, patientIdBefore);
+  for (const token of [account.token, secondSession.body.token]) {
+    const rejected = await api.get('/api/patient/me').set(auth(token));
+    assert.equal(rejected.status, 401);
+    assert.equal(rejected.body.error.code, 'SESSION_REVOKED');
+  }
 
   // Old password must stop working.
   assert.equal((await login(phone, password)).status, 401);
 
   // New password must work.
-  assert.equal((await login(phone, newPassword)).status, 200);
+  const newSession = await login(phone, newPassword);
+  assert.equal(newSession.status, 200);
+  assert.equal(verifyAccessToken(newSession.body.token).av, resetUser.authVersion);
+
+  const invalidatedSibling = await api.post('/api/patient-auth/reset-password').send({
+    challengeId: siblingForgot.body.challengeId,
+    code: siblingForgot.body.developmentCode,
+    newPassword: 'SiblingResetPass123'
+  });
+  assert.equal(invalidatedSibling.status, 422);
+  assert.equal(invalidatedSibling.body.error.code, 'PASSWORD_RESET_INVALID');
+  assert.equal((await prisma.user.findUnique({ where: { id: account.user.id } })).authVersion, resetUser.authVersion);
 
   // The same reset code cannot be reused.
   const reused = await api

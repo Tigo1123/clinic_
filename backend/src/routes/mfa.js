@@ -11,14 +11,12 @@ import { rateLimits } from '../config.js';
 import {
   MfaError,
   confirmMfaEnrollment,
-  consumeMfaChallenge,
   consumeRecoveryCode,
   consumeTotp,
-  findMfaChallenge,
   generateRecoveryCodes,
   hashRecoveryCodes,
-  recordMfaChallengeFailure,
   startMfaEnrollment,
+  verifyTotpLoginChallenge,
   verifyRecoveryLoginChallenge
 } from '../services/mfa.js';
 import { signAccessToken } from '../services/accessTokens.js';
@@ -87,53 +85,21 @@ function handleMfaError(res, error) {
 
 router.post('/verify', mfaLimiter, validate(loginVerificationSchema), async (req, res, next) => {
   try {
-    const challenge = await findMfaChallenge(req.body.challengeToken);
-    if (!challenge) {
-      logger.security('auth.mfa_verification_rejected', { requestId: req.id, reason: 'invalid_or_expired_challenge', ip: req.ip });
-      return sendError(res, 401, 'MFA_CHALLENGE_INVALID', 'The MFA challenge is invalid or expired.');
-    }
+    const result = await verifyTotpLoginChallenge(
+      req.body.challengeToken, req.body.code, STAFF_ROLES, new Date(), req.ip || 'unknown'
+    );
+    if (result.status !== 'SUCCESS') return sendError(
+      res, 401,
+      result.status === 'INVALID' ? 'MFA_CODE_INVALID' : 'MFA_CHALLENGE_INVALID',
+      result.status === 'INVALID' ? 'The authenticator code is invalid.' : 'The MFA challenge is invalid or expired.'
+    );
 
-    const user = await prisma.user.findUnique({
-      where: { id: challenge.userId },
-      select: {
-        id: true,
-        username: true,
-        role: true,
-        status: true,
-        preferredLanguage: true,
-        email: true,
-        phoneNormalized: true,
-        mfaEnabled: true,
-        mfaConfiguration: { select: { state: true } },
-        doctor: { select: { id: true, fullNameEn: true } }
-      }
-    });
-    const isStaff = user && STAFF_ROLES.includes(user.role);
-    if (!isStaff || user.status !== 'ACTIVE' || !user.mfaEnabled || user.mfaConfiguration?.state !== 'ACTIVE') {
-      await consumeMfaChallenge(challenge.id, challenge.userId);
-      logger.security('auth.mfa_verification_rejected', { requestId: req.id, userId: challenge.userId, reason: 'account_not_eligible', ip: req.ip });
-      return sendError(res, 401, 'MFA_CHALLENGE_INVALID', 'The MFA challenge is invalid or expired.');
-    }
-
-    if (!await consumeTotp(user.id, req.body.code)) {
-      const failureRecorded = await recordMfaChallengeFailure(challenge.id, new Date(), req.ip || 'unknown');
-      logger.security('auth.mfa_verification_failed', { requestId: req.id, userId: user.id, ip: req.ip });
-      if (!failureRecorded || !await findMfaChallenge(req.body.challengeToken)) {
-        return sendError(res, 401, 'MFA_CHALLENGE_INVALID', 'The MFA challenge is invalid or expired.');
-      }
-      return sendError(res, 401, 'MFA_CODE_INVALID', 'The authenticator code is invalid.');
-    }
-
-    const consumed = await consumeMfaChallenge(challenge.id, user.id, new Date(), req.ip || 'unknown');
-    if (!consumed) {
-      logger.security('auth.mfa_verification_rejected', { requestId: req.id, userId: user.id, reason: 'challenge_replayed', ip: req.ip });
-      return sendError(res, 401, 'MFA_CHALLENGE_INVALID', 'The MFA challenge is invalid or expired.');
-    }
-
+    const { user } = result;
     const token = signAccessToken({
       id: user.id,
       username: user.username,
       role: user.role,
+      authVersion: user.authVersion,
       doctorId: user.doctor?.id || null
     });
     logger.security('auth.mfa_verification_succeeded', { requestId: req.id, userId: user.id, role: user.role, ip: req.ip });
@@ -186,6 +152,7 @@ router.post('/recovery/verify', mfaLimiter, validate(recoveryLoginSchema), async
       id: user.id,
       username: user.username,
       role: user.role,
+      authVersion: user.authVersion,
       doctorId: user.doctor?.id || null
     });
     logger.security('auth.mfa_recovery_login_succeeded', {

@@ -16,6 +16,7 @@ model User {
   role                       String // ADMIN, RECEPTIONIST, DOCTOR, PHARMACIST, LAB_TECH
   status                     String                  @default("ACTIVE") // ACTIVE, INACTIVE
   lastPasswordChange         DateTime?
+  authVersion                Int                     @default(0)
   mfaSecret                  String?
   mfaEnabled                 Boolean                 @default(false)
   mfaConfiguration           MfaConfiguration?
@@ -288,6 +289,7 @@ model MfaChallenge {
   userId       String
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   purpose      String    @default("LOGIN")
+  authVersion  Int?
   tokenHash    String    @unique
   expiresAt    DateTime
   attemptCount Int       @default(0)

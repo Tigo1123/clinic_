@@ -26,9 +26,16 @@ export class AccessTokenError extends Error {
   }
 }
 
-export function signAccessToken({ id, username, role, doctorId = null }) {
+function isValidAuthVersion(value) {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
+export function signAccessToken({ id, username, role, authVersion, doctorId = null }) {
+  if (!isValidAuthVersion(authVersion)) {
+    throw new AccessTokenError('INVALID_TOKEN_IDENTITY', 'A valid authoritative authentication version is required.');
+  }
   return jwt.sign(
-    { id, username, role, doctorId, typ: ACCESS_TOKEN_TYPE },
+    { id, username, role, doctorId, av: authVersion, typ: ACCESS_TOKEN_TYPE },
     jwtSecret(),
     {
       algorithm: ACCESS_TOKEN_ALGORITHM,
@@ -51,7 +58,8 @@ export function verifyAccessToken(token) {
     decoded.typ !== ACCESS_TOKEN_TYPE ||
     typeof decoded.sub !== 'string' ||
     decoded.sub !== decoded.id ||
-    typeof decoded.role !== 'string'
+    typeof decoded.role !== 'string' ||
+    !isValidAuthVersion(decoded.av)
   ) {
     throw new AccessTokenError('INVALID_TOKEN', 'Token is not a valid application access token.');
   }
@@ -70,10 +78,15 @@ export async function verifyActiveAccessToken(token) {
 
   const activeUser = await prisma.user.findUnique({
     where: { id: decoded.sub },
-    select: { status: true, role: true }
+    select: { status: true, role: true, authVersion: true }
   });
 
-  if (!activeUser || activeUser.status !== 'ACTIVE' || activeUser.role !== decoded.role) {
+  if (
+    !activeUser ||
+    activeUser.status !== 'ACTIVE' ||
+    activeUser.role !== decoded.role ||
+    activeUser.authVersion !== decoded.av
+  ) {
     throw new AccessTokenError('SESSION_REVOKED', 'This session is no longer active.');
   }
 

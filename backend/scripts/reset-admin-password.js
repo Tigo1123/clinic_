@@ -39,7 +39,8 @@ async function resetAdminPassword() {
     },
     data: {
       passwordHash,
-      lastPasswordChange: new Date()
+      lastPasswordChange: new Date(),
+      authVersion: { increment: 1 }
     }
   });
 

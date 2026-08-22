@@ -16,7 +16,7 @@ const schedule = JSON.stringify([
 async function upsertUser(username, role) {
   return prisma.user.upsert({
     where: { username },
-    update: { passwordHash, role, status: 'ACTIVE', preferredLanguage: 'en' },
+    update: { passwordHash, authVersion: { increment: 1 }, role, status: 'ACTIVE', preferredLanguage: 'en' },
     create: { username, passwordHash, role, status: 'ACTIVE', preferredLanguage: 'en' }
   });
 }

@@ -541,8 +541,19 @@ router.post(
           where: { id: challenge.userId },
           data: {
             passwordHash,
-            lastPasswordChange: changedAt
+            lastPasswordChange: changedAt,
+            authVersion: { increment: 1 }
           }
+        });
+
+        await tx.verificationChallenge.updateMany({
+          where: {
+            userId: challenge.userId,
+            type: 'PASSWORD_RESET',
+            id: { not: challenge.id },
+            usedAt: null
+          },
+          data: { usedAt: changedAt }
         });
 
         return true;

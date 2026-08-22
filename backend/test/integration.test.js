@@ -21,7 +21,6 @@ import {
 import { decryptMfaSecret } from '../src/services/mfaCrypto.js';
 import {
   consumeMfaChallenge,
-  consumeRecoveryCode,
   createMfaChallenge,
   findMfaChallenge,
   recordMfaChallengeFailure
@@ -190,18 +189,21 @@ test('staff login succeeds with valid credentials', async () => {
   assert.equal(claims.iss, accessTokenIssuer());
   assert.equal(claims.aud, accessTokenAudience());
   assert.equal(claims.sub, response.body.user.id);
+  assert.equal(claims.av, 0);
 });
 
 test('strict access-token contract protects HTTP authentication', async () => {
   const admin = await prisma.user.findUnique({ where: { username: 'admin@cms.com' } });
-  const baseClaims = { id: admin.id, username: admin.username, role: admin.role };
+  const baseClaims = { id: admin.id, username: admin.username, role: admin.role, av: admin.authVersion };
   const protectedPath = '/api/auth/users';
 
   assert.equal((await api.get(protectedPath).set(auth('admin'))).status, 200);
 
   const invalidTokens = [
     signTestToken({ ...baseClaims, typ: 'mfa_challenge' }),
-    signTestToken(baseClaims),
+    signTestToken({ id: baseClaims.id, username: baseClaims.username, role: baseClaims.role }),
+    signTestToken({ id: baseClaims.id, username: baseClaims.username, role: baseClaims.role, typ: 'access' }),
+    ...[null, '0', -1, 0.5, Number.MAX_SAFE_INTEGER + 1].map((av) => signTestToken({ ...baseClaims, typ: 'access', av })),
     signTestToken({ ...baseClaims, typ: 'access' }, { issuer: 'wrong-issuer' }),
     signTestToken({ ...baseClaims, typ: 'access' }, { audience: 'wrong-audience' }),
     signTestToken({ ...baseClaims, typ: 'access' }, { expiresIn: -1 }),
@@ -224,7 +226,7 @@ test('strict access-token contract protects HTTP authentication', async () => {
 
 test('active-user and role consistency remain enforced for access tokens', async () => {
   const reception = await prisma.user.findUnique({ where: { username: 'recep@cms.com' } });
-  const roleMismatch = signAccessToken({ id: reception.id, username: reception.username, role: 'ADMIN' });
+  const roleMismatch = signAccessToken({ id: reception.id, username: reception.username, role: 'ADMIN', authVersion: reception.authVersion });
   let response = await api.get('/api/auth/users').set({ Authorization: `Bearer ${roleMismatch}` });
   assert.equal(response.status, 401);
   assert.equal(response.body.error.code, 'SESSION_REVOKED');
@@ -237,6 +239,56 @@ test('active-user and role consistency remain enforced for access tokens', async
   } finally {
     await prisma.user.update({ where: { id: reception.id }, data: { status: 'ACTIVE' } });
   }
+
+  const deleted = await prisma.user.create({
+    data: {
+      username: `deleted-token-${Date.now()}@example.test`,
+      passwordHash: await bcrypt.hash('DeletedUserPass123', 10),
+      role: 'RECEPTIONIST'
+    }
+  });
+  const deletedToken = signAccessToken({
+    id: deleted.id, username: deleted.username, role: deleted.role, authVersion: deleted.authVersion
+  });
+  await prisma.user.delete({ where: { id: deleted.id } });
+  const deletedResponse = await api.get('/api/patients').set({ Authorization: `Bearer ${deletedToken}` });
+  assert.equal(deletedResponse.status, 401);
+  assert.equal(deletedResponse.body.error.code, 'SESSION_REVOKED');
+});
+
+test('authVersion revokes every prior HTTP token and permits only the current generation', async () => {
+  const user = await prisma.user.create({
+    data: {
+      username: `versioned-${Date.now()}@example.test`,
+      passwordHash: await bcrypt.hash('VersionedPass123', 10),
+      role: 'RECEPTIONIST',
+      status: 'ACTIVE',
+      authVersion: 7
+    }
+  });
+  const identity = { id: user.id, username: user.username, role: user.role, authVersion: user.authVersion };
+  const oldTokens = [signAccessToken(identity), signAccessToken(identity)];
+  for (const token of oldTokens) {
+    assert.equal((await api.get('/api/patients').set({ Authorization: `Bearer ${token}` })).status, 200);
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: user.id },
+    data: { authVersion: { increment: 1 } }
+  });
+  for (const token of oldTokens) {
+    const rejected = await api.get('/api/patients').set({ Authorization: `Bearer ${token}` });
+    assert.equal(rejected.status, 401);
+    assert.equal(rejected.body.error.code, 'SESSION_REVOKED');
+  }
+  for (const authVersion of [updated.authVersion - 1, updated.authVersion + 1]) {
+    const mismatched = signAccessToken({ ...identity, authVersion });
+    const rejected = await api.get('/api/patients').set({ Authorization: `Bearer ${mismatched}` });
+    assert.equal(rejected.status, 401);
+    assert.equal(rejected.body.error.code, 'SESSION_REVOKED');
+  }
+  const currentToken = signAccessToken({ ...identity, authVersion: updated.authVersion });
+  assert.equal((await api.get('/api/patients').set({ Authorization: `Bearer ${currentToken}` })).status, 200);
 });
 
 test('WebSocket authentication uses the strict access-token contract', async () => {
@@ -246,15 +298,34 @@ test('WebSocket authentication uses the strict access-token contract', async () 
   assert.equal(valid.socket.user.role, 'DOCTOR');
 
   const doctor = await prisma.user.findUnique({ where: { username: 'doctor@cms.com' } });
-  const baseClaims = { id: doctor.id, username: doctor.username, role: doctor.role };
+  const baseClaims = { id: doctor.id, username: doctor.username, role: doctor.role, av: doctor.authVersion };
   for (const token of [
     signTestToken({ ...baseClaims, typ: 'mfa_challenge' }),
+    signTestToken({ id: baseClaims.id, username: baseClaims.username, role: baseClaims.role, typ: 'access' }),
     signTestToken({ ...baseClaims, typ: 'access' }, { issuer: 'wrong-issuer' }),
     signTestToken({ ...baseClaims, typ: 'access' }, { audience: 'wrong-audience' })
   ]) {
     const rejected = await checkSocketToken(token);
     assert.ok(rejected.error instanceof Error);
     assert.equal(rejected.socket.user, undefined);
+  }
+
+  const staleToken = signAccessToken({
+    id: doctor.id, username: doctor.username, role: doctor.role, authVersion: doctor.authVersion
+  });
+  await prisma.user.update({ where: { id: doctor.id }, data: { authVersion: { increment: 1 } } });
+  try {
+    assert.ok((await checkSocketToken(staleToken)).error instanceof Error);
+    // Existing sockets retain their already-authenticated in-memory identity;
+    // distributed active-socket revocation remains SEC-FINAL-003B.
+    assert.equal(valid.socket.user.av, doctor.authVersion);
+    const currentDoctor = await prisma.user.findUnique({ where: { id: doctor.id } });
+    const currentToken = signAccessToken({
+      id: currentDoctor.id, username: currentDoctor.username, role: currentDoctor.role, authVersion: currentDoctor.authVersion
+    });
+    assert.equal((await checkSocketToken(currentToken)).error, null);
+  } finally {
+    await prisma.user.update({ where: { id: doctor.id }, data: { authVersion: doctor.authVersion } });
   }
 });
 
@@ -268,8 +339,8 @@ test('staff MFA enrollment, enforced login, recovery, challenge, and disable lif
   const patient = await prisma.user.create({
     data: { username: `mfa-patient-${Date.now()}@example.test`, passwordHash, role: 'PATIENT', status: 'ACTIVE', preferredLanguage: 'en' }
   });
-  const staffToken = signAccessToken({ id: staff.id, username: staff.username, role: staff.role });
-  const patientToken = signAccessToken({ id: patient.id, username: patient.username, role: patient.role });
+  let staffToken = signAccessToken({ id: staff.id, username: staff.username, role: staff.role, authVersion: staff.authVersion });
+  const patientToken = signAccessToken({ id: patient.id, username: patient.username, role: patient.role, authVersion: patient.authVersion });
 
   assert.equal((await api.post('/api/auth/mfa/enroll').send({ currentPassword: password })).status, 401);
   assert.equal((await api.post('/api/auth/mfa/enroll').set({ Authorization: `Bearer ${patientToken}` }).send({ currentPassword: password })).status, 403);
@@ -474,12 +545,13 @@ test('staff MFA enrollment, enforced login, recovery, challenge, and disable lif
   ]);
   assert.deepEqual(concurrentRecoveryResults.map((response) => response.status).sort(), [200, 401]);
 
-  const crossChallengeA = await createMfaChallenge(staff.id);
+  const crossChallengeA = await createMfaChallenge(staff.id, staff.authVersion);
   const crossChallengeBToken = crypto.randomBytes(32).toString('base64url');
   const crossChallengeB = await prisma.mfaChallenge.create({
     data: {
       userId: staff.id,
       purpose: 'LOGIN',
+      authVersion: staff.authVersion,
       tokenHash: crypto.createHash('sha256').update(crossChallengeBToken).digest('hex'),
       expiresAt: new Date(Date.now() + 5 * 60 * 1000),
       maxAttempts: 5
@@ -551,7 +623,98 @@ test('staff MFA enrollment, enforced login, recovery, challenge, and disable lif
     await prisma.user.update({ where: { id: staff.id }, data: { role: 'RECEPTIONIST' } });
   }
 
-  const challenge = await createMfaChallenge(staff.id);
+  const mfaStateBeforeVersionChange = await prisma.mfaConfiguration.findUnique({ where: { userId: staff.id } });
+  const recoveryCountBeforeVersionChange = await prisma.mfaRecoveryCode.count({ where: { userId: staff.id } });
+  const legacyChallengeToken = crypto.randomBytes(32).toString('base64url');
+  const legacyChallenge = await prisma.mfaChallenge.create({
+    data: {
+      userId: staff.id,
+      purpose: 'LOGIN',
+      authVersion: null,
+      tokenHash: crypto.createHash('sha256').update(legacyChallengeToken).digest('hex'),
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+      maxAttempts: 5
+    }
+  });
+  const legacyVerification = await api.post('/api/auth/mfa/verify').send({
+    challengeToken: legacyChallengeToken,
+    code: totpFor(secondEnrollment.body.secret).generate()
+  });
+  assert.equal(legacyVerification.status, 401);
+  assert.equal(Object.hasOwn(legacyVerification.body, 'token'), false);
+  assert.notEqual((await prisma.mfaChallenge.findUnique({ where: { id: legacyChallenge.id } })).usedAt, null);
+
+  const preVersionTotpChallenge = await recoveryChallengeFor();
+  const preVersionRecoveryToken = crypto.randomBytes(32).toString('base64url');
+  const preVersionRecoveryChallenge = await prisma.mfaChallenge.create({
+    data: {
+      userId: staff.id,
+      purpose: 'LOGIN',
+      authVersion: staff.authVersion,
+      tokenHash: crypto.createHash('sha256').update(preVersionRecoveryToken).digest('hex'),
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+      maxAttempts: 5
+    }
+  });
+  const staleRecoveryCode = confirmation.body.recoveryCodes[0];
+  const staleRecoveryRecord = await prisma.mfaRecoveryCode.findMany({
+    where: { userId: staff.id, usedAt: null },
+    select: { id: true, codeHash: true }
+  }).then(async (records) => {
+    for (const record of records) if (await bcrypt.compare(staleRecoveryCode.replaceAll('-', ''), record.codeHash)) return record;
+    return null;
+  });
+  assert.ok(staleRecoveryRecord);
+  const versionedStaff = await prisma.user.update({
+    where: { id: staff.id },
+    data: { authVersion: { increment: 1 } }
+  });
+  for (const staleMfaToken of [verification.body.token, recoveryVerification.body.token]) {
+    assert.equal((await api.get('/api/patients').set({ Authorization: `Bearer ${staleMfaToken}` })).status, 401);
+  }
+  assert.equal((await prisma.mfaConfiguration.findUnique({ where: { userId: staff.id } })).secretEncrypted, mfaStateBeforeVersionChange.secretEncrypted);
+  assert.equal(await prisma.mfaRecoveryCode.count({ where: { userId: staff.id } }), recoveryCountBeforeVersionChange);
+
+  await prisma.mfaConfiguration.update({ where: { userId: staff.id }, data: { lastTotpStep: null } });
+  const staleVersionVerification = await api.post('/api/auth/mfa/verify').send({
+    challengeToken: preVersionTotpChallenge.body.challengeToken,
+    code: totpFor(secondEnrollment.body.secret).generate()
+  });
+  assert.equal(staleVersionVerification.status, 401);
+  assert.equal(Object.hasOwn(staleVersionVerification.body, 'token'), false);
+  const staleRecoveryVerification = await api.post('/api/auth/mfa/recovery/verify').send({
+    challengeToken: preVersionRecoveryToken,
+    recoveryCode: staleRecoveryCode
+  });
+  assert.equal(staleRecoveryVerification.status, 401);
+  assert.equal(Object.hasOwn(staleRecoveryVerification.body, 'token'), false);
+  assert.equal((await prisma.mfaRecoveryCode.findUnique({ where: { id: staleRecoveryRecord.id } })).usedAt, null);
+  assert.notEqual((await prisma.mfaChallenge.findUnique({ where: { id: preVersionRecoveryChallenge.id } })).usedAt, null);
+
+  await assert.rejects(
+    createMfaChallenge(staff.id, staff.authVersion),
+    (error) => error?.code === 'MFA_CREDENTIALS_CHANGED'
+  );
+
+  const currentVersionLogin = await recoveryChallengeFor();
+  const currentVersionChallenge = await findMfaChallenge(currentVersionLogin.body.challengeToken);
+  assert.equal(currentVersionChallenge.authVersion, versionedStaff.authVersion);
+  const currentVersionVerification = await api.post('/api/auth/mfa/verify').send({
+    challengeToken: currentVersionLogin.body.challengeToken,
+    code: totpFor(secondEnrollment.body.secret).generate()
+  });
+  assert.equal(currentVersionVerification.status, 200);
+  assert.equal(verifyAccessToken(currentVersionVerification.body.token).av, versionedStaff.authVersion);
+  assert.equal((await api.get('/api/patients').set({ Authorization: `Bearer ${currentVersionVerification.body.token}` })).status, 200);
+  staffToken = currentVersionVerification.body.token;
+
+  const currentVersionRecoveryLogin = await recoveryChallengeFor();
+  const currentVersionRecovery = await verifyRecovery(currentVersionRecoveryLogin, confirmation.body.recoveryCodes[0]);
+  assert.equal(currentVersionRecovery.status, 200);
+  assert.equal(verifyAccessToken(currentVersionRecovery.body.token).av, versionedStaff.authVersion);
+  assert.equal((await api.get('/api/patients').set({ Authorization: `Bearer ${currentVersionRecovery.body.token}` })).status, 200);
+
+  const challenge = await createMfaChallenge(staff.id, versionedStaff.authVersion);
   assert.equal((await findMfaChallenge(challenge.token)).userId, staff.id);
   assert.throws(() => verifyAccessToken(challenge.token));
   assert.equal((await api.get('/api/auth/users').set({ Authorization: `Bearer ${challenge.token}` })).status, 401);
@@ -563,21 +726,14 @@ test('staff MFA enrollment, enforced login, recovery, challenge, and disable lif
   ]);
   assert.deepEqual(consumed.sort(), [false, true]);
 
-  const limited = await createMfaChallenge(staff.id);
+  const limited = await createMfaChallenge(staff.id, versionedStaff.authVersion);
   const limitedRecord = await findMfaChallenge(limited.token);
   for (let attempt = 0; attempt < 5; attempt += 1) await recordMfaChallengeFailure(limitedRecord.id);
   assert.equal(await findMfaChallenge(limited.token), null);
 
-  const expired = await createMfaChallenge(staff.id);
+  const expired = await createMfaChallenge(staff.id, versionedStaff.authVersion);
   await prisma.mfaChallenge.update({ where: { id: expired.challengeId }, data: { expiresAt: new Date(Date.now() - 1) } });
   assert.equal(await findMfaChallenge(expired.token), null);
-
-  const replayCode = confirmation.body.recoveryCodes[0];
-  const recoveryResults = await Promise.all([
-    consumeRecoveryCode(staff.id, replayCode),
-    consumeRecoveryCode(staff.id, replayCode)
-  ]);
-  assert.deepEqual(recoveryResults.sort(), [false, true]);
 
   let regenerate = await api.post('/api/auth/mfa/recovery/regenerate')
     .set({ Authorization: `Bearer ${staffToken}` })
