@@ -303,6 +303,19 @@ test('staff MFA enrollment, enforced login, recovery, challenge, and disable lif
   assert.equal(secondEnrollment.status, 201);
   assert.notEqual(secondEnrollment.body.secret, firstEnrollment.body.secret);
 
+  const duplicateEnrollments = await Promise.all([
+    api.post('/api/auth/mfa/enroll').set({ Authorization: `Bearer ${staffToken}` }).send({ currentPassword: password }),
+    api.post('/api/auth/mfa/enroll').set({ Authorization: `Bearer ${staffToken}` }).send({ currentPassword: password })
+  ]);
+  for (const duplicate of duplicateEnrollments) {
+    assert.equal(duplicate.status, 201);
+    assert.equal(duplicate.body.secret, secondEnrollment.body.secret);
+    assert.equal(duplicate.body.otpauthUri, secondEnrollment.body.otpauthUri);
+    assert.equal(duplicate.body.expiresAt, secondEnrollment.body.expiresAt);
+  }
+  configuration = await prisma.mfaConfiguration.findUnique({ where: { userId: staff.id } });
+  assert.equal(decryptMfaSecret(configuration.secretEncrypted, staff.id), secondEnrollment.body.secret);
+
   confirmation = await api.post('/api/auth/mfa/enroll/confirm')
     .set({ Authorization: `Bearer ${staffToken}` }).send({ code: totpFor(firstEnrollment.body.secret).generate() });
   assert.equal(confirmation.status, 422);

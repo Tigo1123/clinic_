@@ -170,7 +170,10 @@ router.post('/enroll', validate(z.object({ currentPassword: currentPasswordSchem
       otpauthUri: enrollment.otpauthUri,
       expiresAt: enrollment.expiresAt
     });
-  } catch (error) { next(error); }
+  } catch (error) {
+    if (error instanceof MfaError) return handleMfaError(res, error);
+    next(error);
+  }
 });
 
 router.post('/enroll/confirm', validate(z.object({ code: codeSchema }).strict()), async (req, res, next) => {

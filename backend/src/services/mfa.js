@@ -2,7 +2,8 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import * as OTPAuth from 'otpauth';
 import prisma from '../db.js';
-import { decryptMfaSecret, encryptMfaSecret } from './mfaCrypto.js';
+import { decryptMfaSecret, encryptMfaSecret, fingerprintMfaSecret } from './mfaCrypto.js';
+import { logger } from '../utils/logger.js';
 
 const ENROLLMENT_MINUTES = 10;
 const CHALLENGE_MINUTES = 5;
@@ -91,20 +92,40 @@ export async function consumeRecoveryCode(userId, code) {
 }
 
 export async function startMfaEnrollment(user, ipAddress = 'unknown') {
-  const { secret, otpauthUri } = generateTotpEnrollment(user.username);
-  const expiresAt = new Date(Date.now() + ENROLLMENT_MINUTES * 60 * 1000);
-  const secretEncrypted = encryptMfaSecret(secret, user.id);
-  await prisma.$transaction([
-    prisma.mfaConfiguration.upsert({
+  const enrollment = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${user.id} FOR UPDATE`;
+    const existing = await tx.mfaConfiguration.findUnique({ where: { userId: user.id } });
+    const now = new Date();
+
+    if (existing?.state === 'PENDING' && existing.enrollmentExpiresAt > now) {
+      const secret = decryptMfaSecret(existing.secretEncrypted, user.id);
+      return { ...buildTotpEnrollment(secret, user.username), expiresAt: existing.enrollmentExpiresAt, reused: true };
+    }
+    if (existing?.state === 'ACTIVE') {
+      throw new MfaError(409, 'MFA_ALREADY_ENABLED', 'MFA is already enabled.');
+    }
+
+    const generated = generateTotpEnrollment(user.username);
+    const expiresAt = new Date(now.getTime() + ENROLLMENT_MINUTES * 60 * 1000);
+    const secretEncrypted = encryptMfaSecret(generated.secret, user.id);
+    await tx.mfaConfiguration.upsert({
       where: { userId: user.id },
       create: { userId: user.id, secretEncrypted, state: 'PENDING', enrollmentExpiresAt: expiresAt },
       update: { secretEncrypted, state: 'PENDING', enrollmentExpiresAt: expiresAt, lastTotpStep: null }
-    }),
-    prisma.tenantAuditLog.create({
+    });
+    await tx.tenantAuditLog.create({
       data: { userId: user.id, action: 'MFA_ENROLLMENT_STARTED', details: 'Staff MFA enrollment started.', ipAddress }
-    })
-  ]);
-  return { secret, otpauthUri, expiresAt };
+    });
+    return { ...generated, expiresAt, reused: false };
+  });
+
+  logger.security('auth.mfa_enrollment_secret_selected', {
+    userId: user.id,
+    source: enrollment.reused ? 'existing_pending' : 'new',
+    enrollmentFingerprint: fingerprintMfaSecret(enrollment.secret, user.id),
+    ip: ipAddress
+  });
+  return enrollment;
 }
 
 export async function confirmMfaEnrollment(userId, code, timestamp = Date.now(), ipAddress = 'unknown') {
@@ -116,6 +137,11 @@ export async function confirmMfaEnrollment(userId, code, timestamp = Date.now(),
     throw new MfaError(422, 'MFA_ENROLLMENT_EXPIRED', 'MFA enrollment has expired.');
   }
   const secret = decryptMfaSecret(configuration.secretEncrypted, userId);
+  logger.security('auth.mfa_enrollment_secret_loaded', {
+    userId,
+    enrollmentFingerprint: fingerprintMfaSecret(secret, userId),
+    ip: ipAddress
+  });
   const acceptedStep = validateTotp(secret, code, timestamp);
   if (acceptedStep === null) throw new MfaError(422, 'MFA_CODE_INVALID', 'The authenticator code is invalid.');
 

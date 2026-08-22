@@ -40,3 +40,15 @@ export function decryptMfaSecret(encoded, userId) {
     throw new Error('MFA secret ciphertext could not be authenticated.');
   }
 }
+
+export function fingerprintMfaSecret(secret, userId) {
+  if (!secret || !userId) throw new Error('MFA secret and user ID are required.');
+  return crypto.createHmac('sha256', encryptionKey())
+    .update('mfa-diagnostic:v1', 'utf8')
+    .update('\0', 'utf8')
+    .update(userId, 'utf8')
+    .update('\0', 'utf8')
+    .update(secret, 'utf8')
+    .digest('hex')
+    .slice(0, 12);
+}
