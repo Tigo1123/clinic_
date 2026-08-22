@@ -12,7 +12,7 @@ import NotificationDropdown from './components/NotificationDropdown';
 import StaffSecurityDialog from './components/StaffSecurityDialog';
 import MfaCodeInput from './components/MfaCodeInput';
 import { clearStaffSession, readStaffSession, writeStaffSession } from './services/authStorage';
-import { completeStaffMfa, isTerminalMfaError, startStaffLogin } from './services/staffLogin';
+import { completeStaffMfa, completeStaffMfaRecovery, isTerminalMfaError, startStaffLogin } from './services/staffLogin';
 import { staffSocket as socket } from './services/staffSocket';
 
 import './App.css';
@@ -35,6 +35,7 @@ export default function App({ initialView = 'login' }) {
     .split('-')[0];
   const [theme, setTheme] = useState('light');
   const [securityOpen, setSecurityOpen] = useState(false);
+  const [recoveryLoginNotice, setRecoveryLoginNotice] = useState(false);
 
   // Load state on mount
   useEffect(() => {
@@ -62,14 +63,16 @@ export default function App({ initialView = 'login' }) {
     document.documentElement.setAttribute('data-theme', nextTheme);
   };
 
-  const handleLogin = (userData, token) => {
+  const handleLogin = (userData, token, context = {}) => {
     writeStaffSession(userData, token);
     setUser(userData);
+    setRecoveryLoginNotice(context.mfaMethod === 'RECOVERY_CODE');
     setView('dashboard');
   };
 
   const handleLogout = () => {
     setSecurityOpen(false);
+    setRecoveryLoginNotice(false);
     clearStaffSession();
     setUser(null);
     setView(initialView);
@@ -125,6 +128,7 @@ export default function App({ initialView = 'login' }) {
 
       {/* Main Container */}
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        {recoveryLoginNotice && user && <div role="status" className="badge badge-warning recovery-login-notice">{t('recoveryLoginNotice')}</div>}
         {view === 'login' && <LoginView onLogin={handleLogin} t={t} />}
         {view === 'dashboard' && user && (
           <DashboardContainer user={user} lang={lang} t={t} />
@@ -142,12 +146,15 @@ function LoginView({ onLogin, t }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [mfaChallenge, setMfaChallenge] = useState(null);
+  const [mfaMethod, setMfaMethod] = useState('totp');
   const [errorMsg, setErrorMsg] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const mfaCodeRef = useRef(null);
+  const recoveryCodeRef = useRef(null);
 
   const clearMfaCode = useCallback(() => {
     mfaCodeRef.current?.clear();
+    if (recoveryCodeRef.current) recoveryCodeRef.current.value = '';
   }, []);
 
   useEffect(() => {
@@ -168,6 +175,7 @@ function LoginView({ onLogin, t }) {
 
   const cancelMfa = () => {
     setMfaChallenge(null);
+    setMfaMethod('totp');
     clearMfaCode();
     setErrorMsg('');
   };
@@ -181,6 +189,7 @@ function LoginView({ onLogin, t }) {
       const result = await startStaffLogin({ username, password }, onLogin);
       if (result.state === 'MFA_REQUIRED') {
         setPassword('');
+        setMfaMethod('totp');
         setMfaChallenge({ token: result.challengeToken, expiresAt: result.expiresAt });
       }
     } catch (err) {
@@ -193,16 +202,24 @@ function LoginView({ onLogin, t }) {
   const handleMfaSubmit = async (e) => {
     e.preventDefault();
     if (submitting || !mfaChallenge) return;
-    const code = mfaCodeRef.current?.getValue() || '';
-    if (code.length !== 6) {
+    const code = mfaMethod === 'totp'
+      ? mfaCodeRef.current?.getValue() || ''
+      : String(recoveryCodeRef.current?.value || '').trim();
+    if (mfaMethod === 'totp' && code.length !== 6) {
       setErrorMsg(t('mfaCodeIncomplete'));
       mfaCodeRef.current?.focus();
+      return;
+    }
+    if (mfaMethod === 'recovery' && !code) {
+      setErrorMsg(t('recoveryCodeRequired'));
+      recoveryCodeRef.current?.focus();
       return;
     }
     setSubmitting(true);
     setErrorMsg('');
     try {
-      await completeStaffMfa(mfaChallenge.token, code, onLogin);
+      if (mfaMethod === 'totp') await completeStaffMfa(mfaChallenge.token, code, onLogin);
+      else await completeStaffMfaRecovery(mfaChallenge.token, code, onLogin);
       clearMfaCode();
       setMfaChallenge(null);
     } catch (err) {
@@ -212,8 +229,12 @@ function LoginView({ onLogin, t }) {
         setErrorMsg(t('mfaChallengeExpired'));
       } else if (err?.status === 429) {
         setErrorMsg(t('mfaRateLimited'));
-      } else if (err?.code === 'MFA_CODE_INVALID') {
-        setErrorMsg(t('mfaCodeInvalid'));
+      } else if (err?.code === 'MFA_CODE_INVALID' || err?.code === 'MFA_RECOVERY_INVALID') {
+        if (mfaMethod === 'recovery' && recoveryCodeRef.current) {
+          recoveryCodeRef.current.value = '';
+          recoveryCodeRef.current.focus();
+        }
+        setErrorMsg(mfaMethod === 'recovery' ? t('recoveryCodeInvalid') : t('mfaCodeInvalid'));
       } else {
         setErrorMsg(t('mfaServiceUnavailable'));
       }
@@ -225,11 +246,11 @@ function LoginView({ onLogin, t }) {
   if (mfaChallenge) return (
     <div className="portal-container glass-panel staff-login-card">
       <div className="staff-mfa-icon" aria-hidden="true"><ShieldCheck size={30} /></div>
-      <h3 className="staff-login-title">{t('twoFactorAuthentication')}</h3>
-      <p className="staff-login-description">{t('mfaCodeInstructions')}</p>
+      <h3 className="staff-login-title">{mfaMethod === 'totp' ? t('twoFactorAuthentication') : t('recoveryCodeTitle')}</h3>
+      <p className="staff-login-description">{mfaMethod === 'totp' ? t('mfaCodeInstructions') : t('recoveryCodeLoginDescription')}</p>
       {errorMsg && <div role="alert" className="badge badge-danger staff-login-error">{errorMsg}</div>}
       <form onSubmit={handleMfaSubmit} className="staff-login-form">
-        <div className="form-group">
+        {mfaMethod === 'totp' ? <div className="form-group">
           <label className="form-label" htmlFor="staff-mfa-code">{t('authenticatorCode')}</label>
           <MfaCodeInput
             ref={mfaCodeRef}
@@ -238,9 +259,15 @@ function LoginView({ onLogin, t }) {
             autoFocus
             className="form-input staff-mfa-code"
           />
-        </div>
+        </div> : <div className="form-group">
+          <label className="form-label" htmlFor="staff-recovery-code">{t('recoveryCodeTitle')}</label>
+          <input ref={recoveryCodeRef} id="staff-recovery-code" type="text" autoComplete="off" required className="form-input" />
+        </div>}
         <button type="submit" disabled={submitting} className="btn btn-primary staff-login-submit">
-          {submitting ? t('verifying') : t('verify')}
+          {submitting ? t('verifying') : mfaMethod === 'totp' ? t('verify') : t('verifyRecoveryCode')}
+        </button>
+        <button type="button" disabled={submitting} className="btn btn-secondary staff-login-submit" onClick={() => { clearMfaCode(); setErrorMsg(''); setMfaMethod(mfaMethod === 'totp' ? 'recovery' : 'totp'); }}>
+          {mfaMethod === 'totp' ? <>{t('lostYourPhone')} {t('useRecoveryCode')}</> : t('useAuthenticatorInstead')}
         </button>
         <button type="button" disabled={submitting} className="btn btn-secondary staff-login-submit" onClick={cancelMfa}>
           {t('backToLogin')}

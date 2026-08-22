@@ -18,7 +18,8 @@ import {
   generateRecoveryCodes,
   hashRecoveryCodes,
   recordMfaChallengeFailure,
-  startMfaEnrollment
+  startMfaEnrollment,
+  verifyRecoveryLoginChallenge
 } from '../services/mfa.js';
 import { signAccessToken } from '../services/accessTokens.js';
 import { logger } from '../utils/logger.js';
@@ -38,6 +39,10 @@ const codeSchema = z.string().regex(/^\d{6}$/);
 const loginVerificationSchema = z.object({
   challengeToken: z.string().trim().min(40).max(200),
   code: codeSchema
+}).strict();
+const recoveryLoginSchema = z.object({
+  challengeToken: z.string().trim().min(40).max(200),
+  recoveryCode: z.string().trim().min(1).max(64)
 }).strict();
 const proofSchema = z.object({
   currentPassword: currentPasswordSchema,
@@ -146,6 +151,54 @@ router.post('/verify', mfaLimiter, validate(loginVerificationSchema), async (req
         patientId: null,
         email: user.email,
         phone: user.phoneNormalized
+      }
+    });
+  } catch (error) { next(error); }
+});
+
+router.post('/recovery/verify', mfaLimiter, validate(recoveryLoginSchema), async (req, res, next) => {
+  try {
+    const result = await verifyRecoveryLoginChallenge(
+      req.body.challengeToken,
+      req.body.recoveryCode,
+      STAFF_ROLES,
+      new Date(),
+      req.ip || 'unknown'
+    );
+    if (result.status !== 'SUCCESS') {
+      logger.security('auth.mfa_recovery_login_failed', {
+        requestId: req.id,
+        userId: result.user?.id,
+        reason: result.status === 'INVALID' ? 'MFA_RECOVERY_INVALID' : 'MFA_CHALLENGE_INVALID',
+        method: 'RECOVERY_CODE',
+        ip: req.ip
+      });
+      return sendError(
+        res,
+        401,
+        result.status === 'INVALID' ? 'MFA_RECOVERY_INVALID' : 'MFA_CHALLENGE_INVALID',
+        'The recovery code or MFA challenge is invalid.'
+      );
+    }
+
+    const { user } = result;
+    const token = signAccessToken({
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      doctorId: user.doctor?.id || null
+    });
+    logger.security('auth.mfa_recovery_login_succeeded', {
+      requestId: req.id, userId: user.id, role: user.role, method: 'RECOVERY_CODE', ip: req.ip
+    });
+    return res.json({
+      token,
+      authenticationMethod: 'RECOVERY_CODE',
+      user: {
+        id: user.id, username: user.username, role: user.role,
+        preferredLanguage: user.preferredLanguage, mfaEnabled: true,
+        doctorId: user.doctor?.id || null, doctorName: user.doctor?.fullNameEn || null,
+        patientLinked: null, patientId: null, email: user.email, phone: user.phoneNormalized
       }
     });
   } catch (error) { next(error); }

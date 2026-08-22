@@ -250,3 +250,84 @@ export async function consumeMfaChallenge(challengeId, userId, now = new Date(),
     return consumed.count === 1;
   });
 }
+
+export async function verifyRecoveryLoginChallenge(token, recoveryCode, staffRoles, now = new Date(), ipAddress = 'unknown') {
+  const tokenHash = challengeTokenHash(String(token || ''));
+  const submittedCode = String(recoveryCode || '').trim();
+  const wellFormed = /^[A-Fa-f0-9]{5}(?:-?[A-Fa-f0-9]{5}){3}$/.test(submittedCode);
+  const normalized = wellFormed ? normalizeRecoveryCode(submittedCode) : null;
+
+  return prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw`SELECT "id" FROM "MfaChallenge" WHERE "tokenHash" = ${tokenHash} FOR UPDATE`;
+    if (locked.length !== 1) return { status: 'CHALLENGE_INVALID' };
+
+    const challenge = await tx.mfaChallenge.findUnique({ where: { tokenHash } });
+    if (!challenge || challenge.purpose !== 'LOGIN' || challenge.usedAt || challenge.expiresAt <= now || challenge.attemptCount >= challenge.maxAttempts) {
+      return { status: 'CHALLENGE_INVALID' };
+    }
+
+    await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${challenge.userId} FOR UPDATE`;
+    const user = await tx.user.findUnique({
+      where: { id: challenge.userId },
+      select: {
+        id: true, username: true, role: true, status: true, preferredLanguage: true,
+        email: true, phoneNormalized: true, mfaEnabled: true,
+        mfaConfiguration: { select: { state: true } },
+        doctor: { select: { id: true, fullNameEn: true } }
+      }
+    });
+    if (!user || !staffRoles.includes(user.role) || user.status !== 'ACTIVE' || !user.mfaEnabled || user.mfaConfiguration?.state !== 'ACTIVE') {
+      await tx.mfaChallenge.update({ where: { id: challenge.id }, data: { usedAt: now } });
+      await tx.tenantAuditLog.create({
+        data: { userId: challenge.userId, action: 'MFA_RECOVERY_LOGIN_FAILED', details: 'Recovery-code login rejected because the account was not eligible.', ipAddress }
+      });
+      return { status: 'CHALLENGE_INVALID' };
+    }
+
+    // Serialize recovery attempts for this user. This makes the code check and
+    // consumption one atomic operation even when different valid challenges
+    // concurrently submit the same recovery code.
+    await tx.$queryRaw`SELECT "id" FROM "MfaRecoveryCode" WHERE "userId" = ${user.id} AND "usedAt" IS NULL FOR UPDATE`;
+    const candidates = await tx.mfaRecoveryCode.findMany({
+      where: { userId: user.id, usedAt: null },
+      select: { id: true, codeHash: true }
+    });
+    let matchedId = null;
+    if (normalized) {
+      for (const candidate of candidates) {
+        if (await bcrypt.compare(normalized, candidate.codeHash)) {
+          matchedId = candidate.id;
+          break;
+        }
+      }
+    }
+
+    if (!matchedId) {
+      const updated = await tx.mfaChallenge.update({
+        where: { id: challenge.id },
+        data: { attemptCount: { increment: 1 } },
+        select: { attemptCount: true, maxAttempts: true }
+      });
+      await tx.tenantAuditLog.create({
+        data: { userId: user.id, action: 'MFA_RECOVERY_LOGIN_FAILED', details: 'Recovery-code login verification failed.', ipAddress }
+      });
+      return { status: updated.attemptCount >= updated.maxAttempts ? 'CHALLENGE_INVALID' : 'INVALID' };
+    }
+
+    const recoveryConsumed = await tx.mfaRecoveryCode.updateMany({
+      where: { id: matchedId, userId: user.id, usedAt: null },
+      data: { usedAt: now }
+    });
+    const challengeConsumed = await tx.mfaChallenge.updateMany({
+      where: { id: challenge.id, userId: user.id, usedAt: null, expiresAt: { gt: now }, attemptCount: { lt: challenge.maxAttempts } },
+      data: { usedAt: now }
+    });
+    if (recoveryConsumed.count !== 1 || challengeConsumed.count !== 1) {
+      throw new Error('Atomic recovery-code login consumption failed.');
+    }
+    await tx.tenantAuditLog.create({
+      data: { userId: user.id, action: 'MFA_RECOVERY_LOGIN_SUCCEEDED', details: 'Staff login completed with a recovery code.', ipAddress }
+    });
+    return { status: 'SUCCESS', user };
+  });
+}

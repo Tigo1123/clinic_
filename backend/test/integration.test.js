@@ -1,5 +1,6 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'crypto';
 import request from 'supertest';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -438,6 +439,118 @@ test('staff MFA enrollment, enforced login, recovery, challenge, and disable lif
     code: validLoginCode
   })).status, 401);
 
+  const recoveryChallengeFor = async () => {
+    const response = await api.post('/api/auth/login').send({ username, password });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.mfaRequired, true);
+    assert.equal(Object.hasOwn(response.body, 'token'), false);
+    return response;
+  };
+  const verifyRecovery = (loginResponse, recoveryCode) => api.post('/api/auth/mfa/recovery/verify').send({
+    challengeToken: loginResponse.body.challengeToken,
+    recoveryCode
+  });
+
+  const recoveryLogin = await recoveryChallengeFor();
+  let recoveryVerification = await verifyRecovery(recoveryLogin, confirmation.body.recoveryCodes[2]);
+  assert.equal(recoveryVerification.status, 200);
+  assert.equal(recoveryVerification.body.authenticationMethod, 'RECOVERY_CODE');
+  assert.equal(verifyAccessToken(recoveryVerification.body.token).typ, 'access');
+  assert.equal((await api.get('/api/patients').set({ Authorization: `Bearer ${recoveryVerification.body.token}` })).status, 200);
+  assert.notEqual((await prisma.mfaChallenge.findUnique({ where: { tokenHash: crypto.createHash('sha256').update(recoveryLogin.body.challengeToken).digest('hex') } })).usedAt, null);
+  assert.equal((await verifyRecovery(recoveryLogin, confirmation.body.recoveryCodes[2])).status, 401);
+
+  const reusedCodeLogin = await recoveryChallengeFor();
+  const usedBefore = await prisma.mfaRecoveryCode.count({ where: { userId: staff.id, usedAt: { not: null } } });
+  recoveryVerification = await verifyRecovery(reusedCodeLogin, confirmation.body.recoveryCodes[2]);
+  assert.equal(recoveryVerification.status, 401);
+  assert.equal(Object.hasOwn(recoveryVerification.body, 'token'), false);
+  assert.equal(await prisma.mfaRecoveryCode.count({ where: { userId: staff.id, usedAt: { not: null } } }), usedBefore);
+
+  const concurrentRecoveryLogin = await recoveryChallengeFor();
+  const concurrentRecoveryResults = await Promise.all([
+    verifyRecovery(concurrentRecoveryLogin, confirmation.body.recoveryCodes[3]),
+    verifyRecovery(concurrentRecoveryLogin, confirmation.body.recoveryCodes[3])
+  ]);
+  assert.deepEqual(concurrentRecoveryResults.map((response) => response.status).sort(), [200, 401]);
+
+  const crossChallengeA = await createMfaChallenge(staff.id);
+  const crossChallengeBToken = crypto.randomBytes(32).toString('base64url');
+  const crossChallengeB = await prisma.mfaChallenge.create({
+    data: {
+      userId: staff.id,
+      purpose: 'LOGIN',
+      tokenHash: crypto.createHash('sha256').update(crossChallengeBToken).digest('hex'),
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+      maxAttempts: 5
+    }
+  });
+  const crossChallengeCode = confirmation.body.recoveryCodes[8];
+  const usedBeforeCrossChallengeRace = await prisma.mfaRecoveryCode.count({
+    where: { userId: staff.id, usedAt: { not: null } }
+  });
+  const crossChallengeResults = await Promise.all([
+    verifyRecovery({ body: { challengeToken: crossChallengeA.token } }, crossChallengeCode),
+    verifyRecovery({ body: { challengeToken: crossChallengeBToken } }, crossChallengeCode)
+  ]);
+  assert.deepEqual(crossChallengeResults.map((response) => response.status).sort(), [200, 401]);
+  assert.equal(crossChallengeResults.filter((response) => typeof response.body.token === 'string').length, 1);
+  assert.equal(crossChallengeResults.filter((response) => response.status === 401 && !Object.hasOwn(response.body, 'token')).length, 1);
+  assert.equal(await prisma.mfaRecoveryCode.count({ where: { userId: staff.id, usedAt: { not: null } } }), usedBeforeCrossChallengeRace + 1);
+  assert.equal(await prisma.mfaChallenge.count({
+    where: { id: { in: [crossChallengeA.challengeId, crossChallengeB.id] }, usedAt: { not: null } }
+  }), 1);
+
+  for (const recoveryCode of confirmation.body.recoveryCodes.slice(4, 6)) {
+    const distinctCodeLogin = await recoveryChallengeFor();
+    assert.equal((await verifyRecovery(distinctCodeLogin, recoveryCode)).status, 200);
+  }
+
+  const invalidRecoveryLogin = await recoveryChallengeFor();
+  const invalidRecoveryChallenge = await findMfaChallenge(invalidRecoveryLogin.body.challengeToken);
+  recoveryVerification = await verifyRecovery(invalidRecoveryLogin, 'not-a-valid-recovery-code');
+  assert.equal(recoveryVerification.status, 401);
+  assert.equal(Object.hasOwn(recoveryVerification.body, 'token'), false);
+  assert.equal((await prisma.mfaChallenge.findUnique({ where: { id: invalidRecoveryChallenge.id } })).attemptCount, 1);
+
+  const expiredRecoveryLogin = await recoveryChallengeFor();
+  const expiredRecoveryChallenge = await findMfaChallenge(expiredRecoveryLogin.body.challengeToken);
+  await prisma.mfaChallenge.update({ where: { id: expiredRecoveryChallenge.id }, data: { expiresAt: new Date(Date.now() - 1) } });
+  assert.equal((await verifyRecovery(expiredRecoveryLogin, confirmation.body.recoveryCodes[6])).status, 401);
+  const recoveryAfterExpiry = await recoveryChallengeFor();
+  assert.equal((await verifyRecovery(recoveryAfterExpiry, confirmation.body.recoveryCodes[6])).status, 200);
+
+  const exhaustedRecoveryLogin = await recoveryChallengeFor();
+  const exhaustedRecoveryChallenge = await findMfaChallenge(exhaustedRecoveryLogin.body.challengeToken);
+  await prisma.mfaChallenge.update({ where: { id: exhaustedRecoveryChallenge.id }, data: { attemptCount: 5 } });
+  assert.equal((await verifyRecovery(exhaustedRecoveryLogin, confirmation.body.recoveryCodes[7])).status, 401);
+
+  const disabledRecoveryLogin = await recoveryChallengeFor();
+  await prisma.user.update({ where: { id: staff.id }, data: { mfaEnabled: false } });
+  try {
+    assert.equal((await verifyRecovery(disabledRecoveryLogin, confirmation.body.recoveryCodes[7])).status, 401);
+  } finally {
+    await prisma.user.update({ where: { id: staff.id }, data: { mfaEnabled: true } });
+  }
+
+  const inactiveRecoveryLogin = await recoveryChallengeFor();
+  await prisma.user.update({ where: { id: staff.id }, data: { status: 'INACTIVE' } });
+  try {
+    assert.equal((await verifyRecovery(inactiveRecoveryLogin, confirmation.body.recoveryCodes[7])).status, 401);
+  } finally {
+    await prisma.user.update({ where: { id: staff.id }, data: { status: 'ACTIVE' } });
+  }
+
+  const roleChangedRecoveryLogin = await recoveryChallengeFor();
+  await prisma.user.update({ where: { id: staff.id }, data: { role: 'PHARMACIST' } });
+  try {
+    recoveryVerification = await verifyRecovery(roleChangedRecoveryLogin, confirmation.body.recoveryCodes[7]);
+    assert.equal(recoveryVerification.status, 200);
+    assert.equal(verifyAccessToken(recoveryVerification.body.token).role, 'PHARMACIST');
+  } finally {
+    await prisma.user.update({ where: { id: staff.id }, data: { role: 'RECEPTIONIST' } });
+  }
+
   const challenge = await createMfaChallenge(staff.id);
   assert.equal((await findMfaChallenge(challenge.token)).userId, staff.id);
   assert.throws(() => verifyAccessToken(challenge.token));
@@ -480,6 +593,9 @@ test('staff MFA enrollment, enforced login, recovery, challenge, and disable lif
   assert.equal(regenerate.status, 200);
   assert.equal(regenerate.body.recoveryCodes.length, 10);
 
+  const invalidatedRecoveryLogin = await recoveryChallengeFor();
+  assert.equal((await verifyRecovery(invalidatedRecoveryLogin, confirmation.body.recoveryCodes[9])).status, 401);
+
   let disable = await api.delete('/api/auth/mfa').set({ Authorization: `Bearer ${staffToken}` })
     .send({ currentPassword: 'wrong-password', recoveryCode: regenerate.body.recoveryCodes[0] });
   assert.equal(disable.status, 401);
@@ -497,7 +613,7 @@ test('staff MFA enrollment, enforced login, recovery, challenge, and disable lif
     where: { userId: staff.id, action: { startsWith: 'MFA_' } },
     select: { action: true, details: true }
   });
-  for (const action of ['MFA_ENROLLMENT_STARTED', 'MFA_ENABLED', 'MFA_ENROLLMENT_FAILED', 'MFA_CHALLENGE_CREATED', 'MFA_VERIFICATION_FAILED', 'MFA_VERIFICATION_SUCCEEDED', 'MFA_RECOVERY_CODES_REGENERATED', 'MFA_DISABLED']) {
+  for (const action of ['MFA_ENROLLMENT_STARTED', 'MFA_ENABLED', 'MFA_ENROLLMENT_FAILED', 'MFA_CHALLENGE_CREATED', 'MFA_VERIFICATION_FAILED', 'MFA_VERIFICATION_SUCCEEDED', 'MFA_RECOVERY_LOGIN_FAILED', 'MFA_RECOVERY_LOGIN_SUCCEEDED', 'MFA_RECOVERY_CODES_REGENERATED', 'MFA_DISABLED']) {
     assert.ok(audits.some((entry) => entry.action === action));
   }
   const forbiddenValues = [firstEnrollment.body.secret, secondEnrollment.body.secret, ...confirmation.body.recoveryCodes, ...regenerate.body.recoveryCodes];

@@ -41,3 +41,12 @@ export async function completeStaffMfa(challengeToken, code, finalizeLogin, requ
   finalizeLogin(data.user, data.token);
   return { state: 'AUTHENTICATED' };
 }
+
+export async function completeStaffMfaRecovery(challengeToken, recoveryCode, finalizeLogin, request = publicApiRequest) {
+  const data = requireCompletedLogin(await request('/api/auth/mfa/recovery/verify', {
+    method: 'POST',
+    body: JSON.stringify({ challengeToken, recoveryCode })
+  }));
+  finalizeLogin(data.user, data.token, { mfaMethod: 'RECOVERY_CODE' });
+  return { state: 'AUTHENTICATED' };
+}
