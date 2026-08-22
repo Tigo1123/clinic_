@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useState, useEffect } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   LogOut,
@@ -142,16 +142,22 @@ function LoginView({ onLogin, t }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [mfaChallenge, setMfaChallenge] = useState(null);
-  const [mfaCode, setMfaCode] = useState('');
+  const [mfaCodeLength, setMfaCodeLength] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const mfaCodeRef = useRef(null);
+
+  const clearMfaCode = useCallback(() => {
+    mfaCodeRef.current?.clear();
+    setMfaCodeLength(0);
+  }, []);
 
   useEffect(() => {
     if (!mfaChallenge) return undefined;
     const remainingMs = new Date(mfaChallenge.expiresAt).getTime() - Date.now();
     const expire = () => {
       setMfaChallenge(null);
-      setMfaCode('');
+      clearMfaCode();
       setErrorMsg(t('mfaChallengeExpired'));
     };
     if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
@@ -160,11 +166,11 @@ function LoginView({ onLogin, t }) {
     }
     const timer = window.setTimeout(expire, remainingMs);
     return () => window.clearTimeout(timer);
-  }, [mfaChallenge, t]);
+  }, [clearMfaCode, mfaChallenge, t]);
 
   const cancelMfa = () => {
     setMfaChallenge(null);
-    setMfaCode('');
+    clearMfaCode();
     setErrorMsg('');
   };
 
@@ -177,6 +183,7 @@ function LoginView({ onLogin, t }) {
       const result = await startStaffLogin({ username, password }, onLogin);
       if (result.state === 'MFA_REQUIRED') {
         setPassword('');
+        setMfaCodeLength(0);
         setMfaChallenge({ token: result.challengeToken, expiresAt: result.expiresAt });
       }
     } catch (err) {
@@ -192,13 +199,13 @@ function LoginView({ onLogin, t }) {
     setSubmitting(true);
     setErrorMsg('');
     try {
-      await completeStaffMfa(mfaChallenge.token, mfaCode, onLogin);
+      await completeStaffMfa(mfaChallenge.token, mfaCodeRef.current?.getValue() || '', onLogin);
+      clearMfaCode();
       setMfaChallenge(null);
-      setMfaCode('');
     } catch (err) {
       if (isTerminalMfaError(err)) {
+        clearMfaCode();
         setMfaChallenge(null);
-        setMfaCode('');
         setErrorMsg(t('mfaChallengeExpired'));
       } else if (err?.status === 429) {
         setErrorMsg(t('mfaRateLimited'));
@@ -222,15 +229,15 @@ function LoginView({ onLogin, t }) {
         <div className="form-group">
           <label className="form-label" htmlFor="staff-mfa-code">{t('authenticatorCode')}</label>
           <MfaCodeInput
+            ref={mfaCodeRef}
             id="staff-mfa-code"
             required
             autoFocus
             className="form-input staff-mfa-code"
-            value={mfaCode}
-            onValueChange={setMfaCode}
+            onValueChange={(value) => setMfaCodeLength(value.length)}
           />
         </div>
-        <button type="submit" disabled={submitting || mfaCode.length !== 6} className="btn btn-primary staff-login-submit">
+        <button type="submit" disabled={submitting || mfaCodeLength !== 6} className="btn btn-primary staff-login-submit">
           {submitting ? t('verifying') : t('verify')}
         </button>
         <button type="button" disabled={submitting} className="btn btn-secondary staff-login-submit" onClick={cancelMfa}>
