@@ -9,7 +9,7 @@ import {
 } from '../services/staffMfa';
 import MfaCodeInput from './MfaCodeInput';
 
-function ProofFields({ currentPassword, setCurrentPassword, proofType, setProofType, proof, setProof, setProofLength, proofRef, t }) {
+function ProofFields({ currentPassword, setCurrentPassword, proofType, setProofType, proof, setProof, proofRef, t }) {
   return <>
     <div className="form-group">
       <label className="form-label" htmlFor="mfa-current-password">{t('currentPassword')}</label>
@@ -17,13 +17,13 @@ function ProofFields({ currentPassword, setCurrentPassword, proofType, setProofT
     </div>
     <fieldset className="security-proof-options">
       <legend>{t('mfaVerificationMethod')}</legend>
-      <label><input type="radio" name="mfa-proof" value="totp" checked={proofType === 'totp'} onChange={() => { proofRef.current?.clear(); setProofType('totp'); setProof(''); setProofLength(0); }} /> {t('authenticatorCode')}</label>
-      <label><input type="radio" name="mfa-proof" value="recovery" checked={proofType === 'recovery'} onChange={() => { proofRef.current?.clear(); setProofType('recovery'); setProof(''); setProofLength(0); }} /> {t('recoveryCode')}</label>
+      <label><input type="radio" name="mfa-proof" value="totp" checked={proofType === 'totp'} onChange={() => { proofRef.current?.clear(); setProofType('totp'); setProof(''); }} /> {t('authenticatorCode')}</label>
+      <label><input type="radio" name="mfa-proof" value="recovery" checked={proofType === 'recovery'} onChange={() => { proofRef.current?.clear(); setProofType('recovery'); setProof(''); }} /> {t('recoveryCode')}</label>
     </fieldset>
     <div className="form-group">
       <label className="form-label" htmlFor="mfa-proof">{proofType === 'totp' ? t('authenticatorCode') : t('recoveryCode')}</label>
       {proofType === 'totp'
-        ? <MfaCodeInput ref={proofRef} id="mfa-proof" className="form-input" required onValueChange={(value) => setProofLength(value.length)} />
+        ? <MfaCodeInput ref={proofRef} id="mfa-proof" className="form-input" required />
         : <input id="mfa-proof" className="form-input" type="text" autoComplete="one-time-code" required value={proof} onChange={(event) => setProof(event.target.value.trim().slice(0, 30))} />}
     </div>
   </>;
@@ -33,11 +33,9 @@ export default function StaffSecurityDialog({ user, onUserChange, onClose, t }) 
   const [mode, setMode] = useState('overview');
   const [currentPassword, setCurrentPassword] = useState('');
   const [enrollment, setEnrollment] = useState(null);
-  const [codeLength, setCodeLength] = useState(0);
   const [recoveryCodes, setRecoveryCodes] = useState(null);
   const [proofType, setProofType] = useState('totp');
   const [proof, setProof] = useState('');
-  const [proofLength, setProofLength] = useState(0);
   const [acknowledged, setAcknowledged] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
@@ -50,10 +48,8 @@ export default function StaffSecurityDialog({ user, onUserChange, onClose, t }) 
     proofRef.current?.clear();
     setCurrentPassword('');
     setEnrollment(null);
-    setCodeLength(0);
     setRecoveryCodes(null);
     setProof('');
-    setProofLength(0);
     setProofType('totp');
     setAcknowledged(false);
     setCopied(false);
@@ -76,11 +72,17 @@ export default function StaffSecurityDialog({ user, onUserChange, onClose, t }) 
 
   const confirmEnrollment = async (event) => {
     event.preventDefault();
+    const code = enrollmentCodeRef.current?.getValue() || '';
+    if (code.length !== 6) {
+      setError(t('mfaCodeIncomplete'));
+      enrollmentCodeRef.current?.focus();
+      return;
+    }
     setPending(true); setError('');
     try {
-      const result = await confirmMfaEnrollment(enrollmentCodeRef.current?.getValue() || '');
+      const result = await confirmMfaEnrollment(code);
       enrollmentCodeRef.current?.clear();
-      setEnrollment(null); setCodeLength(0);
+      setEnrollment(null);
       setRecoveryCodes(result.recoveryCodes);
       onUserChange({ ...user, mfaEnabled: true });
       setMode('recovery');
@@ -94,9 +96,14 @@ export default function StaffSecurityDialog({ user, onUserChange, onClose, t }) 
 
   const submitManagement = async (event) => {
     event.preventDefault();
+    const submittedProof = proofType === 'totp' ? proofRef.current?.getValue() || '' : proof;
+    if (proofType === 'totp' && submittedProof.length !== 6) {
+      setError(t('mfaCodeIncomplete'));
+      proofRef.current?.focus();
+      return;
+    }
     setPending(true); setError('');
     try {
-      const submittedProof = proofType === 'totp' ? proofRef.current?.getValue() || '' : proof;
       if (mode === 'disable') {
         await disableMfa(currentPassword, proofType, submittedProof);
         onUserChange({ ...user, mfaEnabled: false });
@@ -104,7 +111,7 @@ export default function StaffSecurityDialog({ user, onUserChange, onClose, t }) 
       } else {
         const result = await regenerateMfaRecoveryCodes(currentPassword, proofType, submittedProof);
         proofRef.current?.clear();
-        setCurrentPassword(''); setProof(''); setProofLength(0);
+        setCurrentPassword(''); setProof('');
         setRecoveryCodes(result.recoveryCodes);
         setMode('recovery');
       }
@@ -154,8 +161,8 @@ export default function StaffSecurityDialog({ user, onUserChange, onClose, t }) 
         <p className="staff-login-description">{t('mfaScanInstructions')}</p>
         <div className="security-qr" aria-label={t('mfaQrCode')}><QRCodeSVG value={enrollment.otpauthUri} size={190} level="M" /></div>
         <details className="security-manual"><summary>{t('manualSetup')}</summary><p>{t('manualSetupInstructions')}</p><code dir="ltr">{enrollment.secret}</code></details>
-        <div className="form-group"><label className="form-label" htmlFor="mfa-enrollment-code">{t('authenticatorCode')}</label><MfaCodeInput ref={enrollmentCodeRef} id="mfa-enrollment-code" className="form-input staff-mfa-code" required onValueChange={(value) => setCodeLength(value.length)} /></div>
-        <button className="btn btn-primary" disabled={pending || codeLength !== 6} type="submit">{pending ? t('verifying') : t('confirmAndEnable')}</button>
+        <div className="form-group"><label className="form-label" htmlFor="mfa-enrollment-code">{t('authenticatorCode')}</label><MfaCodeInput ref={enrollmentCodeRef} id="mfa-enrollment-code" className="form-input staff-mfa-code" required /></div>
+        <button className="btn btn-primary" disabled={pending} type="submit">{pending ? t('verifying') : t('confirmAndEnable')}</button>
         <button className="btn btn-secondary" disabled={pending} type="button" onClick={() => resetSensitive()}>{t('cancel')}</button>
       </form>}
 
@@ -170,8 +177,8 @@ export default function StaffSecurityDialog({ user, onUserChange, onClose, t }) 
 
       {(mode === 'disable' || mode === 'regenerate') && <form className="staff-login-form" onSubmit={submitManagement}>
         <p className="staff-login-description">{mode === 'disable' ? t('disableMfaWarning') : t('regenerateRecoveryWarning')}</p>
-        <ProofFields {...{ currentPassword, setCurrentPassword, proofType, setProofType, proof, setProof, setProofLength, proofRef, t }} />
-        <button className={`btn ${mode === 'disable' ? 'btn-danger' : 'btn-primary'}`} disabled={pending || (proofType === 'totp' && proofLength !== 6)} type="submit">{pending ? t('loading') : mode === 'disable' ? t('disableMfa') : t('regenerateRecoveryCodes')}</button>
+        <ProofFields {...{ currentPassword, setCurrentPassword, proofType, setProofType, proof, setProof, proofRef, t }} />
+        <button className={`btn ${mode === 'disable' ? 'btn-danger' : 'btn-primary'}`} disabled={pending} type="submit">{pending ? t('loading') : mode === 'disable' ? t('disableMfa') : t('regenerateRecoveryCodes')}</button>
         <button className="btn btn-secondary" disabled={pending} type="button" onClick={() => resetSensitive()}>{t('cancel')}</button>
       </form>}
     </section>

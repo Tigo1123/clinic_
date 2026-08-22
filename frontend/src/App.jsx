@@ -142,14 +142,12 @@ function LoginView({ onLogin, t }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [mfaChallenge, setMfaChallenge] = useState(null);
-  const [mfaCodeLength, setMfaCodeLength] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const mfaCodeRef = useRef(null);
 
   const clearMfaCode = useCallback(() => {
     mfaCodeRef.current?.clear();
-    setMfaCodeLength(0);
   }, []);
 
   useEffect(() => {
@@ -183,7 +181,6 @@ function LoginView({ onLogin, t }) {
       const result = await startStaffLogin({ username, password }, onLogin);
       if (result.state === 'MFA_REQUIRED') {
         setPassword('');
-        setMfaCodeLength(0);
         setMfaChallenge({ token: result.challengeToken, expiresAt: result.expiresAt });
       }
     } catch (err) {
@@ -196,10 +193,16 @@ function LoginView({ onLogin, t }) {
   const handleMfaSubmit = async (e) => {
     e.preventDefault();
     if (submitting || !mfaChallenge) return;
+    const code = mfaCodeRef.current?.getValue() || '';
+    if (code.length !== 6) {
+      setErrorMsg(t('mfaCodeIncomplete'));
+      mfaCodeRef.current?.focus();
+      return;
+    }
     setSubmitting(true);
     setErrorMsg('');
     try {
-      await completeStaffMfa(mfaChallenge.token, mfaCodeRef.current?.getValue() || '', onLogin);
+      await completeStaffMfa(mfaChallenge.token, code, onLogin);
       clearMfaCode();
       setMfaChallenge(null);
     } catch (err) {
@@ -234,10 +237,9 @@ function LoginView({ onLogin, t }) {
             required
             autoFocus
             className="form-input staff-mfa-code"
-            onValueChange={(value) => setMfaCodeLength(value.length)}
           />
         </div>
-        <button type="submit" disabled={submitting || mfaCodeLength !== 6} className="btn btn-primary staff-login-submit">
+        <button type="submit" disabled={submitting} className="btn btn-primary staff-login-submit">
           {submitting ? t('verifying') : t('verify')}
         </button>
         <button type="button" disabled={submitting} className="btn btn-secondary staff-login-submit" onClick={cancelMfa}>

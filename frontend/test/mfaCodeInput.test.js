@@ -14,13 +14,13 @@ const { createRoot } = await import('react-dom/client');
 const { default: MfaCodeInput } = await import('../src/components/MfaCodeInput.js');
 
 let root;
-let componentRefs;
-let observedValues;
+let inputRefs;
+let submissions;
 let forceParentRender;
 
 beforeEach(() => {
-  componentRefs = new Map();
-  observedValues = new Map();
+  inputRefs = new Map();
+  submissions = [];
   document.getElementById('root').replaceChildren();
   root = createRoot(document.getElementById('root'));
 });
@@ -29,22 +29,34 @@ afterEach(async () => {
   await act(async () => root.unmount());
 });
 
+function FieldForm({ id }) {
+  const inputRef = useRef(null);
+  const [error, setError] = useState('');
+  inputRefs.set(id, inputRef);
+
+  const submit = (event) => {
+    event.preventDefault();
+    const code = inputRef.current?.getValue() || '';
+    if (code.length !== 6) {
+      setError('Enter the complete 6-digit authenticator code.');
+      inputRef.current?.focus();
+      return;
+    }
+    setError('');
+    submissions.push({ id, code });
+  };
+
+  return createElement('form', { id: `${id}-form`, onSubmit: submit },
+    createElement(MfaCodeInput, { ref: inputRef, id, 'aria-label': id, required: true }),
+    createElement('button', { type: 'submit' }, 'Verify'),
+    error && createElement('div', { role: 'alert' }, error));
+}
+
 function Harness({ ids = ['mfa-code'], strict = false }) {
   const [, setRenderCount] = useState(0);
   forceParentRender = () => setRenderCount((count) => count + 1);
-  const fields = ids.map((id) => createElement(MfaField, { id, key: id }));
-  return strict ? createElement(StrictMode, null, fields) : fields;
-}
-
-function MfaField({ id }) {
-  const inputRef = useRef(null);
-  componentRefs.set(id, inputRef);
-  return createElement(MfaCodeInput, {
-    ref: inputRef,
-    id,
-    'aria-label': id,
-    onValueChange: (value) => observedValues.set(id, value),
-  });
+  const forms = ids.map((id) => createElement(FieldForm, { id, key: id }));
+  return strict ? createElement(StrictMode, null, forms) : forms;
 }
 
 async function renderHarness(ids, strict = false) {
@@ -56,158 +68,129 @@ function setNativeValue(input, value) {
   setter.call(input, value);
 }
 
-function fireInput(input, value, inputType = 'insertText', isComposing = false) {
+function fireNativeInput(input, value, inputType = 'insertText', isComposing = false) {
   setNativeValue(input, value);
-  input.dispatchEvent(new window.InputEvent('input', {
-    bubbles: true,
-    data: null,
-    inputType,
-    isComposing,
-  }));
+  input.dispatchEvent(new window.InputEvent('input', { bubbles: true, inputType, isComposing }));
 }
 
-function fireCompositionStart(input) {
-  input.dispatchEvent(new window.CompositionEvent('compositionstart', { bubbles: true }));
+async function submit(id = 'mfa-code') {
+  await act(async () => {
+    document.getElementById(`${id}-form`).dispatchEvent(new window.Event('submit', {
+      bubbles: true,
+      cancelable: true,
+    }));
+  });
 }
 
-function fireCompositionEnd(input, value) {
-  setNativeValue(input, value);
-  input.dispatchEvent(new window.CompositionEvent('compositionend', { bubbles: true }));
-}
-
-function firePaste(input, clipboardText) {
-  const event = new window.Event('paste', { bubbles: true, cancelable: true });
-  Object.defineProperty(event, 'clipboardData', {
-    value: { getData: (type) => type === 'text' ? clipboardText : '' },
-  });
-  input.dispatchEvent(event);
-  return event;
-}
-
-function assertFinal(id, expected) {
-  const input = document.getElementById(id);
-  assert.equal(input.value, expected, 'DOM input value');
-  assert.equal(observedValues.get(id), expected, 'parent-observed value');
-  assert.equal(componentRefs.get(id).current.getValue(), expected, 'submitted ref value');
-}
-
-test('A: partial composition values commit only the final six digits', async () => {
+test('submission reads and normalizes the current native DOM value', async () => {
   await renderHarness();
   const input = document.getElementById('mfa-code');
-  await act(async () => {
-    fireCompositionStart(input);
-    fireInput(input, '1111', 'insertCompositionText', true);
-    fireInput(input, '11111', 'insertCompositionText', true);
-    fireCompositionEnd(input, '111111');
-  });
-  assertFinal('mfa-code', '111111');
-});
 
-test('B and C: trailing full input and direct replacement retain six digits', async () => {
-  await renderHarness();
-  const input = document.getElementById('mfa-code');
-  await act(async () => {
-    fireCompositionStart(input);
-    fireInput(input, '11111', 'insertCompositionText', true);
-    fireCompositionEnd(input, '111111');
-    fireInput(input, '111111');
-  });
-  assertFinal('mfa-code', '111111');
-  await act(async () => fireInput(input, '222222', 'insertReplacementText'));
-  assertFinal('mfa-code', '222222');
-});
-
-test('D: a stale partial event after composition end cannot truncate the committed code', async () => {
-  await renderHarness();
-  const input = document.getElementById('mfa-code');
-  await act(async () => {
-    fireCompositionStart(input);
-    fireInput(input, '11111', 'insertCompositionText', true);
-    fireCompositionEnd(input, '111111');
-    fireInput(input, '11111', 'insertText');
-  });
-  assertFinal('mfa-code', '111111');
-});
-
-test('E and F: selection replacement and rapid individual input preserve the final value', async () => {
-  await renderHarness();
-  const input = document.getElementById('mfa-code');
-  await act(async () => {
-    setNativeValue(input, '00');
-    input.setSelectionRange(0, 2);
-    fireInput(input, '111111', 'insertReplacementText');
-  });
-  assertFinal('mfa-code', '111111');
-  await act(async () => {
-    for (let length = 1; length <= 6; length += 1) fireInput(input, '2'.repeat(length));
-  });
-  assertFinal('mfa-code', '222222');
-});
-
-test('G, H, and I: explicit paste normalizes plain, spaced, and hyphenated codes', async () => {
-  await renderHarness();
-  const input = document.getElementById('mfa-code');
-  for (const clipboardText of ['424735', '424 735', '424-735']) {
-    let event;
-    await act(async () => { event = firePaste(input, clipboardText); });
-    assert.equal(event.defaultPrevented, true);
-    assertFinal('mfa-code', '424735');
+  for (const [raw, expected] of [
+    ['123456', '123456'],
+    ['123 456', '123456'],
+    ['123-456', '123456'],
+    ['1234567', '123456'],
+  ]) {
+    setNativeValue(input, raw);
+    await submit();
+    assert.equal(submissions.at(-1).code, expected);
+    assert.equal(input.value, raw, 'submission must not rewrite the live input');
   }
 });
 
-test('J: intentional browser deletion remains allowed after a completed code', async () => {
+test('three- and five-digit values fail locally without a service call', async () => {
   await renderHarness();
   const input = document.getElementById('mfa-code');
-  await act(async () => fireInput(input, '111111'));
-  await act(async () => fireInput(input, '11111', 'deleteContentBackward'));
-  assertFinal('mfa-code', '11111');
+
+  for (const raw of ['123', '12345']) {
+    submissions.length = 0;
+    setNativeValue(input, raw);
+    await submit();
+    assert.equal(submissions.length, 0);
+    assert.equal(document.querySelector('[role="alert"]').textContent, 'Enter the complete 6-digit authenticator code.');
+    assert.equal(document.activeElement, input);
+    assert.equal(input.value, raw);
+  }
 });
 
-test('intentional deletion immediately after composition end is allowed', async () => {
+test('arbitrary Android-like intermediate input is never rewritten by the component', async () => {
   await renderHarness();
   const input = document.getElementById('mfa-code');
+
+  for (const raw of ['1', '12', '123', '1234', '12345', '123456']) {
+    await act(async () => fireNativeInput(input, raw));
+    assert.equal(input.value, raw);
+  }
+});
+
+test('parent rerenders do not alter partial or complete native values', async () => {
+  await renderHarness();
+  const input = document.getElementById('mfa-code');
+
+  for (const raw of ['123', '123456']) {
+    setNativeValue(input, raw);
+    await act(async () => forceParentRender());
+    assert.equal(input.value, raw);
+  }
+});
+
+test('composition events are browser-owned and do not alter the DOM value', async () => {
+  await renderHarness();
+  const input = document.getElementById('mfa-code');
+
   await act(async () => {
-    fireCompositionStart(input);
-    fireCompositionEnd(input, '111111');
-    fireInput(input, '11111', 'deleteContentBackward');
+    input.dispatchEvent(new window.CompositionEvent('compositionstart', { bubbles: true }));
+    fireNativeInput(input, '123', 'insertCompositionText', true);
+    fireNativeInput(input, '12345', 'insertCompositionText', true);
+    setNativeValue(input, '123456');
+    input.dispatchEvent(new window.CompositionEvent('compositionend', { bubbles: true }));
   });
-  assertFinal('mfa-code', '11111');
+
+  assert.equal(input.value, '123456');
+  assert.equal(inputRefs.get('mfa-code').current.getValue(), '123456');
 });
 
-test('K: a parent rerender during composition cannot overwrite the live DOM value', async () => {
+test('native paste is not prevented or rewritten', async () => {
   await renderHarness();
   const input = document.getElementById('mfa-code');
-  await act(async () => {
-    fireCompositionStart(input);
-    fireInput(input, '11111', 'insertCompositionText', true);
-    forceParentRender();
-  });
-  assert.equal(input.value.length, 5);
-  await act(async () => fireCompositionEnd(input, '111111'));
-  assertFinal('mfa-code', '111111');
+  const paste = new window.Event('paste', { bubbles: true, cancelable: true });
+
+  await act(async () => input.dispatchEvent(paste));
+  assert.equal(paste.defaultPrevented, false);
+
+  setNativeValue(input, '123 456');
+  await submit();
+  assert.equal(submissions.at(-1).code, '123456');
+  assert.equal(input.value, '123 456');
 });
 
-test('L: StrictMode remount behavior retains a functional ref-backed input', async () => {
-  await renderHarness(['mfa-code'], true);
-  const input = document.getElementById('mfa-code');
-  await act(async () => fireInput(input, '111111'));
-  assertFinal('mfa-code', '111111');
-  await act(async () => componentRefs.get('mfa-code').current.clear());
-  assertFinal('mfa-code', '');
-});
-
-test('M: login, enrollment, and management fields share identical behavior', async () => {
+test('login, enrollment, and management inputs submit identically', async () => {
   const ids = ['staff-mfa-code', 'mfa-enrollment-code', 'mfa-proof'];
   await renderHarness(ids);
-  await act(async () => {
-    for (const id of ids) firePaste(document.getElementById(id), '424-735');
-  });
-  for (const id of ids) assertFinal(id, '424735');
+
+  for (const id of ids) {
+    setNativeValue(document.getElementById(id), '123-456');
+    await submit(id);
+  }
+
+  assert.deepEqual(submissions, ids.map((id) => ({ id, code: '123456' })));
 });
 
-test('input attributes do not truncate before normalization', async () => {
+test('StrictMode remount behavior leaves a stable native input', async () => {
+  await renderHarness(['mfa-code'], true);
+  const input = document.getElementById('mfa-code');
+  setNativeValue(input, '123456');
+  await act(async () => forceParentRender());
+  assert.equal(document.getElementById('mfa-code'), input);
+  assert.equal(input.value, '123456');
+});
+
+test('the native input has no browser or React truncation attributes', async () => {
   await renderHarness();
   const input = document.getElementById('mfa-code');
+
+  assert.equal(document.querySelectorAll('#mfa-code').length, 1);
   assert.equal(input.type, 'text');
   assert.equal(input.inputMode, 'numeric');
   assert.equal(input.autocomplete, 'one-time-code');
