@@ -356,6 +356,7 @@ model LabOrderItem {
   referenceRangeMax  Decimal?
   isOutOfRange       Boolean  @default(false)
   fileAttachmentPath String?
+  resultVersion      Int      @default(0)
 
   @@index([labReviewStatus])
 }

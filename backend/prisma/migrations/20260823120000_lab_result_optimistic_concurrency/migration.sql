@@ -1,0 +1,2 @@
+ALTER TABLE "LabOrderItem"
+ADD COLUMN "resultVersion" INTEGER NOT NULL DEFAULT 0;

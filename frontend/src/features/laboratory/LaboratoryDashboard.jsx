@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, FileSpreadsheet, HelpCircle, Sliders, Stethoscope } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import RoleHero from '../../components/healthcare/RoleHero';
+import { createLatestRequestGate, mergeLabOrdersMonotonically } from '../../utils/labOrderVersions';
 
 export default function LaboratoryDashboard({ lang }) {
   const [orders, setOrders] = useState([]);
-  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [resultForms, setResultForms] = useState({});
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -13,14 +14,21 @@ export default function LaboratoryDashboard({ lang }) {
   const [labServices, setLabServices] = useState([]);
   const [reviewForms, setReviewForms] = useState({});
   const [reviewingId, setReviewingId] = useState(null);
+  const queueRequestGateRef = useRef(null);
+  if (queueRequestGateRef.current === null) queueRequestGateRef.current = createLatestRequestGate();
+  const selectedOrder = orders.find((order) => order.id === selectedOrderId) || null;
 
   const fetchPendingLabOrders = async (preferredOrderId = null) => {
+    const gate = queueRequestGateRef.current;
+    const generation = gate.begin();
     try {
       const res = await fetchWithAuth(
         '/api/records/lab-orders/pending'
       );
 
       const data = await res.json().catch(() => []);
+
+      if (!gate.isCurrent(generation)) return;
 
       if (!res.ok) {
         setOrders([]);
@@ -29,28 +37,25 @@ export default function LaboratoryDashboard({ lang }) {
 
       const nextOrders = Array.isArray(data) ? data : [];
 
-      setOrders(nextOrders);
-
-      if (preferredOrderId) {
-        setSelectedOrder(
-          nextOrders.find(
-            (order) => order.id === preferredOrderId
-          ) || null
-        );
-      }
+      setOrders((current) => mergeLabOrdersMonotonically(current, nextOrders));
+      if (preferredOrderId) setSelectedOrderId(nextOrders.some((order) => order.id === preferredOrderId) ? preferredOrderId : null);
     } catch (err) {
+      if (!gate.isCurrent(generation)) return;
       console.error(err);
       setOrders([]);
     }
   };
 
   useEffect(() => {
+    const gate = createLatestRequestGate();
+    queueRequestGateRef.current = gate;
     fetchPendingLabOrders();
     fetchReviewRequests();
     fetchWithAuth('/api/billing/services')
       .then((res) => res.ok ? res.json() : [])
       .then((services) => setLabServices((Array.isArray(services) ? services : []).filter((service) => service.category === 'LABORATORY')))
       .catch(() => setLabServices([]));
+    return () => gate.invalidate();
   }, []);
 
   const fetchReviewRequests = async () => {
@@ -171,6 +176,7 @@ export default function LaboratoryDashboard({ lang }) {
       const res = await fetchWithAuth(`/api/records/lab-orders/items/${item.id}/results`, {
         method: 'PUT',
         body: JSON.stringify({
+          expectedVersion: item.resultVersion,
           resultValue: form.value,
           ...(Number.isFinite(min) ? { referenceRangeMin: min } : {}),
           ...(Number.isFinite(max) ? { referenceRangeMax: max } : {}),
@@ -192,28 +198,37 @@ export default function LaboratoryDashboard({ lang }) {
           return next;
         });
 
-        setSelectedOrder((current) => {
-          if (!current) return current;
-
-          return {
-            ...current,
-            items: current.items.map((currentItem) =>
-              currentItem.id === item.id
-                ? {
-                    ...currentItem,
-                    resultValue: savedItem.resultValue,
-                    referenceRangeMin: savedItem.referenceRangeMin,
-                    referenceRangeMax: savedItem.referenceRangeMax,
-                    isOutOfRange: savedItem.isOutOfRange
-                  }
-                : currentItem
-            )
-          };
-        });
+        setOrders((current) => current.map((order) => order.id !== selectedOrder?.id
+          ? order
+          : {
+              ...order,
+              items: order.items.map((currentItem) => currentItem.id === item.id ? { ...currentItem, ...savedItem } : currentItem)
+            }));
 
         await fetchPendingLabOrders(selectedOrder?.id);
       } else {
         const errorData = await res.json().catch(() => ({}));
+        const errorCode = errorData?.error?.code || errorData?.code;
+
+        if (res.status === 409 && errorCode === 'LAB_RESULT_CONFLICT') {
+          setErrorMsg(
+            lang === 'ar'
+              ? 'غيّر مستخدم آخر هذه النتيجة. تم تحميل أحدث نسخة؛ راجع إدخالك غير المحفوظ قبل محاولة الحفظ مرة أخرى.'
+              : 'Another user changed this result. The latest version was loaded; review your unsaved entry before saving again.'
+          );
+          await fetchPendingLabOrders(selectedOrder?.id);
+          return;
+        }
+
+        if (res.status === 409 && errorCode === 'LAB_RESULT_FINALIZED') {
+          setErrorMsg(
+            lang === 'ar'
+              ? 'لم تعد هذه النتيجة قابلة للتعديل لأنها اكتملت أو أُفرج عنها. تم الاحتفاظ بإدخالك غير المحفوظ للمراجعة.'
+              : 'This result is no longer editable because it was completed or released. Your unsaved entry has been retained for review.'
+          );
+          await fetchPendingLabOrders(selectedOrder?.id);
+          return;
+        }
 
         setErrorMsg(
           apiErrorMessage(
@@ -333,7 +348,7 @@ export default function LaboratoryDashboard({ lang }) {
                 <div
                   key={ord.id}
                   className={`queue-card-item glass-panel ${selectedOrder?.id === ord.id ? 'selected' : ''}`}
-                  onClick={() => setSelectedOrder(ord)}
+                  onClick={() => setSelectedOrderId(ord.id)}
                 >
                   <strong>{lang === 'ar' ? ord.patient.fullNameAr : ord.patient.fullNameEn}</strong>
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
@@ -495,6 +510,7 @@ export default function LaboratoryDashboard({ lang }) {
                     item.resultValue !== null &&
                     item.resultValue !== undefined &&
                     String(item.resultValue).trim() !== '';
+                  const hasUnsavedForm = Object.hasOwn(resultForms, item.id);
 
                   const form = resultForms[item.id] || {
                     value: '',
@@ -515,7 +531,7 @@ export default function LaboratoryDashboard({ lang }) {
                     <div key={item.id} className="glass-panel" style={{ padding: '1rem', marginBottom: '1rem', borderLeft: isOutOfRange ? '4px solid var(--danger)' : '1px solid var(--border-color)' }}>
                       <strong>{testName}</strong>
 
-                      {isCompleted ? (
+                      {isCompleted && !hasUnsavedForm ? (
                         <div
                           className="badge badge-success"
                           style={{ marginTop: '0.75rem', padding: '0.65rem' }}

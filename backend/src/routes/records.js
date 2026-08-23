@@ -1779,175 +1779,222 @@ router.put('/lab-orders/:id/collect-sample', authenticate, allowRoles(ROLES.LAB_
  * Logs structured results and updates completed status.
  */
 router.put('/lab-orders/items/:id/results', authenticate, allowRoles(ROLES.LAB_TECH), validate(z.object({
+  expectedVersion: z.number().int().nonnegative().safe(),
   resultValue: z.string().trim().min(1).max(2000), referenceRangeMin: z.coerce.number().optional(),
   referenceRangeMax: z.coerce.number().optional(), isOutOfRange: z.boolean().optional(), fileAttachmentPath: z.string().max(300).optional()
 })), async (req, res) => {
   const itemId = req.params.id;
-  const { resultValue, referenceRangeMin, referenceRangeMax, isOutOfRange, fileAttachmentPath } = req.body;
+  const { expectedVersion, resultValue, referenceRangeMin, referenceRangeMax, isOutOfRange, fileAttachmentPath } = req.body;
 
   try {
-    const existingItem = await prisma.labOrderItem.findUnique({
-      where: { id: itemId },
-      include: {
-        labOrder: {
-          include: {
-            patient: true
-          }
-        }
-      }
-    });
+    const result = await prisma.$transaction(async (tx) => {
+      const lockedOrders = await tx.$queryRaw`
+        SELECT o."id"
+        FROM "LabOrder" o
+        INNER JOIN "LabOrderItem" i ON i."labOrderId" = o."id"
+        WHERE i."id" = ${itemId}
+        FOR UPDATE OF o
+      `;
 
-    if (!existingItem) {
-      return sendError(
-        res,
-        404,
-        'LAB_ORDER_ITEM_NOT_FOUND',
-        'Laboratory order item not found.'
-      );
-    }
-
-    if (existingItem.labOrder.status === 'PENDING_BILLING') {
-      return sendError(
-        res,
-        403,
-        'LAB_PAYMENT_REQUIRED',
-        'Laboratory results cannot be entered until the laboratory invoice is fully paid.'
-      );
-    }
-
-    if (existingItem.labOrder.status === 'PAID') {
-      return sendError(
-        res,
-        409,
-        'LAB_SAMPLE_NOT_COLLECTED',
-        'The laboratory sample must be collected before results can be entered.'
-      );
-    }
-
-    if (existingItem.labOrder.status !== 'SAMPLE_COLLECTED') {
-      return sendError(
-        res,
-        409,
-        'LAB_ORDER_NOT_PROCESSABLE',
-        'This laboratory order is not available for result entry.'
-      );
-    }
-
-    if (existingItem.labReviewStatus === 'EXTERNAL') {
-      return sendError(res, 409, 'LAB_EXTERNAL_TEST', 'External laboratory tests do not accept clinic results.');
-    }
-
-    if (existingItem.labReviewStatus === 'PENDING_REVIEW' || !existingItem.serviceId) {
-      return sendError(res, 409, 'LAB_REVIEW_PENDING', 'This laboratory test must be reviewed before results can be entered.');
-    }
-
-    const item = await prisma.labOrderItem.update({
-      where: { id: itemId },
-      data: {
-        resultValue,
-        referenceRangeMin: referenceRangeMin !== undefined ? Number(referenceRangeMin) : null,
-        referenceRangeMax: referenceRangeMax !== undefined ? Number(referenceRangeMax) : null,
-        isOutOfRange: !!isOutOfRange,
-        fileAttachmentPath
-      },
-      include: {
-        labOrder: {
-          include: {
-            patient: true
-          }
-        }
-      }
-    });
-
-    const orderId = item.labOrderId;
-    const remainingItems = await prisma.labOrderItem.count({
-      where: {
-        labOrderId: orderId,
-        labReviewStatus: { not: 'EXTERNAL' },
-        resultValue: null
-      }
-    });
-
-    let returnedAppointmentId = null;
-    let returnedDoctorId = null;
-
-    if (remainingItems === 0) {
-      await prisma.$transaction(async (tx) => {
-        const completedOrder = await tx.labOrder.update({
-          where: { id: orderId },
-          data: { status: 'COMPLETED' },
-          include: {
-            medicalRecord: {
-              select: {
-                appointmentId: true
-              }
-            }
-          }
+      if (lockedOrders.length !== 1) {
+        throw Object.assign(new Error('Laboratory order item not found.'), {
+          status: 404,
+          code: 'LAB_ORDER_ITEM_NOT_FOUND'
         });
+      }
 
-        if (completedOrder.medicalRecord?.appointmentId) {
-          const returnedToDoctor = await tx.appointment.updateMany({
-            where: {
-              id: completedOrder.medicalRecord.appointmentId,
-              status: 'WAITING_LAB'
-            },
-            data: {
-              status: 'IN_CONSULTATION'
+      const existingItem = await tx.labOrderItem.findUnique({
+        where: { id: itemId },
+        include: {
+          labOrder: {
+            include: {
+              medicalRecord: { select: { appointmentId: true } }
             }
-          });
-
-          if (returnedToDoctor.count === 1) {
-            returnedAppointmentId = completedOrder.medicalRecord.appointmentId;
-            returnedDoctorId = item.labOrder.doctorId;
           }
         }
       });
 
-      if (returnedAppointmentId && returnedDoctorId) {
-        const io = req.app.get('io');
-
-        emitQueueUpdate(
-          io,
-          {
-            type: 'LAB_RESULTS_COMPLETED',
-            appointmentId: returnedAppointmentId,
-            doctorId: returnedDoctorId,
-            status: 'IN_CONSULTATION'
-          },
-          [returnedDoctorId]
-        );
+      if (!existingItem) {
+        throw Object.assign(new Error('Laboratory order item not found.'), {
+          status: 404,
+          code: 'LAB_ORDER_ITEM_NOT_FOUND'
+        });
       }
-    } else {
-      await prisma.labOrder.update({
-        where: { id: orderId },
-        data: { status: 'SAMPLE_COLLECTED' }
+
+      if (existingItem.labOrder.status === 'PENDING_BILLING') {
+        throw Object.assign(new Error('Laboratory results cannot be entered until the laboratory invoice is fully paid.'), {
+          status: 403,
+          code: 'LAB_PAYMENT_REQUIRED'
+        });
+      }
+
+      if (existingItem.labOrder.status === 'PAID') {
+        throw Object.assign(new Error('The laboratory sample must be collected before results can be entered.'), {
+          status: 409,
+          code: 'LAB_SAMPLE_NOT_COLLECTED'
+        });
+      }
+
+      if (existingItem.labOrder.status !== 'SAMPLE_COLLECTED' || existingItem.labOrder.releasedToPatientAt != null) {
+        throw Object.assign(new Error('This laboratory result is finalized and can no longer be changed.'), {
+          status: 409,
+          code: 'LAB_RESULT_FINALIZED'
+        });
+      }
+
+      if (existingItem.labReviewStatus === 'EXTERNAL') {
+        throw Object.assign(new Error('External laboratory tests do not accept clinic results.'), {
+          status: 409,
+          code: 'LAB_EXTERNAL_TEST'
+        });
+      }
+
+      if (existingItem.labReviewStatus === 'PENDING_REVIEW' || !existingItem.serviceId) {
+        throw Object.assign(new Error('This laboratory test must be reviewed before results can be entered.'), {
+          status: 409,
+          code: 'LAB_REVIEW_PENDING'
+        });
+      }
+
+      if (existingItem.resultVersion !== expectedVersion) {
+        throw Object.assign(new Error('This laboratory result was changed by another user. Reload the latest result before saving.'), {
+          status: 409,
+          code: 'LAB_RESULT_CONFLICT'
+        });
+      }
+
+      const updated = await tx.labOrderItem.updateMany({
+        where: { id: itemId, resultVersion: expectedVersion },
+        data: {
+          resultValue,
+          referenceRangeMin: referenceRangeMin !== undefined ? Number(referenceRangeMin) : null,
+          referenceRangeMax: referenceRangeMax !== undefined ? Number(referenceRangeMax) : null,
+          isOutOfRange: !!isOutOfRange,
+          fileAttachmentPath,
+          resultVersion: { increment: 1 }
+        }
       });
-    }
 
-    await prisma.tenantAuditLog.create({
-      data: {
-        userId: req.user.id,
-        action: 'LAB_RESULTS_LOGGED',
-        details: `Logged results for Lab Order Item ${itemId} for Patient ${item.labOrder.patient.fullNameEn}`,
-        ipAddress: req.ip || '127.0.0.1'
+      if (updated.count !== 1) {
+        throw Object.assign(new Error('This laboratory result was changed by another user. Reload the latest result before saving.'), {
+          status: 409,
+          code: 'LAB_RESULT_CONFLICT'
+        });
       }
+
+      const item = await tx.labOrderItem.findUniqueOrThrow({
+        where: { id: itemId },
+        include: { labOrder: true }
+      });
+      const remainingItems = await tx.labOrderItem.count({
+        where: {
+          labOrderId: item.labOrderId,
+          labReviewStatus: { not: 'EXTERNAL' },
+          resultValue: null
+        }
+      });
+
+      let returnedAppointmentId = null;
+      let returnedDoctorId = null;
+      if (remainingItems === 0) {
+        const completed = await tx.labOrder.updateMany({
+          where: {
+            id: item.labOrderId,
+            status: 'SAMPLE_COLLECTED',
+            releasedToPatientAt: null
+          },
+          data: { status: 'COMPLETED' }
+        });
+        if (completed.count !== 1) {
+          throw Object.assign(new Error('This laboratory result is finalized and can no longer be changed.'), {
+            status: 409,
+            code: 'LAB_RESULT_FINALIZED'
+          });
+        }
+
+        returnedAppointmentId = existingItem.labOrder.medicalRecord?.appointmentId || null;
+        if (returnedAppointmentId) {
+          const returnedToDoctor = await tx.appointment.updateMany({
+            where: { id: returnedAppointmentId, status: 'WAITING_LAB' },
+            data: { status: 'IN_CONSULTATION' }
+          });
+          if (returnedToDoctor.count === 1) returnedDoctorId = existingItem.labOrder.doctorId;
+        }
+      }
+
+      await tx.tenantAuditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'LAB_RESULTS_LOGGED',
+          details: JSON.stringify({ labOrderItemId: item.id, labOrderId: item.labOrderId, resultVersion: item.resultVersion }),
+          ipAddress: req.ip || '127.0.0.1'
+        }
+      });
+
+      return { item, returnedAppointmentId, returnedDoctorId };
     });
 
-    return res.json(item);
+    if (result.returnedAppointmentId && result.returnedDoctorId) {
+      emitQueueUpdate(
+        req.app.get('io'),
+        {
+          type: 'LAB_RESULTS_COMPLETED',
+          appointmentId: result.returnedAppointmentId,
+          doctorId: result.returnedDoctorId,
+          status: 'IN_CONSULTATION'
+        },
+        [result.returnedDoctorId]
+      );
+    }
+
+    return res.json(result.item);
 
   } catch (error) {
+    if (error.status && error.code) return sendError(res, error.status, error.code, error.message);
     console.error('Log lab results error:', error);
     return res.status(500).json({ error: 'Failed to save lab results.' });
   }
 });
 
 router.put('/lab-orders/:id/release', authenticate, allowRoles(ROLES.LAB_TECH), async (req, res) => {
-  const order = await prisma.labOrder.findUnique({ where: { id: req.params.id } });
-  if (!order) return sendError(res, 404, 'LAB_ORDER_NOT_FOUND', 'Lab order not found.');
-  if (order.status !== 'COMPLETED') return sendError(res, 409, 'LAB_ORDER_NOT_COMPLETE', 'Only completed lab orders can be released.');
-  const updated = await prisma.labOrder.update({ where: { id: order.id }, data: { releasedToPatientAt: new Date() } });
-  await prisma.tenantAuditLog.create({ data: { userId: req.user.id, action: 'LAB_RESULTS_RELEASED_TO_PATIENT', details: `Released lab order ${order.id} to patient.`, ipAddress: req.ip || 'unknown' } });
-  return res.json({ id: updated.id, releasedToPatientAt: updated.releasedToPatientAt });
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw`SELECT "id" FROM "LabOrder" WHERE "id" = ${req.params.id} FOR UPDATE`;
+      if (locked.length !== 1) {
+        throw Object.assign(new Error('Lab order not found.'), { status: 404, code: 'LAB_ORDER_NOT_FOUND' });
+      }
+
+      const order = await tx.labOrder.findUnique({ where: { id: req.params.id } });
+      if (!order) throw Object.assign(new Error('Lab order not found.'), { status: 404, code: 'LAB_ORDER_NOT_FOUND' });
+      if (order.status !== 'COMPLETED') {
+        throw Object.assign(new Error('Only completed lab orders can be released.'), { status: 409, code: 'LAB_ORDER_NOT_COMPLETE' });
+      }
+      if (order.releasedToPatientAt != null) return { order, idempotentReplay: true };
+
+      const updated = await tx.labOrder.update({
+        where: { id: order.id },
+        data: { releasedToPatientAt: new Date() }
+      });
+      await tx.tenantAuditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'LAB_RESULTS_RELEASED_TO_PATIENT',
+          details: `Released lab order ${order.id} to patient.`,
+          ipAddress: req.ip || 'unknown'
+        }
+      });
+      return { order: updated, idempotentReplay: false };
+    });
+    return res.json({
+      id: result.order.id,
+      releasedToPatientAt: result.order.releasedToPatientAt,
+      ...(result.idempotentReplay ? { idempotentReplay: true } : {})
+    });
+  } catch (error) {
+    if (error.status && error.code) return sendError(res, error.status, error.code, error.message);
+    console.error('Release laboratory results error:', error);
+    return sendError(res, 500, 'LAB_RESULTS_RELEASE_FAILED', 'Failed to release laboratory results.');
+  }
 });
 
 /**

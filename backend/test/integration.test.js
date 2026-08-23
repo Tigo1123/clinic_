@@ -103,6 +103,38 @@ async function createLabReviewFixture(customName, { includeStandard = true } = {
   return { appointment, order, customItem: order.items.find((item) => item.customTestName === customName) };
 }
 
+async function createResultConcurrencyFixture(itemCount = 2) {
+  fixtureCounter += 1;
+  const appointment = await prisma.appointment.create({
+    data: {
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      appointmentDate: `2042-06-${String((fixtureCounter % 27) + 1).padStart(2, '0')}`,
+      appointmentTime: `${String(8 + (fixtureCounter % 10)).padStart(2, '0')}:30`,
+      status: 'WAITING_LAB'
+    }
+  });
+  const record = await prisma.medicalRecord.create({
+    data: {
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      appointmentId: appointment.id,
+      symptomsEncrypted: '', diagnosisEncrypted: '', treatmentEncrypted: '', vitalSignsJson: '{}', clinicalNotesEncrypted: ''
+    }
+  });
+  const order = await prisma.labOrder.create({
+    data: {
+      medicalRecordId: record.id,
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      status: 'SAMPLE_COLLECTED',
+      items: { create: Array.from({ length: itemCount }, () => ({ serviceId: service.id })) }
+    },
+    include: { items: true }
+  });
+  return { appointment, order };
+}
+
 async function createCrossDoctorRecordFixture(label) {
   fixtureCounter += 1;
   const appointmentDate = new Date(Date.UTC(2040, 0, 1 + fixtureCounter))
@@ -1743,7 +1775,7 @@ test('laboratory payment gate requires full payment and sample collection before
   const unpaidResult = await api
     .put(`/api/records/lab-orders/items/${itemId}/results`)
     .set(auth('lab'))
-    .send({ resultValue: '13.5' });
+    .send({ expectedVersion: 0, resultValue: '13.5' });
 
   assert.equal(unpaidResult.status, 403);
   assert.equal(
@@ -1811,7 +1843,7 @@ test('laboratory payment gate requires full payment and sample collection before
   const partialResultAttempt = await api
     .put(`/api/records/lab-orders/items/${itemId}/results`)
     .set(auth('lab'))
-    .send({ resultValue: '13.5' });
+    .send({ expectedVersion: 0, resultValue: '13.5' });
 
   assert.equal(partialResultAttempt.status, 403);
 
@@ -1838,7 +1870,7 @@ test('laboratory payment gate requires full payment and sample collection before
   const beforeCollection = await api
     .put(`/api/records/lab-orders/items/${itemId}/results`)
     .set(auth('lab'))
-    .send({ resultValue: '13.5' });
+    .send({ expectedVersion: 0, resultValue: '13.5' });
 
   assert.equal(beforeCollection.status, 409);
   assert.equal(
@@ -1857,6 +1889,7 @@ test('laboratory payment gate requires full payment and sample collection before
     .put(`/api/records/lab-orders/items/${itemId}/results`)
     .set(auth('lab'))
     .send({
+      expectedVersion: 0,
       resultValue: '13.5',
       referenceRangeMin: 12,
       referenceRangeMax: 16,
@@ -1870,6 +1903,146 @@ test('laboratory payment gate requires full payment and sample collection before
   });
 
   assert.equal(storedOrder.status, 'COMPLETED');
+});
+
+test('laboratory result versions fail closed and prevent sequential stale full-result replacement', async () => {
+  const fixture = await createResultConcurrencyFixture(2);
+  const item = fixture.order.items[0];
+  assert.equal(item.resultVersion, 0);
+
+  const queued = await api.get('/api/records/lab-orders/pending').set(auth('lab'));
+  const queuedItem = queued.body.find((order) => order.id === fixture.order.id).items.find((candidate) => candidate.id === item.id);
+  assert.equal(queuedItem.resultVersion, 0);
+
+  for (const invalidVersion of [undefined, -1, 0.5, '0', null]) {
+    const body = { resultValue: 'invalid-version' };
+    if (invalidVersion !== undefined) body.expectedVersion = invalidVersion;
+    const rejected = await api.put(`/api/records/lab-orders/items/${item.id}/results`).set(auth('lab')).send(body);
+    assert.notEqual(rejected.status, 200);
+  }
+
+  const first = await api.put(`/api/records/lab-orders/items/${item.id}/results`).set(auth('lab')).send({
+    expectedVersion: 0,
+    resultValue: '13.5',
+    referenceRangeMin: 12,
+    referenceRangeMax: 16,
+    isOutOfRange: false,
+    fileAttachmentPath: 'secure/result-a.pdf'
+  });
+  assert.equal(first.status, 200);
+  assert.equal(first.body.resultVersion, 1);
+
+  const stale = await api.put(`/api/records/lab-orders/items/${item.id}/results`).set(auth('lab')).send({
+    expectedVersion: 0,
+    resultValue: '12.0',
+    isOutOfRange: true
+  });
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body.error.code, 'LAB_RESULT_CONFLICT');
+
+  const future = await api.put(`/api/records/lab-orders/items/${item.id}/results`).set(auth('lab')).send({
+    expectedVersion: 99,
+    resultValue: 'future'
+  });
+  assert.equal(future.status, 409);
+  assert.equal(future.body.error.code, 'LAB_RESULT_CONFLICT');
+
+  const stored = await prisma.labOrderItem.findUnique({ where: { id: item.id } });
+  assert.equal(stored.resultVersion, 1);
+  assert.equal(stored.resultValue, '13.5');
+  assert.equal(Number(stored.referenceRangeMin), 12);
+  assert.equal(Number(stored.referenceRangeMax), 16);
+  assert.equal(stored.isOutOfRange, false);
+  assert.equal(stored.fileAttachmentPath, 'secure/result-a.pdf');
+
+  const audits = await prisma.tenantAuditLog.findMany({
+    where: { action: 'LAB_RESULTS_LOGGED', details: { contains: item.id } }
+  });
+  assert.equal(audits.length, 1);
+  assert.equal(JSON.parse(audits[0].details).resultVersion, 1);
+});
+
+test('parallel same-item results have one winner while sibling completion remains monotonic', async () => {
+  const sameItemFixture = await createResultConcurrencyFixture(2);
+  const contested = sameItemFixture.order.items[0];
+  const endpoint = `/api/records/lab-orders/items/${contested.id}/results`;
+  const [writerA, writerB] = await Promise.all([
+    api.put(endpoint).set(auth('lab')).send({ expectedVersion: 0, resultValue: 'writer-a' }),
+    api.put(endpoint).set(auth('lab')).send({ expectedVersion: 0, resultValue: 'writer-b' })
+  ]);
+  assert.deepEqual([writerA.status, writerB.status].sort((a, b) => a - b), [200, 409]);
+  const winner = writerA.status === 200 ? writerA : writerB;
+  const loser = writerA.status === 409 ? writerA : writerB;
+  assert.equal(loser.body.error.code, 'LAB_RESULT_CONFLICT');
+  const contestedStored = await prisma.labOrderItem.findUnique({ where: { id: contested.id } });
+  assert.equal(contestedStored.resultVersion, 1);
+  assert.equal(contestedStored.resultValue, winner.body.resultValue);
+
+  const siblingFixture = await createResultConcurrencyFixture(2);
+  const [itemA, itemB] = siblingFixture.order.items;
+  const [resultA, resultB] = await Promise.all([
+    api.put(`/api/records/lab-orders/items/${itemA.id}/results`).set(auth('lab')).send({ expectedVersion: 0, resultValue: 'A' }),
+    api.put(`/api/records/lab-orders/items/${itemB.id}/results`).set(auth('lab')).send({ expectedVersion: 0, resultValue: 'B' })
+  ]);
+  assert.equal(resultA.status, 200);
+  assert.equal(resultB.status, 200);
+  const [storedA, storedB, completedOrder, returnedAppointment] = await Promise.all([
+    prisma.labOrderItem.findUnique({ where: { id: itemA.id } }),
+    prisma.labOrderItem.findUnique({ where: { id: itemB.id } }),
+    prisma.labOrder.findUnique({ where: { id: siblingFixture.order.id } }),
+    prisma.appointment.findUnique({ where: { id: siblingFixture.appointment.id } })
+  ]);
+  assert.deepEqual([storedA.resultValue, storedB.resultValue], ['A', 'B']);
+  assert.deepEqual([storedA.resultVersion, storedB.resultVersion], [1, 1]);
+  assert.equal(completedOrder.status, 'COMPLETED');
+  assert.equal(returnedAppointment.status, 'IN_CONSULTATION');
+});
+
+test('completed and released results reject stale writes and release serializes with final result entry', async () => {
+  const fixture = await createResultConcurrencyFixture(2);
+  const [itemA, itemB] = fixture.order.items;
+  assert.equal((await api.put(`/api/records/lab-orders/items/${itemA.id}/results`).set(auth('lab')).send({ expectedVersion: 0, resultValue: 'authoritative-a' })).status, 200);
+  assert.equal((await api.put(`/api/records/lab-orders/items/${itemB.id}/results`).set(auth('lab')).send({ expectedVersion: 0, resultValue: 'authoritative-b' })).status, 200);
+
+  const staleAfterCompletion = await api.put(`/api/records/lab-orders/items/${itemA.id}/results`).set(auth('lab')).send({ expectedVersion: 1, resultValue: 'stale-completed' });
+  assert.equal(staleAfterCompletion.status, 409);
+  assert.equal(staleAfterCompletion.body.error.code, 'LAB_RESULT_FINALIZED');
+
+  const release = await api.put(`/api/records/lab-orders/${fixture.order.id}/release`).set(auth('lab'));
+  assert.equal(release.status, 200);
+  const releaseReplay = await api.put(`/api/records/lab-orders/${fixture.order.id}/release`).set(auth('lab'));
+  assert.equal(releaseReplay.status, 200);
+  assert.equal(releaseReplay.body.idempotentReplay, true);
+
+  const staleAfterRelease = await api.put(`/api/records/lab-orders/items/${itemA.id}/results`).set(auth('lab')).send({ expectedVersion: 1, resultValue: 'stale-released' });
+  assert.equal(staleAfterRelease.status, 409);
+  assert.equal(staleAfterRelease.body.error.code, 'LAB_RESULT_FINALIZED');
+  const persisted = await prisma.labOrder.findUnique({ where: { id: fixture.order.id }, include: { items: true } });
+  assert.ok(persisted.releasedToPatientAt);
+  assert.equal(persisted.items.find((item) => item.id === itemA.id).resultValue, 'authoritative-a');
+
+  const raceFixture = await createResultConcurrencyFixture(1);
+  const raceItem = raceFixture.order.items[0];
+  const [resultWrite, releaseAttempt] = await Promise.all([
+    api.put(`/api/records/lab-orders/items/${raceItem.id}/results`).set(auth('lab')).send({ expectedVersion: 0, resultValue: 'serialized-result' }),
+    api.put(`/api/records/lab-orders/${raceFixture.order.id}/release`).set(auth('lab'))
+  ]);
+  assert.equal(resultWrite.status, 200);
+  assert.ok([200, 409].includes(releaseAttempt.status));
+  const racedOrder = await prisma.labOrder.findUnique({ where: { id: raceFixture.order.id }, include: { items: true } });
+  assert.equal(racedOrder.status, 'COMPLETED');
+  assert.equal(racedOrder.items[0].resultValue, 'serialized-result');
+  assert.equal(racedOrder.items[0].resultVersion, 1);
+  if (releaseAttempt.status === 200) assert.ok(racedOrder.releasedToPatientAt);
+});
+
+test('laboratory result conflicts disclose nothing to unauthorized roles', async () => {
+  const endpoint = '/api/records/lab-orders/items/00000000-0000-4000-8000-000000000000/results';
+  const body = { expectedVersion: 0, resultValue: 'unauthorized' };
+  assert.equal((await api.put(endpoint).send(body)).status, 401);
+  for (const role of ['admin', 'doctor', 'reception', 'pharmacy']) {
+    assert.equal((await api.put(endpoint).set(auth(role)).send(body)).status, 403);
+  }
 });
 
 
@@ -2109,6 +2282,7 @@ test('completed lab results return the patient to the doctor before final visit 
     .put(`/api/records/lab-orders/items/${order.items[0].id}/results`)
     .set(auth('lab'))
     .send({
+      expectedVersion: 0,
       resultValue: '13.5',
       referenceRangeMin: 12,
       referenceRangeMax: 16,
