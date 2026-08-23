@@ -25,6 +25,7 @@ export function validateEnvironment() {
   const jwtSecret = process.env.JWT_SECRET;
   const encryptionKey = process.env.MEDICAL_ENCRYPTION_KEY;
   const mfaEncryptionKey = process.env.MFA_ENCRYPTION_KEY;
+  const socketRevocationDatabaseUrl = process.env.SOCKET_REVOCATION_DATABASE_URL || (!production ? databaseUrl : '');
   const origins = csv(process.env.CORS_ALLOWED_ORIGINS);
   const clinicTimeZone = process.env.CLINIC_TIME_ZONE || (production ? '' : DEFAULT_CLINIC_TIME_ZONE);
 
@@ -33,6 +34,12 @@ export function validateEnvironment() {
   if (!encryptionKey) errors.push('MEDICAL_ENCRYPTION_KEY is required.');
   if (!clinicTimeZone) errors.push('CLINIC_TIME_ZONE is required in production.');
   else if (!isValidClinicTimeZone(clinicTimeZone)) errors.push('CLINIC_TIME_ZONE must be a valid IANA timezone.');
+  if (!socketRevocationDatabaseUrl || !/^postgres(?:ql)?:\/\//.test(socketRevocationDatabaseUrl)) {
+    errors.push('SOCKET_REVOCATION_DATABASE_URL must be a direct PostgreSQL URL.');
+  }
+  if (socketRevocationDatabaseUrl && /(?:pgbouncer=true|pool_mode=transaction)/i.test(socketRevocationDatabaseUrl)) {
+    errors.push('SOCKET_REVOCATION_DATABASE_URL must not use transaction pooling.');
+  }
 
   if (production) {
     if (!jwtSecret || jwtSecret.length < 32 || INSECURE_SECRETS.has(jwtSecret.toLowerCase())) errors.push('JWT_SECRET must be a unique secret of at least 32 characters.');
@@ -59,7 +66,16 @@ export function validateEnvironment() {
   }
 
   if (errors.length) throw new Error(`Invalid environment configuration:\n- ${[...new Set(errors)].join('\n- ')}`);
-  return { production, allowedOrigins: origins.length ? origins : ['http://localhost:5173'], clinicTimeZone };
+  return {
+    production,
+    allowedOrigins: origins.length ? origins : ['http://localhost:5173'],
+    clinicTimeZone,
+    socketRevocation: {
+      databaseUrl: socketRevocationDatabaseUrl,
+      reconcileMs: positiveInteger('SOCKET_REVOCATION_RECONCILE_MS', 10000),
+      unhealthyGraceMs: positiveInteger('SOCKET_REVOCATION_UNHEALTHY_GRACE_MS', 15000)
+    }
+  };
 }
 
 export const rateLimits = {

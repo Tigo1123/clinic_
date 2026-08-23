@@ -2,10 +2,13 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import request from 'supertest';
 import bcrypt from 'bcryptjs';
+import { once } from 'node:events';
+import { Client } from 'pg';
 import prisma from '../src/db.js';
 import { app, httpServer } from '../src/server.js';
 import { encrypt } from '../src/utils/encryption.js';
 import { accessTokenAudience, accessTokenIssuer, verifyAccessToken } from '../src/services/accessTokens.js';
+import { parseRevocationPayload, SOCKET_REVOCATION_CHANNEL } from '../src/services/socketRevocation.js';
 
 const api = request(app);
 const password = 'StrongPass123';
@@ -433,18 +436,26 @@ test('password reset changes password and reset code is single-use', async () =>
   assert.ok(forgot.body.developmentCode);
   assert.equal(siblingForgot.status, 200);
 
-  const reset = await api
-    .post('/api/patient-auth/reset-password')
-    .send({
-      challengeId: forgot.body.challengeId,
-      code: forgot.body.developmentCode,
-      newPassword
-    });
+  const revocationListener = new Client({ connectionString: process.env.SOCKET_REVOCATION_DATABASE_URL });
+  await revocationListener.connect();
+  await revocationListener.query(`LISTEN ${SOCKET_REVOCATION_CHANNEL}`);
+  const notification = once(revocationListener, 'notification');
+
+  const reset = await api.post('/api/patient-auth/reset-password').send({
+    challengeId: forgot.body.challengeId,
+    code: forgot.body.developmentCode,
+    newPassword
+  });
+  const [resetNotification] = await notification;
+  await revocationListener.end();
 
   assert.equal(reset.status, 200);
   assert.equal(reset.body.success, true);
   const resetUser = await prisma.user.findUnique({ where: { id: account.user.id }, include: { patient: true } });
   assert.equal(resetUser.authVersion, account.user.authVersion + 1);
+  assert.deepEqual(parseRevocationPayload(resetNotification.payload), {
+    type: 'AUTH_VERSION_CHANGED', userId: account.user.id, authVersion: resetUser.authVersion
+  });
   assert.equal(resetUser.patient.id, patientIdBefore);
   for (const token of [account.token, secondSession.body.token]) {
     const rejected = await api.get('/api/patient/me').set(auth(token));

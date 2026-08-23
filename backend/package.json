@@ -34,12 +34,14 @@
     "multer": "^2.2.0",
     "nodemailer": "^9.0.3",
     "otpauth": "^9.4.1",
+    "pg": "^8.23.0",
     "prisma": "^5.22.0",
     "socket.io": "^4.8.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "nodemon": "^3.1.4",
+    "socket.io-client": "^4.8.3",
     "supertest": "^7.2.2"
   }
 }

@@ -22,6 +22,7 @@ import { fileURLToPath } from 'url';
 import { validateEnvironment } from './config.js';
 import { logger } from './utils/logger.js';
 import { authenticateSocketAccessToken } from './middleware/auth.js';
+import { SocketRevocationService } from './services/socketRevocation.js';
 
 // Load environment configuration
 dotenv.config();
@@ -50,6 +51,13 @@ const io = new Server(httpServer, {
 });
 
 io.use(authenticateSocketAccessToken);
+const socketRevocation = new SocketRevocationService(io, environment.socketRevocation);
+io.use((socket, next) => {
+  if (socketRevocation.isReady()) return next();
+  const error = new Error('Realtime session security is temporarily unavailable.');
+  error.data = { code: 'SOCKET_SECURITY_UNAVAILABLE' };
+  return next(error);
+});
 
 // Attach socket.io server to express app so it can be referenced in routes
 app.set('io', io);
@@ -129,6 +137,7 @@ app.use(errorHandler);
 
 // Launch listening loop
 export function startServer(port = PORT) {
+  socketRevocation.start().catch((error) => logger.error('socket.revocation_start_failed', { error }));
   return httpServer.listen(port, () => {
     logger.info('server.started', { port: Number(port), environment: process.env.NODE_ENV || 'development' });
   });
@@ -139,6 +148,7 @@ export async function shutdown(signal = 'manual') {
   if (shuttingDown) return;
   shuttingDown = true;
   logger.info('server.shutdown_started', { signal });
+  await socketRevocation.stop();
   io.close();
   if (httpServer.listening) await new Promise((resolve) => httpServer.close(resolve));
   await prisma.$disconnect();
@@ -156,4 +166,4 @@ if (isMain) {
   });
 }
 
-export { app, httpServer, io };
+export { app, httpServer, io, socketRevocation };

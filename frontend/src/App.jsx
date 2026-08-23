@@ -13,7 +13,11 @@ import StaffSecurityDialog from './components/StaffSecurityDialog';
 import MfaCodeInput from './components/MfaCodeInput';
 import { clearStaffSession, readStaffSession, writeStaffSession } from './services/authStorage';
 import { completeStaffMfa, completeStaffMfaRecovery, isTerminalMfaError, startStaffLogin } from './services/staffLogin';
-import { staffSocket as socket } from './services/staffSocket';
+import {
+  configureStaffSocketSessionRevocation,
+  connectStaffSocket,
+  disconnectStaffSocket
+} from './services/staffSocket';
 
 import './App.css';
 
@@ -36,6 +40,7 @@ export default function App({ initialView = 'login' }) {
   const [theme, setTheme] = useState('light');
   const [securityOpen, setSecurityOpen] = useState(false);
   const [recoveryLoginNotice, setRecoveryLoginNotice] = useState(false);
+  const [sessionRevokedNotice, setSessionRevokedNotice] = useState(false);
 
   // Load state on mount
   useEffect(() => {
@@ -67,6 +72,7 @@ export default function App({ initialView = 'login' }) {
     writeStaffSession(userData, token);
     setUser(userData);
     setRecoveryLoginNotice(context.mfaMethod === 'RECOVERY_CODE');
+    setSessionRevokedNotice(false);
     setView('dashboard');
   };
 
@@ -76,7 +82,7 @@ export default function App({ initialView = 'login' }) {
     clearStaffSession();
     setUser(null);
     setView(initialView);
-    socket.disconnect();
+    disconnectStaffSocket();
   };
 
   const handleUserChange = (nextUser) => {
@@ -87,9 +93,18 @@ export default function App({ initialView = 'login' }) {
   };
 
   useEffect(() => {
-    if (user && readStaffSession()) socket.connect();
-    return () => socket.disconnect();
+    if (user && readStaffSession()) connectStaffSocket();
+    return () => disconnectStaffSocket();
   }, [user]);
+
+  useEffect(() => configureStaffSocketSessionRevocation(() => {
+    setSecurityOpen(false);
+    setRecoveryLoginNotice(false);
+    clearStaffSession();
+    setUser(null);
+    setView('login');
+    setSessionRevokedNotice(true);
+  }), []);
 
   return (
     <div className="app-layout">
@@ -129,6 +144,9 @@ export default function App({ initialView = 'login' }) {
       {/* Main Container */}
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         {recoveryLoginNotice && user && <div role="status" className="badge badge-warning recovery-login-notice">{t('recoveryLoginNotice')}</div>}
+        {sessionRevokedNotice && view === 'login' && (
+          <div role="alert" className="badge badge-danger staff-login-error">{t('sessionNoLongerValid')}</div>
+        )}
         {view === 'login' && <LoginView onLogin={handleLogin} t={t} />}
         {view === 'dashboard' && user && (
           <DashboardContainer user={user} lang={lang} t={t} />

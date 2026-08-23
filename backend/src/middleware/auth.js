@@ -25,14 +25,22 @@ export async function authenticate(req, res, next) {
 export async function authenticateSocketAccessToken(socket, next) {
   try {
     const token = socket.handshake.auth?.token;
-    if (!token) return next(new Error('Authentication required.'));
+    if (!token) {
+      const error = new Error('Authentication required.');
+      error.data = { code: 'AUTHENTICATION_REQUIRED' };
+      return next(error);
+    }
     socket.user = await verifyActiveAccessToken(token);
     return next();
   } catch (error) {
     if (error instanceof AccessTokenError && error.code === 'SESSION_REVOKED') {
-      return next(new Error('Session is no longer active.'));
+      const socketError = new Error('Session is no longer active.');
+      socketError.data = { code: 'SESSION_REVOKED' };
+      return next(socketError);
     }
-    return next(new Error('Invalid or expired token.'));
+    const socketError = new Error('Invalid or expired token.');
+    socketError.data = { code: 'INVALID_TOKEN' };
+    return next(socketError);
   }
 }
 

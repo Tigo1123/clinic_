@@ -1,11 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Bell, CheckCheck } from 'lucide-react';
-import { io } from 'socket.io-client';
 import { staffApiRequest as apiRequest } from '../services/apiClient';
 import { readStaffSession } from '../services/authStorage';
-
-const SOCKET_URL = import.meta.env.VITE_STAFF_SOCKET_URL || (import.meta.env.DEV ? 'http://localhost:5000' : window.location.origin);
-let socket;
+import { staffSocket as socket } from '../services/staffSocket';
 
 export default function NotificationDropdown({ userId, lang = 'ar' }) {
   const [notifications, setNotifications] = useState([]);
@@ -30,20 +27,15 @@ export default function NotificationDropdown({ userId, lang = 'ar' }) {
 
     fetchNotifications();
 
-    // Connect to Socket.io server
-    socket = io(SOCKET_URL, { auth: { token: readStaffSession()?.token } });
-
     // Listen for real-time notifications
-    socket.on('notification', (newNotif) => {
+    const handleNotification = (newNotif) => {
       setNotifications((prev) => [newNotif, ...prev]);
       setUnreadCount((prev) => prev + 1);
-    });
+    };
+    socket.on('notification', handleNotification);
 
     return () => {
-      if (socket) {
-        socket.off('notification');
-        socket.disconnect();
-      }
+      socket.off('notification', handleNotification);
     };
   }, [userId]);
 
