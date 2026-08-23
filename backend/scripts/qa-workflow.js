@@ -37,7 +37,20 @@ try {
   const doctor = await prisma.doctor.findFirstOrThrow({ where: { user: { username: 'qa-doctor@example.test' } } });
   const patient = await prisma.patient.findFirstOrThrow({ where: { user: { username: 'qa-patient@example.test' } } });
   const drug = await prisma.drugFormulary.findFirstOrThrow({ orderBy: { genericName: 'asc' } });
-  const labService = await prisma.clinicalService.findFirstOrThrow({ where: { category: 'LABORATORY' } });
+  const labService = await prisma.clinicalService.findFirstOrThrow({
+    where: {
+      category: 'LABORATORY',
+      status: 'ACTIVE',
+      baseFeeSdg: { gt: 0, lte: 1_000_000_000 }
+    }
+  });
+  const generalService = await prisma.clinicalService.findFirstOrThrow({
+    where: {
+      status: 'ACTIVE',
+      baseFeeSdg: { gt: 0, lte: 1_000_000_000 }
+    },
+    orderBy: { labelEn: 'asc' }
+  });
   const disposableStaff = await prisma.user.findUniqueOrThrow({ where: { username: 'qa-disposable-staff@example.test' } });
   const appointmentDate = new Date().toISOString().slice(0, 10);
   const slots = (await request(`/api/appointments/slots?doctorId=${doctor.id}&date=${appointmentDate}`)).body;
@@ -106,22 +119,25 @@ try {
 
   const invoice = await request('/api/billing/invoice', {
     token: tokens.reception, method: 'POST', expected: [201], body: {
-      patientId: patient.id, appointmentId,
-      items: [{ descriptionAr: 'فاتورة اختبار سير العمل', descriptionEn: 'QA workflow invoice', qty: 1, unitPriceSdg: 12000 }]
+      patientId: patient.id,
+      items: [{ serviceId: generalService.id, quantity: 1 }]
     }
   });
   const invoiceId = invoice.body.invoice.id;
+  const invoiceTotal = Number(invoice.body.invoice.totalAmountSdg);
+  const firstPayment = Math.min(4000, invoiceTotal - 1);
+  const finalPayment = invoiceTotal - firstPayment;
   const partial = await request(`/api/billing/invoice/${invoiceId}/payments`, {
-    token: tokens.reception, method: 'POST', body: { payments: [{ amountSdg: 4000, paymentMethod: 'CASH' }] }
+    token: tokens.reception, method: 'POST', body: { payments: [{ amountSdg: firstPayment, paymentMethod: 'CASH' }] }
   });
   assert.equal(partial.body.paymentStatus, 'PARTIALLY_PAID');
-  assert.equal(Number(partial.body.remainingBalanceSdg), 8000);
+  assert.equal(Number(partial.body.remainingBalanceSdg), finalPayment);
   const paid = await request(`/api/billing/invoice/${invoiceId}/payments`, {
-    token: tokens.reception, method: 'POST', body: { payments: [{ amountSdg: 8000, paymentMethod: 'CARD', transactionReference: 'QA-FINAL-PAYMENT' }] }
+    token: tokens.reception, method: 'POST', body: { payments: [{ amountSdg: finalPayment, paymentMethod: 'CARD', transactionReference: 'QA-FINAL-PAYMENT' }] }
   });
   assert.equal(paid.body.paymentStatus, 'PAID');
   assert.equal(Number(paid.body.remainingBalanceSdg), 0);
-  results.evidence.billing = { invoiceId, total: 12000, partialPayment: 4000, partialRemaining: 8000, finalPayment: 8000, finalRemaining: 0, finalStatus: 'PAID' };
+  results.evidence.billing = { invoiceId, total: invoiceTotal, partialPayment: firstPayment, partialRemaining: finalPayment, finalPayment, finalRemaining: 0, finalStatus: 'PAID' };
 
   await request(`/api/auth/users/${disposableStaff.id}/status`, { token: tokens.admin, method: 'PUT', body: { status: 'INACTIVE' } });
   await request(`/api/auth/users/${disposableStaff.id}/status`, { token: tokens.admin, method: 'PUT', body: { status: 'ACTIVE' } });

@@ -494,6 +494,7 @@ router.post('/bypass', authenticate, checkRoles('DOCTOR'), async (req, res) => {
 router.get('/drugs', authenticate, allowRoles(ROLES.DOCTOR, ROLES.PHARMACIST), async (req, res) => {
   try {
     const drugs = await prisma.drugFormulary.findMany({
+      where: req.user.role === ROLES.DOCTOR ? { status: 'ACTIVE' } : undefined,
       include: {
         inventoryBatches: true
       }
@@ -504,98 +505,6 @@ router.get('/drugs', authenticate, allowRoles(ROLES.DOCTOR, ROLES.PHARMACIST), a
     return res.status(500).json({ error: 'Failed to retrieve drug formulary.' });
   }
 });
-
-/**
- * PATCH /api/records/drugs/:id/price
- * Pharmacist-only medication pricing.
- */
-router.patch(
-  '/drugs/:id/price',
-  authenticate,
-  allowRoles(ROLES.PHARMACIST),
-  async (req, res) => {
-    const drugId = req.params.id;
-    const unitPriceSdg = Number(req.body?.unitPriceSdg);
-
-    if (!Number.isSafeInteger(unitPriceSdg) || unitPriceSdg <= 0) {
-      return res.status(422).json({
-        error: 'Medicine unit price must be a positive whole number.'
-      });
-    }
-
-    try {
-      const existingDrug = await prisma.drugFormulary.findUnique({
-        where: { id: drugId },
-        select: {
-          id: true,
-          labelAr: true,
-          labelEn: true,
-          unitPriceSdg: true
-        }
-      });
-
-      if (!existingDrug) {
-        return res.status(404).json({
-          error: 'Medicine not found.'
-        });
-      }
-
-      const previousPrice =
-        existingDrug.unitPriceSdg == null
-          ? null
-          : Number(existingDrug.unitPriceSdg);
-
-      const updatedDrug = await prisma.$transaction(async (tx) => {
-        const updated = await tx.drugFormulary.update({
-          where: { id: drugId },
-          data: {
-            unitPriceSdg
-          },
-          select: {
-            id: true,
-            labelAr: true,
-            labelEn: true,
-            genericName: true,
-            strength: true,
-            dosageForm: true,
-            unitPriceSdg: true
-          }
-        });
-
-        await tx.tenantAuditLog.create({
-          data: {
-            userId: req.user.id,
-            action: `PHARMACY_DRUG_PRICE_UPDATED:${drugId}`,
-            details: JSON.stringify({
-              drugId,
-              drugName: existingDrug.labelEn,
-              previousPriceSdg: previousPrice,
-              newPriceSdg: unitPriceSdg
-            }),
-            ipAddress: req.ip || '127.0.0.1'
-          }
-        });
-
-        return updated;
-      });
-
-      return res.json({
-        success: true,
-        message: 'Medicine price updated successfully.',
-        drug: {
-          ...updatedDrug,
-          unitPriceSdg: Number(updatedDrug.unitPriceSdg)
-        }
-      });
-    } catch (error) {
-      console.error('Update medicine price error:', error);
-
-      return res.status(500).json({
-        error: 'Failed to update medicine price.'
-      });
-    }
-  }
-);
 
 
 /**
@@ -918,12 +827,13 @@ router.post(
               );
             }
 
-            const price =
-              Number(linkedDrug.unitPriceSdg);
+            const price = Number(linkedDrug.unitPriceSdg);
 
             if (
-              !Number.isFinite(price) ||
-              price <= 0
+              linkedDrug.status !== 'ACTIVE' ||
+              !Number.isSafeInteger(price) ||
+              price <= 0 ||
+              price > 1_000_000_000
             ) {
               throw fail(
                 409,
@@ -1063,9 +973,6 @@ router.post(
               ? form.dosageForm.trim()
               : '';
 
-          const unitPriceSdg =
-            Number(form.unitPriceSdg);
-
           const batchNumber =
             typeof inventory.batchNumber === 'string'
               ? inventory.batchNumber.trim()
@@ -1097,14 +1004,11 @@ router.post(
             );
           }
 
-          if (
-            !Number.isSafeInteger(unitPriceSdg) ||
-            unitPriceSdg <= 0
-          ) {
+          if (Object.hasOwn(form, 'unitPriceSdg')) {
             throw fail(
               422,
-              'INVALID_MEDICATION_PRICE',
-              'unitPriceSdg must be a positive whole number.'
+              'PHARMACY_PRICE_ADMIN_REQUIRED',
+              'Official medicine selling prices must be configured by an administrator.'
             );
           }
 
@@ -1224,7 +1128,8 @@ router.post(
                 genericName,
                 strength,
                 dosageForm,
-                unitPriceSdg
+                unitPriceSdg: null,
+                status: 'INACTIVE'
               }
             });
 
@@ -1285,7 +1190,6 @@ router.post(
                   linkedDrug.id,
                 createdDrugName:
                   linkedDrug.labelEn,
-                unitPriceSdg,
                 inventoryBatchId:
                   createdBatch.id,
                 batchNumber,
@@ -1621,19 +1525,20 @@ router.post('/lab-order-items/:id/review', authenticate, allowRoles(ROLES.LAB_TE
         service = await tx.clinicalService.findUnique({ where: { id: serviceId } });
         if (!service || service.category !== 'LABORATORY') throw fail(404, 'LAB_SERVICE_NOT_FOUND', 'The selected laboratory service was not found.');
         const price = Number(service.baseFeeSdg);
-        if (!Number.isFinite(price) || price <= 0) throw fail(409, 'LAB_SERVICE_PRICE_NOT_CONFIGURED', 'The selected service must have a valid configured price.');
+        if (service.status !== 'ACTIVE' || !Number.isSafeInteger(price) || price <= 0 || price > 1_000_000_000) {
+          throw fail(409, 'LAB_SERVICE_PRICE_NOT_CONFIGURED', 'The selected service must be active with a valid configured price.');
+        }
       }
 
       if (decision === 'CREATE_SERVICE') {
         const form = req.body?.service || {};
         const labelEn = typeof form.labelEn === 'string' ? form.labelEn.trim() : '';
         const labelAr = typeof form.labelAr === 'string' ? form.labelAr.trim() : '';
-        const baseFeeSdg = Number(form.baseFeeSdg);
         if (!labelEn || !labelAr || labelEn.length > 150 || labelAr.length > 150) {
           throw fail(422, 'LAB_SERVICE_LABELS_REQUIRED', 'Arabic and English service labels are required and must not exceed 150 characters.');
         }
-        if (!Number.isSafeInteger(baseFeeSdg) || baseFeeSdg <= 0) {
-          throw fail(422, 'LAB_SERVICE_PRICE_INVALID', 'baseFeeSdg must be a positive whole number.');
+        if (Object.hasOwn(form, 'baseFeeSdg') || Object.hasOwn(form, 'baseFeeUsd')) {
+          throw fail(422, 'LAB_PRICE_ADMIN_REQUIRED', 'Official laboratory prices must be configured by an administrator.');
         }
 
         const normalizedEn = normalizeName(labelEn);
@@ -1648,7 +1553,14 @@ router.post('/lab-order-items/:id/review', authenticate, allowRoles(ROLES.LAB_TE
         if (existing) throw fail(409, 'LAB_SERVICE_ALREADY_EXISTS', 'A laboratory service with the same normalized name already exists. Link the existing service instead.');
 
         service = await tx.clinicalService.create({
-          data: { labelAr, labelEn, baseFeeSdg, baseFeeUsd: baseFeeSdg / 1500, category: 'LABORATORY' }
+          data: {
+            labelAr,
+            labelEn,
+            baseFeeSdg: null,
+            baseFeeUsd: null,
+            category: 'LABORATORY',
+            status: 'INACTIVE'
+          }
         });
       }
 

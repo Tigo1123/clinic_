@@ -10,6 +10,9 @@ export default function AdminDashboard({ lang, t }) {
   const [analyticsData, setAnalyticsData] = useState(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [analyticsError, setAnalyticsError] = useState('');
+  const [pricing, setPricing] = useState(null);
+  const [pricingDrafts, setPricingDrafts] = useState({});
+  const [pricingLoading, setPricingLoading] = useState(false);
 
   const [config, setConfig] = useState({
     clinicNameAr: 'نظام الشفاء الطبي',
@@ -129,7 +132,49 @@ export default function AdminDashboard({ lang, t }) {
           setLoadingAnalytics(false);
         });
     }
+    if (activeTab === 'pricing') {
+      setPricingLoading(true);
+      fetchWithAuth('/api/admin/pricing')
+        .then(async (res) => {
+          const data = await res.json();
+          if (!res.ok) throw new Error(apiErrorMessage(data, 'Failed to load pricing.'));
+          return data;
+        })
+        .then((data) => setPricing(data))
+        .catch((err) => setErrorMsg(err.message))
+        .finally(() => setPricingLoading(false));
+    }
   }, [activeTab, lang]);
+
+  const saveOfficialPrice = async (kind, item) => {
+    const key = `${kind}:${item.id}`;
+    const currentPrice = kind === 'doctors' ? item.consultationFee : kind === 'services' ? item.baseFeeSdg : item.unitPriceSdg;
+    const draft = pricingDrafts[key] || { priceSdg: currentPrice == null ? '' : String(Number(currentPrice)), status: item.status };
+    const priceSdg = Number(draft.priceSdg);
+    if (!Number.isSafeInteger(priceSdg) || priceSdg <= 0 || priceSdg > 1000000000) {
+      setErrorMsg(lang === 'ar' ? 'أدخل سعراً صحيحاً موجباً.' : 'Enter a valid positive whole-number price.');
+      return;
+    }
+    if (!globalThis.confirm(lang === 'ar' ? 'تأكيد تغيير السعر الرسمي؟' : 'Confirm this official price change?')) return;
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const res = await fetchWithAuth(`/api/admin/pricing/${kind}/${item.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ priceSdg, status: draft.status || item.status })
+      });
+      const updated = await res.json();
+      if (!res.ok) throw new Error(apiErrorMessage(updated, 'Failed to update pricing.'));
+      setPricing((current) => ({
+        ...current,
+        [kind]: current[kind].map((entry) => entry.id === item.id ? updated : entry)
+      }));
+      setPricingDrafts((current) => ({ ...current, [key]: undefined }));
+      setSuccessMsg(lang === 'ar' ? 'تم تحديث السعر الرسمي.' : 'Official price updated.');
+    } catch (error) {
+      setErrorMsg(error.message);
+    }
+  };
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
@@ -218,6 +263,13 @@ export default function AdminDashboard({ lang, t }) {
           >
             <Users size={18} />
             {lang === 'ar' ? 'حسابات الموظفين' : 'Staff Accounts'}
+          </button>
+          <button
+            className={`menu-btn ${activeTab === 'pricing' ? 'active' : ''}`}
+            onClick={() => setActiveTab('pricing')}
+          >
+            <DollarSign size={18} />
+            {lang === 'ar' ? 'إدارة الأسعار' : 'Pricing Management'}
           </button>
           <button
             className={`menu-btn ${activeTab === 'analytics' ? 'active' : ''}`}
@@ -447,6 +499,26 @@ export default function AdminDashboard({ lang, t }) {
                 </table>
               </div>
             </div>
+          </div>
+        )}
+
+        {activeTab === 'pricing' && (
+          <div className="glass-panel" style={{ padding: '1.5rem' }}>
+            <h3>{lang === 'ar' ? 'إدارة الأسعار الرسمية للعيادة' : 'Clinic Pricing Management'}</h3>
+            <p style={{ opacity: 0.75 }}>
+              {lang === 'ar'
+                ? 'تُستخدم الأسعار المحفوظة هنا للفواتير الجديدة فقط، ولا تتغير الفواتير التاريخية.'
+                : 'Prices saved here apply to future invoices only. Historical invoices remain unchanged.'}
+            </p>
+            {errorMsg && <div className="badge badge-danger" style={{ padding: '0.6rem', marginBottom: '1rem' }}>{errorMsg}</div>}
+            {successMsg && <div className="badge badge-success" style={{ padding: '0.6rem', marginBottom: '1rem' }}>{successMsg}</div>}
+            {pricingLoading || !pricing ? <div className="spinner" /> : (
+              <>
+                <PricingTable title={lang === 'ar' ? 'رسوم الاستشارات' : 'Consultation Fees'} kind="doctors" items={pricing.doctors} lang={lang} drafts={pricingDrafts} setDrafts={setPricingDrafts} onSave={saveOfficialPrice} />
+                <PricingTable title={lang === 'ar' ? 'الخدمات السريرية والمختبرية' : 'Clinical & Laboratory Services'} kind="services" items={pricing.services} lang={lang} drafts={pricingDrafts} setDrafts={setPricingDrafts} onSave={saveOfficialPrice} />
+                <PricingTable title={lang === 'ar' ? 'أسعار الصيدلية' : 'Pharmacy Selling Prices'} kind="medicines" items={pricing.medicines} lang={lang} drafts={pricingDrafts} setDrafts={setPricingDrafts} onSave={saveOfficialPrice} />
+              </>
+            )}
           </div>
         )}
 
@@ -720,6 +792,29 @@ export default function AdminDashboard({ lang, t }) {
       </div>
     </div>
   );
+}
+
+function PricingTable({ title, kind, items, lang, drafts, setDrafts, onSave }) {
+  const priceField = kind === 'doctors' ? 'consultationFee' : kind === 'services' ? 'baseFeeSdg' : 'unitPriceSdg';
+  return <section style={{ marginTop: '1.5rem', overflowX: 'auto' }}>
+    <h4>{title}</h4>
+    <table className="staff-table">
+      <thead><tr><th>{lang === 'ar' ? 'الاسم' : 'Name'}</th><th>{lang === 'ar' ? 'الفئة' : 'Category'}</th><th>{lang === 'ar' ? 'السعر الحالي' : 'Current Price'}</th><th>{lang === 'ar' ? 'الحالة' : 'Status'}</th><th>{lang === 'ar' ? 'آخر تحديث' : 'Last Updated'}</th><th>{lang === 'ar' ? 'إجراء' : 'Action'}</th></tr></thead>
+      <tbody>{items.map((item) => {
+        const key = `${kind}:${item.id}`;
+        const currentPrice = item[priceField];
+        const draft = drafts[key] || { priceSdg: currentPrice == null ? '' : String(Number(currentPrice)), status: item.status };
+        return <tr key={item.id}>
+          <td>{lang === 'ar' ? (item.fullNameAr || item.labelAr) : (item.fullNameEn || item.labelEn)}</td>
+          <td>{item.category || item.specialtyEn || item.dosageForm || '—'}</td>
+          <td><input aria-label={`${kind} price`} className="form-input" type="number" min="1" step="1" placeholder={lang === 'ar' ? 'غير محدد' : 'Not configured'} value={draft.priceSdg} onChange={(event) => setDrafts((current) => ({ ...current, [key]: { ...draft, priceSdg: event.target.value } }))} /></td>
+          <td><select aria-label={`${kind} status`} className="form-input" value={draft.status} onChange={(event) => setDrafts((current) => ({ ...current, [key]: { ...draft, status: event.target.value } }))}><option value="ACTIVE">{lang === 'ar' ? 'نشط' : 'Active'}</option><option value="INACTIVE">{lang === 'ar' ? 'غير نشط' : 'Inactive'}</option></select></td>
+          <td>{item.updatedAt ? new Date(item.updatedAt).toLocaleString(lang === 'ar' ? 'ar' : 'en') : '—'}</td>
+          <td><button type="button" className="btn btn-primary" onClick={() => onSave(kind, item)}>{lang === 'ar' ? 'حفظ' : 'Save'}</button></td>
+        </tr>;
+      })}</tbody>
+    </table>
+  </section>;
 }
 
 function AppointmentTrendChart({data,lang}){

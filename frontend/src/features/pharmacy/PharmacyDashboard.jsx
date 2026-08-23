@@ -13,12 +13,8 @@ export default function PharmacyDashboard({ lang, t }) {
   // Inventory warnings
   const [inventoryAlerts, setInventoryAlerts] = useState([]);
 
-  // Pharmacist-only medication pricing
+  // Read-only formulary pricing; official prices are configured by ADMIN.
   const [drugCatalog, setDrugCatalog] = useState([]);
-  const [priceDrafts, setPriceDrafts] = useState({});
-  const [priceSavingId, setPriceSavingId] = useState(null);
-  const [pricingSuccessMsg, setPricingSuccessMsg] = useState('');
-  const [pricingErrorMsg, setPricingErrorMsg] = useState('');
 
   // Custom medications awaiting pharmacist review
   const [medicationReviews, setMedicationReviews] = useState([]);
@@ -205,8 +201,6 @@ export default function PharmacyDashboard({ lang, t }) {
           genericName: '',
           strength: '',
           dosageForm: '',
-          unitPriceSdg: '',
-
           batchNumber: '',
           expiryDate: '',
           qtyOnHand: String(
@@ -279,7 +273,6 @@ export default function PharmacyDashboard({ lang, t }) {
     }
 
     if (decision === 'CREATE_FORMULARY') {
-      const unitPriceSdg = Number(form.unitPriceSdg);
       const qtyOnHand = Number(form.qtyOnHand);
       const minReorderLevel = Number(
         form.minReorderLevel
@@ -294,18 +287,6 @@ export default function PharmacyDashboard({ lang, t }) {
           lang === 'ar'
             ? 'الاسم العلمي والتركيز والشكل الدوائي مطلوبة.'
             : 'Generic name, strength, and dosage form are required.'
-        );
-        return;
-      }
-
-      if (
-        !Number.isSafeInteger(unitPriceSdg) ||
-        unitPriceSdg <= 0
-      ) {
-        setReviewErrorMsg(
-          lang === 'ar'
-            ? 'أدخل سعرًا صحيحًا أكبر من صفر.'
-            : 'Enter a valid positive whole-number price.'
         );
         return;
       }
@@ -362,8 +343,7 @@ export default function PharmacyDashboard({ lang, t }) {
           item.customDrugName,
         genericName: form.genericName.trim(),
         strength: form.strength.trim(),
-        dosageForm: form.dosageForm.trim(),
-        unitPriceSdg
+        dosageForm: form.dosageForm.trim()
       };
 
       body.inventory = {
@@ -468,85 +448,6 @@ export default function PharmacyDashboard({ lang, t }) {
       );
     } finally {
       setReviewSavingId(null);
-    }
-  };
-
-  const handlePriceUpdate = async (drug) => {
-    setPricingErrorMsg('');
-    setPricingSuccessMsg('');
-
-    const draftValue =
-      priceDrafts[drug.id] ??
-      (drug.unitPriceSdg == null
-        ? ''
-        : String(Number(drug.unitPriceSdg)));
-
-    const unitPriceSdg = Number(draftValue);
-
-    if (!Number.isSafeInteger(unitPriceSdg) || unitPriceSdg <= 0) {
-      setPricingErrorMsg(
-        lang === 'ar'
-          ? 'يجب إدخال سعر صحيح أكبر من صفر بالعملة السودانية.'
-          : 'Enter a valid positive whole-number price in SDG.'
-      );
-      return;
-    }
-
-    try {
-      setPriceSavingId(drug.id);
-
-      const res = await fetchWithAuth(
-        `/api/records/drugs/${drug.id}/price`,
-        {
-          method: 'PATCH',
-          body: JSON.stringify({ unitPriceSdg })
-        }
-      );
-
-      const payload = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        setPricingErrorMsg(
-          apiErrorMessage(payload, 'Failed to update medicine price.')
-        );
-        return;
-      }
-
-      const updatedDrug = payload.drug;
-
-      setDrugCatalog((current) =>
-        current.map((item) =>
-          item.id === drug.id
-            ? {
-                ...item,
-                unitPriceSdg: updatedDrug.unitPriceSdg
-              }
-            : item
-        )
-      );
-
-      setPriceDrafts((current) => ({
-        ...current,
-        [drug.id]: String(updatedDrug.unitPriceSdg)
-      }));
-
-      setPricingSuccessMsg(
-        lang === 'ar'
-          ? `تم تحديث سعر ${
-              drug.labelAr || drug.labelEn
-            } بنجاح.`
-          : `${drug.labelEn || drug.labelAr} price updated successfully.`
-      );
-    } catch (error) {
-      console.error(error);
-
-      setPricingErrorMsg(
-        lang === 'ar'
-          ? 'تعذر تحديث سعر الدواء.'
-          : 'Unable to update medicine price.'
-      );
-    } finally {
-      setPriceSavingId(null);
     }
   };
 
@@ -1191,27 +1092,6 @@ export default function PharmacyDashboard({ lang, t }) {
                           />
 
                           <input
-                            type="number"
-                            min="1"
-                            step="1"
-                            value={
-                              form.unitPriceSdg || ''
-                            }
-                            onChange={(event) =>
-                              updateReviewForm(
-                                item.id,
-                                'unitPriceSdg',
-                                event.target.value
-                              )
-                            }
-                            placeholder={
-                              lang === 'ar'
-                                ? 'السعر بالجنيه'
-                                : 'Unit price SDG'
-                            }
-                          />
-
-                          <input
                             value={
                               form.batchNumber || ''
                             }
@@ -1440,8 +1320,8 @@ export default function PharmacyDashboard({ lang, t }) {
           <div className="panel-header">
             <span className="panel-title">
               {lang === 'ar'
-                ? 'إدارة أسعار الأدوية'
-                : 'Medication Pricing'}
+                ? 'أسعار الأدوية الرسمية'
+                : 'Official Medication Prices'}
             </span>
           </div>
 
@@ -1453,35 +1333,9 @@ export default function PharmacyDashboard({ lang, t }) {
             }}
           >
             {lang === 'ar'
-              ? 'الصيدلي مسؤول عن اعتماد وتعديل أسعار الأدوية المستخدمة في فواتير الصيدلية.'
-              : 'Pharmacists can approve and update medication prices used for pharmacy billing.'}
+              ? 'يمكن للصيدلي عرض الأسعار الرسمية. يحدد المسؤول الأسعار ويعتمد الأدوية الجديدة للفوترة.'
+              : 'Pharmacists can view official prices. Administrators price and activate new medicines for billing.'}
           </p>
-
-          {pricingErrorMsg && (
-            <div
-              className="badge badge-danger"
-              style={{
-                padding: '0.6rem',
-                marginBottom: '0.75rem',
-                display: 'block'
-              }}
-            >
-              {pricingErrorMsg}
-            </div>
-          )}
-
-          {pricingSuccessMsg && (
-            <div
-              className="badge badge-success"
-              style={{
-                padding: '0.6rem',
-                marginBottom: '0.75rem',
-                display: 'block'
-              }}
-            >
-              {pricingSuccessMsg}
-            </div>
-          )}
 
           {drugCatalog.length === 0 ? (
             <div
@@ -1620,62 +1474,6 @@ export default function PharmacyDashboard({ lang, t }) {
                         </strong>
                       </div>
 
-                      <div
-                        style={{
-                          display: 'flex',
-                          gap: '0.5rem',
-                          marginTop: '0.65rem'
-                        }}
-                      >
-                        <input
-                          type="number"
-                          min="1"
-                          step="1"
-                          value={
-                            priceDrafts[drug.id] ??
-                            (
-                              hasValidPrice
-                                ? String(currentPrice)
-                                : ''
-                            )
-                          }
-                          onChange={(event) =>
-                            setPriceDrafts((current) => ({
-                              ...current,
-                              [drug.id]: event.target.value
-                            }))
-                          }
-                          placeholder={
-                            lang === 'ar'
-                              ? 'السعر بالجنيه'
-                              : 'Price in SDG'
-                          }
-                          style={{
-                            width: '100%',
-                            minWidth: 0
-                          }}
-                        />
-
-                        <button
-                          type="button"
-                          className="btn btn-primary"
-                          disabled={priceSavingId === drug.id}
-                          onClick={() =>
-                            handlePriceUpdate(drug)
-                          }
-                          style={{
-                            whiteSpace: 'nowrap'
-                          }}
-                        >
-                          {priceSavingId === drug.id
-                            ? (lang === 'ar'
-                                ? 'جارٍ الحفظ...'
-                                : 'Saving...')
-                            : (lang === 'ar'
-                                ? 'حفظ السعر'
-                                : 'Save Price')}
-                        </button>
-                      </div>
                     </div>
                   );
                 })}

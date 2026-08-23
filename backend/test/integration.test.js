@@ -973,82 +973,7 @@ test('drug inventory is not public and is available to pharmacy', async () => {
   assert.equal((await api.get('/api/records/drugs').set(auth('pharmacy'))).status, 200);
 });
 
-test('pharmacist can update medication price and the change is audited', async () => {
-  assert.ok(drug);
-
-  const freshDrug = await prisma.drugFormulary.findUnique({
-    where: { id: drug.id }
-  });
-
-  const originalPrice =
-    freshDrug.unitPriceSdg == null
-      ? null
-      : Number(freshDrug.unitPriceSdg);
-
-  const testPrice =
-    originalPrice === 7777
-      ? 8888
-      : 7777;
-
-  try {
-    const response = await api
-      .patch(`/api/records/drugs/${drug.id}/price`)
-      .set(auth('pharmacy'))
-      .send({
-        unitPriceSdg: testPrice
-      });
-
-    assert.equal(response.status, 200);
-    assert.equal(response.body.success, true);
-    assert.equal(response.body.drug.id, drug.id);
-    assert.equal(
-      Number(response.body.drug.unitPriceSdg),
-      testPrice
-    );
-
-    const storedDrug = await prisma.drugFormulary.findUnique({
-      where: { id: drug.id }
-    });
-
-    assert.equal(
-      Number(storedDrug.unitPriceSdg),
-      testPrice
-    );
-
-    const auditEntries = await prisma.tenantAuditLog.findMany({
-      where: {
-        action: `PHARMACY_DRUG_PRICE_UPDATED:${drug.id}`
-      }
-    });
-
-    const matchingAudit = auditEntries.find((entry) => {
-      try {
-        const details = JSON.parse(entry.details);
-
-        return (
-          details.drugId === drug.id &&
-          Number(details.newPriceSdg) === testPrice
-        );
-      } catch {
-        return false;
-      }
-    });
-
-    assert.ok(
-      matchingAudit,
-      'Expected medication price update audit log'
-    );
-  } finally {
-    await prisma.drugFormulary.update({
-      where: { id: drug.id },
-      data: {
-        unitPriceSdg: originalPrice
-      }
-    });
-  }
-});
-
-test('only pharmacists can update medication prices', async () => {
+test('legacy pharmacist price endpoint is removed and cannot change official selling prices', async () => {
   assert.ok(drug);
 
   const before = await prisma.drugFormulary.findUnique({
@@ -1060,12 +985,7 @@ test('only pharmacists can update medication prices', async () => {
       ? null
       : Number(before.unitPriceSdg);
 
-  const forbiddenRoles = [
-    'admin',
-    'reception',
-    'doctor',
-    'lab'
-  ];
+  const forbiddenRoles = ['admin', 'reception', 'doctor', 'lab', 'pharmacy'];
 
   for (const role of forbiddenRoles) {
     const response = await api
@@ -1075,53 +995,7 @@ test('only pharmacists can update medication prices', async () => {
         unitPriceSdg: 9999
       });
 
-    assert.equal(
-      response.status,
-      403,
-      `${role} must not be allowed to update medication prices`
-    );
-  }
-
-  const after = await prisma.drugFormulary.findUnique({
-    where: { id: drug.id }
-  });
-
-  const afterPrice =
-    after.unitPriceSdg == null
-      ? null
-      : Number(after.unitPriceSdg);
-
-  assert.equal(afterPrice, beforePrice);
-});
-
-test('medication pricing rejects invalid prices without changing the drug', async () => {
-  assert.ok(drug);
-
-  const before = await prisma.drugFormulary.findUnique({
-    where: { id: drug.id }
-  });
-
-  const beforePrice =
-    before.unitPriceSdg == null
-      ? null
-      : Number(before.unitPriceSdg);
-
-  const invalidPrices = [
-    0,
-    -100,
-    12.5,
-    'invalid'
-  ];
-
-  for (const invalidPrice of invalidPrices) {
-    const response = await api
-      .patch(`/api/records/drugs/${drug.id}/price`)
-      .set(auth('pharmacy'))
-      .send({
-        unitPriceSdg: invalidPrice
-      });
-
-    assert.equal(response.status, 422);
+    assert.equal(response.status, 404, `${role} must not have a records-route price writer`);
   }
 
   const after = await prisma.drugFormulary.findUnique({
@@ -1314,7 +1188,7 @@ test('pharmacist can link a custom medication to an existing stocked formulary d
   );
 });
 
-test('pharmacist can create a new formulary medicine with price and initial stock', async () => {
+test('pharmacist creates only an unpriced inactive medicine and ADMIN controls its official price', async () => {
   const fixture =
     await createCustomMedicationReviewFixture({
       customDrugName: `Cefixime Review ${Date.now()}`
@@ -1326,7 +1200,7 @@ test('pharmacist can create a new formulary medicine with price and initial stoc
   const genericName =
     `Cefixime-${fixture.unique}`;
 
-  const review = await api
+  const forged = await api
     .post(
       `/api/records/prescribed-drugs/${fixture.prescribedDrug.id}/pharmacy-review`
     )
@@ -1349,6 +1223,25 @@ test('pharmacist can create a new formulary medicine with price and initial stoc
         expiryDate: '2035-12-31',
         qtyOnHand: 40,
         minReorderLevel: 10
+      }
+    });
+
+  assert.equal(forged.status, 422);
+  assert.equal(forged.body.error.code, 'PHARMACY_PRICE_ADMIN_REQUIRED');
+
+  const review = await api
+    .post(`/api/records/prescribed-drugs/${fixture.prescribedDrug.id}/pharmacy-review`)
+    .set(auth('pharmacy'))
+    .send({
+      decision: 'CREATE_FORMULARY',
+      note: 'Created as inventory identity pending administrator pricing.',
+      formulary: {
+        labelAr: 'سيفيكسيم اختبار', labelEn, genericName,
+        strength: '400mg', dosageForm: 'Tablet'
+      },
+      inventory: {
+        batchNumber: `CEF-${fixture.unique}`, expiryDate: '2035-12-31',
+        qtyOnHand: 40, minReorderLevel: 10
       }
     });
 
@@ -1385,10 +1278,8 @@ test('pharmacist can create a new formulary medicine with price and initial stoc
     labelEn
   );
 
-  assert.equal(
-    Number(stored.drug.unitPriceSdg),
-    6000
-  );
+  assert.equal(stored.drug.unitPriceSdg, null);
+  assert.equal(stored.drug.status, 'INACTIVE');
 
   assert.equal(
     stored.drug.inventoryBatches.length,
@@ -1412,9 +1303,16 @@ test('pharmacist can create a new formulary medicine with price and initial stoc
     'Creating a formulary medication must be audited'
   );
 
-  const billing =
-    await requestPharmacyInvoiceForFixture(fixture);
+  const blockedBilling = await requestPharmacyInvoiceForFixture(fixture);
+  assert.equal(blockedBilling.status, 409);
+  assert.equal(blockedBilling.body.error.code, 'PHARMACY_PRICE_NOT_CONFIGURED');
 
+  const configured = await api.patch(`/api/admin/pricing/medicines/${stored.drug.id}`)
+    .set(auth('admin')).send({ priceSdg: 6000, status: 'ACTIVE' });
+  assert.equal(configured.status, 200);
+  assert.equal(configured.body.unitPriceSdg, 6000);
+
+  const billing = await requestPharmacyInvoiceForFixture(fixture);
   assert.equal(billing.status, 201);
 
   const invoiceCount = await prisma.invoice.count({
@@ -1593,24 +1491,63 @@ test('custom lab tests wait for lab review and block reception billing until lin
   assert.equal(Number(invoice.body.invoice.totalAmountSdg), Number(service.baseFeeSdg) * 2);
 });
 
-test('lab tech can create and price a reusable service while invalid and duplicate prices are rejected', async () => {
-  const invalid = await createLabReviewFixture(`Invalid Price ${fixtureCounter}`, { includeStandard: false });
-  for (const price of [0, -1, 1.5]) {
-    const response = await api.post(`/api/records/lab-order-items/${invalid.customItem.id}/review`).set(auth('lab')).send({
-      decision: 'CREATE_SERVICE', service: { labelAr: 'فحص سعر غير صالح', labelEn: `Invalid Price ${fixtureCounter}`, baseFeeSdg: price }
-    });
-    assert.equal(response.status, 422);
-    assert.equal(response.body?.error?.code || response.body?.code, 'LAB_SERVICE_PRICE_INVALID');
-  }
-
+test('lab tech creates only an unpriced inactive service and ADMIN controls its official price', async () => {
   const fixture = await createLabReviewFixture(`Reusable Test ${fixtureCounter}`, { includeStandard: false });
   const labelEn = `Reusable Test ${fixtureCounter}`;
-  const created = await api.post(`/api/records/lab-order-items/${fixture.customItem.id}/review`).set(auth('lab')).send({
+  const forged = await api.post(`/api/records/lab-order-items/${fixture.customItem.id}/review`).set(auth('lab')).send({
     decision: 'CREATE_SERVICE', service: { labelAr: `فحص قابل لإعادة الاستخدام ${fixtureCounter}`, labelEn, baseFeeSdg: 23000 }
+  });
+  assert.equal(forged.status, 422);
+  assert.equal(forged.body.error.code, 'LAB_PRICE_ADMIN_REQUIRED');
+
+  const created = await api.post(`/api/records/lab-order-items/${fixture.customItem.id}/review`).set(auth('lab')).send({
+    decision: 'CREATE_SERVICE', service: { labelAr: `فحص قابل لإعادة الاستخدام ${fixtureCounter}`, labelEn }
   });
   assert.equal(created.status, 200);
   assert.equal(created.body.service.category, 'LABORATORY');
-  assert.equal(Number(created.body.service.baseFeeSdg), 23000);
+  assert.equal(created.body.service.baseFeeSdg, null);
+  assert.equal(created.body.service.status, 'INACTIVE');
+
+  const blocked = await api.post('/api/billing/invoice').set(auth('reception')).send({
+    patientId: patient1.id, labOrderId: fixture.order.id, invoiceType: 'LABORATORY'
+  });
+  assert.equal(blocked.status, 409);
+  assert.equal(blocked.body.error.code, 'LAB_SERVICE_PRICE_NOT_CONFIGURED');
+
+  const configured = await api.patch(`/api/admin/pricing/services/${created.body.service.id}`)
+    .set(auth('admin')).send({ priceSdg: 23000, status: 'ACTIVE' });
+  assert.equal(configured.status, 200);
+  assert.equal(configured.body.baseFeeSdg, 23000);
+
+  const firstConfigurationAudit = await prisma.tenantAuditLog.findFirst({
+    where: {
+      action: 'CLINICAL_SERVICE_PRICE_UPDATED',
+      details: { contains: created.body.service.id }
+    },
+    orderBy: { timestamp: 'desc' }
+  });
+  assert.ok(firstConfigurationAudit);
+  assert.equal(JSON.parse(firstConfigurationAudit.details).previousPriceSdg, null);
+  assert.equal(JSON.parse(firstConfigurationAudit.details).newPriceSdg, 23000);
+
+  const reconfigured = await api.patch(`/api/admin/pricing/services/${created.body.service.id}`)
+    .set(auth('admin')).send({ priceSdg: 24000, status: 'ACTIVE' });
+  assert.equal(reconfigured.status, 200);
+  const subsequentAudit = await prisma.tenantAuditLog.findFirst({
+    where: {
+      action: 'CLINICAL_SERVICE_PRICE_UPDATED',
+      details: { contains: created.body.service.id }
+    },
+    orderBy: { timestamp: 'desc' }
+  });
+  assert.equal(JSON.parse(subsequentAudit.details).previousPriceSdg, 23000);
+  assert.equal(JSON.parse(subsequentAudit.details).newPriceSdg, 24000);
+
+  const currentInvoice = await api.post('/api/billing/invoice').set(auth('reception')).send({
+    patientId: patient1.id, labOrderId: fixture.order.id, invoiceType: 'LABORATORY'
+  });
+  assert.equal(currentInvoice.status, 201);
+  assert.equal(Number(currentInvoice.body.invoice.totalAmountSdg), 24000);
 
   const futureOrder = await prisma.labOrder.create({
     data: {
@@ -1623,11 +1560,11 @@ test('lab tech can create and price a reusable service while invalid and duplica
     patientId: patient1.id, labOrderId: futureOrder.id, invoiceType: 'LABORATORY'
   });
   assert.equal(futureInvoice.status, 201);
-  assert.equal(Number(futureInvoice.body.invoice.totalAmountSdg), 23000);
+  assert.equal(Number(futureInvoice.body.invoice.totalAmountSdg), 24000);
 
   const duplicate = await createLabReviewFixture(`Duplicate ${fixtureCounter}`, { includeStandard: false });
   const duplicateResponse = await api.post(`/api/records/lab-order-items/${duplicate.customItem.id}/review`).set(auth('lab')).send({
-    decision: 'CREATE_SERVICE', service: { labelAr: `  ${created.body.service.labelAr.toUpperCase()}  `, labelEn: `  ${labelEn.toUpperCase()}  `, baseFeeSdg: 24000 }
+    decision: 'CREATE_SERVICE', service: { labelAr: `  ${created.body.service.labelAr.toUpperCase()}  `, labelEn: `  ${labelEn.toUpperCase()}  ` }
   });
   assert.equal(duplicateResponse.status, 409);
   assert.equal(duplicateResponse.body?.error?.code || duplicateResponse.body?.code, 'LAB_SERVICE_ALREADY_EXISTS');
@@ -1718,6 +1655,65 @@ test('reception can view the laboratory billing queue and lab staff cannot', asy
       id: order.id
     }
   });
+});
+
+test('laboratory billing queue preserves null pricing and reports every unbillable configuration', async () => {
+  const record = await prisma.medicalRecord.findUnique({ where: { appointmentId: relatedAppointment.id } });
+  const unique = ++fixtureCounter;
+  const services = await Promise.all([
+    prisma.clinicalService.create({
+      data: {
+        labelAr: `سعر فارغ نشط ${unique}`,
+        labelEn: `Active Null Price ${unique}`,
+        category: 'LABORATORY', status: 'ACTIVE', baseFeeSdg: null, baseFeeUsd: null
+      }
+    }),
+    prisma.clinicalService.create({
+      data: {
+        labelAr: `سعر مضبوط غير نشط ${unique}`,
+        labelEn: `Inactive Configured Price ${unique}`,
+        category: 'LABORATORY', status: 'INACTIVE', baseFeeSdg: 17000, baseFeeUsd: 17000 / 1500
+      }
+    }),
+    prisma.clinicalService.create({
+      data: {
+        labelAr: `سعر مضبوط نشط ${unique}`,
+        labelEn: `Active Configured Price ${unique}`,
+        category: 'LABORATORY', status: 'ACTIVE', baseFeeSdg: 19000, baseFeeUsd: 19000 / 1500
+      }
+    })
+  ]);
+  const orders = await Promise.all(services.map((catalogService) => prisma.labOrder.create({
+    data: {
+      medicalRecordId: record.id,
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      status: 'PENDING_BILLING',
+      items: { create: { serviceId: catalogService.id } }
+    }
+  })));
+
+  try {
+    const response = await api.get('/api/billing/lab-orders/pending').set(auth('reception'));
+    assert.equal(response.status, 200);
+    const queued = orders.map((order) => response.body.find((candidate) => candidate.id === order.id));
+    assert.ok(queued.every(Boolean));
+
+    assert.equal(queued[0].items[0].service.baseFeeSdg, null);
+    assert.equal(queued[0].pricingRequired, true);
+    assert.equal(queued[0].estimatedTotalSdg, 0);
+
+    assert.equal(queued[1].items[0].service.baseFeeSdg, 17000);
+    assert.equal(queued[1].pricingRequired, true);
+    assert.equal(queued[1].estimatedTotalSdg, 0);
+
+    assert.equal(queued[2].items[0].service.baseFeeSdg, 19000);
+    assert.equal(queued[2].pricingRequired, false);
+    assert.equal(queued[2].estimatedTotalSdg, 19000);
+  } finally {
+    await prisma.labOrder.deleteMany({ where: { id: { in: orders.map((order) => order.id) } } });
+    await prisma.clinicalService.deleteMany({ where: { id: { in: services.map((catalogService) => catalogService.id) } } });
+  }
 });
 
 test('laboratory payment gate requires full payment and sample collection before results', async () => {
@@ -2419,16 +2415,128 @@ test('consultation payment gate blocks the doctor until the server-priced consul
 });
 
 test('billing is restricted and split payments set partial then paid', async () => {
-  assert.equal((await api.post('/api/billing/invoice').set(auth('pharmacy')).send({ patientId: patient1.id, items: [{ descriptionAr: 'x', descriptionEn: 'x', qty: 1, unitPriceSdg: 100 }] })).status, 403);
-  const invoiceResponse = await api.post('/api/billing/invoice').set(auth('reception')).send({ patientId: patient1.id, items: [{ descriptionAr: 'اختبار', descriptionEn: 'Test', qty: 1, unitPriceSdg: 100 }] });
+  assert.equal((await api.post('/api/billing/invoice').set(auth('pharmacy')).send({ patientId: patient1.id, items: [{ serviceId: service.id, quantity: 1 }] })).status, 403);
+  const invoiceResponse = await api.post('/api/billing/invoice').set(auth('reception')).send({ patientId: patient1.id, items: [{ serviceId: service.id, quantity: 1 }] });
   assert.equal(invoiceResponse.status, 201);
   const id = invoiceResponse.body.invoice.id;
+  const total = Number(invoiceResponse.body.invoice.totalAmountSdg);
   const partial = await api.post(`/api/billing/invoice/${id}/payments`).set(paymentAuth('reception')).send({ payments: [{ amountSdg: 40, paymentMethod: 'CASH' }] });
   assert.equal(partial.body.paymentStatus, 'PARTIALLY_PAID');
-  assert.equal(partial.body.remainingBalanceSdg, 60);
-  const paid = await api.post(`/api/billing/invoice/${id}/payments`).set(paymentAuth('reception')).send({ payments: [{ amountSdg: 60, paymentMethod: 'CARD', transactionReference: `TEST-${Date.now()}` }] });
+  assert.equal(partial.body.remainingBalanceSdg, total - 40);
+  const paid = await api.post(`/api/billing/invoice/${id}/payments`).set(paymentAuth('reception')).send({ payments: [{ amountSdg: total - 40, paymentMethod: 'CARD', transactionReference: `TEST-${Date.now()}` }] });
   assert.equal(paid.body.paymentStatus, 'PAID');
   assert.equal(paid.body.remainingBalanceSdg, 0);
+});
+
+test('GENERAL billing is catalog-authoritative and admin price changes preserve invoice snapshots', async () => {
+  const catalogService = await prisma.clinicalService.create({
+    data: {
+      labelAr: `خدمة أمان ${++fixtureCounter}`,
+      labelEn: `Pricing Security Service ${fixtureCounter}`,
+      category: 'CLINICAL_PROCEDURE',
+      baseFeeSdg: 20000,
+      baseFeeUsd: 20000 / 1500,
+      status: 'ACTIVE'
+    }
+  });
+  try {
+    const legitimate = await api.post('/api/billing/invoice').set(auth('reception')).send({
+      patientId: patient1.id,
+      invoiceType: 'GENERAL',
+      items: [{ serviceId: catalogService.id, quantity: 1 }]
+    });
+    assert.equal(legitimate.status, 201);
+    assert.equal(Number(legitimate.body.invoice.totalAmountSdg), 20000);
+    assert.equal(Number(legitimate.body.invoice.items[0].unitPriceSdg), 20000);
+
+    for (const forged of [
+      { serviceId: catalogService.id, quantity: 1, unitPrice: 1 },
+      { serviceId: catalogService.id, quantity: 1, unitPriceSdg: 1 },
+      { serviceId: catalogService.id, quantity: 1, unitPriceUsd: 1 },
+      { serviceId: catalogService.id, quantity: 1, price: 1 },
+      { serviceId: catalogService.id, quantity: 1, subtotal: 1 },
+      { serviceId: catalogService.id, quantity: 1, total: 1 },
+      { serviceId: catalogService.id, quantity: 1, amount: 1 },
+      { serviceId: catalogService.id, quantity: 1, balance: 0 },
+      { serviceId: catalogService.id, quantity: 1, status: 'PAID' }
+    ]) {
+      const invoiceCountBefore = await prisma.invoice.count({ where: { patientId: patient1.id } });
+      const response = await api.post('/api/billing/invoice').set(auth('reception')).send({
+        patientId: patient1.id, invoiceType: 'GENERAL', items: [forged]
+      });
+      assert.equal(response.status, 422);
+      assert.equal(response.body.error.code, 'GENERAL_INVOICE_ITEM_INVALID');
+      assert.equal(await prisma.invoice.count({ where: { patientId: patient1.id } }), invoiceCountBefore);
+    }
+
+    for (const quantity of [0, -1, 1.5, '1', 101]) {
+      const response = await api.post('/api/billing/invoice').set(auth('reception')).send({
+        patientId: patient1.id,
+        invoiceType: 'GENERAL',
+        items: [{ serviceId: catalogService.id, quantity }]
+      });
+      assert.equal(response.status, 422);
+    }
+
+    for (const role of ['reception', 'doctor', 'lab', 'pharmacy']) {
+      const denied = await api.patch(`/api/admin/pricing/services/${catalogService.id}`).set(auth(role)).send({ priceSdg: 25000 });
+      assert.equal(denied.status, 403);
+    }
+    assert.equal((await api.get('/api/admin/pricing')).status, 401);
+    assert.equal((await api.patch(`/api/admin/pricing/services/${catalogService.id}`).send({ priceSdg: 25000 })).status, 401);
+
+    const maxPrice = await api.patch(`/api/admin/pricing/services/${catalogService.id}`)
+      .set(auth('admin')).send({ priceSdg: 1_000_000_000 });
+    assert.equal(maxPrice.status, 200);
+    const maxLine = await api.post('/api/billing/invoice').set(auth('reception')).send({
+      patientId: patient1.id, invoiceType: 'GENERAL',
+      items: [{ serviceId: catalogService.id, quantity: 100 }]
+    });
+    assert.equal(maxLine.status, 201);
+    assert.equal(Number(maxLine.body.invoice.totalAmountSdg), 100_000_000_000);
+
+    const maximumItems = Array.from({ length: 100 }, () => ({ serviceId: catalogService.id, quantity: 100 }));
+    const maximumAggregate = await api.post('/api/billing/invoice').set(auth('reception')).send({
+      patientId: patient1.id, invoiceType: 'GENERAL', items: maximumItems
+    });
+    assert.equal(maximumAggregate.status, 201);
+    assert.equal(Number(maximumAggregate.body.invoice.totalAmountSdg), 10_000_000_000_000);
+    const aboveMaximum = await api.post('/api/billing/invoice').set(auth('reception')).send({
+      patientId: patient1.id, invoiceType: 'GENERAL', items: [...maximumItems, maximumItems[0]]
+    });
+    assert.equal(aboveMaximum.status, 422);
+    assert.equal(aboveMaximum.body.error.code, 'GENERAL_INVOICE_ITEM_LIMIT_EXCEEDED');
+
+    const changed = await api.patch(`/api/admin/pricing/services/${catalogService.id}`).set(auth('admin')).send({ priceSdg: 25000 });
+    assert.equal(changed.status, 200);
+    assert.equal(changed.body.baseFeeSdg, 25000);
+    const historical = await prisma.invoice.findUnique({ where: { id: legitimate.body.invoice.id }, include: { items: true } });
+    assert.equal(Number(historical.totalAmountSdg), 20000);
+    assert.equal(Number(historical.items[0].unitPriceSdg), 20000);
+
+    const future = await api.post('/api/billing/invoice').set(auth('reception')).send({
+      patientId: patient1.id,
+      invoiceType: 'GENERAL',
+      items: [{ serviceId: catalogService.id, quantity: 1 }]
+    });
+    assert.equal(future.status, 201);
+    assert.equal(Number(future.body.invoice.totalAmountSdg), 25000);
+
+    await api.patch(`/api/admin/pricing/services/${catalogService.id}`).set(auth('admin')).send({ priceSdg: 25000, status: 'INACTIVE' });
+    const inactive = await api.post('/api/billing/invoice').set(auth('reception')).send({
+      patientId: patient1.id, invoiceType: 'GENERAL', items: [{ serviceId: catalogService.id, quantity: 1 }]
+    });
+    assert.equal(inactive.status, 404);
+    assert.equal(inactive.body.error.code, 'SERVICE_NOT_AVAILABLE');
+
+    const audit = await prisma.tenantAuditLog.findFirst({
+      where: { action: 'CLINICAL_SERVICE_PRICE_UPDATED', details: { contains: catalogService.id } },
+      orderBy: { timestamp: 'desc' }
+    });
+    assert.ok(audit);
+  } finally {
+    await prisma.clinicalService.delete({ where: { id: catalogService.id } });
+  }
 });
 
 test('billing rejects zero, negative, and overpayments', async () => {

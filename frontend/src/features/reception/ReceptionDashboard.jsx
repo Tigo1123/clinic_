@@ -241,7 +241,7 @@ export default function ReceptionDashboard({ lang, t }) {
           item.service?.labelEn ||
           item.customTestName ||
           'Custom Test',
-        baseFeeSdg: Number(item.service?.baseFeeSdg || 0),
+        baseFeeSdg: item.service?.baseFeeSdg == null ? null : Number(item.service.baseFeeSdg),
         qty: 1
       }))
     );
@@ -286,7 +286,7 @@ export default function ReceptionDashboard({ lang, t }) {
           id: item.id,
           labelAr: item.drug.labelAr,
           labelEn: item.drug.labelEn,
-          baseFeeSdg: Number(item.drug.unitPriceSdg || 0),
+          baseFeeSdg: item.drug.unitPriceSdg == null ? null : Number(item.drug.unitPriceSdg),
           qty: item.remainingQty
         }))
     );
@@ -670,7 +670,7 @@ export default function ReceptionDashboard({ lang, t }) {
       s.labelAr.includes('كشف')
     );
 
-    const docFee = app.doctor?.consultationFee ? parseFloat(app.doctor.consultationFee) : 5000;
+    const docFee = app.doctor?.consultationFee ? parseFloat(app.doctor.consultationFee) : 0;
 
     if (consultService) {
       setAddedServices([{
@@ -702,7 +702,11 @@ export default function ReceptionDashboard({ lang, t }) {
   };
 
   const calculateInvoiceTotals = () => {
-    const totalSdg = addedServices.reduce((sum, s) => sum + parseFloat(s.baseFeeSdg) * s.qty, 0);
+    const totalSdg = addedServices.reduce((sum, service) => {
+      if (service.baseFeeSdg == null) return sum;
+      const price = Number(service.baseFeeSdg);
+      return Number.isFinite(price) ? sum + (price * service.qty) : sum;
+    }, 0);
     // Fixed conversion rate of 1500 locked at checkout
     const totalUsd = totalSdg / 1500;
     return { totalSdg, totalUsd };
@@ -857,12 +861,10 @@ export default function ReceptionDashboard({ lang, t }) {
             : undefined
       };
 
-      if (!isLaboratoryBilling && !isPharmacyBilling) {
+      if (invoiceType === 'GENERAL') {
         invoicePayload.items = addedServices.map((service) => ({
-          descriptionAr: service.labelAr,
-          descriptionEn: service.labelEn,
-          qty: service.qty,
-          unitPriceSdg: parseFloat(service.baseFeeSdg)
+          serviceId: service.id,
+          quantity: service.qty
         }));
       }
 
@@ -2084,10 +2086,9 @@ export default function ReceptionDashboard({ lang, t }) {
                         <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
                           <span>{lang === 'ar' ? item.labelAr : item.labelEn}</span>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <span>{parseFloat(item.baseFeeSdg).toLocaleString(
-                              lang === 'ar' ? 'ar' : 'en'
-                            )}{' '}
-                            {lang === 'ar' ? 'ج.س' : 'SDG'}</span>
+                            <span>{item.baseFeeSdg == null
+                              ? (lang === 'ar' ? 'السعر غير محدد' : 'Pricing required')
+                              : `${Number(item.baseFeeSdg).toLocaleString(lang === 'ar' ? 'ar' : 'en')} ${lang === 'ar' ? 'ج.س' : 'SDG'}`}</span>
                             <button
                               type="button"
                               style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}

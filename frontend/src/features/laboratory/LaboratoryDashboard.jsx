@@ -72,7 +72,7 @@ export default function LaboratoryDashboard({ lang }) {
     const body = { decision };
     if (decision === 'LINK_EXISTING') body.serviceId = form.serviceId;
     if (decision === 'CREATE_SERVICE') {
-      body.service = { labelAr: form.labelAr, labelEn: form.labelEn, baseFeeSdg: Number(form.baseFeeSdg) };
+      body.service = { labelAr: form.labelAr, labelEn: form.labelEn };
     }
     setReviewingId(request.id);
     setErrorMsg('');
@@ -88,7 +88,7 @@ export default function LaboratoryDashboard({ lang }) {
         return;
       }
       setSuccessMsg(lang === 'ar' ? 'تمت مراجعة الفحص المختبري بنجاح.' : 'Laboratory test review completed.');
-      if (data.service) {
+      if (data.service?.status === 'ACTIVE') {
         setLabServices((current) => current.some((service) => service.id === data.service.id) ? current : [...current, data.service]);
       }
       await Promise.all([fetchReviewRequests(), fetchPendingLabOrders(selectedOrder?.id)]);
@@ -282,7 +282,7 @@ export default function LaboratoryDashboard({ lang }) {
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                   <button className="btn btn-secondary" type="button" onClick={() => updateReviewForm(request.id, { mode: 'LINK_EXISTING' })}>{lang === 'ar' ? 'ربط بخدمة موجودة' : 'Link Existing'}</button>
-                  <button className="btn btn-secondary" type="button" onClick={() => updateReviewForm(request.id, { mode: 'CREATE_SERVICE', labelEn: form.labelEn || request.customTestName, labelAr: form.labelAr || request.customTestName })}>{lang === 'ar' ? 'إنشاء وتسعير' : 'Create & Price'}</button>
+                  <button className="btn btn-secondary" type="button" onClick={() => updateReviewForm(request.id, { mode: 'CREATE_SERVICE', labelEn: form.labelEn || request.customTestName, labelAr: form.labelAr || request.customTestName })}>{lang === 'ar' ? 'إنشاء للمراجعة الإدارية' : 'Create for Admin Pricing'}</button>
                   <button className="btn btn-secondary" type="button" disabled={reviewingId === request.id} onClick={() => handleReview(request, 'EXTERNAL')}>{lang === 'ar' ? 'خارجي / غير متوفر' : 'External / Not Available'}</button>
                 </div>
                 {mode === 'LINK_EXISTING' && (
@@ -298,8 +298,12 @@ export default function LaboratoryDashboard({ lang }) {
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem', marginTop: '0.75rem' }}>
                     <input className="form-input" placeholder={lang === 'ar' ? 'الاسم بالعربية' : 'Arabic label'} value={form.labelAr || ''} onChange={(event) => updateReviewForm(request.id, { labelAr: event.target.value })}/>
                     <input className="form-input" placeholder={lang === 'ar' ? 'الاسم بالإنجليزية' : 'English label'} value={form.labelEn || ''} onChange={(event) => updateReviewForm(request.id, { labelEn: event.target.value })}/>
-                    <input className="form-input" type="number" min="1" step="1" placeholder={lang === 'ar' ? 'السعر بالجنيه السوداني' : 'Price in SDG'} value={form.baseFeeSdg || ''} onChange={(event) => updateReviewForm(request.id, { baseFeeSdg: event.target.value })}/>
-                    <button className="btn btn-primary" type="button" disabled={!form.labelAr?.trim() || !form.labelEn?.trim() || !(Number(form.baseFeeSdg) > 0) || reviewingId === request.id} onClick={() => handleReview(request, 'CREATE_SERVICE')}>{lang === 'ar' ? 'إنشاء وربط الخدمة' : 'Create and Link'}</button>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+                      {lang === 'ar'
+                        ? 'ستبقى الخدمة غير نشطة وغير قابلة للفوترة حتى يحدد المسؤول سعرها الرسمي.'
+                        : 'The service remains inactive and non-billable until an administrator configures its official price.'}
+                    </p>
+                    <button className="btn btn-primary" type="button" disabled={!form.labelAr?.trim() || !form.labelEn?.trim() || reviewingId === request.id} onClick={() => handleReview(request, 'CREATE_SERVICE')}>{lang === 'ar' ? 'إنشاء وربط الخدمة المعلقة' : 'Create and Link Pending Service'}</button>
                   </div>
                 )}
               </div>

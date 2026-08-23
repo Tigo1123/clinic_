@@ -54,6 +54,7 @@ model Doctor {
   consultationFee Decimal
   weeklySchedule  String // JSON config of slots & hours
   status          String          @default("ACTIVE") // ACTIVE, INACTIVE
+  updatedAt       DateTime        @updatedAt
   appointments    Appointment[]
   medicalRecords  MedicalRecord[]
   prescriptions   Prescription[]
@@ -171,6 +172,8 @@ model DrugFormulary {
   strength         String
   dosageForm       String
   unitPriceSdg     Decimal?
+  status           String           @default("ACTIVE") // ACTIVE, INACTIVE
+  updatedAt        DateTime         @updatedAt
   prescribedDrugs  PrescribedDrug[]
   inventoryBatches InventoryBatch[]
 }
@@ -225,9 +228,11 @@ model ClinicalService {
   id            String         @id @default(uuid())
   labelAr       String
   labelEn       String
-  baseFeeSdg    Decimal
-  baseFeeUsd    Decimal
+  baseFeeSdg    Decimal?
+  baseFeeUsd    Decimal?
   category      String // CONSULTATION, LABORATORY, RADIOLOGY, CLINICAL_PROCEDURE
+  status        String         @default("ACTIVE") // ACTIVE, INACTIVE
+  updatedAt     DateTime       @updatedAt
   labOrderItems LabOrderItem[]
 }
 

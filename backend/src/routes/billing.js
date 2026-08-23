@@ -8,6 +8,25 @@ import { clinicDateSequence, clinicMonthBounds, getClinicDateString, instantToCl
 import { emitQueueUpdate } from '../utils/socketEvents.js';
 
 const router = express.Router();
+const MAX_MONEY_SDG = 1_000_000_000;
+const MAX_GENERAL_QUANTITY = 100;
+const MAX_GENERAL_INVOICE_ITEMS = 100;
+const MAX_INVOICE_QUANTITY = 10_000;
+const INVOICE_REQUEST_FIELDS = new Set([
+  'patientId', 'appointmentId', 'labOrderId', 'prescriptionId',
+  'insuranceCompanyId', 'items', 'invoiceType'
+]);
+
+function isConfiguredPrice(value) {
+  const amount = Number(value);
+  return Number.isSafeInteger(amount) && amount > 0 && amount <= MAX_MONEY_SDG;
+}
+
+function configuredPriceOrNull(value) {
+  if (value == null) return null;
+  const amount = Number(value);
+  return isConfiguredPrice(amount) ? amount : null;
+}
 
 /**
  * POST /api/billing/invoice
@@ -17,6 +36,10 @@ const router = express.Router();
  * configured consultation fee. Client-supplied consultation prices are ignored.
  */
 router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
+  const unexpectedFields = Object.keys(req.body || {}).filter((key) => !INVOICE_REQUEST_FIELDS.has(key));
+  if (unexpectedFields.length) {
+    return sendError(res, 422, 'INVOICE_FIELDS_INVALID', 'The invoice request contains unsupported fields.');
+  }
   const {
     patientId,
     appointmentId,
@@ -58,11 +81,19 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
       'At least one invoice item is required.'
     );
   }
+  if (normalizedInvoiceType === 'GENERAL' && items.length > MAX_GENERAL_INVOICE_ITEMS) {
+    return sendError(
+      res,
+      422,
+      'GENERAL_INVOICE_ITEM_LIMIT_EXCEEDED',
+      `General invoices may contain at most ${MAX_GENERAL_INVOICE_ITEMS} items.`
+    );
+  }
 
   try {
     const lockedExchangeRate = 1500.00;
 
-    let resolvedItems = items;
+    let resolvedItems;
     let resolvedAppointmentId = appointmentId || null;
     let resolvedLabOrderId = null;
     let resolvedPrescriptionId = null;
@@ -111,7 +142,7 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
 
       const consultationFee = Number(appointment.doctor?.consultationFee);
 
-      if (!Number.isFinite(consultationFee) || consultationFee <= 0) {
+      if (appointment.doctor?.status !== 'ACTIVE' || !isConfiguredPrice(consultationFee)) {
         return sendError(
           res,
           409,
@@ -236,7 +267,7 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
 
       const invalidPrice = billableLabItems.find((item) => {
         const price = Number(item.service.baseFeeSdg);
-        return !Number.isFinite(price) || price <= 0;
+        return item.service.status !== 'ACTIVE' || !isConfiguredPrice(price);
       });
 
       if (invalidPrice) {
@@ -361,7 +392,7 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
 
       const unpricedDrug = billableDrugs.find(({ item }) => {
         const price = Number(item.drug.unitPriceSdg);
-        return !Number.isFinite(price) || price <= 0;
+        return item.drug.status !== 'ACTIVE' || !isConfiguredPrice(price);
       });
 
       if (unpricedDrug) {
@@ -385,6 +416,62 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
         qty: remainingQty,
         unitPriceSdg: Number(item.drug.unitPriceSdg)
       }));
+    } else {
+      const invalidGeneralItem = items.find((item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return true;
+        if (Object.keys(item).sort().join(',') !== 'quantity,serviceId') return true;
+        return typeof item.serviceId !== 'string'
+          || !Number.isSafeInteger(item.quantity)
+          || item.quantity <= 0
+          || item.quantity > MAX_GENERAL_QUANTITY;
+      });
+
+      if (invalidGeneralItem) {
+        return sendError(
+          res,
+          422,
+          'GENERAL_INVOICE_ITEM_INVALID',
+          'General invoice items require only a serviceId and a valid quantity.'
+        );
+      }
+
+      const serviceIds = [...new Set(items.map((item) => item.serviceId))];
+      const services = await prisma.clinicalService.findMany({
+        where: { id: { in: serviceIds } },
+        select: {
+          id: true,
+          labelAr: true,
+          labelEn: true,
+          baseFeeSdg: true,
+          status: true
+        }
+      });
+      const servicesById = new Map(services.map((catalogService) => [catalogService.id, catalogService]));
+
+      const unavailableService = items.find((item) => {
+        const catalogService = servicesById.get(item.serviceId);
+        return !catalogService || catalogService.status !== 'ACTIVE';
+      });
+      if (unavailableService) {
+        return sendError(res, 404, 'SERVICE_NOT_AVAILABLE', 'The selected active clinical service was not found.');
+      }
+
+      const unpricedService = items.find(
+        (item) => !isConfiguredPrice(servicesById.get(item.serviceId).baseFeeSdg)
+      );
+      if (unpricedService) {
+        return sendError(res, 409, 'SERVICE_PRICE_NOT_CONFIGURED', 'The selected service does not have a valid configured price.');
+      }
+
+      resolvedItems = items.map((item) => {
+        const catalogService = servicesById.get(item.serviceId);
+        return {
+          descriptionAr: catalogService.labelAr,
+          descriptionEn: catalogService.labelEn,
+          qty: item.quantity,
+          unitPriceSdg: Number(catalogService.baseFeeSdg)
+        };
+      });
     }
 
     let totalSdg = 0;
@@ -394,10 +481,10 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
       const qty = Number(item.qty);
 
       if (
-        !Number.isFinite(priceSdg) ||
-        priceSdg <= 0 ||
+        !isConfiguredPrice(priceSdg) ||
         !Number.isInteger(qty) ||
-        qty <= 0
+        qty <= 0 ||
+        qty > MAX_INVOICE_QUANTITY
       ) {
         throw Object.assign(
           new Error('Invoice quantities and prices must be positive values.'),
@@ -405,7 +492,22 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
         );
       }
 
-      totalSdg += priceSdg * qty;
+      const lineTotalSdg = priceSdg * qty;
+      if (!Number.isSafeInteger(lineTotalSdg) || lineTotalSdg < 0) {
+        throw Object.assign(new Error('Invoice line total exceeds the supported financial range.'), {
+          status: 422,
+          code: 'INVOICE_LINE_TOTAL_INVALID'
+        });
+      }
+
+      const nextTotalSdg = totalSdg + lineTotalSdg;
+      if (!Number.isSafeInteger(nextTotalSdg) || nextTotalSdg < 0) {
+        throw Object.assign(new Error('Invoice total exceeds the supported financial range.'), {
+          status: 422,
+          code: 'INVOICE_TOTAL_INVALID'
+        });
+      }
+      totalSdg = nextTotalSdg;
 
       return {
         descriptionAr: item.descriptionAr,
@@ -1081,12 +1183,16 @@ router.get(
 
         const billableItems = order.items.filter((item) => item.labReviewStatus !== 'EXTERNAL');
         const estimatedTotalSdg = billableItems.reduce((sum, item) => {
-          const price = Number(item.service?.baseFeeSdg);
-          return Number.isFinite(price) ? sum + price : sum;
+          const price = configuredPriceOrNull(item.service?.baseFeeSdg);
+          return item.service?.status === 'ACTIVE' && price != null ? sum + price : sum;
         }, 0);
 
         const reviewPending = order.items.some((item) => item.labReviewStatus === 'PENDING_REVIEW');
-        const pricingRequired = reviewPending || billableItems.some((item) => !item.service);
+        const pricingRequired = reviewPending || billableItems.some((item) => (
+          !item.service
+          || item.service.status !== 'ACTIVE'
+          || configuredPriceOrNull(item.service.baseFeeSdg) == null
+        ));
 
         let totalPaidSdg = 0;
         let refundedSdg = 0;
@@ -1133,7 +1239,7 @@ router.get(
                   labelAr: item.service.labelAr,
                   labelEn: item.service.labelEn,
                   category: item.service.category,
-                  baseFeeSdg: Number(item.service.baseFeeSdg)
+                  baseFeeSdg: configuredPriceOrNull(item.service.baseFeeSdg)
                 }
               : null
           })),
@@ -1430,7 +1536,12 @@ router.post('/shift/reconcile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECE
  */
 router.get('/services', async (req, res) => {
   try {
-    const services = await prisma.clinicalService.findMany();
+    const services = await prisma.clinicalService.findMany({
+      where: {
+        status: 'ACTIVE',
+        baseFeeSdg: { gt: 0, lte: MAX_MONEY_SDG }
+      }
+    });
     return res.json(services);
   } catch (error) {
     console.error('Fetch services error:', error);

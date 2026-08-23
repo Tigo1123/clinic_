@@ -369,12 +369,9 @@ async function main() {
       }
     });
 
-    if (existing) {
-      await prisma.clinicalService.update({
-        where: { id: existing.id },
-        data: svc
-      });
-    } else {
+    // Existing rows are clinic configuration. Seed reruns must never overwrite
+    // prices or activation state chosen by the clinic.
+    if (!existing) {
       await prisma.clinicalService.create({
         data: svc
       });

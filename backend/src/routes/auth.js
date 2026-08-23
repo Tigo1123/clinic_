@@ -333,12 +333,15 @@ router.post('/users', authenticate, checkRoles('ADMIN'), validate(z.object({
   fullNameEn: z.string().trim().min(1).max(150).optional(),
   specialtyAr: z.string().trim().min(1).max(150).optional(),
   specialtyEn: z.string().trim().min(1).max(150).optional(),
-  consultationFee: z.coerce.number().positive().optional()
+  consultationFee: z.coerce.number().int().positive().max(1_000_000_000).optional()
 })), async (req, res) => {
   const { username, password, role, preferredLanguage } = req.body;
 
   if (!username || !password || !role) {
     return res.status(400).json({ error: 'Username, password, and role are required.' });
+  }
+  if (role === 'DOCTOR' && req.body.consultationFee == null) {
+    return sendError(res, 422, 'CONSULTATION_FEE_REQUIRED', 'A configured consultation fee is required for a doctor account.');
   }
 
   try {
@@ -380,7 +383,7 @@ router.post('/users', authenticate, checkRoles('ADMIN'), validate(z.object({
           fullNameEn: req.body.fullNameEn || `Dr. ${username.split('@')[0]}`,
           specialtyAr: req.body.specialtyAr || 'طب عام',
           specialtyEn: req.body.specialtyEn || 'General Medicine',
-          consultationFee: req.body.consultationFee ? parseFloat(req.body.consultationFee) : 20000.00,
+          consultationFee: req.body.consultationFee,
           weeklySchedule: docSchedule,
           status: 'ACTIVE'
         }
