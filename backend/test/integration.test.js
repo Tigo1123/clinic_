@@ -824,6 +824,231 @@ test('admin can list staff and pharmacist cannot', async () => {
   assert.equal((await api.get('/api/auth/users').set(auth('pharmacy'))).status, 403);
 });
 
+test('staff creation rejects a length-compliant password that violates the centralized policy', async () => {
+  const response = await api.post('/api/auth/users').set(auth('admin')).send({
+    username: 'weak-staff@cms.com',
+    password: 'alllowercase1',
+    role: 'RECEPTIONIST'
+  });
+  assert.equal(response.status, 422);
+  assert.equal(response.body.error.code, 'VALIDATION_ERROR');
+  assert.ok(response.body.error.details.some((detail) => detail.field === 'password' && /uppercase/i.test(detail.message)));
+  assert.equal(await prisma.user.count({ where: { username: 'weak-staff@cms.com' } }), 0);
+});
+
+test('strong staff password is accepted and receptionist creation succeeds', async () => {
+  const response = await api.post('/api/auth/users').set(auth('admin')).send({
+    username: 'new-reception@cms.com',
+    password: 'StrongReception1',
+    role: 'RECEPTIONIST'
+  });
+  assert.equal(response.status, 201);
+  assert.equal(response.body.user.role, 'RECEPTIONIST');
+  assert.equal(await prisma.user.count({ where: { username: 'new-reception@cms.com', role: 'RECEPTIONIST' } }), 1);
+});
+
+test('pharmacist staff creation succeeds', async () => {
+  const response = await api.post('/api/auth/users').set(auth('admin')).send({
+    username: 'new-pharmacist@cms.com',
+    password: 'StrongPharmacy1',
+    role: 'PHARMACIST'
+  });
+  assert.equal(response.status, 201);
+  assert.equal(response.body.user.role, 'PHARMACIST');
+});
+
+test('laboratory technician staff creation succeeds', async () => {
+  const response = await api.post('/api/auth/users').set(auth('admin')).send({
+    username: 'new-lab-tech@cms.com',
+    password: 'StrongLabTech1',
+    role: 'LAB_TECH'
+  });
+  assert.equal(response.status, 201);
+  assert.equal(response.body.user.role, 'LAB_TECH');
+});
+
+test('doctor creation requires a valid consultation fee', async () => {
+  const response = await api.post('/api/auth/users').set(auth('admin')).send({
+    username: 'doctor-no-fee@cms.com',
+    password: 'StrongDoctor1',
+    role: 'DOCTOR'
+  });
+  assert.equal(response.status, 422);
+  assert.equal(response.body.error.code, 'CONSULTATION_FEE_REQUIRED');
+  assert.equal(await prisma.user.count({ where: { username: 'doctor-no-fee@cms.com' } }), 0);
+});
+
+test('valid doctor creation atomically creates the user, profile, and audit entry', async () => {
+  const username = 'new-doctor@cms.com';
+  const response = await api.post('/api/auth/users').set(auth('admin')).send({
+    username,
+    password: 'StrongDoctor1',
+    role: 'DOCTOR',
+    fullNameAr: 'د. طبيب الاختبار',
+    fullNameEn: 'Dr. Integration Test',
+    specialtyAr: 'طب عام',
+    specialtyEn: 'General Medicine',
+    consultationFee: 25000
+  });
+  assert.equal(response.status, 201);
+  const user = await prisma.user.findUnique({ where: { username }, include: { doctor: true } });
+  assert.ok(user?.doctor);
+  assert.equal(Number(user.doctor.consultationFee), 25000);
+  assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'USER_CREATION', details: { contains: username } } }), 1);
+});
+
+test('duplicate staff username returns the standard conflict response', async () => {
+  const response = await api.post('/api/auth/users').set(auth('admin')).send({
+    username: 'new-reception@cms.com',
+    password: 'AnotherStrong1',
+    role: 'RECEPTIONIST'
+  });
+  assert.equal(response.status, 409);
+  assert.equal(response.body.error.code, 'USERNAME_ALREADY_REGISTERED');
+  assert.equal(await prisma.user.count({ where: { username: 'new-reception@cms.com' } }), 1);
+});
+
+test('concurrent duplicate staff creation commits once and returns one conflict', async () => {
+  const username = 'concurrent-staff@cms.com';
+  const payload = { username, password: 'ConcurrentStrong1', role: 'RECEPTIONIST' };
+  const responses = await Promise.all([
+    api.post('/api/auth/users').set(auth('admin')).send(payload),
+    api.post('/api/auth/users').set(auth('admin')).send(payload)
+  ]);
+  assert.deepEqual(responses.map((response) => response.status).sort(), [201, 409]);
+  const conflict = responses.find((response) => response.status === 409);
+  assert.equal(conflict.body.error.code, 'USERNAME_ALREADY_REGISTERED');
+  assert.equal(await prisma.user.count({ where: { username } }), 1);
+  assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'USER_CREATION', details: { contains: username } } }), 1);
+});
+
+test('an unrelated P2002 is not mislabeled as a duplicate username and rolls back', async () => {
+  const existingUsername = 'unique-doctor-field-owner@cms.com';
+  const attemptedUsername = 'unrelated-p2002@cms.com';
+  const fullNameEn = 'Force Unrelated Unique Failure';
+  await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX test_doctor_full_name_unique ON "Doctor" ("fullNameEn") WHERE "fullNameEn" = '${fullNameEn}'`);
+  try {
+    const existing = await api.post('/api/auth/users').set(auth('admin')).send({
+      username: existingUsername,
+      password: 'StrongUniqueOwner1',
+      role: 'DOCTOR',
+      fullNameEn,
+      consultationFee: 25000
+    });
+    assert.equal(existing.status, 201);
+
+    const response = await api.post('/api/auth/users').set(auth('admin')).send({
+      username: attemptedUsername,
+      password: 'StrongUniqueAttempt1',
+      role: 'DOCTOR',
+      fullNameEn,
+      consultationFee: 25000
+    });
+    assert.equal(response.status, 500);
+    assert.equal(response.body.error.code, 'STAFF_CREATION_FAILED');
+    assert.notEqual(response.body.error.code, 'USERNAME_ALREADY_REGISTERED');
+    assert.equal(await prisma.user.count({ where: { username: attemptedUsername } }), 0);
+    assert.equal(await prisma.doctor.count({ where: { fullNameEn } }), 1);
+    assert.equal(await prisma.tenantAuditLog.count({ where: { details: { contains: attemptedUsername } } }), 0);
+  } finally {
+    await prisma.$executeRawUnsafe('DROP INDEX IF EXISTS test_doctor_full_name_unique');
+  }
+});
+
+test('forced doctor-profile failure rolls back the staff user', async () => {
+  const username = 'rollback-doctor@cms.com';
+  await prisma.$executeRawUnsafe(`
+    CREATE OR REPLACE FUNCTION fail_test_doctor_insert() RETURNS trigger AS $$
+    BEGIN
+      IF NEW."fullNameEn" = 'Force Doctor Failure' THEN
+        RAISE EXCEPTION 'forced doctor profile failure';
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+  `);
+  await prisma.$executeRawUnsafe('CREATE TRIGGER fail_test_doctor_insert_trigger BEFORE INSERT ON "Doctor" FOR EACH ROW EXECUTE FUNCTION fail_test_doctor_insert()');
+  try {
+    const response = await api.post('/api/auth/users').set(auth('admin')).send({
+      username,
+      password: 'StrongDoctor1',
+      role: 'DOCTOR',
+      fullNameEn: 'Force Doctor Failure',
+      consultationFee: 25000
+    });
+    assert.equal(response.status, 500);
+    assert.equal(response.body.error.code, 'STAFF_CREATION_FAILED');
+    assert.equal(await prisma.user.count({ where: { username } }), 0);
+    assert.equal(await prisma.tenantAuditLog.count({ where: { details: { contains: username } } }), 0);
+  } finally {
+    await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS fail_test_doctor_insert_trigger ON "Doctor"');
+    await prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS fail_test_doctor_insert()');
+  }
+});
+
+test('forced audit-log failure rolls back the entire staff account', async () => {
+  const username = 'rollback-audit@cms.com';
+  const fullNameEn = 'Dr. Audit Rollback';
+  const password = 'StrongAuditFailure1';
+  await prisma.$executeRawUnsafe(`
+    CREATE OR REPLACE FUNCTION fail_test_staff_audit_insert() RETURNS trigger AS $$
+    BEGIN
+      IF NEW."action" = 'USER_CREATION' AND NEW."details" LIKE '%rollback-audit@cms.com%' THEN
+        RAISE EXCEPTION 'forced staff audit failure';
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+  `);
+  await prisma.$executeRawUnsafe('CREATE TRIGGER fail_test_staff_audit_insert_trigger BEFORE INSERT ON "TenantAuditLog" FOR EACH ROW EXECUTE FUNCTION fail_test_staff_audit_insert()');
+  try {
+    const response = await api.post('/api/auth/users').set(auth('admin')).send({
+      username,
+      password,
+      role: 'DOCTOR',
+      fullNameAr: 'د. اختبار تراجع التدقيق',
+      fullNameEn,
+      specialtyAr: 'طب عام',
+      specialtyEn: 'General Medicine',
+      consultationFee: 25000
+    });
+    assert.equal(response.status, 500);
+    assert.equal(response.body.error.code, 'STAFF_CREATION_FAILED');
+    const serialized = JSON.stringify(response.body);
+    assert.equal(serialized.includes(password), false);
+    assert.equal(serialized.includes('passwordHash'), false);
+    assert.equal(await prisma.user.count({ where: { username } }), 0);
+    assert.equal(await prisma.doctor.count({ where: { fullNameEn } }), 0);
+    assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'USER_CREATION', details: { contains: username } } }), 0);
+  } finally {
+    await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS fail_test_staff_audit_insert_trigger ON "TenantAuditLog"');
+    await prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS fail_test_staff_audit_insert()');
+  }
+});
+
+test('staff creation response and audit do not expose password material', async () => {
+  const username = 'response-safe-admin@cms.com';
+  const password = 'StrongResponse1';
+  const response = await api.post('/api/auth/users').set(auth('admin')).send({ username, password, role: 'ADMIN' });
+  assert.equal(response.status, 201);
+  const serialized = JSON.stringify(response.body);
+  assert.equal(serialized.includes(password), false);
+  assert.equal(serialized.includes('password'), false);
+  assert.equal(serialized.includes('passwordHash'), false);
+  const audit = await prisma.tenantAuditLog.findFirst({ where: { action: 'USER_CREATION', details: { contains: username } } });
+  assert.ok(audit);
+  assert.equal(audit.details.includes(password), false);
+});
+
+test('staff creation remains restricted to authenticated administrators', async () => {
+  const payload = { username: 'forbidden-staff@cms.com', password: 'StrongForbidden1', role: 'RECEPTIONIST' };
+  const unauthenticated = await api.post('/api/auth/users').send(payload);
+  const nonAdmin = await api.post('/api/auth/users').set(auth('pharmacy')).send(payload);
+  assert.equal(unauthenticated.status, 401);
+  assert.equal(nonAdmin.status, 403);
+  assert.equal(await prisma.user.count({ where: { username: payload.username } }), 0);
+});
+
 test('staff status response never exposes password hash', async () => {
   const response = await api.put(`/api/auth/users/${tokens.admin ? (await prisma.user.findUnique({ where: { username: 'recep@cms.com' } })).id : ''}/status`).set(auth('admin')).send({ status: 'ACTIVE' });
   assert.equal(response.status, 200);

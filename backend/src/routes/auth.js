@@ -11,11 +11,28 @@ import { rateLimits } from '../config.js';
 import { logger } from '../utils/logger.js';
 import { signAccessToken } from '../services/accessTokens.js';
 import { createMfaChallenge, MfaError } from '../services/mfa.js';
+import { passwordSchema } from '../utils/passwordPolicy.js';
 
 const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
 
 const router = express.Router();
 const STAFF_ROLES = ['ADMIN', 'RECEPTIONIST', 'DOCTOR', 'PHARMACIST', 'LAB_TECH'];
+
+function isUsernameUniqueViolation(error) {
+  if (error?.code !== 'P2002') return false;
+
+  const target = error.meta?.target;
+  if (Array.isArray(target)) {
+    return target.length === 1 && String(target[0]).toLowerCase() === 'username';
+  }
+  if (typeof target !== 'string') return false;
+
+  const normalizedTarget = target.replace(/["'`\s]/g, '').toLowerCase();
+  return normalizedTarget === 'username'
+    || normalizedTarget === 'user_username_key'
+    || normalizedTarget.endsWith('.user_username_key');
+}
+
 const loginLimiter = rateLimit({
   windowMs: rateLimits.windowMs,
   limit: rateLimits.login,
@@ -326,7 +343,7 @@ router.get('/users', authenticate, checkRoles('ADMIN'), async (req, res) => {
  */
 router.post('/users', authenticate, checkRoles('ADMIN'), validate(z.object({
   username: z.string().trim().email().max(254),
-  password: z.string().min(10).max(200),
+  password: passwordSchema,
   role: z.enum(STAFF_ROLES),
   preferredLanguage: z.enum(['ar', 'en']).optional(),
   fullNameAr: z.string().trim().min(1).max(150).optional(),
@@ -350,53 +367,57 @@ router.post('/users', authenticate, checkRoles('ADMIN'), validate(z.object({
     });
 
     if (existing) {
-      return res.status(409).json({ error: 'Username is already registered.' });
+      return sendError(res, 409, 'USERNAME_ALREADY_REGISTERED', 'Username is already registered.');
     }
 
     const passwordHash = await bcrypt.hash(password, bcryptRounds);
 
-    const newUser = await prisma.user.create({
-      data: {
-        username,
-        passwordHash,
-        role,
-        preferredLanguage: preferredLanguage || 'ar',
-        status: 'ACTIVE'
-      }
-    });
-
-    if (role === 'DOCTOR') {
-      const docSchedule = JSON.stringify([
-        { day: 'Sunday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
-        { day: 'Monday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
-        { day: 'Tuesday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
-        { day: 'Wednesday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
-        { day: 'Thursday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
-        { day: 'Friday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
-        { day: 'Saturday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 }
-      ]);
-
-      await prisma.doctor.create({
+    const newUser = await prisma.$transaction(async (tx) => {
+      const createdUser = await tx.user.create({
         data: {
-          userId: newUser.id,
-          fullNameAr: req.body.fullNameAr || `د. ${username.split('@')[0]}`,
-          fullNameEn: req.body.fullNameEn || `Dr. ${username.split('@')[0]}`,
-          specialtyAr: req.body.specialtyAr || 'طب عام',
-          specialtyEn: req.body.specialtyEn || 'General Medicine',
-          consultationFee: req.body.consultationFee,
-          weeklySchedule: docSchedule,
+          username,
+          passwordHash,
+          role,
+          preferredLanguage: preferredLanguage || 'ar',
           status: 'ACTIVE'
         }
       });
-    }
 
-    await prisma.tenantAuditLog.create({
-      data: {
-        userId: req.user.id,
-        action: 'USER_CREATION',
-        details: `Created new staff user: ${username} with role ${role}`,
-        ipAddress: req.ip || '127.0.0.1'
+      if (role === 'DOCTOR') {
+        const docSchedule = JSON.stringify([
+          { day: 'Sunday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
+          { day: 'Monday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
+          { day: 'Tuesday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
+          { day: 'Wednesday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
+          { day: 'Thursday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
+          { day: 'Friday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
+          { day: 'Saturday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 }
+        ]);
+
+        await tx.doctor.create({
+          data: {
+            userId: createdUser.id,
+            fullNameAr: req.body.fullNameAr || `د. ${username.split('@')[0]}`,
+            fullNameEn: req.body.fullNameEn || `Dr. ${username.split('@')[0]}`,
+            specialtyAr: req.body.specialtyAr || 'طب عام',
+            specialtyEn: req.body.specialtyEn || 'General Medicine',
+            consultationFee: req.body.consultationFee,
+            weeklySchedule: docSchedule,
+            status: 'ACTIVE'
+          }
+        });
       }
+
+      await tx.tenantAuditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'USER_CREATION',
+          details: `Created new staff user: ${username} with role ${role}`,
+          ipAddress: req.ip || '127.0.0.1'
+        }
+      });
+
+      return createdUser;
     });
 
     return res.status(201).json({
@@ -410,8 +431,11 @@ router.post('/users', authenticate, checkRoles('ADMIN'), validate(z.object({
       }
     });
   } catch (error) {
-    console.error('Create staff user error:', error);
-    return res.status(500).json({ error: 'Failed to create staff user.' });
+    if (isUsernameUniqueViolation(error)) {
+      return sendError(res, 409, 'USERNAME_ALREADY_REGISTERED', 'Username is already registered.');
+    }
+    logger.error('auth.staff_creation_failed', { requestId: req.id, error });
+    return sendError(res, 500, 'STAFF_CREATION_FAILED', 'Failed to create staff user.');
   }
 });
 

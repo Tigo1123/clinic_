@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Activity, AlertCircle, Building, Calendar, CheckCircle, DollarSign, Sliders, Stethoscope, Users } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import RoleHero from '../../components/healthcare/RoleHero';
+import { getStaffPasswordChecks, isStaffPasswordValid, STAFF_PASSWORD_MAX_LENGTH } from '../../utils/staffPasswordPolicy';
 
 export default function AdminDashboard({ lang, t }) {
   const [activeTab, setActiveTab] = useState('profile');
@@ -33,6 +34,7 @@ export default function AdminDashboard({ lang, t }) {
   const [newConsultationFee, setNewConsultationFee] = useState('20000');
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const newPasswordChecks = getStaffPasswordChecks(newPassword);
 
   const roleLabels = {
     ADMIN: { ar: 'مدير النظام', en: 'Administrator' },
@@ -180,6 +182,12 @@ export default function AdminDashboard({ lang, t }) {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
+    if (!isStaffPasswordValid(newPassword)) {
+      setErrorMsg(lang === 'ar'
+        ? 'يجب أن تتكون كلمة المرور من 10 إلى 200 حرف، وتحتوي على حرف إنجليزي كبير وحرف صغير ورقم.'
+        : 'Password must be 10–200 characters and include an uppercase letter, a lowercase letter, and a number.');
+      return;
+    }
     try {
       const res = await fetchWithAuth('/api/auth/users', {
         method: 'POST',
@@ -209,13 +217,16 @@ export default function AdminDashboard({ lang, t }) {
           .then((r) => r.json())
           .then((d) => setUsers(d));
       } else {
+        const validationDetails = Array.isArray(data?.error?.details)
+          ? data.error.details.map((detail) => detail.message).filter(Boolean).join(' ')
+          : '';
         setErrorMsg(
-          apiErrorMessage(
-            data,
-            lang === 'ar'
-              ? 'تعذر إنشاء حساب الموظف.'
-              : 'Failed to create the staff account.'
-          )
+          validationDetails || apiErrorMessage(
+              data,
+              lang === 'ar'
+                ? 'تعذر إنشاء حساب الموظف.'
+                : 'Failed to create the staff account.'
+            )
         );
       }
     } catch (err) {
@@ -380,11 +391,24 @@ export default function AdminDashboard({ lang, t }) {
                   <input
                     type="password"
                     required
+                    minLength={10}
+                    maxLength={STAFF_PASSWORD_MAX_LENGTH}
                     placeholder="••••••••"
                     className="form-input"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                   />
+                  <div className="password-requirements" aria-live="polite">
+                    {Object.entries({
+                      minimumLength: lang === 'ar' ? '10 أحرف على الأقل' : 'At least 10 characters',
+                      maximumLength: lang === 'ar' ? '200 حرف على الأكثر' : 'At most 200 characters',
+                      uppercase: lang === 'ar' ? 'حرف إنجليزي كبير' : 'One uppercase letter',
+                      lowercase: lang === 'ar' ? 'حرف إنجليزي صغير' : 'One lowercase letter',
+                      number: lang === 'ar' ? 'رقم واحد على الأقل' : 'One number'
+                    }).map(([key, label]) => (
+                      <span key={key} className={newPasswordChecks[key] ? 'valid' : ''}>{label}</span>
+                    ))}
+                  </div>
                 </div>
                 <div className="form-group">
                   <label className="form-label">{lang === 'ar' ? 'الدور الوظيفي' : 'Role'}</label>
