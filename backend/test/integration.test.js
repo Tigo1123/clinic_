@@ -867,6 +867,42 @@ test('laboratory technician staff creation succeeds', async () => {
   assert.equal(response.body.user.role, 'LAB_TECH');
 });
 
+test('non-doctor creation ignores empty doctor-only fields', async () => {
+  const username = 'irrelevant-empty-fields@cms.com';
+  const response = await api.post('/api/auth/users').set(auth('admin')).send({
+    username,
+    password: 'StrongIrrelevant1',
+    role: 'RECEPTIONIST',
+    fullNameAr: '',
+    fullNameEn: '',
+    specialtyAr: '',
+    specialtyEn: '',
+    consultationFee: ''
+  });
+  assert.equal(response.status, 201);
+  const user = await prisma.user.findUnique({ where: { username }, include: { doctor: true } });
+  assert.equal(user?.role, 'RECEPTIONIST');
+  assert.equal(user?.doctor, null);
+});
+
+test('doctor creation rejects empty doctor profile fields with field-specific validation', async () => {
+  const response = await api.post('/api/auth/users').set(auth('admin')).send({
+    username: 'doctor-empty-fields@cms.com',
+    password: 'StrongDoctor1',
+    role: 'DOCTOR',
+    fullNameAr: '',
+    fullNameEn: '',
+    specialtyAr: 'طب عام',
+    specialtyEn: 'General Medicine',
+    consultationFee: 25000
+  });
+  assert.equal(response.status, 422);
+  assert.equal(response.body.error.code, 'VALIDATION_ERROR');
+  assert.deepEqual(response.body.error.details.map(({ field }) => field).sort(), ['fullNameAr', 'fullNameEn']);
+  assert.equal(response.body.error.details.some(({ message }) => message.startsWith('Too small:')), false);
+  assert.equal(await prisma.user.count({ where: { username: 'doctor-empty-fields@cms.com' } }), 0);
+});
+
 test('doctor creation requires a valid consultation fee', async () => {
   const response = await api.post('/api/auth/users').set(auth('admin')).send({
     username: 'doctor-no-fee@cms.com',

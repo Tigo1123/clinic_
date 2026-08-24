@@ -3,6 +3,7 @@ import { Activity, AlertCircle, Building, Calendar, CheckCircle, DollarSign, Sli
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import RoleHero from '../../components/healthcare/RoleHero';
 import { getStaffPasswordChecks, isStaffPasswordValid, STAFF_PASSWORD_MAX_LENGTH } from '../../utils/staffPasswordPolicy';
+import { buildStaffCreationPayload } from '../../utils/staffCreationPayload';
 
 export default function AdminDashboard({ lang, t }) {
   const [activeTab, setActiveTab] = useState('profile');
@@ -191,7 +192,7 @@ export default function AdminDashboard({ lang, t }) {
     try {
       const res = await fetchWithAuth('/api/auth/users', {
         method: 'POST',
-        body: JSON.stringify({
+        body: JSON.stringify(buildStaffCreationPayload({
           username: newUsername,
           password: newPassword,
           role: newRole,
@@ -200,7 +201,7 @@ export default function AdminDashboard({ lang, t }) {
           specialtyAr: newSpecialtyAr,
           specialtyEn: newSpecialtyEn,
           consultationFee: newConsultationFee
-        })
+        }))
       });
       const data = await res.json();
       if (res.ok) {
@@ -218,7 +219,10 @@ export default function AdminDashboard({ lang, t }) {
           .then((d) => setUsers(d));
       } else {
         const validationDetails = Array.isArray(data?.error?.details)
-          ? data.error.details.map((detail) => detail.message).filter(Boolean).join(' ')
+          ? data.error.details.map((detail) => {
+              if (!detail?.message) return '';
+              return detail.field ? `${detail.field}: ${detail.message}` : detail.message;
+            }).filter(Boolean).join(' ')
           : '';
         setErrorMsg(
           validationDetails || apiErrorMessage(

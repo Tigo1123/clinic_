@@ -8,6 +8,7 @@ import {
   isStaffPasswordValid,
   STAFF_PASSWORD_MAX_LENGTH
 } from '../src/utils/staffPasswordPolicy.js';
+import { buildStaffCreationPayload } from '../src/utils/staffCreationPayload.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const adminSource = readFileSync(path.join(root, 'src/features/admin/AdminDashboard.jsx'), 'utf8');
@@ -31,4 +32,43 @@ test('staff form retains password on API failure and clears it only after succes
   assert.doesNotMatch(failureBlock, /setNewPassword/);
   assert.match(failureBlock, /data\.error\.details/);
   assert.doesNotMatch(handler, /console\.(log|error)\([^\n]*newPassword/);
+});
+
+test('non-doctor staff payloads omit every doctor-only field', () => {
+  for (const role of ['RECEPTIONIST', 'PHARMACIST', 'LAB_TECH', 'ADMIN']) {
+    const payload = buildStaffCreationPayload({
+      username: `${role.toLowerCase()}@cms.com`,
+      password: 'ValidStaff1',
+      role,
+      fullNameAr: '',
+      fullNameEn: '',
+      specialtyAr: 'طب عام',
+      specialtyEn: 'General Medicine',
+      consultationFee: '20000'
+    });
+    assert.deepEqual(Object.keys(payload).sort(), ['password', 'role', 'username']);
+  }
+});
+
+test('doctor staff payload includes its profile fields', () => {
+  const payload = buildStaffCreationPayload({
+    username: 'doctor@cms.com',
+    password: 'ValidDoctor1',
+    role: 'DOCTOR',
+    fullNameAr: 'د. اختبار',
+    fullNameEn: 'Dr. Test',
+    specialtyAr: 'طب عام',
+    specialtyEn: 'General Medicine',
+    consultationFee: '20000'
+  });
+  assert.deepEqual(payload, {
+    username: 'doctor@cms.com',
+    password: 'ValidDoctor1',
+    role: 'DOCTOR',
+    fullNameAr: 'د. اختبار',
+    fullNameEn: 'Dr. Test',
+    specialtyAr: 'طب عام',
+    specialtyEn: 'General Medicine',
+    consultationFee: '20000'
+  });
 });

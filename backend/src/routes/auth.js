@@ -17,6 +17,7 @@ const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
 
 const router = express.Router();
 const STAFF_ROLES = ['ADMIN', 'RECEPTIONIST', 'DOCTOR', 'PHARMACIST', 'LAB_TECH'];
+const DOCTOR_CREATION_FIELDS = ['fullNameAr', 'fullNameEn', 'specialtyAr', 'specialtyEn', 'consultationFee'];
 
 function isUsernameUniqueViolation(error) {
   if (error?.code !== 'P2002') return false;
@@ -32,6 +33,23 @@ function isUsernameUniqueViolation(error) {
     || normalizedTarget === 'user_username_key'
     || normalizedTarget.endsWith('.user_username_key');
 }
+
+const staffCreationSchema = z.preprocess((input) => {
+  if (!input || typeof input !== 'object' || Array.isArray(input) || input.role === 'DOCTOR') return input;
+  const normalized = { ...input };
+  for (const field of DOCTOR_CREATION_FIELDS) delete normalized[field];
+  return normalized;
+}, z.object({
+  username: z.string().trim().email().max(254),
+  password: passwordSchema,
+  role: z.enum(STAFF_ROLES),
+  preferredLanguage: z.enum(['ar', 'en']).optional(),
+  fullNameAr: z.string().trim().min(1, 'Arabic full name cannot be empty.').max(150).optional(),
+  fullNameEn: z.string().trim().min(1, 'English full name cannot be empty.').max(150).optional(),
+  specialtyAr: z.string().trim().min(1, 'Arabic specialty cannot be empty.').max(150).optional(),
+  specialtyEn: z.string().trim().min(1, 'English specialty cannot be empty.').max(150).optional(),
+  consultationFee: z.coerce.number().int().positive().max(1_000_000_000).optional()
+}));
 
 const loginLimiter = rateLimit({
   windowMs: rateLimits.windowMs,
@@ -341,17 +359,7 @@ router.get('/users', authenticate, checkRoles('ADMIN'), async (req, res) => {
  * POST /api/auth/users
  * Registers a new staff member. Only accessible by ADMIN.
  */
-router.post('/users', authenticate, checkRoles('ADMIN'), validate(z.object({
-  username: z.string().trim().email().max(254),
-  password: passwordSchema,
-  role: z.enum(STAFF_ROLES),
-  preferredLanguage: z.enum(['ar', 'en']).optional(),
-  fullNameAr: z.string().trim().min(1).max(150).optional(),
-  fullNameEn: z.string().trim().min(1).max(150).optional(),
-  specialtyAr: z.string().trim().min(1).max(150).optional(),
-  specialtyEn: z.string().trim().min(1).max(150).optional(),
-  consultationFee: z.coerce.number().int().positive().max(1_000_000_000).optional()
-})), async (req, res) => {
+router.post('/users', authenticate, checkRoles('ADMIN'), validate(staffCreationSchema), async (req, res) => {
   const { username, password, role, preferredLanguage } = req.body;
 
   if (!username || !password || !role) {
