@@ -343,7 +343,7 @@ function LoginView({ onLogin, t }) {
 function DashboardContainer({ user, lang, t }) {
   let dashboard;
   if (user.role === 'ADMIN') {
-    dashboard = <AdminDashboard lang={lang} t={t} />;
+    dashboard = <AdminDashboard user={user} lang={lang} t={t} />;
   }
   else if (user.role === 'RECEPTIONIST') {
     dashboard = <ReceptionDashboard lang={lang} t={t} />;

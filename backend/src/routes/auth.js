@@ -10,7 +10,7 @@ import { normalizeEmail, normalizePhone } from '../utils/identity.js';
 import { rateLimits } from '../config.js';
 import { logger } from '../utils/logger.js';
 import { signAccessToken } from '../services/accessTokens.js';
-import { createMfaChallenge, MfaError } from '../services/mfa.js';
+import { consumeTotp, createMfaChallenge, MfaError } from '../services/mfa.js';
 import { passwordSchema } from '../utils/passwordPolicy.js';
 
 const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
@@ -50,6 +50,12 @@ const staffCreationSchema = z.preprocess((input) => {
   specialtyEn: z.string().trim().min(1, 'English specialty cannot be empty.').max(150).optional(),
   consultationFee: z.coerce.number().int().positive().max(1_000_000_000).optional()
 }));
+
+const staffPasswordResetSchema = z.object({
+  newPassword: passwordSchema,
+  currentAdminPassword: z.string().min(1).max(200),
+  mfaCode: z.string().regex(/^\d{6}$/).optional()
+}).strict();
 
 const loginLimiter = rateLimit({
   windowMs: rateLimits.windowMs,
@@ -444,6 +450,153 @@ router.post('/users', authenticate, checkRoles('ADMIN'), validate(staffCreationS
     }
     logger.error('auth.staff_creation_failed', { requestId: req.id, error });
     return sendError(res, 500, 'STAFF_CREATION_FAILED', 'Failed to create staff user.');
+  }
+});
+
+/**
+ * POST /api/auth/users/:id/reset-password
+ * Resets an existing staff member's password after strong ADMIN reauthentication.
+ * Self-reset is deliberately unsupported so the acting ADMIN session is never
+ * ambiguously invalidated during an administrative action.
+ */
+router.post('/users/:id/reset-password', authenticate, checkRoles('ADMIN'), validate(staffPasswordResetSchema), async (req, res) => {
+  if (req.params.id === req.user.id) {
+    return sendError(res, 409, 'ADMIN_SELF_RESET_UNSUPPORTED', 'Use the dedicated administrator recovery process to reset your own password.');
+  }
+
+  try {
+    const actor = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        id: true,
+        role: true,
+        status: true,
+        authVersion: true,
+        passwordHash: true,
+        mfaEnabled: true,
+        mfaConfiguration: { select: { state: true, updatedAt: true } }
+      }
+    });
+    if (!actor || actor.role !== 'ADMIN' || actor.status !== 'ACTIVE' || actor.authVersion !== req.user.av) {
+      return sendError(res, 401, 'ADMIN_REAUTHENTICATION_FAILED', 'Administrator reauthentication failed.');
+    }
+    if (!await bcrypt.compare(req.body.currentAdminPassword, actor.passwordHash)) {
+      return sendError(res, 401, 'ADMIN_REAUTHENTICATION_FAILED', 'Administrator reauthentication failed.');
+    }
+
+    const hasActiveMfa = actor.mfaEnabled && actor.mfaConfiguration?.state === 'ACTIVE';
+    const hasInconsistentMfaState = actor.mfaEnabled !== (actor.mfaConfiguration?.state === 'ACTIVE');
+    if (hasInconsistentMfaState) {
+      return sendError(res, 403, 'MFA_CONFIGURATION_INVALID', 'Multi-factor authentication is unavailable for this administrator account.');
+    }
+    if (hasActiveMfa && (!req.body.mfaCode || !await consumeTotp(actor.id, req.body.mfaCode))) {
+      return sendError(res, 401, 'ADMIN_REAUTHENTICATION_FAILED', 'Administrator reauthentication failed.');
+    }
+
+    const reauthenticatedSecurityState = await prisma.user.findUnique({
+      where: { id: actor.id },
+      select: {
+        mfaEnabled: true,
+        mfaConfiguration: { select: { state: true, updatedAt: true } }
+      }
+    });
+    if (
+      !reauthenticatedSecurityState
+      || reauthenticatedSecurityState.mfaEnabled !== actor.mfaEnabled
+      || reauthenticatedSecurityState.mfaConfiguration?.state !== actor.mfaConfiguration?.state
+      || (!hasActiveMfa && reauthenticatedSecurityState.mfaConfiguration?.updatedAt?.getTime()
+        !== actor.mfaConfiguration?.updatedAt?.getTime())
+    ) {
+      return sendError(res, 401, 'ADMIN_REAUTHENTICATION_FAILED', 'Administrator reauthentication failed.');
+    }
+
+    const target = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, username: true, role: true, status: true, authVersion: true }
+    });
+    if (!target) {
+      return sendError(res, 404, 'STAFF_USER_NOT_FOUND', 'Staff user was not found.');
+    }
+    if (!STAFF_ROLES.includes(target.role)) {
+      return sendError(res, 422, 'STAFF_PASSWORD_RESET_UNSUPPORTED', 'Password reset through this endpoint is limited to staff accounts.');
+    }
+
+    const passwordHash = await bcrypt.hash(req.body.newPassword, bcryptRounds);
+    const changedAt = new Date();
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" IN (${actor.id}, ${target.id}) ORDER BY "id" FOR UPDATE`;
+      const currentActor = await tx.user.findUnique({
+        where: { id: actor.id },
+        select: {
+          role: true,
+          status: true,
+          authVersion: true,
+          mfaEnabled: true,
+          mfaConfiguration: { select: { state: true, updatedAt: true } }
+        }
+      });
+      const currentTarget = await tx.user.findUnique({
+        where: { id: target.id },
+        select: { role: true, authVersion: true }
+      });
+      if (
+        !currentActor
+        || currentActor.role !== 'ADMIN'
+        || currentActor.status !== 'ACTIVE'
+        || currentActor.authVersion !== actor.authVersion
+        || currentActor.mfaEnabled !== reauthenticatedSecurityState.mfaEnabled
+        || currentActor.mfaConfiguration?.state !== reauthenticatedSecurityState.mfaConfiguration?.state
+        || currentActor.mfaConfiguration?.updatedAt?.getTime()
+          !== reauthenticatedSecurityState.mfaConfiguration?.updatedAt?.getTime()
+      ) {
+        throw new Error('ADMIN_REAUTHENTICATION_STATE_CHANGED');
+      }
+      if (
+        !currentTarget
+        || !STAFF_ROLES.includes(currentTarget.role)
+        || currentTarget.role !== target.role
+        || currentTarget.authVersion !== target.authVersion
+      ) {
+        throw new Error('STAFF_RESET_TARGET_STATE_CHANGED');
+      }
+
+      const resetUser = await tx.user.update({
+        where: { id: target.id },
+        data: {
+          passwordHash,
+          lastPasswordChange: changedAt,
+          authVersion: { increment: 1 }
+        },
+        select: { id: true, username: true, role: true, status: true }
+      });
+      await tx.tenantAuditLog.create({
+        data: {
+          userId: actor.id,
+          action: 'STAFF_PASSWORD_RESET_BY_ADMIN',
+          details: `Administrator reset credentials for staff user ${target.id} with role ${currentTarget.role}.`,
+          ipAddress: req.ip || 'unknown'
+        }
+      });
+      return resetUser;
+    });
+
+    logger.security('auth.staff_password_reset', {
+      requestId: req.id,
+      actorUserId: actor.id,
+      targetUserId: updated.id,
+      targetRole: updated.role,
+      ip: req.ip
+    });
+    return res.json({ success: true, user: updated });
+  } catch (error) {
+    if (error?.message === 'ADMIN_REAUTHENTICATION_STATE_CHANGED') {
+      return sendError(res, 401, 'ADMIN_REAUTHENTICATION_FAILED', 'Administrator reauthentication failed.');
+    }
+    if (error?.message === 'STAFF_RESET_TARGET_STATE_CHANGED') {
+      return sendError(res, 409, 'STAFF_PASSWORD_RESET_CONFLICT', 'Staff account changed during password reset. Please retry.');
+    }
+    logger.error('auth.staff_password_reset_failed', { requestId: req.id, error });
+    return sendError(res, 500, 'STAFF_PASSWORD_RESET_FAILED', 'Failed to reset staff password.');
   }
 });
 

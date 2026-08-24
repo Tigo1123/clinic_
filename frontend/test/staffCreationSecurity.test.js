@@ -12,6 +12,7 @@ import { buildStaffCreationPayload } from '../src/utils/staffCreationPayload.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const adminSource = readFileSync(path.join(root, 'src/features/admin/AdminDashboard.jsx'), 'utf8');
+const appSource = readFileSync(path.join(root, 'src/App.jsx'), 'utf8');
 
 test('staff password guidance enforces the centralized backend policy shape', () => {
   assert.equal(isStaffPasswordValid('ValidStaff1'), true);
@@ -71,4 +72,34 @@ test('doctor staff payload includes its profile fields', () => {
     specialtyEn: 'General Medicine',
     consultationFee: '20000'
   });
+});
+
+test('ADMIN staff reset uses immutable target id and confirms the new password', () => {
+  assert.match(adminSource, /users\/\$\{resetTarget\.id\}\/reset-password/);
+  assert.match(adminSource, /resetNewPassword !== resetConfirmPassword/);
+  assert.match(adminSource, /currentAdminPassword: resetAdminPassword/);
+  assert.match(adminSource, /user\?\.mfaEnabled \? \{ mfaCode: resetMfaCode \}/);
+  assert.match(adminSource, /u\.id !== user\?\.id/);
+  assert.match(appSource, /<AdminDashboard user=\{user\}/);
+});
+
+test('staff creation and reset forms use safe password autocomplete values', () => {
+  const newPasswordAutocomplete = adminSource.match(/autoComplete="new-password"/g) || [];
+  assert.equal(newPasswordAutocomplete.length, 3);
+  assert.match(adminSource, /id="staff-reset-admin-password"[^>]*autoComplete="current-password"/);
+  assert.match(adminSource, /id="staff-reset-mfa-code"[^>]*autoComplete="one-time-code"/);
+});
+
+test('staff reset sensitive state is cleared and never stored or logged', () => {
+  const resetSection = adminSource.slice(
+    adminSource.indexOf('const closePasswordReset'),
+    adminSource.indexOf('const handleToggleUserStatus') > adminSource.indexOf('const closePasswordReset')
+      ? adminSource.indexOf('const handleToggleUserStatus')
+      : adminSource.indexOf('return (')
+  );
+  for (const setter of ['setResetNewPassword', 'setResetConfirmPassword', 'setResetAdminPassword', 'setResetMfaCode']) {
+    assert.match(adminSource, new RegExp(`${setter}\\(''\\)`));
+  }
+  assert.doesNotMatch(resetSection, /(localStorage|sessionStorage)/);
+  assert.doesNotMatch(resetSection, /console\.(log|error)/);
 });

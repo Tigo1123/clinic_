@@ -18,7 +18,7 @@ import {
   signAccessToken,
   verifyAccessToken
 } from '../src/services/accessTokens.js';
-import { decryptMfaSecret } from '../src/services/mfaCrypto.js';
+import { decryptMfaSecret, encryptMfaSecret } from '../src/services/mfaCrypto.js';
 import {
   consumeMfaChallenge,
   createMfaChallenge,
@@ -1083,6 +1083,295 @@ test('staff creation remains restricted to authenticated administrators', async 
   assert.equal(unauthenticated.status, 401);
   assert.equal(nonAdmin.status, 403);
   assert.equal(await prisma.user.count({ where: { username: payload.username } }), 0);
+});
+
+test('staff password reset is ADMIN-only, rejects self-reset, missing users, and PATIENT targets', async () => {
+  const target = await prisma.user.findUnique({ where: { username: 'new-reception@cms.com' } });
+  const payload = { newPassword: 'ResetAuthorization1', currentAdminPassword: 'Admin@123' };
+  assert.equal((await api.post(`/api/auth/users/${target.id}/reset-password`).send(payload)).status, 401);
+  for (const role of ['reception', 'doctor', 'pharmacy', 'lab']) {
+    assert.equal((await api.post(`/api/auth/users/${target.id}/reset-password`).set(auth(role)).send(payload)).status, 403);
+  }
+
+  const admin = await prisma.user.findUnique({ where: { username: 'admin@cms.com' } });
+  const selfReset = await api.post(`/api/auth/users/${admin.id}/reset-password`).set(auth('admin')).send(payload);
+  assert.equal(selfReset.status, 409);
+  assert.equal(selfReset.body.error.code, 'ADMIN_SELF_RESET_UNSUPPORTED');
+
+  const missing = await api.post('/api/auth/users/00000000-0000-4000-8000-000000000099/reset-password')
+    .set(auth('admin')).send(payload);
+  assert.equal(missing.status, 404);
+  assert.equal(missing.body.error.code, 'STAFF_USER_NOT_FOUND');
+
+  const patient = await prisma.user.create({
+    data: {
+      username: 'staff-reset-patient@example.test',
+      passwordHash: await bcrypt.hash('PatientResetSource1', 10),
+      role: 'PATIENT',
+      status: 'ACTIVE'
+    }
+  });
+  const patientReset = await api.post(`/api/auth/users/${patient.id}/reset-password`).set(auth('admin')).send(payload);
+  assert.equal(patientReset.status, 422);
+  assert.equal(patientReset.body.error.code, 'STAFF_PASSWORD_RESET_UNSUPPORTED');
+});
+
+test('ADMIN reset preserves Doctor identity, replaces the hash, and revokes prior sessions', async () => {
+  const username = 'password-reset-doctor@example.test';
+  const oldPassword = 'StrongDoctor1';
+  const newPassword = 'ResetDoctorSecure2';
+  const creation = await api.post('/api/auth/users').set(auth('admin')).send({
+    username,
+    password: oldPassword,
+    role: 'DOCTOR',
+    fullNameAr: 'د. اختبار إعادة التعيين',
+    fullNameEn: 'Dr. Password Reset Test',
+    specialtyAr: 'طب عام',
+    specialtyEn: 'General Medicine',
+    consultationFee: 25000
+  });
+  assert.equal(creation.status, 201);
+  const before = await prisma.user.findUnique({ where: { username }, include: { doctor: true } });
+  const oldLogin = await api.post('/api/auth/login').send({ username, password: oldPassword });
+  assert.equal(oldLogin.status, 200);
+
+  const weak = await api.post(`/api/auth/users/${before.id}/reset-password`).set(auth('admin')).send({
+    newPassword: 'alllowercase1', currentAdminPassword: 'Admin@123'
+  });
+  assert.equal(weak.status, 422);
+  assert.equal(weak.body.error.code, 'VALIDATION_ERROR');
+
+  const wrongProof = await api.post(`/api/auth/users/${before.id}/reset-password`).set(auth('admin')).send({
+    newPassword, currentAdminPassword: 'WrongAdminPassword1'
+  });
+  assert.equal(wrongProof.status, 401);
+  assert.equal(wrongProof.body.error.code, 'ADMIN_REAUTHENTICATION_FAILED');
+
+  const reset = await api.post(`/api/auth/users/${before.id}/reset-password`).set(auth('admin')).send({
+    newPassword, currentAdminPassword: 'Admin@123'
+  });
+  assert.equal(reset.status, 200);
+  assert.equal(reset.body.user.id, before.id);
+  assert.equal(reset.body.user.role, 'DOCTOR');
+  const serialized = JSON.stringify(reset.body);
+  assert.equal(serialized.includes(newPassword), false);
+  assert.equal(serialized.includes('passwordHash'), false);
+
+  const after = await prisma.user.findUnique({ where: { id: before.id }, include: { doctor: true } });
+  assert.equal(after.id, before.id);
+  assert.equal(after.doctor.id, before.doctor.id);
+  assert.equal(after.doctor.userId, before.id);
+  assert.equal(after.authVersion, before.authVersion + 1);
+  assert.ok(after.lastPasswordChange instanceof Date);
+  assert.notEqual(after.passwordHash, before.passwordHash);
+  assert.equal(await bcrypt.compare(newPassword, after.passwordHash), true);
+  assert.equal(await prisma.doctor.count({ where: { userId: before.id } }), 1);
+  assert.equal(await prisma.tenantAuditLog.count({
+    where: { userId: (await prisma.user.findUnique({ where: { username: 'admin@cms.com' } })).id, action: 'STAFF_PASSWORD_RESET_BY_ADMIN', details: { contains: before.id } }
+  }), 1);
+
+  assert.equal((await api.post('/api/auth/login').send({ username, password: oldPassword })).status, 401);
+  assert.equal((await api.post('/api/auth/login').send({ username, password: newPassword })).status, 200);
+  const revoked = await api.post('/api/auth/mfa/enroll')
+    .set({ Authorization: `Bearer ${oldLogin.body.token}` }).send({ currentPassword: newPassword });
+  assert.equal(revoked.status, 401);
+  assert.equal(revoked.body.error.code, 'SESSION_REVOKED');
+});
+
+test('ADMIN can reset an existing receptionist without replacing the account', async () => {
+  const username = 'new-reception@cms.com';
+  const before = await prisma.user.findUnique({ where: { username } });
+  const response = await api.post(`/api/auth/users/${before.id}/reset-password`).set(auth('admin')).send({
+    newPassword: 'ResetReceptionSecure2', currentAdminPassword: 'Admin@123'
+  });
+  assert.equal(response.status, 200);
+  const after = await prisma.user.findUnique({ where: { username } });
+  assert.equal(after.id, before.id);
+  assert.equal(after.role, 'RECEPTIONIST');
+  assert.equal(await prisma.user.count({ where: { username } }), 1);
+  assert.equal((await api.post('/api/auth/login').send({ username, password: 'ResetReceptionSecure2' })).status, 200);
+});
+
+test('active ADMIN MFA requires and consumes a valid TOTP for staff password reset', async () => {
+  const actorPassword = 'MfaResetAdministrator1';
+  const actor = await prisma.user.create({
+    data: {
+      username: 'mfa-reset-admin@example.test',
+      passwordHash: await bcrypt.hash(actorPassword, 10),
+      role: 'ADMIN',
+      status: 'ACTIVE',
+      mfaEnabled: true
+    }
+  });
+  const secret = new OTPAuth.Secret({ size: 20 }).base32;
+  await prisma.mfaConfiguration.create({
+    data: { userId: actor.id, secretEncrypted: encryptMfaSecret(secret, actor.id), state: 'ACTIVE', lastTotpStep: null }
+  });
+  const actorToken = signAccessToken({
+    id: actor.id, username: actor.username, role: actor.role, authVersion: actor.authVersion
+  });
+  const target = await prisma.user.findUnique({ where: { username: 'new-lab-tech@cms.com' } });
+  const endpoint = `/api/auth/users/${target.id}/reset-password`;
+  const basePayload = { newPassword: 'ResetLabSecure2', currentAdminPassword: actorPassword };
+  const missingProof = await api.post(endpoint).set({ Authorization: `Bearer ${actorToken}` }).send(basePayload);
+  assert.equal(missingProof.status, 401);
+  assert.equal(missingProof.body.error.code, 'ADMIN_REAUTHENTICATION_FAILED');
+  const invalidProof = await api.post(endpoint).set({ Authorization: `Bearer ${actorToken}` }).send({ ...basePayload, mfaCode: '000000' });
+  assert.equal(invalidProof.status, 401);
+  assert.equal(invalidProof.body.error.code, 'ADMIN_REAUTHENTICATION_FAILED');
+
+  const totp = new OTPAuth.TOTP({
+    issuer: process.env.MFA_TOTP_ISSUER || 'Clinic Management System',
+    label: actor.username,
+    algorithm: 'SHA1', digits: 6, period: 30,
+    secret: OTPAuth.Secret.fromBase32(secret)
+  });
+  const accepted = await api.post(endpoint).set({ Authorization: `Bearer ${actorToken}` })
+    .send({ ...basePayload, mfaCode: totp.generate() });
+  assert.equal(accepted.status, 200);
+  assert.equal((await prisma.user.findUnique({ where: { id: target.id } })).authVersion, target.authVersion + 1);
+});
+
+test('concurrent ADMIN MFA activation aborts staff password reset without credential changes', async () => {
+  const actorPassword = 'MfaRaceAdministrator1';
+  const actor = await prisma.user.create({
+    data: {
+      username: 'mfa-race-admin@example.test',
+      passwordHash: await bcrypt.hash(actorPassword, 10),
+      role: 'ADMIN',
+      status: 'ACTIVE',
+      mfaEnabled: false
+    }
+  });
+  const actorToken = signAccessToken({
+    id: actor.id, username: actor.username, role: actor.role, authVersion: actor.authVersion
+  });
+  const target = await prisma.user.create({
+    data: {
+      username: 'mfa-race-reset-target@example.test',
+      passwordHash: await bcrypt.hash('MfaRaceTargetOriginal1', 10),
+      role: 'RECEPTIONIST',
+      status: 'ACTIVE'
+    }
+  });
+  const originalTransaction = prisma.$transaction;
+  let injected = false;
+  prisma.$transaction = async (...args) => {
+    if (!injected) {
+      injected = true;
+      const secret = new OTPAuth.Secret({ size: 20 }).base32;
+      await originalTransaction.call(prisma, async (tx) => {
+        await tx.mfaConfiguration.create({
+          data: {
+            userId: actor.id,
+            secretEncrypted: encryptMfaSecret(secret, actor.id),
+            state: 'ACTIVE',
+            lastTotpStep: null
+          }
+        });
+        await tx.user.update({ where: { id: actor.id }, data: { mfaEnabled: true } });
+      });
+    }
+    return originalTransaction.call(prisma, ...args);
+  };
+  try {
+    const response = await api.post(`/api/auth/users/${target.id}/reset-password`)
+      .set({ Authorization: `Bearer ${actorToken}` })
+      .send({ newPassword: 'MfaRaceTargetReplacement2', currentAdminPassword: actorPassword });
+    assert.equal(response.status, 401);
+    assert.equal(response.body.error.code, 'ADMIN_REAUTHENTICATION_FAILED');
+    const after = await prisma.user.findUnique({ where: { id: target.id } });
+    assert.equal(after.passwordHash, target.passwordHash);
+    assert.equal(after.authVersion, target.authVersion);
+    assert.equal(after.lastPasswordChange, target.lastPasswordChange);
+    assert.equal(await prisma.tenantAuditLog.count({
+      where: { action: 'STAFF_PASSWORD_RESET_BY_ADMIN', details: { contains: target.id } }
+    }), 0);
+  } finally {
+    prisma.$transaction = originalTransaction;
+  }
+});
+
+test('concurrent staff-to-staff role change aborts reset without stale audit metadata', async () => {
+  const target = await prisma.user.create({
+    data: {
+      username: 'role-race-reset-target@example.test',
+      passwordHash: await bcrypt.hash('RoleRaceTargetOriginal1', 10),
+      role: 'DOCTOR',
+      status: 'ACTIVE',
+      doctor: {
+        create: {
+          fullNameAr: 'د. اختبار تعارض الدور',
+          fullNameEn: 'Dr. Role Race Test',
+          specialtyAr: 'طب عام',
+          specialtyEn: 'General Medicine',
+          consultationFee: 25000,
+          weeklySchedule: '{}'
+        }
+      }
+    }
+  });
+  const originalTransaction = prisma.$transaction;
+  let injected = false;
+  prisma.$transaction = async (...args) => {
+    if (!injected) {
+      injected = true;
+      await prisma.user.update({ where: { id: target.id }, data: { role: 'RECEPTIONIST' } });
+    }
+    return originalTransaction.call(prisma, ...args);
+  };
+  try {
+    const response = await api.post(`/api/auth/users/${target.id}/reset-password`).set(auth('admin')).send({
+      newPassword: 'RoleRaceTargetReplacement2', currentAdminPassword: 'Admin@123'
+    });
+    assert.equal(response.status, 409);
+    assert.equal(response.body.error.code, 'STAFF_PASSWORD_RESET_CONFLICT');
+    const after = await prisma.user.findUnique({ where: { id: target.id } });
+    assert.equal(after.role, 'RECEPTIONIST');
+    assert.equal(after.passwordHash, target.passwordHash);
+    assert.equal(after.authVersion, target.authVersion);
+    assert.equal(after.lastPasswordChange, target.lastPasswordChange);
+    assert.equal(await prisma.tenantAuditLog.count({
+      where: { action: 'STAFF_PASSWORD_RESET_BY_ADMIN', details: { contains: target.id } }
+    }), 0);
+  } finally {
+    prisma.$transaction = originalTransaction;
+  }
+});
+
+test('audit failure rolls back staff password hash and authVersion', async () => {
+  const username = 'audit-reset-target@example.test';
+  const oldPassword = 'AuditResetOriginal1';
+  const target = await prisma.user.create({
+    data: { username, passwordHash: await bcrypt.hash(oldPassword, 10), role: 'RECEPTIONIST', status: 'ACTIVE' }
+  });
+  await prisma.$executeRawUnsafe(`
+    CREATE OR REPLACE FUNCTION fail_test_staff_password_reset_audit() RETURNS trigger AS $$
+    BEGIN
+      IF NEW."action" = 'STAFF_PASSWORD_RESET_BY_ADMIN' THEN
+        RAISE EXCEPTION 'forced staff password reset audit failure';
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+  `);
+  await prisma.$executeRawUnsafe('CREATE TRIGGER fail_test_staff_password_reset_audit_trigger BEFORE INSERT ON "TenantAuditLog" FOR EACH ROW EXECUTE FUNCTION fail_test_staff_password_reset_audit()');
+  try {
+    const response = await api.post(`/api/auth/users/${target.id}/reset-password`).set(auth('admin')).send({
+      newPassword: 'AuditResetReplacement2', currentAdminPassword: 'Admin@123'
+    });
+    assert.equal(response.status, 500);
+    assert.equal(response.body.error.code, 'STAFF_PASSWORD_RESET_FAILED');
+    const after = await prisma.user.findUnique({ where: { id: target.id } });
+    assert.equal(after.passwordHash, target.passwordHash);
+    assert.equal(after.authVersion, target.authVersion);
+    assert.equal(after.lastPasswordChange, target.lastPasswordChange);
+    assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'STAFF_PASSWORD_RESET_BY_ADMIN', details: { contains: target.id } } }), 0);
+    assert.equal((await api.post('/api/auth/login').send({ username, password: oldPassword })).status, 200);
+  } finally {
+    await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS fail_test_staff_password_reset_audit_trigger ON "TenantAuditLog"');
+    await prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS fail_test_staff_password_reset_audit()');
+  }
 });
 
 test('staff status response never exposes password hash', async () => {

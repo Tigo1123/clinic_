@@ -5,7 +5,7 @@ import RoleHero from '../../components/healthcare/RoleHero';
 import { getStaffPasswordChecks, isStaffPasswordValid, STAFF_PASSWORD_MAX_LENGTH } from '../../utils/staffPasswordPolicy';
 import { buildStaffCreationPayload } from '../../utils/staffCreationPayload';
 
-export default function AdminDashboard({ lang, t }) {
+export default function AdminDashboard({ user, lang, t }) {
   const [activeTab, setActiveTab] = useState('profile');
   const [logs, setLogs] = useState([]);
   const [users, setUsers] = useState([]);
@@ -35,7 +35,15 @@ export default function AdminDashboard({ lang, t }) {
   const [newConsultationFee, setNewConsultationFee] = useState('20000');
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [resetTarget, setResetTarget] = useState(null);
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
+  const [resetAdminPassword, setResetAdminPassword] = useState('');
+  const [resetMfaCode, setResetMfaCode] = useState('');
+  const [resetError, setResetError] = useState('');
+  const [resetPending, setResetPending] = useState(false);
   const newPasswordChecks = getStaffPasswordChecks(newPassword);
+  const resetPasswordChecks = getStaffPasswordChecks(resetNewPassword);
 
   const roleLabels = {
     ADMIN: { ar: 'مدير النظام', en: 'Administrator' },
@@ -260,6 +268,62 @@ export default function AdminDashboard({ lang, t }) {
     }
   };
 
+  const closePasswordReset = (force = false) => {
+    if (resetPending && !force) return;
+    setResetTarget(null);
+    setResetNewPassword('');
+    setResetConfirmPassword('');
+    setResetAdminPassword('');
+    setResetMfaCode('');
+    setResetError('');
+  };
+
+  const handlePasswordReset = async (event) => {
+    event.preventDefault();
+    if (!resetTarget || resetPending) return;
+    setResetError('');
+    if (!isStaffPasswordValid(resetNewPassword)) {
+      setResetError(lang === 'ar'
+        ? 'يجب أن تتكون كلمة المرور الجديدة من 10 إلى 200 حرف، وتحتوي على حرف كبير وحرف صغير ورقم.'
+        : 'New password must be 10–200 characters and include an uppercase letter, a lowercase letter, and a number.');
+      return;
+    }
+    if (resetNewPassword !== resetConfirmPassword) {
+      setResetError(lang === 'ar' ? 'كلمتا المرور الجديدتان غير متطابقتين.' : 'New passwords do not match.');
+      return;
+    }
+
+    setResetPending(true);
+    try {
+      const response = await fetchWithAuth(`/api/auth/users/${resetTarget.id}/reset-password`, {
+        method: 'POST',
+        body: JSON.stringify({
+          newPassword: resetNewPassword,
+          currentAdminPassword: resetAdminPassword,
+          ...(user?.mfaEnabled ? { mfaCode: resetMfaCode } : {})
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        const details = Array.isArray(data?.error?.details)
+          ? data.error.details.map((detail) => detail?.message).filter(Boolean).join(' ')
+          : '';
+        setResetError(details || apiErrorMessage(data, lang === 'ar' ? 'تعذر إعادة تعيين كلمة المرور.' : 'Failed to reset staff password.'));
+        setResetAdminPassword('');
+        setResetMfaCode('');
+        return;
+      }
+      closePasswordReset(true);
+      setSuccessMsg(lang === 'ar' ? 'تمت إعادة تعيين كلمة مرور الموظف.' : 'Staff password reset successfully.');
+    } catch {
+      setResetError(lang === 'ar' ? 'تعذر الاتصال بالخادم. يرجى المحاولة مرة أخرى.' : 'Unable to connect to the server. Please try again.');
+      setResetAdminPassword('');
+      setResetMfaCode('');
+    } finally {
+      setResetPending(false);
+    }
+  };
+
   return (
     <div className="dashboard-wrapper">
       {/* Side menu */}
@@ -395,6 +459,7 @@ export default function AdminDashboard({ lang, t }) {
                   <input
                     type="password"
                     required
+                    autoComplete="new-password"
                     minLength={10}
                     maxLength={STAFF_PASSWORD_MAX_LENGTH}
                     placeholder="••••••••"
@@ -520,6 +585,17 @@ export default function AdminDashboard({ lang, t }) {
                         >
                           {u.status === 'ACTIVE' ? (lang === 'ar' ? 'تعطيل' : 'Deactivate') : (lang === 'ar' ? 'تفعيل' : 'Activate')}
                         </button>
+                        {u.id !== user?.id && <button
+                          type="button"
+                          className="btn btn-secondary"
+                          style={{ padding: '4px 8px', fontSize: '0.8rem', marginInlineStart: '0.4rem' }}
+                          onClick={() => {
+                            setResetTarget(u);
+                            setResetError('');
+                          }}
+                        >
+                          {lang === 'ar' ? 'إعادة تعيين كلمة المرور' : 'Reset Password'}
+                        </button>}
                       </td>
                     </tr>
                   ))}
@@ -527,6 +603,44 @@ export default function AdminDashboard({ lang, t }) {
                 </table>
               </div>
             </div>
+            {resetTarget && <div className="modal-overlay" role="presentation">
+              <div className="modal-content-panel" role="dialog" aria-modal="true" aria-labelledby="staff-password-reset-title" style={{ width: 'min(520px, 100%)', padding: '1.5rem' }}>
+                <h3 id="staff-password-reset-title">{lang === 'ar' ? 'إعادة تعيين كلمة مرور الموظف' : 'Reset Staff Password'}</h3>
+                <p>{resetTarget.username} — {getRoleLabel(resetTarget.role)}</p>
+                {resetError && <div role="alert" className="badge badge-danger" style={{ width: '100%', marginBottom: '1rem', padding: '0.5rem' }}>{resetError}</div>}
+                <form onSubmit={handlePasswordReset} style={{ display: 'grid', gap: '1rem' }}>
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="staff-reset-new-password">{lang === 'ar' ? 'كلمة المرور الجديدة' : 'New Password'}</label>
+                    <input id="staff-reset-new-password" className="form-input" type="password" autoComplete="new-password" required minLength={10} maxLength={STAFF_PASSWORD_MAX_LENGTH} value={resetNewPassword} onChange={(event) => setResetNewPassword(event.target.value)} />
+                    <div className="password-requirements" aria-live="polite">
+                      {Object.entries({
+                        minimumLength: lang === 'ar' ? '10 أحرف على الأقل' : 'At least 10 characters',
+                        maximumLength: lang === 'ar' ? '200 حرف على الأكثر' : 'At most 200 characters',
+                        uppercase: lang === 'ar' ? 'حرف إنجليزي كبير' : 'One uppercase letter',
+                        lowercase: lang === 'ar' ? 'حرف إنجليزي صغير' : 'One lowercase letter',
+                        number: lang === 'ar' ? 'رقم واحد على الأقل' : 'One number'
+                      }).map(([key, label]) => <span key={key} className={resetPasswordChecks[key] ? 'valid' : ''}>{label}</span>)}
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="staff-reset-confirm-password">{lang === 'ar' ? 'تأكيد كلمة المرور الجديدة' : 'Confirm New Password'}</label>
+                    <input id="staff-reset-confirm-password" className="form-input" type="password" autoComplete="new-password" required value={resetConfirmPassword} onChange={(event) => setResetConfirmPassword(event.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="staff-reset-admin-password">{lang === 'ar' ? 'كلمة مرور المدير الحالية' : 'Current Admin Password'}</label>
+                    <input id="staff-reset-admin-password" className="form-input" type="password" autoComplete="current-password" required value={resetAdminPassword} onChange={(event) => setResetAdminPassword(event.target.value)} />
+                  </div>
+                  {user?.mfaEnabled && <div className="form-group">
+                    <label className="form-label" htmlFor="staff-reset-mfa-code">{lang === 'ar' ? 'رمز المصادقة' : 'Authenticator Code'}</label>
+                    <input id="staff-reset-mfa-code" className="form-input" type="text" inputMode="numeric" autoComplete="one-time-code" required pattern="[0-9]{6}" value={resetMfaCode} onChange={(event) => setResetMfaCode(event.target.value.replace(/\D/g, '').slice(0, 6))} />
+                  </div>}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem' }}>
+                    <button type="button" className="btn btn-secondary" disabled={resetPending} onClick={closePasswordReset}>{lang === 'ar' ? 'إلغاء' : 'Cancel'}</button>
+                    <button type="submit" className="btn btn-primary" disabled={resetPending}>{resetPending ? (lang === 'ar' ? 'جارٍ الحفظ…' : 'Saving…') : (lang === 'ar' ? 'إعادة التعيين' : 'Reset Password')}</button>
+                  </div>
+                </form>
+              </div>
+            </div>}
           </div>
         )}
 
