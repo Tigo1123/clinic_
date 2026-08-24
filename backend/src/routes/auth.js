@@ -83,10 +83,41 @@ router.post('/login', loginLimiter, validate(z.object({
     // 1. Fetch user from DB
     const normalizedEmail = username.includes('@') ? normalizeEmail(username) : null;
     const normalizedPhone = normalizePhone(username);
-    const user = await prisma.user.findFirst({ where: { OR: [
-      { username }, ...(normalizedEmail ? [{ email: normalizedEmail }, { username: normalizedEmail }] : []),
-      ...(normalizedPhone ? [{ phoneNormalized: normalizedPhone }] : [])
-    ] } });
+    const candidateIds = await prisma.user.findMany({
+      where: { OR: [
+        { username },
+        ...(normalizedEmail ? [
+          { email: normalizedEmail },
+          { username: { equals: normalizedEmail, mode: 'insensitive' } }
+        ] : []),
+        ...(normalizedPhone ? [{ phoneNormalized: normalizedPhone }] : [])
+      ] },
+      select: { id: true },
+      take: 2
+    });
+
+    if (candidateIds.length > 1) {
+      logger.security('auth.login_failed', { requestId: req.id, reason: 'ambiguous_identifier', ip: req.ip });
+      return res.status(401).json({ error: 'Invalid username or password.' });
+    }
+    const user = candidateIds.length === 1
+      ? await prisma.user.findUnique({
+        where: { id: candidateIds[0].id },
+        select: {
+          id: true,
+          username: true,
+          passwordHash: true,
+          role: true,
+          status: true,
+          authVersion: true,
+          mfaEnabled: true,
+          preferredLanguage: true,
+          email: true,
+          phoneNormalized: true,
+          phoneVerifiedAt: true
+        }
+      })
+      : null;
 
     if (!user) {
       logger.security('auth.login_failed', { requestId: req.id, reason: 'invalid_credentials', ip: req.ip });
@@ -366,7 +397,8 @@ router.get('/users', authenticate, checkRoles('ADMIN'), async (req, res) => {
  * Registers a new staff member. Only accessible by ADMIN.
  */
 router.post('/users', authenticate, checkRoles('ADMIN'), validate(staffCreationSchema), async (req, res) => {
-  const { username, password, role, preferredLanguage } = req.body;
+  const { password, role, preferredLanguage } = req.body;
+  const username = normalizeEmail(req.body.username);
 
   if (!username || !password || !role) {
     return res.status(400).json({ error: 'Username, password, and role are required.' });
@@ -376,8 +408,8 @@ router.post('/users', authenticate, checkRoles('ADMIN'), validate(staffCreationS
   }
 
   try {
-    const existing = await prisma.user.findUnique({
-      where: { username }
+    const existing = await prisma.user.findFirst({
+      where: { username: { equals: username, mode: 'insensitive' } }
     });
 
     if (existing) {

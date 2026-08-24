@@ -867,6 +867,180 @@ test('laboratory technician staff creation succeeds', async () => {
   assert.equal(response.body.user.role, 'LAB_TECH');
 });
 
+test('staff creation canonicalizes email usernames for every supported staff role', async () => {
+  const cases = [
+    ['ADMIN', ' Canonical.Admin@EXAMPLE.TEST '],
+    ['RECEPTIONIST', ' Canonical.Reception@EXAMPLE.TEST '],
+    ['DOCTOR', ' Canonical.Doctor@EXAMPLE.TEST '],
+    ['PHARMACIST', ' Canonical.Pharmacy@EXAMPLE.TEST '],
+    ['LAB_TECH', ' Canonical.Lab@EXAMPLE.TEST ']
+  ];
+
+  for (const [role, suppliedUsername] of cases) {
+    const expectedUsername = suppliedUsername.trim().toLowerCase();
+    const response = await api.post('/api/auth/users').set(auth('admin')).send({
+      username: suppliedUsername,
+      password: 'CanonicalStaff1',
+      role,
+      ...(role === 'DOCTOR' ? { consultationFee: 25000 } : {})
+    });
+    assert.equal(response.status, 201);
+    assert.equal(response.body.user.username, expectedUsername);
+    assert.equal(await prisma.user.count({ where: { username: expectedUsername, role } }), 1);
+    assert.equal(await prisma.tenantAuditLog.count({
+      where: { action: 'USER_CREATION', details: { contains: expectedUsername } }
+    }), 1);
+  }
+});
+
+test('new mixed-case Doctor authenticates using canonical or supplied email casing', async () => {
+  const suppliedUsername = 'Immediate.Doctor@EXAMPLE.TEST';
+  const username = suppliedUsername.toLowerCase();
+  const password = 'ImmediateDoctor1';
+  const created = await api.post('/api/auth/users').set(auth('admin')).send({
+    username: suppliedUsername,
+    password,
+    role: 'DOCTOR',
+    consultationFee: 25000
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.user.username, username);
+  assert.equal((await api.post('/api/auth/login').send({ username, password })).status, 200);
+  assert.equal((await api.post('/api/auth/login').send({ username: suppliedUsername, password })).status, 200);
+});
+
+test('legacy case-insensitive username duplicate is rejected safely', async () => {
+  const legacyUsername = 'Legacy.Duplicate@Example.Test';
+  await prisma.user.create({
+    data: {
+      username: legacyUsername,
+      passwordHash: await bcrypt.hash('LegacyDuplicate1', 10),
+      role: 'RECEPTIONIST',
+      status: 'ACTIVE'
+    }
+  });
+  const response = await api.post('/api/auth/users').set(auth('admin')).send({
+    username: legacyUsername.toLowerCase(),
+    password: 'NewDuplicateAttempt1',
+    role: 'RECEPTIONIST'
+  });
+  assert.equal(response.status, 409);
+  assert.equal(response.body.error.code, 'USERNAME_ALREADY_REGISTERED');
+  assert.equal(await prisma.user.count({
+    where: { username: { equals: legacyUsername, mode: 'insensitive' } }
+  }), 1);
+});
+
+test('concurrent case variants create exactly one canonical staff identity', async () => {
+  const mixedCase = 'Concurrent.Case@Example.Test';
+  const canonical = mixedCase.toLowerCase();
+  const responses = await Promise.all([
+    api.post('/api/auth/users').set(auth('admin')).send({
+      username: mixedCase,
+      password: 'ConcurrentCase1',
+      role: 'RECEPTIONIST'
+    }),
+    api.post('/api/auth/users').set(auth('admin')).send({
+      username: canonical,
+      password: 'ConcurrentCase2',
+      role: 'RECEPTIONIST'
+    })
+  ]);
+  assert.deepEqual(responses.map(({ status }) => status).sort(), [201, 409]);
+  assert.equal(responses.find(({ status }) => status === 409).body.error.code, 'USERNAME_ALREADY_REGISTERED');
+  assert.equal(await prisma.user.count({ where: { username: canonical } }), 1);
+  assert.equal(await prisma.user.count({
+    where: { username: { equals: canonical, mode: 'insensitive' } }
+  }), 1);
+});
+
+test('unique legacy mixed-case staff accounts authenticate case-insensitively', async () => {
+  for (const [role, username, password] of [
+    ['DOCTOR', 'Legacy.Login.Doctor@Example.Test', 'LegacyDoctorLogin1'],
+    ['RECEPTIONIST', 'Legacy.Login.Reception@Example.Test', 'LegacyReceptionLogin1']
+  ]) {
+    const user = await prisma.user.create({
+      data: { username, passwordHash: await bcrypt.hash(password, 10), role, status: 'ACTIVE' }
+    });
+    if (role === 'DOCTOR') {
+      await prisma.doctor.create({
+        data: {
+          userId: user.id,
+          fullNameAr: 'د. حساب قديم',
+          fullNameEn: 'Legacy Login Doctor',
+          specialtyAr: 'طب عام',
+          specialtyEn: 'General Medicine',
+          consultationFee: 25000,
+          weeklySchedule: '[]',
+          status: 'ACTIVE'
+        }
+      });
+    }
+    assert.equal((await api.post('/api/auth/login').send({
+      username: username.toLowerCase(),
+      password
+    })).status, 200);
+  }
+});
+
+test('one User matching multiple login identifier branches remains one identity', async () => {
+  const username = 'multi.branch@example.test';
+  const password = 'MultipleBranches1';
+  await prisma.user.create({
+    data: {
+      username,
+      email: username,
+      passwordHash: await bcrypt.hash(password, 10),
+      role: 'RECEPTIONIST',
+      status: 'ACTIVE'
+    }
+  });
+  assert.equal((await api.post('/api/auth/login').send({
+    username: username.toUpperCase(),
+    password
+  })).status, 200);
+});
+
+test('three ambiguous legacy case variants authenticate no identity through the bounded lookup', async () => {
+  const lowercase = 'ambiguous.staff@example.test';
+  const variants = [lowercase, 'Ambiguous.Staff@Example.Test', 'AMBIGUOUS.STAFF@EXAMPLE.TEST'];
+  const password = 'AmbiguousStaff1';
+  const passwordHash = await bcrypt.hash(password, 10);
+  const users = await Promise.all(variants.map((username) => prisma.user.create({
+    data: { username, passwordHash, role: 'RECEPTIONIST', status: 'ACTIVE' }
+  })));
+  const response = await api.post('/api/auth/login').send({ username: lowercase, password });
+  assert.equal(response.status, 401);
+  assert.deepEqual(response.body, { error: 'Invalid username or password.' });
+  const serialized = JSON.stringify(response.body);
+  for (const user of users) assert.equal(serialized.includes(user.id), false);
+  for (const username of variants) assert.equal(serialized.includes(username), false);
+});
+
+test('unique legacy username still rejects wrong passwords and nonexistent identifiers generically', async () => {
+  const username = 'Legacy.Wrong.Password@Example.Test';
+  await prisma.user.create({
+    data: {
+      username,
+      passwordHash: await bcrypt.hash('LegacyCorrectPassword1', 10),
+      role: 'RECEPTIONIST',
+      status: 'ACTIVE'
+    }
+  });
+  const wrong = await api.post('/api/auth/login').send({
+    username: username.toLowerCase(),
+    password: 'LegacyWrongPassword1'
+  });
+  const missing = await api.post('/api/auth/login').send({
+    username: 'no-such-staff@example.test',
+    password: 'LegacyWrongPassword1'
+  });
+  assert.equal(wrong.status, 401);
+  assert.equal(missing.status, 401);
+  assert.deepEqual(wrong.body, { error: 'Invalid username or password.' });
+  assert.deepEqual(missing.body, { error: 'Invalid username or password.' });
+});
+
 test('non-doctor creation ignores empty doctor-only fields', async () => {
   const username = 'irrelevant-empty-fields@cms.com';
   const response = await api.post('/api/auth/users').set(auth('admin')).send({
@@ -1176,6 +1350,48 @@ test('ADMIN reset preserves Doctor identity, replaces the hash, and revokes prio
     .set({ Authorization: `Bearer ${oldLogin.body.token}` }).send({ currentPassword: newPassword });
   assert.equal(revoked.status, 401);
   assert.equal(revoked.body.error.code, 'SESSION_REVOKED');
+});
+
+test('ADMIN password reset preserves and restores lowercase login for a legacy mixed-case Doctor identity', async () => {
+  const username = 'Legacy.Reset.Doctor@Example.Test';
+  const oldPassword = 'LegacyResetOld1';
+  const newPassword = 'LegacyResetNew1';
+  const user = await prisma.user.create({
+    data: {
+      username,
+      passwordHash: await bcrypt.hash(oldPassword, 10),
+      role: 'DOCTOR',
+      status: 'ACTIVE'
+    }
+  });
+  const doctor = await prisma.doctor.create({
+    data: {
+      userId: user.id,
+      fullNameAr: 'د. إعادة تعيين قديم',
+      fullNameEn: 'Legacy Reset Doctor',
+      specialtyAr: 'طب عام',
+      specialtyEn: 'General Medicine',
+      consultationFee: 25000,
+      weeklySchedule: '[]',
+      status: 'ACTIVE'
+    }
+  });
+
+  const response = await api.post(`/api/auth/users/${user.id}/reset-password`)
+    .set(auth('admin'))
+    .send({ newPassword, currentAdminPassword: 'Admin@123' });
+  assert.equal(response.status, 200);
+  assert.equal((await api.post('/api/auth/login').send({
+    username: username.toLowerCase(),
+    password: newPassword
+  })).status, 200);
+
+  const preservedUser = await prisma.user.findUnique({ where: { id: user.id } });
+  const preservedDoctor = await prisma.doctor.findUnique({ where: { userId: user.id } });
+  assert.equal(preservedUser.username, username);
+  assert.equal(preservedDoctor.id, doctor.id);
+  assert.equal(await prisma.user.count({ where: { id: user.id } }), 1);
+  assert.equal(await prisma.doctor.count({ where: { userId: user.id } }), 1);
 });
 
 test('ADMIN can reset an existing receptionist without replacing the account', async () => {
