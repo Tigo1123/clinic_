@@ -5,6 +5,7 @@ import { clinicDateSequence, clinicMonthBounds } from '../utils/clinicTime.js';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { sendError } from '../utils/apiError.js';
+import { ensurePharmacyInvoiceInTransaction } from '../services/pharmacyInvoice.js';
 
 const router = express.Router();
 const MAX_MONEY_SDG = 1_000_000_000;
@@ -130,6 +131,37 @@ router.patch('/pricing/medicines/:id', authenticate, checkRoles('ADMIN'), valida
         details: auditDetails('MEDICINE', existing.id, existing.unitPriceSdg == null ? null : Number(existing.unitPriceSdg), req.body.priceSdg, existing.status, updated.status),
         ipAddress: req.ip || 'unknown'
       } });
+      if (updated.status === 'ACTIVE') {
+        const affectedPrescriptions = await tx.prescribedDrug.findMany({
+          where: {
+            drugId: updated.id,
+            prescription: {
+              status: { in: ['ACTIVE', 'PARTIALLY_FILLED'] },
+              invoices: {
+                none: { invoiceType: 'PHARMACY', paymentStatus: { not: 'REFUNDED' } }
+              }
+            }
+          },
+          select: { prescriptionId: true },
+          distinct: ['prescriptionId'],
+          orderBy: { prescriptionId: 'asc' },
+          take: 101
+        });
+        if (affectedPrescriptions.length > 100) {
+          throw Object.assign(new Error('Too many pending prescriptions require pharmacy billing review.'), {
+            status: 409,
+            code: 'PHARMACY_REEVALUATION_LIMIT_EXCEEDED'
+          });
+        }
+        for (const { prescriptionId } of affectedPrescriptions) {
+          await ensurePharmacyInvoiceInTransaction(tx, {
+            prescriptionId,
+            actorUserId: req.user.id,
+            ipAddress: req.ip || 'unknown',
+            trigger: 'MEDICINE_PRICED_AND_ACTIVATED'
+          });
+        }
+      }
       return updated;
     });
     return res.json({ ...medicine, unitPriceSdg: Number(medicine.unitPriceSdg) });

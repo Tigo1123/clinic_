@@ -17,6 +17,7 @@ import {
   pharmacistMedicineSchema,
   stockMovementSchema
 } from '../utils/medicineManagement.js';
+import { ensurePharmacyInvoiceInTransaction } from '../services/pharmacyInvoice.js';
 
 const router = express.Router();
 
@@ -173,6 +174,13 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
             }
           });
         }
+
+        await ensurePharmacyInvoiceInTransaction(tx, {
+          prescriptionId: prescription.id,
+          actorUserId: req.user.id,
+          ipAddress: req.ip || 'unknown',
+          trigger: 'PRESCRIPTION_CREATED'
+        });
       }
 
       // c. If lab/radiology tests are ordered, create LabOrder & LabOrderItems
@@ -392,6 +400,13 @@ router.put('/:id/finalize', authenticate, checkRoles('DOCTOR'), validate(z.objec
             }
           });
         }
+
+        await ensurePharmacyInvoiceInTransaction(tx, {
+          prescriptionId: prescription.id,
+          actorUserId: req.user.id,
+          ipAddress: req.ip || 'unknown',
+          trigger: 'PRESCRIPTION_FINALIZED'
+        });
       }
 
       const completedAppointment = await tx.appointment.updateMany({
@@ -792,6 +807,13 @@ router.post(
               }
             });
 
+            await ensurePharmacyInvoiceInTransaction(tx, {
+              prescriptionId: prescribedDrug.prescriptionId,
+              actorUserId: req.user.id,
+              ipAddress: req.ip || 'unknown',
+              trigger: 'CUSTOM_MEDICATION_EXTERNAL'
+            });
+
             return {
               decision,
               prescribedDrug: updated,
@@ -934,6 +956,13 @@ router.post(
                 ipAddress:
                   req.ip || '127.0.0.1'
               }
+            });
+
+            await ensurePharmacyInvoiceInTransaction(tx, {
+              prescriptionId: prescribedDrug.prescriptionId,
+              actorUserId: req.user.id,
+              ipAddress: req.ip || 'unknown',
+              trigger: 'CUSTOM_MEDICATION_LINKED'
             });
 
             return {
@@ -1146,6 +1175,13 @@ router.post(
               ipAddress:
                 req.ip || '127.0.0.1'
             }
+          });
+
+          await ensurePharmacyInvoiceInTransaction(tx, {
+            prescriptionId: prescribedDrug.prescriptionId,
+            actorUserId: req.user.id,
+            ipAddress: req.ip || 'unknown',
+            trigger: 'CUSTOM_MEDICATION_FORMULARY_CREATED'
           });
 
           return {

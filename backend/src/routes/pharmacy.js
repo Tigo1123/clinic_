@@ -420,20 +420,7 @@ router.get('/prescriptions/:id/payment-state', authenticate, readRoles,
         where: { id: req.params.id },
         select: {
           id: true,
-          status: true,
-          invoices: {
-            where: {
-              invoiceType: 'PHARMACY',
-              paymentStatus: { not: 'REFUNDED' }
-            },
-            orderBy: { invoiceDate: 'desc' },
-            take: 1,
-            select: {
-              id: true,
-              totalAmountSdg: true,
-              paymentStatus: true
-            }
-          }
+          status: true
         }
       });
       if (!prescription) {
@@ -442,11 +429,45 @@ router.get('/prescriptions/:id/payment-state', authenticate, readRoles,
       if (prescription.status === 'CANCELLED') {
         return sendError(res, 409, 'PHARMACY_PRESCRIPTION_INVALID_STATE', 'Cancelled prescriptions do not have an actionable pharmacy payment state.');
       }
-      const invoice = prescription.invoices[0];
+      const invoices = await prisma.invoice.findMany({
+        where: {
+          prescriptionId: prescription.id,
+          invoiceType: 'PHARMACY',
+          paymentStatus: { not: 'REFUNDED' }
+        },
+        orderBy: [{ invoiceDate: 'desc' }, { id: 'desc' }],
+        take: 2,
+        select: { id: true, totalAmountSdg: true, paymentStatus: true }
+      });
+      if (invoices.length > 1) {
+        return sendError(
+          res,
+          409,
+          'PHARMACY_INVOICE_INVARIANT_VIOLATION',
+          'Pharmacy billing requires administrative review.'
+        );
+      }
+      const invoice = invoices[0];
       if (!invoice) {
+        const refundedInvoice = await prisma.invoice.findFirst({
+          where: {
+            prescriptionId: prescription.id,
+            invoiceType: 'PHARMACY',
+            paymentStatus: 'REFUNDED'
+          },
+          select: { id: true }
+        });
         return res.json({
           prescriptionId: prescription.id,
           invoice: null,
+          billingPending: {
+            code: refundedInvoice
+              ? 'PHARMACY_REFUNDED_INVOICE_REVIEW_REQUIRED'
+              : 'PHARMACY_INVOICE_PENDING',
+            message: refundedInvoice
+              ? 'Refunded pharmacy billing requires administrative review.'
+              : 'Pharmacy invoice preparation is pending medication review or authoritative pricing.'
+          },
           dispensingAllowed: false,
           allowedPaymentMethods: paymentMethods
         });

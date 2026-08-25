@@ -21,6 +21,7 @@ import {
 } from '../src/services/accessTokens.js';
 import { decryptMfaSecret, encryptMfaSecret } from '../src/services/mfaCrypto.js';
 import { buildMedicineIdentityKey, normalizeBatchNumber } from '../src/utils/medicineManagement.js';
+import { ensurePharmacyInvoiceForPrescription } from '../src/services/pharmacyInvoice.js';
 import {
   consumeMfaChallenge,
   createMfaChallenge,
@@ -1857,7 +1858,7 @@ test('pharmacy medication review queue is pharmacist-only and lists pending cust
   }
 });
 
-test('reception cannot bill a prescription while medication review is pending', async () => {
+test('automatic pharmacy billing remains pending while medication review is pending', async () => {
   const fixture =
     await createCustomMedicationReviewFixture();
 
@@ -1877,6 +1878,12 @@ test('reception cannot bill a prescription while medication review is pending', 
   });
 
   assert.equal(invoiceCount, 0);
+  const paymentState = await api
+    .get(`/api/pharmacy/prescriptions/${fixture.rx.id}/payment-state`)
+    .set(auth('pharmacy'));
+  assert.equal(paymentState.status, 200);
+  assert.equal(paymentState.body.invoice, null);
+  assert.equal(paymentState.body.billingPending.code, 'PHARMACY_INVOICE_PENDING');
 });
 
 test('only pharmacist can make a medication review decision', async () => {
@@ -1983,7 +1990,8 @@ test('pharmacist can link a custom medication to an existing stocked formulary d
   const billing =
     await requestPharmacyInvoiceForFixture(fixture);
 
-  assert.equal(billing.status, 201);
+  assert.equal(billing.status, 200);
+  assert.equal(billing.body.existing, true);
 
   const invoice = await prisma.invoice.findFirst({
     where: {
@@ -2138,7 +2146,8 @@ test('pharmacist creates only an unpriced inactive medicine and ADMIN controls i
   assert.equal(configured.body.unitPriceSdg, 6000);
 
   const billing = await requestPharmacyInvoiceForFixture(fixture);
-  assert.equal(billing.status, 201);
+  assert.equal(billing.status, 200);
+  assert.equal(billing.body.existing, true);
 
   const invoiceCount = await prisma.invoice.count({
     where: {
@@ -4243,7 +4252,7 @@ test('patient login reports whether the medical record is linked', async () => {
 test('pharmacy invoice uses server-authoritative formulary price and ignores browser pricing', async () => {
   const fixture = await createPrescriptionFixture({ paid: false });
 
-  const response = await api
+  const forbidden = await api
     .post('/api/billing/invoice')
     .set(auth('reception'))
     .send({
@@ -4257,6 +4266,23 @@ test('pharmacy invoice uses server-authoritative formulary price and ignores bro
         unitPriceSdg: 1
       }]
     });
+
+  assert.equal(forbidden.status, 403);
+  assert.equal(forbidden.body.error.code, 'PHARMACY_INVOICE_SYSTEM_OWNED');
+
+  const adminForbidden = await api
+    .post('/api/billing/invoice')
+    .set(auth('admin'))
+    .send({
+      patientId: patient1.id,
+      prescriptionId: fixture.rx.id,
+      invoiceType: 'PHARMACY',
+      items: [{ descriptionAr: 'مرفوض', descriptionEn: 'Rejected', qty: 1, unitPriceSdg: 1 }]
+    });
+  assert.equal(adminForbidden.status, 403);
+  assert.equal(adminForbidden.body.error.code, 'PHARMACY_INVOICE_SYSTEM_OWNED');
+
+  const response = await requestPharmacyInvoiceForFixture(fixture);
 
   assert.equal(response.status, 201);
   assert.equal(response.body.invoice.prescriptionId, fixture.rx.id);
@@ -4276,26 +4302,237 @@ test('pharmacy invoice uses server-authoritative formulary price and ignores bro
   );
 });
 
-test('duplicate pharmacy invoice requests reuse the same active invoice', async () => {
+test('doctor prescription submission automatically creates one authoritative pharmacy invoice without financial side effects', async () => {
+  fixtureCounter += 1;
+  const automaticGenericName = `AutomaticInvoice-${fixtureCounter}-${Date.now()}`;
+  const standardDrug = await prisma.drugFormulary.create({
+    data: {
+      brandName: `Automatic Invoice Drug ${fixtureCounter}`,
+      labelAr: 'دواء فاتورة تلقائية',
+      labelEn: `Automatic Invoice Drug ${fixtureCounter}`,
+      genericName: automaticGenericName,
+      strength: '10mg',
+      dosageForm: 'Tablet',
+      identityKey: buildMedicineIdentityKey({
+        brandName: `Automatic Invoice Drug ${fixtureCounter}`,
+        genericName: automaticGenericName,
+        strength: '10mg',
+        dosageForm: 'Tablet'
+      }),
+      unitPriceSdg: 1500,
+      status: 'ACTIVE'
+    }
+  });
+  const appointment = await prisma.appointment.create({
+    data: {
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      appointmentDate: `2044-03-${String((fixtureCounter % 27) + 1).padStart(2, '0')}`,
+      appointmentTime: `${String(8 + (fixtureCounter % 10)).padStart(2, '0')}:15`,
+      status: 'IN_CONSULTATION'
+    }
+  });
+  const beforeStock = await prisma.inventoryBatch.aggregate({
+    where: { drugId: standardDrug.id },
+    _sum: { qtyOnHand: true }
+  });
+  const beforeMovements = await prisma.stockMovement.count({ where: { drugId: standardDrug.id } });
+
+  const accepted = await api.post('/api/records').set(auth('doctor')).send({
+    patientId: patient1.id,
+    appointmentId: appointment.id,
+    diagnosis: 'Synthetic integration diagnosis',
+    prescribedDrugs: [{
+      drugId: standardDrug.id,
+      dosage: '1 tablet',
+      duration: '2 days',
+      qtyPrescribed: 2,
+      unitPriceSdg: 1,
+      invoiceTotal: 1
+    }]
+  });
+  assert.equal(accepted.status, 201);
+
+  const prescriptionId = accepted.body.data.prescription.id;
+  const invoice = await prisma.invoice.findFirst({
+    where: { prescriptionId, invoiceType: 'PHARMACY' },
+    include: { items: true }
+  });
+  assert.ok(invoice);
+  assert.equal(invoice.items.length, 1);
+  assert.equal(invoice.items[0].qty, 2);
+  assert.equal(Number(invoice.items[0].unitPriceSdg), Number(standardDrug.unitPriceSdg));
+  assert.equal(Number(invoice.totalAmountSdg), Number(standardDrug.unitPriceSdg) * 2);
+  const paymentState = await api
+    .get(`/api/pharmacy/prescriptions/${prescriptionId}/payment-state`)
+    .set(auth('pharmacy'));
+  assert.equal(paymentState.status, 200);
+  assert.equal(paymentState.body.invoice.id, invoice.id);
+  assert.equal(paymentState.body.invoice.outstandingAmountSdg, Number(invoice.totalAmountSdg));
+  assert.equal(paymentState.body.dispensingAllowed, false);
+  assert.equal(await prisma.payment.count({ where: { invoiceId: invoice.id } }), 0);
+  assert.equal(await prisma.stockMovement.count({ where: { drugId: standardDrug.id } }), beforeMovements);
+  assert.equal(Number((await prisma.inventoryBatch.aggregate({
+    where: { drugId: standardDrug.id }, _sum: { qtyOnHand: true }
+  }))._sum.qtyOnHand || 0), Number(beforeStock._sum.qtyOnHand || 0));
+});
+
+test('concurrent automatic ensures create one invoice, one item set, and one creation audit', async () => {
+  const fixture = await createPrescriptionFixture({ paid: false, qtyPrescribed: 2 });
+  const options = {
+    prescriptionId: fixture.rx.id,
+    actorUserId: doctor1.userId,
+    ipAddress: '127.0.0.1',
+    trigger: 'CONCURRENT_TEST'
+  };
+  const [left, right] = await Promise.all([
+    ensurePharmacyInvoiceForPrescription(options),
+    ensurePharmacyInvoiceForPrescription(options)
+  ]);
+  assert.equal(left.invoice.id, right.invoice.id);
+  assert.deepEqual([left.existing, right.existing].sort(), [false, true]);
+  assert.equal(await prisma.invoice.count({
+    where: { prescriptionId: fixture.rx.id, invoiceType: 'PHARMACY' }
+  }), 1);
+  assert.equal(await prisma.invoiceItem.count({ where: { invoiceId: left.invoice.id } }), 1);
+  assert.equal(await prisma.tenantAuditLog.count({
+    where: { action: 'PHARMACY_INVOICE_AUTOMATICALLY_CREATED', details: { contains: fixture.rx.id } }
+  }), 1);
+});
+
+test('automatic ensure fails safely for duplicate active or refunded historical pharmacy billing', async () => {
+  const duplicateFixture = await createPrescriptionFixture({ paid: false, qtyPrescribed: 2 });
+  const first = await ensurePharmacyInvoiceForPrescription({
+    prescriptionId: duplicateFixture.rx.id,
+    actorUserId: doctor1.userId,
+    trigger: 'INVARIANT_TEST'
+  });
+  await prisma.invoice.create({
+    data: {
+      patientId: patient1.id,
+      prescriptionId: duplicateFixture.rx.id,
+      invoiceType: 'PHARMACY',
+      totalAmountSdg: 1,
+      totalAmountUsd: 1 / 1500,
+      invoiceExchangeRate: 1500,
+      paymentStatus: 'UNPAID',
+      createdBy: doctor1.userId
+    }
+  });
+  const duplicateResult = await ensurePharmacyInvoiceForPrescription({
+    prescriptionId: duplicateFixture.rx.id,
+    actorUserId: doctor1.userId,
+    trigger: 'INVARIANT_TEST'
+  });
+  assert.equal(duplicateResult.pending, true);
+  assert.equal(duplicateResult.code, 'PHARMACY_INVOICE_INVARIANT_VIOLATION');
+  assert.equal(await prisma.invoice.count({ where: { prescriptionId: duplicateFixture.rx.id } }), 2);
+
+  const refundedFixture = await createPrescriptionFixture({ paid: false, qtyPrescribed: 2 });
+  const refunded = await ensurePharmacyInvoiceForPrescription({
+    prescriptionId: refundedFixture.rx.id,
+    actorUserId: doctor1.userId,
+    trigger: 'REFUND_TEST'
+  });
+  await prisma.invoice.update({ where: { id: refunded.invoice.id }, data: { paymentStatus: 'REFUNDED' } });
+  const refundedResult = await ensurePharmacyInvoiceForPrescription({
+    prescriptionId: refundedFixture.rx.id,
+    actorUserId: doctor1.userId,
+    trigger: 'REFUND_TEST'
+  });
+  assert.equal(refundedResult.pending, true);
+  assert.equal(refundedResult.code, 'PHARMACY_REFUNDED_INVOICE_REVIEW_REQUIRED');
+  assert.equal(await prisma.invoice.count({ where: { prescriptionId: refundedFixture.rx.id } }), 1);
+  assert.ok(first.invoice.id);
+});
+
+test('mixed prescription bills remaining clinic quantity, omits external and fully dispensed items', async () => {
+  const fixture = await createPrescriptionFixture({ paid: false, qtyPrescribed: 5 });
+  await prisma.prescribedDrug.update({
+    where: { id: fixture.item.id },
+    data: { qtyDispensed: 2 }
+  });
+  await prisma.prescribedDrug.createMany({
+    data: [{
+      prescriptionId: fixture.rx.id,
+      drugId: fixture.drug.id,
+      dosage: 'completed',
+      duration: '1 day',
+      instructionsAr: '',
+      instructionsEn: '',
+      qtyPrescribed: 1,
+      qtyDispensed: 1
+    }, {
+      prescriptionId: fixture.rx.id,
+      customDrugName: 'External medicine',
+      dosage: 'external',
+      duration: '1 day',
+      instructionsAr: '',
+      instructionsEn: '',
+      qtyPrescribed: 9,
+      pharmacyReviewStatus: 'EXTERNAL'
+    }]
+  });
+  const result = await ensurePharmacyInvoiceForPrescription({
+    prescriptionId: fixture.rx.id,
+    actorUserId: doctor1.userId,
+    trigger: 'MIXED_TEST'
+  });
+  assert.equal(result.pending, false);
+  assert.equal(result.invoice.items.length, 1);
+  assert.equal(result.invoice.items[0].qty, 3);
+  assert.equal(Number(result.invoice.totalAmountSdg), Number(fixture.unitPriceSdg) * 3);
+});
+
+test('automatic ensure never rewrites an existing paid invoice', async () => {
+  const fixture = await createPrescriptionFixture({ paid: true, qtyPrescribed: 3 });
+  const before = await prisma.invoice.findUnique({
+    where: { id: fixture.invoice.id },
+    include: { items: true }
+  });
+  await prisma.drugFormulary.update({
+    where: { id: fixture.drug.id },
+    data: { unitPriceSdg: Number(fixture.unitPriceSdg) + 500 }
+  });
+  const result = await ensurePharmacyInvoiceForPrescription({
+    prescriptionId: fixture.rx.id,
+    actorUserId: doctor1.userId,
+    trigger: 'PAID_REUSE_TEST'
+  });
+  const after = await prisma.invoice.findUnique({
+    where: { id: fixture.invoice.id },
+    include: { items: true }
+  });
+  assert.equal(result.existing, true);
+  assert.equal(result.invoice.id, before.id);
+  assert.equal(Number(after.totalAmountSdg), Number(before.totalAmountSdg));
+  assert.equal(Number(after.items[0].unitPriceSdg), Number(before.items[0].unitPriceSdg));
+  assert.equal(after.paymentStatus, 'PAID');
+});
+
+test('cancelled prescription cannot receive a new payable pharmacy invoice', async () => {
+  const fixture = await createPrescriptionFixture({ paid: false });
+  await prisma.prescription.update({ where: { id: fixture.rx.id }, data: { status: 'CANCELLED' } });
+  const result = await ensurePharmacyInvoiceForPrescription({
+    prescriptionId: fixture.rx.id,
+    actorUserId: doctor1.userId,
+    trigger: 'CANCELLED_TEST'
+  });
+  assert.equal(result.pending, true);
+  assert.equal(result.code, 'PHARMACY_BILLING_INVALID_STATE');
+  assert.equal(await prisma.invoice.count({
+    where: { prescriptionId: fixture.rx.id, invoiceType: 'PHARMACY' }
+  }), 0);
+});
+
+test('repeated automatic pharmacy invoice ensures reuse the same active invoice', async () => {
   const fixture = await createPrescriptionFixture({ paid: false });
 
-  const payload = {
-    patientId: patient1.id,
-    prescriptionId: fixture.rx.id,
-    invoiceType: 'PHARMACY'
-  };
-
-  const first = await api
-    .post('/api/billing/invoice')
-    .set(auth('reception'))
-    .send(payload);
+  const first = await requestPharmacyInvoiceForFixture(fixture);
 
   assert.equal(first.status, 201);
 
-  const second = await api
-    .post('/api/billing/invoice')
-    .set(auth('reception'))
-    .send(payload);
+  const second = await requestPharmacyInvoiceForFixture(fixture);
 
   assert.equal(second.status, 200);
   assert.equal(second.body.existing, true);
@@ -4308,14 +4545,7 @@ test('pharmacy invoice rejects formulary medication without configured price', a
     unitPriceSdg: null
   });
 
-  const response = await api
-    .post('/api/billing/invoice')
-    .set(auth('reception'))
-    .send({
-      patientId: patient1.id,
-      prescriptionId: fixture.rx.id,
-      invoiceType: 'PHARMACY'
-    });
+  const response = await requestPharmacyInvoiceForFixture(fixture);
 
   assert.equal(response.status, 409);
   assert.equal(
@@ -4327,14 +4557,7 @@ test('pharmacy invoice rejects formulary medication without configured price', a
 test('pharmacy dispensing stays locked until the pharmacy invoice is fully paid', async () => {
   const fixture = await createPrescriptionFixture({ paid: false });
 
-  const invoiceResponse = await api
-    .post('/api/billing/invoice')
-    .set(auth('reception'))
-    .send({
-      patientId: patient1.id,
-      prescriptionId: fixture.rx.id,
-      invoiceType: 'PHARMACY'
-    });
+  const invoiceResponse = await requestPharmacyInvoiceForFixture(fixture);
 
   assert.equal(invoiceResponse.status, 201);
 
@@ -4651,14 +4874,7 @@ test('reception can view pharmacy billing queue while pharmacist receives read-o
     'UNBILLED'
   );
 
-  const invoiceResponse = await api
-    .post('/api/billing/invoice')
-    .set(auth('reception'))
-    .send({
-      patientId: patient1.id,
-      prescriptionId: fixture.rx.id,
-      invoiceType: 'PHARMACY'
-    });
+  const invoiceResponse = await requestPharmacyInvoiceForFixture(fixture);
 
   assert.equal(invoiceResponse.status, 201);
 
@@ -4749,26 +4965,22 @@ async function createCustomMedicationReviewFixture({
 }
 
 async function requestPharmacyInvoiceForFixture(fixture) {
-  return api
-    .post('/api/billing/invoice')
-    .set(auth('reception'))
-    .send({
-      patientId: patient1.id,
-      appointmentId: fixture.appointment.id,
-      prescriptionId: fixture.rx.id,
-      invoiceType: 'PHARMACY',
-
-      // The server must ignore browser pricing for pharmacy
-      // prescriptions and derive the real amount itself.
-      items: [
-        {
-          descriptionAr: 'ignored',
-          descriptionEn: 'ignored',
-          qty: 1,
-          unitPriceSdg: 1
-        }
-      ]
-    });
+  const result = await ensurePharmacyInvoiceForPrescription({
+    prescriptionId: fixture.rx.id,
+    actorUserId: doctor1.userId,
+    ipAddress: '127.0.0.1',
+    trigger: 'INTEGRATION_TEST'
+  });
+  if (result.pending) {
+    return {
+      status: 409,
+      body: { error: { code: result.code, message: result.message } }
+    };
+  }
+  return {
+    status: result.existing ? 200 : 201,
+    body: result
+  };
 }
 
 async function createPrescriptionFixture({

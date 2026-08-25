@@ -87,6 +87,15 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
       ? invoiceType.trim().toUpperCase()
       : 'GENERAL';
 
+  if (normalizedInvoiceType === 'PHARMACY') {
+    return sendError(
+      res,
+      403,
+      'PHARMACY_INVOICE_SYSTEM_OWNED',
+      'Pharmacy invoices are created automatically by the system.'
+    );
+  }
+
   const allowedInvoiceTypes = [
     'GENERAL',
     'CONSULTATION',
@@ -323,131 +332,6 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
         qty: 1,
         unitPriceSdg: Number(item.service.baseFeeSdg)
       }));
-    } else if (normalizedInvoiceType === 'PHARMACY') {
-      if (typeof prescriptionId !== 'string' || !prescriptionId.trim()) {
-        return sendError(
-          res,
-          422,
-          'PHARMACY_PRESCRIPTION_REQUIRED',
-          'Pharmacy billing requires a prescription.'
-        );
-      }
-
-      const requestedPrescriptionId = prescriptionId.trim();
-
-      const prescription = await prisma.prescription.findUnique({
-        where: { id: requestedPrescriptionId },
-        include: {
-          medicalRecord: {
-            select: {
-              appointmentId: true
-            }
-          },
-          prescribedDrugs: {
-            include: {
-              drug: true
-            }
-          }
-        }
-      });
-
-      if (!prescription) {
-        return sendError(
-          res,
-          404,
-          'PHARMACY_PRESCRIPTION_NOT_FOUND',
-          'Prescription not found.'
-        );
-      }
-
-      if (prescription.patientId !== patientId) {
-        return sendError(
-          res,
-          409,
-          'PHARMACY_PRESCRIPTION_PATIENT_MISMATCH',
-          'The invoice patient does not match the prescription patient.'
-        );
-      }
-
-      if (!['ACTIVE', 'PARTIALLY_FILLED'].includes(prescription.status)) {
-        return sendError(
-          res,
-          409,
-          'PHARMACY_BILLING_INVALID_STATE',
-          'This prescription can no longer be billed.'
-        );
-      }
-
-      // A custom medicine must be reviewed by pharmacy before
-      // reception can generate a pharmacy invoice.
-      const pendingPharmacyReview =
-        prescription.prescribedDrugs.find(
-          (item) =>
-            item.pharmacyReviewStatus === 'PENDING_REVIEW' ||
-            (
-              !item.drugId &&
-              item.pharmacyReviewStatus !== 'EXTERNAL'
-            )
-        );
-
-      if (pendingPharmacyReview) {
-        return sendError(
-          res,
-          409,
-          'PHARMACY_REVIEW_PENDING',
-          'One or more prescribed medications are awaiting pharmacy review.'
-        );
-      }
-
-      const billableDrugs = prescription.prescribedDrugs
-        .filter(
-          (item) =>
-            item.drugId &&
-            item.drug &&
-            item.pharmacyReviewStatus !== 'EXTERNAL'
-        )
-        .map((item) => ({
-          item,
-          remainingQty:
-            Number(item.qtyPrescribed) - Number(item.qtyDispensed)
-        }))
-        .filter(({ remainingQty }) => remainingQty > 0);
-
-      if (!billableDrugs.length) {
-        return sendError(
-          res,
-          409,
-          'PHARMACY_NO_BILLABLE_ITEMS',
-          'The prescription does not contain remaining formulary medications that can be billed.'
-        );
-      }
-
-      const unpricedDrug = billableDrugs.find(({ item }) => {
-        const price = Number(item.drug.unitPriceSdg);
-        return item.drug.status !== 'ACTIVE' || !isConfiguredPrice(price);
-      });
-
-      if (unpricedDrug) {
-        return sendError(
-          res,
-          409,
-          'PHARMACY_PRICE_NOT_CONFIGURED',
-          'One or more prescribed medications do not have a valid configured pharmacy price.'
-        );
-      }
-
-      resolvedPrescriptionId = prescription.id;
-      resolvedAppointmentId =
-        prescription.medicalRecord?.appointmentId || null;
-
-      // Security: pharmacy prices and quantities are derived from the
-      // prescription and DrugFormulary, never browser-supplied invoice items.
-      resolvedItems = billableDrugs.map(({ item, remainingQty }) => ({
-        descriptionAr: item.drug.labelAr,
-        descriptionEn: item.drug.labelEn,
-        qty: remainingQty,
-        unitPriceSdg: Number(item.drug.unitPriceSdg)
-      }));
     } else {
       const invalidGeneralItem = items.find((item) => {
         if (!item || typeof item !== 'object' || Array.isArray(item)) return true;
@@ -591,43 +475,6 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
             where: {
               labOrderId: resolvedLabOrderId,
               invoiceType: 'LABORATORY',
-              paymentStatus: {
-                not: 'REFUNDED'
-              }
-            },
-            include: {
-              items: true,
-              insuranceClaim: true
-            },
-            orderBy: {
-              invoiceDate: 'desc'
-            }
-          });
-
-          if (existingInvoice) {
-            const claimAmount = existingInvoice.insuranceClaim
-              ? Number(existingInvoice.insuranceClaim.claimAmountSdg)
-              : 0;
-
-            return {
-              invoice: existingInvoice,
-              insuranceClaim: existingInvoice.insuranceClaim || null,
-              patientShareSdg: Math.max(
-                0,
-                Number(existingInvoice.totalAmountSdg) - claimAmount
-              ),
-              existing: true
-            };
-          }
-        }
-
-        // Repeated pharmacy checkout must reuse the newest active invoice
-        // linked to the same prescription.
-        if (normalizedInvoiceType === 'PHARMACY') {
-          const existingInvoice = await tx.invoice.findFirst({
-            where: {
-              prescriptionId: resolvedPrescriptionId,
-              invoiceType: 'PHARMACY',
               paymentStatus: {
                 not: 'REFUNDED'
               }
