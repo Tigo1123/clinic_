@@ -9,6 +9,14 @@ import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { emitQueueUpdate } from '../utils/socketEvents.js';
 import { getClinicDateString } from '../utils/clinicTime.js';
+import {
+  buildMedicineIdentityKey,
+  inventoryBatchSchema,
+  isMedicineIdentityUniqueViolation,
+  normalizeBatchNumber,
+  pharmacistMedicineSchema,
+  stockMovementSchema
+} from '../utils/medicineManagement.js';
 
 const router = express.Router();
 
@@ -946,63 +954,17 @@ router.post(
           const inventory =
             req.body?.inventory || {};
 
-          const labelEn =
+          const fallbackLabelEn =
             typeof form.labelEn === 'string' &&
             form.labelEn.trim()
               ? form.labelEn.trim()
               : prescribedDrug.customDrugName.trim();
 
-          const labelAr =
+          const fallbackLabelAr =
             typeof form.labelAr === 'string' &&
             form.labelAr.trim()
               ? form.labelAr.trim()
-              : labelEn;
-
-          const genericName =
-            typeof form.genericName === 'string'
-              ? form.genericName.trim()
-              : '';
-
-          const strength =
-            typeof form.strength === 'string'
-              ? form.strength.trim()
-              : '';
-
-          const dosageForm =
-            typeof form.dosageForm === 'string'
-              ? form.dosageForm.trim()
-              : '';
-
-          const batchNumber =
-            typeof inventory.batchNumber === 'string'
-              ? inventory.batchNumber.trim()
-              : '';
-
-          const expiryDate =
-            typeof inventory.expiryDate === 'string'
-              ? inventory.expiryDate.trim()
-              : '';
-
-          const qtyOnHand =
-            Number(inventory.qtyOnHand);
-
-          const minReorderLevel =
-            inventory.minReorderLevel == null ||
-            inventory.minReorderLevel === ''
-              ? 10
-              : Number(inventory.minReorderLevel);
-
-          if (
-            !genericName ||
-            !strength ||
-            !dosageForm
-          ) {
-            throw fail(
-              422,
-              'FORMULARY_DETAILS_REQUIRED',
-              'genericName, strength, and dosageForm are required.'
-            );
-          }
+              : fallbackLabelEn;
 
           if (Object.hasOwn(form, 'unitPriceSdg')) {
             throw fail(
@@ -1012,56 +974,35 @@ router.post(
             );
           }
 
-          if (!batchNumber) {
-            throw fail(
-              422,
-              'BATCH_NUMBER_REQUIRED',
-              'An initial inventory batch number is required.'
-            );
+          const medicineResult = pharmacistMedicineSchema.safeParse({
+            ...form,
+            brandName: form.brandName ?? fallbackLabelEn,
+            labelAr: fallbackLabelAr,
+            labelEn: fallbackLabelEn
+          });
+
+          if (!medicineResult.success) {
+            throw fail(422, 'FORMULARY_DETAILS_INVALID', medicineResult.error.issues[0].message);
           }
 
-          if (
-            !/^\d{4}-\d{2}-\d{2}$/.test(
-              expiryDate
-            )
-          ) {
-            throw fail(
-              422,
-              'INVALID_EXPIRY_DATE',
-              'expiryDate must use YYYY-MM-DD format.'
-            );
+          const batchResult = inventoryBatchSchema.safeParse(inventory);
+
+          if (!batchResult.success) {
+            throw fail(422, 'INVENTORY_BATCH_INVALID', batchResult.error.issues[0].message);
           }
 
-          const today =
-            new Date().toISOString().slice(0, 10);
+          const { brandName, labelAr, labelEn, genericName, strength, dosageForm } = medicineResult.data;
+          const { batchNumber, expiryDate, qtyOnHand, minReorderLevel } = batchResult.data;
+          const identityKey = buildMedicineIdentityKey(medicineResult.data);
+          const normalizedBatchNumber = normalizeBatchNumber(batchNumber);
+
+          const today = getClinicDateString();
 
           if (expiryDate <= today) {
             throw fail(
               422,
               'INVALID_EXPIRY_DATE',
               'The initial stock batch must expire after today.'
-            );
-          }
-
-          if (
-            !Number.isSafeInteger(qtyOnHand) ||
-            qtyOnHand <= 0
-          ) {
-            throw fail(
-              422,
-              'INVALID_STOCK_QUANTITY',
-              'qtyOnHand must be a positive whole number.'
-            );
-          }
-
-          if (
-            !Number.isSafeInteger(minReorderLevel) ||
-            minReorderLevel < 0
-          ) {
-            throw fail(
-              422,
-              'INVALID_REORDER_LEVEL',
-              'minReorderLevel must be a non-negative whole number.'
             );
           }
 
@@ -1078,34 +1019,14 @@ router.post(
           }
 
           const duplicateDrug =
-            await tx.drugFormulary.findFirst({
+            await tx.drugFormulary.findUnique({
               where: {
-                OR: [
-                  {
-                    labelEn: {
-                      equals: labelEn,
-                      mode: 'insensitive'
-                    }
-                  },
-                  {
-                    genericName: {
-                      equals: genericName,
-                      mode: 'insensitive'
-                    },
-                    strength: {
-                      equals: strength,
-                      mode: 'insensitive'
-                    },
-                    dosageForm: {
-                      equals: dosageForm,
-                      mode: 'insensitive'
-                    }
-                  }
-                ]
+                identityKey
               },
               select: {
                 id: true,
                 labelEn: true,
+                brandName: true,
                 genericName: true,
                 strength: true,
                 dosageForm: true
@@ -1115,7 +1036,7 @@ router.post(
           if (duplicateDrug) {
             throw fail(
               409,
-              'FORMULARY_DRUG_ALREADY_EXISTS',
+              'FORMULARY_MEDICINE_ALREADY_EXISTS',
               'A matching medication already exists in the formulary. Link the existing medication instead.'
             );
           }
@@ -1123,11 +1044,13 @@ router.post(
           linkedDrug =
             await tx.drugFormulary.create({
               data: {
+                brandName,
                 labelAr,
                 labelEn,
                 genericName,
                 strength,
                 dosageForm,
+                identityKey,
                 unitPriceSdg: null,
                 status: 'INACTIVE'
               }
@@ -1138,11 +1061,31 @@ router.post(
               data: {
                 drugId: linkedDrug.id,
                 batchNumber,
+                normalizedBatchNumber,
                 expiryDate,
                 qtyOnHand,
                 minReorderLevel
               }
             });
+
+          const openingMovement = stockMovementSchema.parse({
+            movementType: 'OPENING_BALANCE',
+            quantityDelta: qtyOnHand,
+            resultingBalance: qtyOnHand,
+            actorUserId: req.user.id,
+            referenceType: 'CUSTOM_MEDICATION_REVIEW',
+            referenceId: prescribedDrug.id,
+            reason: 'Initial stock recorded during formulary creation.',
+            idempotencyKey: `custom-medication-review:${prescribedDrug.id}:opening`
+          });
+
+          await tx.stockMovement.create({
+            data: {
+              ...openingMovement,
+              drugId: linkedDrug.id,
+              inventoryBatchId: createdBatch.id
+            }
+          });
 
           const claim =
             await tx.prescribedDrug.updateMany({
@@ -1223,6 +1166,15 @@ router.post(
         ...result
       });
     } catch (error) {
+      if (isMedicineIdentityUniqueViolation(error)) {
+        return sendError(
+          res,
+          409,
+          'FORMULARY_MEDICINE_ALREADY_EXISTS',
+          'A matching medication already exists in the formulary. Link the existing medication instead.'
+        );
+      }
+
       if (error?.httpStatus) {
         return res
           .status(error.httpStatus)
@@ -1420,6 +1372,25 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
               'Inventory changed concurrently. Reload and retry dispensing.'
             );
           }
+
+          const resultingBalance = batch.qtyOnHand - quantityFromBatch;
+          const movement = stockMovementSchema.parse({
+            movementType: 'DISPENSE',
+            quantityDelta: -quantityFromBatch,
+            resultingBalance,
+            actorUserId: req.user.id,
+            referenceType: 'PRESCRIBED_DRUG_DISPENSE',
+            referenceId: prescribedDrug.id,
+            reason: 'Stock dispensed for a prescription.'
+          });
+
+          await tx.stockMovement.create({
+            data: {
+              ...movement,
+              drugId: batch.drugId,
+              inventoryBatchId: batch.id
+            }
+          });
 
           remainingToDispense -= quantityFromBatch;
         }

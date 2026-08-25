@@ -1,5 +1,6 @@
 import { PrismaClient } from '../src/generated/prisma/index.js';
 import bcrypt from 'bcryptjs';
+import { buildMedicineIdentityKey, normalizeBatchNumber } from '../src/utils/medicineManagement.js';
 
 const prisma = new PrismaClient();
 
@@ -390,18 +391,40 @@ async function main() {
     ];
 
     for (const drug of drugs) {
-      const createdDrug = await prisma.drugFormulary.create({
-        data: drug
-      });
-
-      await prisma.inventoryBatch.create({
-        data: {
-          drugId: createdDrug.id,
-          batchNumber: `${drug.genericName.substring(0, 3).toUpperCase()}-B01`,
-          expiryDate: '2027-12-31',
-          qtyOnHand: 100,
-          minReorderLevel: 15
-        }
+      const brandName = drug.labelEn;
+      const batchNumber = `${drug.genericName.substring(0, 3).toUpperCase()}-B01`;
+      await prisma.$transaction(async (tx) => {
+        const createdDrug = await tx.drugFormulary.create({
+          data: {
+            ...drug,
+            brandName,
+            identityKey: buildMedicineIdentityKey({ ...drug, brandName })
+          }
+        });
+        const createdBatch = await tx.inventoryBatch.create({
+          data: {
+            drugId: createdDrug.id,
+            batchNumber,
+            normalizedBatchNumber: normalizeBatchNumber(batchNumber),
+            expiryDate: '2027-12-31',
+            qtyOnHand: 100,
+            minReorderLevel: 15
+          }
+        });
+        await tx.stockMovement.create({
+          data: {
+            drugId: createdDrug.id,
+            inventoryBatchId: createdBatch.id,
+            movementType: 'OPENING_BALANCE',
+            quantityDelta: createdBatch.qtyOnHand,
+            resultingBalance: createdBatch.qtyOnHand,
+            actorUserId: null,
+            referenceType: 'SEED_OPENING_BALANCE',
+            referenceId: createdBatch.id,
+            reason: 'Local development and test seed opening balance.',
+            idempotencyKey: `seed:opening-balance:${createdBatch.id}`
+          }
+        });
       });
     }
   }

@@ -19,6 +19,7 @@ import {
   verifyAccessToken
 } from '../src/services/accessTokens.js';
 import { decryptMfaSecret, encryptMfaSecret } from '../src/services/mfaCrypto.js';
+import { buildMedicineIdentityKey, normalizeBatchNumber } from '../src/utils/medicineManagement.js';
 import {
   consumeMfaChallenge,
   createMfaChallenge,
@@ -1920,12 +1921,20 @@ test('pharmacist can link a custom medication to an existing stocked formulary d
 
   const targetDrug = await prisma.drugFormulary.create({
     data: {
+      brandName: `Linked Review Drug ${fixture.unique}`,
       labelAr: 'دواء ربط اختبار',
       labelEn: `Linked Review Drug ${fixture.unique}`,
       genericName: `LinkedGeneric-${fixture.unique}`,
       strength: '500mg',
       dosageForm: 'Tablet',
-      unitPriceSdg: 4500
+      identityKey: buildMedicineIdentityKey({
+        brandName: `Linked Review Drug ${fixture.unique}`,
+        genericName: `LinkedGeneric-${fixture.unique}`,
+        strength: '500mg',
+        dosageForm: 'Tablet'
+      }),
+      unitPriceSdg: 4500,
+      status: 'ACTIVE'
     }
   });
 
@@ -1933,6 +1942,7 @@ test('pharmacist can link a custom medication to an existing stocked formulary d
     data: {
       drugId: targetDrug.id,
       batchNumber: `LINK-${fixture.unique}`,
+      normalizedBatchNumber: normalizeBatchNumber(`LINK-${fixture.unique}`),
       expiryDate: '2035-12-31',
       qtyOnHand: 50,
       minReorderLevel: 10
@@ -2078,6 +2088,13 @@ test('pharmacist creates only an unpriced inactive medicine and ADMIN controls i
 
   assert.equal(stored.drug.unitPriceSdg, null);
   assert.equal(stored.drug.status, 'INACTIVE');
+  assert.equal(stored.drug.brandName, labelEn);
+  assert.equal(stored.drug.identityKey, buildMedicineIdentityKey({
+    brandName: labelEn,
+    genericName,
+    strength: '400mg',
+    dosageForm: 'Tablet'
+  }));
 
   assert.equal(
     stored.drug.inventoryBatches.length,
@@ -2088,6 +2105,14 @@ test('pharmacist creates only an unpriced inactive medicine and ADMIN controls i
     stored.drug.inventoryBatches[0].qtyOnHand,
     40
   );
+  assert.equal(stored.drug.inventoryBatches[0].normalizedBatchNumber, normalizeBatchNumber(`CEF-${fixture.unique}`));
+
+  const openingMovement = await prisma.stockMovement.findFirst({
+    where: { inventoryBatchId: stored.drug.inventoryBatches[0].id }
+  });
+  assert.equal(openingMovement.movementType, 'OPENING_BALANCE');
+  assert.equal(openingMovement.quantityDelta, 40);
+  assert.equal(openingMovement.resultingBalance, 40);
 
   const audit = await prisma.tenantAuditLog.findFirst({
     where: {
@@ -2121,6 +2146,140 @@ test('pharmacist creates only an unpriced inactive medicine and ADMIN controls i
   });
 
   assert.equal(invoiceCount, 1);
+});
+
+test('concurrent equivalent formulary reviews return one success and one deterministic conflict', async () => {
+  const first = await createCustomMedicationReviewFixture({ customDrugName: `Concurrent Custom A ${Date.now()}` });
+  const second = await createCustomMedicationReviewFixture({ customDrugName: `Concurrent Custom B ${Date.now()}` });
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const formulary = {
+    brandName: `Concurrent Review Brand ${suffix}`,
+    labelAr: 'دواء متزامن',
+    labelEn: `Concurrent Review Drug ${suffix}`,
+    genericName: `Concurrent Review Generic ${suffix}`,
+    strength: '25 mg',
+    dosageForm: 'Tablet'
+  };
+  const submit = (fixture, lot) => api
+    .post(`/api/records/prescribed-drugs/${fixture.prescribedDrug.id}/pharmacy-review`)
+    .set(auth('pharmacy'))
+    .send({
+      decision: 'CREATE_FORMULARY',
+      formulary,
+      inventory: { batchNumber: lot, expiryDate: '2035-12-31', qtyOnHand: 10, minReorderLevel: 1 }
+    });
+
+  const responses = await Promise.all([
+    submit(first, `CON-A-${suffix}`),
+    submit(second, `CON-B-${suffix}`)
+  ]);
+  const successIndex = responses.findIndex((response) => response.status === 200);
+  const conflictIndex = responses.findIndex((response) => response.status === 409);
+  assert.notEqual(successIndex, -1);
+  assert.notEqual(conflictIndex, -1);
+  assert.equal(responses[conflictIndex].body.error.code, 'FORMULARY_MEDICINE_ALREADY_EXISTS');
+
+  const identityKey = buildMedicineIdentityKey(formulary);
+  const medicines = await prisma.drugFormulary.findMany({ where: { identityKey }, include: {
+    inventoryBatches: { include: { stockMovements: true } }
+  } });
+  assert.equal(medicines.length, 1);
+  assert.equal(medicines[0].inventoryBatches.length, 1);
+  assert.equal(medicines[0].inventoryBatches[0].stockMovements.length, 1);
+
+  const fixtures = [first, second];
+  const failedFixture = fixtures[conflictIndex];
+  const failedItem = await prisma.prescribedDrug.findUnique({ where: { id: failedFixture.prescribedDrug.id } });
+  assert.equal(failedItem.drugId, null);
+  assert.equal(failedItem.pharmacyReviewStatus, 'PENDING_REVIEW');
+  assert.equal(await prisma.tenantAuditLog.count({ where: {
+    action: `PHARMACY_CUSTOM_MEDICATION_CREATED:${failedFixture.prescribedDrug.id}`
+  } }), 0);
+});
+
+test('database identity constraint prevents concurrent equivalent medicine products', async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const canonical = {
+    brandName: `Concurrent Brand ${suffix}`,
+    genericName: 'Canonical Generic',
+    strength: '10 mg',
+    dosageForm: 'Tablet'
+  };
+  const identityKey = buildMedicineIdentityKey(canonical);
+  const create = (labelEn) => prisma.drugFormulary.create({
+    data: {
+      ...canonical,
+      labelAr: labelEn,
+      labelEn,
+      identityKey,
+      status: 'INACTIVE',
+      unitPriceSdg: null
+    }
+  });
+  const results = await Promise.allSettled([create('Concurrent One'), create('Concurrent Two')]);
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+  const rejected = results.find((result) => result.status === 'rejected');
+  assert.equal(rejected.reason.code, 'P2002');
+  assert.equal(await prisma.drugFormulary.count({ where: { identityKey } }), 1);
+});
+
+test('new formulary rows default to inactive', async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const identity = {
+    brandName: `Default Brand ${suffix}`,
+    genericName: `Default Generic ${suffix}`,
+    strength: '5 mg',
+    dosageForm: 'Tablet'
+  };
+  const created = await prisma.drugFormulary.create({
+    data: {
+      ...identity,
+      labelAr: 'دواء افتراضي',
+      labelEn: `Default Drug ${suffix}`,
+      identityKey: buildMedicineIdentityKey(identity)
+    }
+  });
+  assert.equal(created.status, 'INACTIVE');
+  assert.equal(created.unitPriceSdg, null);
+});
+
+test('database batch identity constraint prevents duplicate lot rows', async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const product = {
+    brandName: `Batch Brand ${suffix}`,
+    genericName: `Batch Generic ${suffix}`,
+    strength: '20 mg',
+    dosageForm: 'Capsule'
+  };
+  const drug = await prisma.drugFormulary.create({
+    data: {
+      ...product,
+      labelAr: 'دواء تشغيلة',
+      labelEn: `Batch Drug ${suffix}`,
+      identityKey: buildMedicineIdentityKey(product),
+      status: 'INACTIVE',
+      unitPriceSdg: null
+    }
+  });
+  const create = (batchNumber) => prisma.inventoryBatch.create({
+    data: {
+      drugId: drug.id,
+      batchNumber,
+      normalizedBatchNumber: normalizeBatchNumber(batchNumber),
+      expiryDate: '2035-12-31',
+      qtyOnHand: 10,
+      minReorderLevel: 1
+    }
+  });
+  const results = await Promise.allSettled([create(' Lot  A-1 '), create('lot a-1')]);
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+  const rejected = results.find((result) => result.status === 'rejected');
+  assert.equal(rejected.reason.code, 'P2002');
+  assert.equal(await prisma.inventoryBatch.count({ where: {
+    drugId: drug.id,
+    normalizedBatchNumber: normalizeBatchNumber('lot a-1'),
+    expiryDate: '2035-12-31'
+  } }), 1);
 });
 
 test('pharmacist can mark a custom medication as external without creating a clinic pharmacy invoice', async () => {
@@ -3119,6 +3278,31 @@ test('pharmacy dispensing applies FEFO automatically on the server', async () =>
 
   assert.equal(early.qtyOnHand, 19);
   assert.equal(late.qtyOnHand, 20);
+
+  const movements = await prisma.stockMovement.findMany({
+    where: { referenceType: 'PRESCRIBED_DRUG_DISPENSE', referenceId: fixture.item.id }
+  });
+  assert.equal(movements.length, 1);
+  assert.equal(movements[0].inventoryBatchId, fixture.early.id);
+  assert.equal(movements[0].drugId, fixture.drug.id);
+  assert.equal(movements[0].quantityDelta, -1);
+  assert.equal(movements[0].resultingBalance, 19);
+  const pharmacist = await prisma.user.findUnique({ where: { username: 'pharma@cms.com' } });
+  assert.equal(movements[0].actorUserId, pharmacist.id);
+});
+
+test('opening 100 followed by dispense 6 reconciles exactly to stock 94', async () => {
+  const fixture = await createPrescriptionFixture({ earlyQty: 100, lateQty: 0 });
+  const response = await api.post(`/api/records/prescriptions/${fixture.rx.id}/dispense`)
+    .set(auth('pharmacy')).send({ items: [{ prescribedDrugId: fixture.item.id, qtyToDispense: 6 }] });
+  assert.equal(response.status, 200);
+  const batch = await prisma.inventoryBatch.findUnique({ where: { id: fixture.early.id } });
+  const movements = await prisma.stockMovement.findMany({ where: { inventoryBatchId: fixture.early.id } });
+  assert.equal(batch.qtyOnHand, 94);
+  assert.deepEqual(movements.map((movement) => movement.movementType).sort(), ['DISPENSE', 'OPENING_BALANCE']);
+  assert.equal(movements.reduce((balance, movement) => balance + movement.quantityDelta, 0), 94);
+  assert.equal(movements.find((movement) => movement.movementType === 'DISPENSE').resultingBalance, 94);
+  assert.equal(await prisma.stockMovement.count({ where: { inventoryBatchId: fixture.late.id } }), 0);
 });
 
 test('pharmacy dispensing splits quantity across multiple FEFO batches', async () => {
@@ -3126,12 +3310,7 @@ test('pharmacy dispensing splits quantity across multiple FEFO batches', async (
 
   await prisma.prescribedDrug.update({
     where: { id: fixture.item.id },
-    data: { qtyPrescribed: 20 }
-  });
-
-  await prisma.inventoryBatch.update({
-    where: { id: fixture.early.id },
-    data: { qtyOnHand: 8 }
+    data: { qtyPrescribed: 32 }
   });
 
   await prisma.inventoryBatch.update({
@@ -3145,7 +3324,7 @@ test('pharmacy dispensing splits quantity across multiple FEFO batches', async (
     .send({
       items: [{
         prescribedDrugId: fixture.item.id,
-        qtyToDispense: 20
+        qtyToDispense: 32
       }]
     });
 
@@ -3169,8 +3348,85 @@ test('pharmacy dispensing splits quantity across multiple FEFO batches', async (
 
   assert.equal(early.qtyOnHand, 0);
   assert.equal(late.qtyOnHand, 8);
-  assert.equal(prescribedDrug.qtyDispensed, 20);
+  assert.equal(prescribedDrug.qtyDispensed, 32);
   assert.equal(prescription.status, 'FILLED');
+
+  const movements = await prisma.stockMovement.findMany({
+    where: { referenceType: 'PRESCRIBED_DRUG_DISPENSE', referenceId: fixture.item.id },
+    orderBy: { resultingBalance: 'asc' }
+  });
+  assert.equal(movements.length, 2);
+  assert.deepEqual(
+    new Map(movements.map((movement) => [movement.inventoryBatchId, [movement.quantityDelta, movement.resultingBalance]])),
+    new Map([[fixture.early.id, [-20, 0]], [fixture.late.id, [-12, 8]]])
+  );
+});
+
+test('dispense movement failure rolls back stock and prescribed quantity', async () => {
+  const fixture = await createPrescriptionFixture();
+  await prisma.$executeRawUnsafe(`
+    CREATE OR REPLACE FUNCTION fail_test_dispense_movement() RETURNS trigger AS $$
+    BEGIN
+      IF NEW."movementType" = 'DISPENSE' THEN
+        RAISE EXCEPTION 'forced dispense movement failure';
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+  `);
+  await prisma.$executeRawUnsafe('CREATE TRIGGER fail_test_dispense_movement_trigger BEFORE INSERT ON "StockMovement" FOR EACH ROW EXECUTE FUNCTION fail_test_dispense_movement()');
+  try {
+    const response = await api.post(`/api/records/prescriptions/${fixture.rx.id}/dispense`)
+      .set(auth('pharmacy')).send({ items: [{ prescribedDrugId: fixture.item.id, qtyToDispense: 6 }] });
+    assert.equal(response.status, 500);
+    assert.equal((await prisma.inventoryBatch.findUnique({ where: { id: fixture.early.id } })).qtyOnHand, 20);
+    assert.equal((await prisma.prescribedDrug.findUnique({ where: { id: fixture.item.id } })).qtyDispensed, 0);
+    assert.equal(await prisma.stockMovement.count({ where: {
+      referenceType: 'PRESCRIBED_DRUG_DISPENSE', referenceId: fixture.item.id
+    } }), 0);
+  } finally {
+    await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS fail_test_dispense_movement_trigger ON "StockMovement"');
+    await prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS fail_test_dispense_movement()');
+  }
+});
+
+test('stock CAS failure creates no dispense movement', async () => {
+  const fixture = await createPrescriptionFixture();
+  await prisma.$executeRawUnsafe(`
+    CREATE OR REPLACE FUNCTION reject_test_stock_decrement() RETURNS trigger AS $$
+    BEGIN
+      IF NEW."qtyOnHand" < OLD."qtyOnHand" THEN RETURN NULL; END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+  `);
+  await prisma.$executeRawUnsafe('CREATE TRIGGER reject_test_stock_decrement_trigger BEFORE UPDATE ON "InventoryBatch" FOR EACH ROW EXECUTE FUNCTION reject_test_stock_decrement()');
+  try {
+    const response = await api.post(`/api/records/prescriptions/${fixture.rx.id}/dispense`)
+      .set(auth('pharmacy')).send({ items: [{ prescribedDrugId: fixture.item.id, qtyToDispense: 1 }] });
+    assert.equal(response.status, 422);
+    assert.equal((await prisma.inventoryBatch.findUnique({ where: { id: fixture.early.id } })).qtyOnHand, 20);
+    assert.equal(await prisma.stockMovement.count({ where: {
+      referenceType: 'PRESCRIBED_DRUG_DISPENSE', referenceId: fixture.item.id
+    } }), 0);
+  } finally {
+    await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS reject_test_stock_decrement_trigger ON "InventoryBatch"');
+    await prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS reject_test_stock_decrement()');
+  }
+});
+
+test('concurrent dispensing commits once and leaves stock ledger reconciled', async () => {
+  const fixture = await createPrescriptionFixture();
+  const requestDispense = () => api.post(`/api/records/prescriptions/${fixture.rx.id}/dispense`)
+    .set(auth('pharmacy')).send({ items: [{ prescribedDrugId: fixture.item.id, qtyToDispense: 10 }] });
+  const responses = await Promise.all([requestDispense(), requestDispense()]);
+  assert.equal(responses.filter((response) => response.status === 200).length, 1);
+  assert.equal(responses.filter((response) => response.status !== 200).length, 1);
+  const early = await prisma.inventoryBatch.findUnique({ where: { id: fixture.early.id } });
+  const movements = await prisma.stockMovement.findMany({ where: { inventoryBatchId: fixture.early.id } });
+  assert.equal(early.qtyOnHand, 10);
+  assert.equal(movements.reduce((balance, movement) => balance + movement.quantityDelta, 0), 10);
+  assert.equal(movements.filter((movement) => movement.movementType === 'DISPENSE').length, 1);
 });
 
 test('pharmacy dispensing prevents over-dispensing and deducts valid FEFO stock', async () => {
@@ -4053,17 +4309,32 @@ async function requestPharmacyInvoiceForFixture(fixture) {
     });
 }
 
-async function createPrescriptionFixture({ paid = true, unitPriceSdg = 2500 } = {}) {
+async function createPrescriptionFixture({
+  paid = true,
+  unitPriceSdg = 2500,
+  earlyQty = 20,
+  lateQty = 20,
+  qtyPrescribed = 10
+} = {}) {
   fixtureCounter += 1;
+  const fixtureGenericName = `Fixture-${fixtureCounter}-${Date.now()}`;
 
   const fixtureDrug = await prisma.drugFormulary.create({
     data: {
+      brandName: 'Fixture Drug',
       labelAr: 'دواء اختبار',
       labelEn: 'Fixture Drug',
-      genericName: `Fixture-${fixtureCounter}-${Date.now()}`,
+      genericName: fixtureGenericName,
       strength: '1mg',
       dosageForm: 'Tablet',
-      unitPriceSdg
+      identityKey: buildMedicineIdentityKey({
+        brandName: 'Fixture Drug',
+        genericName: fixtureGenericName,
+        strength: '1mg',
+        dosageForm: 'Tablet'
+      }),
+      unitPriceSdg,
+      status: 'ACTIVE'
     }
   });
 
@@ -4102,7 +4373,7 @@ async function createPrescriptionFixture({ paid = true, unitPriceSdg = 2500 } = 
           duration: '10 days',
           instructionsAr: '',
           instructionsEn: '',
-          qtyPrescribed: 10
+          qtyPrescribed
         }
       }
     },
@@ -4117,8 +4388,9 @@ async function createPrescriptionFixture({ paid = true, unitPriceSdg = 2500 } = 
     data: {
       drugId: fixtureDrug.id,
       batchNumber: `EARLY-${suffix}`,
+      normalizedBatchNumber: normalizeBatchNumber(`EARLY-${suffix}`),
       expiryDate: '2029-01-01',
-      qtyOnHand: 20
+      qtyOnHand: earlyQty
     }
   });
 
@@ -4126,9 +4398,24 @@ async function createPrescriptionFixture({ paid = true, unitPriceSdg = 2500 } = 
     data: {
       drugId: fixtureDrug.id,
       batchNumber: `LATE-${suffix}`,
+      normalizedBatchNumber: normalizeBatchNumber(`LATE-${suffix}`),
       expiryDate: '2030-01-01',
-      qtyOnHand: 20
+      qtyOnHand: lateQty
     }
+  });
+
+  await prisma.stockMovement.createMany({
+    data: [early, late].filter((batch) => batch.qtyOnHand > 0).map((batch) => ({
+      drugId: fixtureDrug.id,
+      inventoryBatchId: batch.id,
+      movementType: 'OPENING_BALANCE',
+      quantityDelta: batch.qtyOnHand,
+      resultingBalance: batch.qtyOnHand,
+      actorUserId: null,
+      referenceType: 'TEST_FIXTURE_OPENING_BALANCE',
+      referenceId: batch.id,
+      idempotencyKey: `test:opening-balance:${batch.id}`
+    }))
   });
 
   let invoice = null;
@@ -4140,7 +4427,7 @@ async function createPrescriptionFixture({ paid = true, unitPriceSdg = 2500 } = 
       throw new Error('Paid pharmacy fixture requires a positive unit price.');
     }
 
-    const total = price * 10;
+    const total = price * qtyPrescribed;
 
     invoice = await prisma.invoice.create({
       data: {
@@ -4157,7 +4444,7 @@ async function createPrescriptionFixture({ paid = true, unitPriceSdg = 2500 } = 
           create: {
             descriptionAr: fixtureDrug.labelAr,
             descriptionEn: fixtureDrug.labelEn,
-            qty: 10,
+            qty: qtyPrescribed,
             unitPriceSdg: price,
             unitPriceUsd: price / 1500
           }

@@ -34,6 +34,7 @@ model User {
   issuedClaimCodes           PatientClaimCode[]      @relation("ClaimCodeIssuer")
   pendingPatientRegistration PatientRegistration?
   processedRefunds           Refund[]                @relation("RefundOperator")
+  stockMovements             StockMovement[]         @relation("StockMovementActor")
 }
 
 model State {
@@ -166,16 +167,19 @@ model Prescription {
 
 model DrugFormulary {
   id               String           @id @default(uuid())
+  brandName        String
   labelAr          String
   labelEn          String
   genericName      String
   strength         String
   dosageForm       String
+  identityKey      String           @unique
   unitPriceSdg     Decimal?
-  status           String           @default("ACTIVE") // ACTIVE, INACTIVE
+  status           String           @default("INACTIVE") // ACTIVE, INACTIVE
   updatedAt        DateTime         @updatedAt
   prescribedDrugs  PrescribedDrug[]
   inventoryBatches InventoryBatch[]
+  stockMovements   StockMovement[]
 }
 
 model PrescribedDrug {
@@ -212,16 +216,41 @@ model PrescribedDrug {
 }
 
 model InventoryBatch {
-  id              String        @id @default(uuid())
-  drugId          String
-  drug            DrugFormulary @relation(fields: [drugId], references: [id])
-  batchNumber     String
-  expiryDate      String // YYYY-MM-DD
-  qtyOnHand       Int
-  minReorderLevel Int           @default(10)
-  ledgerVersion   Int           @default(0)
+  id                    String          @id @default(uuid())
+  drugId                String
+  drug                  DrugFormulary   @relation(fields: [drugId], references: [id])
+  batchNumber           String
+  normalizedBatchNumber String
+  expiryDate            String // YYYY-MM-DD
+  qtyOnHand             Int
+  minReorderLevel       Int             @default(10)
+  ledgerVersion         Int             @default(0)
+  stockMovements        StockMovement[]
 
+  @@unique([drugId, normalizedBatchNumber, expiryDate])
   @@index([expiryDate])
+}
+
+model StockMovement {
+  id               String         @id @default(uuid())
+  drugId           String
+  drug             DrugFormulary  @relation(fields: [drugId], references: [id], onDelete: Restrict)
+  inventoryBatchId String
+  inventoryBatch   InventoryBatch @relation(fields: [inventoryBatchId], references: [id], onDelete: Restrict)
+  movementType     String
+  quantityDelta    Int
+  resultingBalance Int
+  actorUserId      String?
+  actor            User?          @relation("StockMovementActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  referenceType    String?
+  referenceId      String?
+  reason           String?
+  idempotencyKey   String?        @unique
+  createdAt        DateTime       @default(now())
+
+  @@index([drugId, createdAt])
+  @@index([inventoryBatchId, createdAt])
+  @@index([actorUserId, createdAt])
 }
 
 model ClinicalService {

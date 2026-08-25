@@ -30,7 +30,7 @@ for (const [command, args] of [
   ['npx', ['prisma', 'generate']],
   ['npx', ['prisma', 'migrate', 'deploy']],
   ['node', ['prisma/seed.js']],
-  ['node', ['--test', '--test-concurrency=1', 'test/access-token.test.js', 'test/clinic-time.test.js', 'test/integration.test.js', 'test/mfa.test.js', 'test/password-policy.test.js', 'test/patient.test.js', 'test/seed-security.test.js', 'test/smtp-config.test.js', 'test/socket-revocation.test.js']]
+  ['node', ['--test', '--test-concurrency=1', 'test/access-token.test.js', 'test/clinic-time.test.js', 'test/integration.test.js', 'test/medicine-management.test.js', 'test/medicine-migration.test.js', 'test/mfa.test.js', 'test/password-policy.test.js', 'test/patient.test.js', 'test/seed-security.test.js', 'test/smtp-config.test.js', 'test/socket-revocation.test.js']]
 ]) {
   const result = spawnSync(command, args, { cwd: backendDir, env, stdio: 'inherit' });
   if (result.status !== 0) process.exit(result.status || 1);

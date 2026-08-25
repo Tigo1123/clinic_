@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
+import prisma from '../src/db.js';
 
 const backendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -39,6 +40,36 @@ test('ordinary seed does not overwrite clinic-configured catalogue prices', () =
   const serviceLoop = seed.slice(seed.indexOf('for (const svc of services)'), seed.indexOf('// 7. Seed Drug Formulary'));
   assert.match(serviceLoop, /if \(!existing\)[\s\S]*clinicalService\.create/);
   assert.doesNotMatch(serviceLoop, /clinicalService\.update/);
+});
+
+test('ordinary seed opening balances are ledger-consistent and idempotent', async () => {
+  const before = await prisma.stockMovement.findMany({
+    where: { referenceType: 'SEED_OPENING_BALANCE' },
+    include: { inventoryBatch: true }
+  });
+  assert.ok(before.length > 0);
+  for (const movement of before) {
+    assert.equal(movement.movementType, 'OPENING_BALANCE');
+    assert.equal(movement.actorUserId, null);
+    assert.equal(movement.quantityDelta, movement.inventoryBatch.qtyOnHand);
+    assert.equal(movement.resultingBalance, movement.inventoryBatch.qtyOnHand);
+    assert.equal(movement.drugId, movement.inventoryBatch.drugId);
+  }
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const result = spawnSync(process.execPath, ['prisma/seed.js'], {
+      cwd: backendDir,
+      env: process.env,
+      encoding: 'utf8'
+    });
+    assert.equal(result.status, 0);
+  }
+
+  const after = await prisma.stockMovement.findMany({
+    where: { referenceType: 'SEED_OPENING_BALANCE' }
+  });
+  assert.equal(after.length, before.length);
+  assert.equal(new Set(after.map((movement) => movement.inventoryBatchId)).size, after.length);
 });
 
 test('QA GENERAL billing resolves an active configured service and sends no client money', () => {
