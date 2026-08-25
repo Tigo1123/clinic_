@@ -19,6 +19,39 @@ export function pharmacyBillingPendingCopy(code, lang) {
     : 'The medicine invoice is being prepared automatically. A medication may require review or pricing before the invoice can be created.';
 }
 
+export function buildMedicationReviewPayload(item, decision, form = {}) {
+  if (!['LINK_EXISTING', 'CREATE_FORMULARY', 'EXTERNAL'].includes(decision)) {
+    throw new Error('Unsupported medication review decision.');
+  }
+  const payload = { decision, note: typeof form.note === 'string' ? form.note.trim() : '' };
+  if (decision === 'LINK_EXISTING') payload.drugId = form.drugId;
+  if (decision === 'CREATE_FORMULARY') {
+    payload.formulary = {
+      labelEn: form.labelEn?.trim() || item.customDrugName,
+      labelAr: form.labelAr?.trim() || form.labelEn?.trim() || item.customDrugName,
+      genericName: form.genericName.trim(),
+      strength: form.strength.trim(),
+      dosageForm: form.dosageForm.trim()
+    };
+    payload.inventory = {
+      batchNumber: form.batchNumber.trim(),
+      expiryDate: form.expiryDate,
+      qtyOnHand: Number(form.qtyOnHand),
+      minReorderLevel: Number(form.minReorderLevel)
+    };
+  }
+  return payload;
+}
+
+export function customMedicineRequiresReview(item) {
+  return Boolean(
+    item?.customDrugName
+    && !item?.drug
+    && !item?.drugId
+    && !['APPROVED', 'EXTERNAL'].includes(item?.pharmacyReviewStatus)
+  );
+}
+
 export function buildMedicinePayload(form) {
   const payload = Object.fromEntries(metadataFields.map((field) => [field, String(form[field] || '').trim()]));
   if (form.includeInitialBatch) {

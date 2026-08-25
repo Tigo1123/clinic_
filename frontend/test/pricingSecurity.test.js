@@ -32,13 +32,14 @@ test('admin pricing management covers consultations, services, laboratory, and p
 test('laboratory and pharmacy workflows cannot submit official selling prices', () => {
   const laboratory = source('src/features/laboratory/LaboratoryDashboard.jsx');
   const pharmacy = source('src/features/pharmacy/PharmacyDashboard.jsx');
+  const pharmacyUtils = source('src/utils/pharmacyManagement.js');
   const labCreatePayload = laboratory.slice(
     laboratory.indexOf("if (decision === 'CREATE_SERVICE')"),
     laboratory.indexOf('setReviewingId(request.id)')
   );
-  const pharmacyCreatePayload = pharmacy.slice(
-    pharmacy.indexOf("if (decision === 'CREATE_FORMULARY')"),
-    pharmacy.indexOf('body.inventory =')
+  const pharmacyCreatePayload = pharmacyUtils.slice(
+    pharmacyUtils.indexOf('export function buildMedicationReviewPayload'),
+    pharmacyUtils.indexOf('export function customMedicineRequiresReview')
   );
   assert.doesNotMatch(labCreatePayload, /baseFeeSdg|baseFeeUsd/);
   assert.doesNotMatch(pharmacyCreatePayload, /unitPriceSdg/);

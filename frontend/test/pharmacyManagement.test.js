@@ -8,6 +8,8 @@ import {
   buildMedicinePayload,
   buildMetadataPayload,
   buildPaymentPayload,
+  buildMedicationReviewPayload,
+  customMedicineRequiresReview,
   pharmacyBillingPendingCopy,
   pharmacyBillingRequiresReview,
   updateMedicineField,
@@ -127,6 +129,53 @@ test('no frontend path submits a PHARMACY invoice through generic billing', () =
   const frontendFiles = sourceTree('src');
   assert.doesNotMatch(frontendFiles, /invoiceType\s*:\s*['"]PHARMACY['"]/);
   assert.doesNotMatch(frontendFiles, /Issue Pharmacy Invoice|إصدار فاتورة الصيدلية/);
+});
+
+test('unresolved custom medicine exposes the review dialog and exactly three supported decisions', () => {
+  const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
+  assert.equal(customMedicineRequiresReview({ customDrugName: 'rest', drug: null, drugId: null, pharmacyReviewStatus: 'PENDING_REVIEW' }), true);
+  assert.equal(customMedicineRequiresReview({ customDrugName: 'rest', drugId: 'drug-1', pharmacyReviewStatus: 'APPROVED' }), false);
+  assert.equal(customMedicineRequiresReview({ customDrugName: 'rest', drug: null, drugId: null, pharmacyReviewStatus: 'EXTERNAL' }), false);
+  assert.match(dashboard, /requiresReview && \(/);
+  assert.match(dashboard, /مراجعة الدواء/);
+  assert.match(dashboard, /chooseReviewDecision\('LINK_EXISTING'\)/);
+  assert.match(dashboard, /chooseReviewDecision\('CREATE_FORMULARY'\)/);
+  assert.match(dashboard, /chooseReviewDecision\('EXTERNAL'\)/);
+  assert.doesNotMatch(dashboard, /reception|receptionist|الاستقبال/i);
+});
+
+test('custom medicine review payloads are allow-listed and contain no financial or actor authority', () => {
+  const item = { customDrugName: 'rest' };
+  assert.deepEqual(buildMedicationReviewPayload(item, 'LINK_EXISTING', { drugId: 'drug-1', note: ' linked ', unitPriceSdg: 1 }), {
+    decision: 'LINK_EXISTING', note: 'linked', drugId: 'drug-1'
+  });
+  assert.deepEqual(buildMedicationReviewPayload(item, 'EXTERNAL', { note: ' outside ', stock: 100 }), {
+    decision: 'EXTERNAL', note: 'outside'
+  });
+  const created = buildMedicationReviewPayload(item, 'CREATE_FORMULARY', {
+    labelEn: ' Rest ', labelAr: ' ريست ', genericName: ' Generic ', strength: ' 10mg ', dosageForm: ' Tablet ',
+    batchNumber: ' B-1 ', expiryDate: '2030-01-01', qtyOnHand: '2', minReorderLevel: '1',
+    unitPriceSdg: 999, status: 'ACTIVE', actorUserId: 'forged', invoiceTotal: 999
+  });
+  assert.deepEqual(created, {
+    decision: 'CREATE_FORMULARY', note: '',
+    formulary: { labelEn: 'Rest', labelAr: 'ريست', genericName: 'Generic', strength: '10mg', dosageForm: 'Tablet' },
+    inventory: { batchNumber: 'B-1', expiryDate: '2030-01-01', qtyOnHand: 2, minReorderLevel: 1 }
+  });
+  for (const forbidden of ['unitPriceSdg', 'status', 'actorUserId', 'invoiceTotal']) {
+    assert.equal(JSON.stringify(created).includes(forbidden), false);
+  }
+});
+
+test('successful custom review refreshes review, prescription, management when needed, and payment state', () => {
+  const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
+  const successPath = dashboard.slice(dashboard.indexOf('setMedicationReviews((current)'), dashboard.indexOf('} catch (error)', dashboard.indexOf('setMedicationReviews((current)')));
+  assert.match(successPath, /fetchMedicationReviews\(\)/);
+  assert.match(successPath, /fetchPendingRx\(\)/);
+  assert.match(successPath, /setPaymentRefresh/);
+  assert.match(successPath, /decision === 'CREATE_FORMULARY'.*setManagementRefresh/s);
+  assert.match(dashboard, /key=\{`\$\{selectedRx\.id\}:\$\{paymentRefresh\}`\}/);
+  assert.match(dashboard, /disabled=\{!paymentState\?\.dispensingAllowed \|\| dispensing\}/);
 });
 
 test('pharmacist price and status remain display-only', () => {

@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, FileText, HelpCircle, Sliders, Stethoscope } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import RoleHero from '../../components/healthcare/RoleHero';
 import { clinicDateString } from '../../utils/clinicTime';
 import PharmacyManagement from './PharmacyManagement';
 import PharmacyPayment from './PharmacyPayment';
+import Dialog from '../../components/ui/Dialog';
+import { buildMedicationReviewPayload, customMedicineRequiresReview } from '../../utils/pharmacyManagement';
 
 export default function PharmacyDashboard({ lang, t }) {
   const [prescriptions, setPrescriptions] = useState([]);
@@ -13,6 +15,7 @@ export default function PharmacyDashboard({ lang, t }) {
   const [errorMsg, setErrorMsg] = useState('');
   const [paymentState, setPaymentState] = useState(null);
   const [managementRefresh, setManagementRefresh] = useState(0);
+  const [paymentRefresh, setPaymentRefresh] = useState(0);
   const [dispensing, setDispensing] = useState(false);
 
   // Inventory warnings
@@ -28,6 +31,8 @@ export default function PharmacyDashboard({ lang, t }) {
   const [reviewSavingId, setReviewSavingId] = useState(null);
   const [reviewSuccessMsg, setReviewSuccessMsg] = useState('');
   const [reviewErrorMsg, setReviewErrorMsg] = useState('');
+  const [reviewDialogItem, setReviewDialogItem] = useState(null);
+  const reviewSectionRef = useRef(null);
 
   const fetchMedicationReviews = () => {
     fetchWithAuth('/api/records/medication-reviews/pending')
@@ -221,6 +226,24 @@ export default function PharmacyDashboard({ lang, t }) {
     });
   };
 
+  const openCustomMedicineReview = (item) => {
+    const reviewItem = medicationReviews.find((request) => request.id === item.id) || {
+      ...item,
+      patient: selectedRx?.patient
+    };
+    if (!medicationReviews.some((request) => request.id === item.id)) {
+      setMedicationReviews((current) => [...current, reviewItem]);
+    }
+    setReviewDialogItem(reviewItem);
+  };
+
+  const chooseReviewDecision = (decision) => {
+    if (!reviewDialogItem) return;
+    setReviewMode(reviewDialogItem, decision);
+    setReviewDialogItem(null);
+    requestAnimationFrame(() => reviewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  };
+
   const updateReviewForm = (id, field, value) => {
     setReviewForms((current) => ({
       ...current,
@@ -256,14 +279,6 @@ export default function PharmacyDashboard({ lang, t }) {
 
     const form = reviewForms[item.id] || {};
 
-    const body = {
-      decision,
-      note:
-        typeof form.note === 'string'
-          ? form.note.trim()
-          : ''
-    };
-
     if (decision === 'LINK_EXISTING') {
       if (!form.drugId) {
         setReviewErrorMsg(
@@ -273,8 +288,6 @@ export default function PharmacyDashboard({ lang, t }) {
         );
         return;
       }
-
-      body.drugId = form.drugId;
     }
 
     if (decision === 'CREATE_FORMULARY') {
@@ -338,26 +351,9 @@ export default function PharmacyDashboard({ lang, t }) {
         return;
       }
 
-      body.formulary = {
-        labelEn:
-          form.labelEn?.trim() ||
-          item.customDrugName,
-        labelAr:
-          form.labelAr?.trim() ||
-          form.labelEn?.trim() ||
-          item.customDrugName,
-        genericName: form.genericName.trim(),
-        strength: form.strength.trim(),
-        dosageForm: form.dosageForm.trim()
-      };
-
-      body.inventory = {
-        batchNumber: form.batchNumber.trim(),
-        expiryDate: form.expiryDate,
-        qtyOnHand,
-        minReorderLevel
-      };
     }
+
+    const body = buildMedicationReviewPayload(item, decision, form);
 
     try {
       setReviewSavingId(item.id);
@@ -428,10 +424,17 @@ export default function PharmacyDashboard({ lang, t }) {
         });
       }
 
+      fetchMedicationReviews();
       fetchPendingRx();
+      setPaymentRefresh((value) => value + 1);
+      if (decision === 'CREATE_FORMULARY') setManagementRefresh((value) => value + 1);
 
       setReviewSuccessMsg(
-        decision === 'EXTERNAL'
+        decision === 'CREATE_FORMULARY'
+          ? (lang === 'ar'
+              ? 'تم إنشاء الدواء في قائمة الصيدلية. يجب على المدير تحديد السعر وتفعيل الدواء قبل إنشاء فاتورة الصيدلية تلقائيًا.'
+              : 'The medicine was created in the formulary. An administrator must price and activate it before the pharmacy invoice is created automatically.')
+          : decision === 'EXTERNAL'
           ? (
               lang === 'ar'
                 ? `تم تحديد ${item.customDrugName} كدواء خارجي.`
@@ -521,7 +524,30 @@ export default function PharmacyDashboard({ lang, t }) {
 
         <PharmacyManagement lang={lang} refreshToken={managementRefresh} />
 
+        <Dialog
+          open={Boolean(reviewDialogItem)}
+          title={lang === 'ar' ? 'مراجعة الدواء' : 'Review Medication'}
+          description={reviewDialogItem?.customDrugName || ''}
+          onClose={() => setReviewDialogItem(null)}
+        >
+          <div className="dialog-actions">
+            <button type="button" className="btn btn-primary" onClick={() => chooseReviewDecision('LINK_EXISTING')}>
+              {lang === 'ar' ? 'ربط بدواء موجود' : 'Link Existing'}
+            </button>
+            <button type="button" className="btn btn-primary" onClick={() => chooseReviewDecision('CREATE_FORMULARY')}>
+              {lang === 'ar' ? 'إضافة كدواء جديد' : 'Create Formulary Medicine'}
+            </button>
+            <button type="button" className="btn" onClick={() => chooseReviewDecision('EXTERNAL')}>
+              {lang === 'ar' ? 'دواء خارجي' : 'External Medication'}
+            </button>
+            <button type="button" className="btn" onClick={() => setReviewDialogItem(null)}>
+              {lang === 'ar' ? 'إلغاء' : 'Cancel'}
+            </button>
+          </div>
+        </Dialog>
+
         <div
+          ref={reviewSectionRef}
           className="glass-panel"
           style={{
             padding: '1rem',
@@ -566,8 +592,8 @@ export default function PharmacyDashboard({ lang, t }) {
             }}
           >
             {lang === 'ar'
-              ? 'الأدوية التي كتبها الطبيب ولم يتم اعتمادها بعد من الصيدلية. يجب ربط الدواء بالمخزون أو إضافته وتسعيره أو تحديده كدواء خارجي.'
-              : 'Custom medicines entered by doctors must be reviewed before automatic billing. Link them to existing stock, create and price them, or mark them for external purchase.'}
+              ? 'الأدوية التي كتبها الطبيب ولم يتم اعتمادها بعد من الصيدلية. يجب ربط الدواء بالمخزون أو إضافته كدواء غير نشط بانتظار تسعير المدير أو تحديده كدواء خارجي.'
+              : 'Custom medicines entered by doctors must be reviewed before automatic billing. Link them to existing stock, create them for administrator pricing, or mark them for external purchase.'}
           </p>
 
           {reviewErrorMsg && (
@@ -662,6 +688,7 @@ export default function PharmacyDashboard({ lang, t }) {
                 return (
                   <div
                     key={item.id}
+                    id={`medication-review-${item.id}`}
                     className="glass-panel"
                     style={{
                       padding: '1rem',
@@ -817,7 +844,7 @@ export default function PharmacyDashboard({ lang, t }) {
                         }
                       >
                         {lang === 'ar'
-                          ? 'إضافة وتسعير ومخزون'
+                          ? 'إضافة كدواء جديد'
                           : 'Create & Stock'}
                       </button>
 
@@ -1002,7 +1029,7 @@ export default function PharmacyDashboard({ lang, t }) {
                       >
                         <strong>
                           {lang === 'ar'
-                            ? 'إنشاء دواء جديد وإدخال المخزون'
+                            ? 'إنشاء دواء جديد غير نشط وإدخال المخزون'
                             : 'Create Medication & Initial Stock'}
                         </strong>
 
@@ -1227,8 +1254,8 @@ export default function PharmacyDashboard({ lang, t }) {
                               )
                             : (
                                 lang === 'ar'
-                                  ? 'إنشاء وإضافة المخزون واعتماد'
-                                  : 'Create, Stock & Approve'
+                                  ? 'إنشاء الدواء وإضافة المخزون'
+                                  : 'Create Medicine & Stock'
                               )}
                         </button>
                       </div>
@@ -1259,7 +1286,7 @@ export default function PharmacyDashboard({ lang, t }) {
                           }}
                         >
                           {lang === 'ar'
-                            ? 'لن يتم إدخال هذا الدواء في فاتورة صيدلية العيادة، وسيشتريه المريض من الخارج.'
+                            ? 'سيتم اعتبار هذا الدواء من خارج صيدلية العيادة ولن يدخل في فاتورة الصيدلية أو مخزونها.'
                             : 'This medication will not be included in the clinic pharmacy invoice. The patient will purchase it externally.'}
                         </p>
 
@@ -1659,10 +1686,11 @@ export default function PharmacyDashboard({ lang, t }) {
                   {lang === 'ar' ? 'الطبيب المعالج:' : 'Doctor:'} {lang === 'ar' ? selectedRx.doctor.fullNameAr : selectedRx.doctor.fullNameEn}
                 </p>
 
-                <PharmacyPayment key={selectedRx.id} prescriptionId={selectedRx.id} lang={lang} onStateChange={setPaymentState} />
+                <PharmacyPayment key={`${selectedRx.id}:${paymentRefresh}`} prescriptionId={selectedRx.id} lang={lang} onStateChange={setPaymentState} />
 
                 {selectedRx.prescribedDrugs.map((item) => {
                   const isCustom = !item.drug;
+                  const requiresReview = customMedicineRequiresReview(item);
 
                   if (isCustom) {
                     return (
@@ -1708,6 +1736,16 @@ export default function PharmacyDashboard({ lang, t }) {
                             ? 'هذا الدواء تمت كتابته يدويًا بواسطة الطبيب ولن يتم خصمه تلقائيًا من مخزون العيادة.'
                             : 'This medication was entered manually by the doctor and will not be deducted automatically from clinic inventory.'}
                         </div>
+                        {requiresReview && (
+                          <button
+                            type="button"
+                            className="btn btn-primary"
+                            style={{ marginTop: '0.75rem', width: '100%' }}
+                            onClick={() => openCustomMedicineReview(item)}
+                          >
+                            {lang === 'ar' ? 'مراجعة الدواء' : 'Review Medication'}
+                          </button>
+                        )}
                       </div>
                     );
                   }
