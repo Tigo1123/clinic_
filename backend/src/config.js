@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { DEFAULT_CLINIC_TIME_ZONE, isValidClinicTimeZone } from './utils/clinicTime.js';
+import { readSmtpConfig } from './utils/smtpConfig.js';
 
 const INSECURE_SECRETS = new Set([
   'secret', 'changeme', 'development-secret',
@@ -51,14 +52,10 @@ export function validateEnvironment() {
     if (origins.some((origin) => origin === '*' || !origin.startsWith('https://'))) errors.push('Production CORS origins must be explicit HTTPS URLs and cannot use wildcards.');
     if (process.env.VERIFICATION_PROVIDER === 'development') errors.push('The development verification provider is forbidden in production.');
     if (process.env.VERIFICATION_PROVIDER === 'email') {
-      for (const name of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS']) {
-        if (!process.env[name]) {
-          errors.push(`${name} is required for email verification.`);
-        }
-      }
-
-      if (!(process.env.SMTP_FROM_EMAIL || process.env.SMTP_FROM)) {
-        errors.push('SMTP_FROM_EMAIL or SMTP_FROM is required for email verification.');
+      try {
+        readSmtpConfig(process.env, { required: true });
+      } catch (error) {
+        errors.push(error.message);
       }
       if (process.env.NOTIFICATIONS_DISABLED === 'true') errors.push('NOTIFICATIONS_DISABLED cannot be true when email verification is enabled.');
     }

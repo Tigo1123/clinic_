@@ -1,15 +1,17 @@
 import nodemailer from 'nodemailer';
 import prisma from '../db.js';
 import { logger } from './logger.js';
+import { readSmtpConfig } from './smtpConfig.js';
 
-function smtpTransport() {
-  if (
-    !process.env.SMTP_HOST ||
-    !process.env.SMTP_USER ||
-    !process.env.SMTP_PASS ||
-    !(process.env.SMTP_FROM_EMAIL || process.env.SMTP_FROM)
-  ) return null;
-  return nodemailer.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: process.env.SMTP_SECURE === 'true', auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }, connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS || 10000) });
+export function smtpTransport(config = readSmtpConfig()) {
+  if (!config) return null;
+  return nodemailer.createTransport({
+    host: config.host,
+    port: config.port,
+    secure: config.secure,
+    auth: { user: config.user, pass: config.pass },
+    connectionTimeout: config.connectionTimeout
+  });
 }
 
 /**
@@ -17,22 +19,15 @@ function smtpTransport() {
  */
 export async function sendEmail({ to, subject, text, html }) {
   if (process.env.NOTIFICATIONS_DISABLED === 'true') return { messageId: 'notifications-disabled' };
-  const transporter = smtpTransport();
+  const smtp = readSmtpConfig();
+  const transporter = smtpTransport(smtp);
   if (!transporter) {
     logger.warn('email.not_configured');
     return null;
   }
-  const fromEmail =
-    process.env.SMTP_FROM_EMAIL ||
-    process.env.SMTP_FROM;
-
-  const fromName =
-    process.env.SMTP_FROM_NAME ||
-    'Al-Shifa Medical Clinic';
-
   const from = {
-    name: fromName,
-    address: fromEmail
+    name: smtp.fromName,
+    address: smtp.fromEmail
   };
 
   try {
