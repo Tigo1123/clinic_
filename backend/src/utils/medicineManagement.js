@@ -56,12 +56,33 @@ export const inventoryBatchSchema = z.object({
   minReorderLevel: reorderLevelSchema.default(10)
 }).strict();
 
+export const pharmacistMedicineCreateSchema = pharmacistMedicineSchema.extend({
+  initialBatch: inventoryBatchSchema.optional()
+}).strict();
+
+export const pharmacistMedicineMetadataSchema = pharmacistMedicineSchema.partial().strict().refine(
+  (value) => Object.keys(value).length > 0,
+  'At least one medicine metadata field is required.'
+);
+
+export const inventoryReceiptSchema = z.object({
+  batchNumber: batchNumberSchema,
+  expiryDate: expiryDateSchema,
+  receivedQuantity: quantitySchema,
+  minReorderLevel: reorderLevelSchema.default(10)
+}).strict();
+
 export const formularyIdParamsSchema = z.object({ id: uuidSchema }).strict();
 export const formularySearchSchema = z.object({
   search: singleLine('search', 150).optional(),
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(25),
   status: z.enum(['ACTIVE', 'INACTIVE']).optional()
+}).strict();
+
+export const inventoryPageSchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().positive().max(100).default(25)
 }).strict();
 
 export const stockMovementSchema = z.object({
@@ -120,4 +141,71 @@ export function isMedicineIdentityUniqueViolation(error) {
   return normalizedTarget === 'identitykey'
     || normalizedTarget === 'drugformulary_identitykey_key'
     || normalizedTarget.endsWith('.drugformulary_identitykey_key');
+}
+
+export function isInventoryBatchUniqueViolation(error) {
+  if (error?.code !== 'P2002') return false;
+
+  const target = error.meta?.target;
+  if (Array.isArray(target)) {
+    const normalized = target.map((field) => String(field).toLowerCase()).sort();
+    return normalized.length === 3
+      && normalized.join(',') === ['drugid', 'expirydate', 'normalizedbatchnumber'].sort().join(',');
+  }
+  if (typeof target !== 'string') return false;
+
+  const normalizedTarget = target.replace(/["'`\s]/g, '').toLowerCase();
+  return normalizedTarget === 'inventorybatch_drugid_normalizedbatchnumber_expirydate_key'
+    || normalizedTarget.endsWith('.inventorybatch_drugid_normalizedbatchnumber_expirydate_key');
+}
+
+export function summarizeMedicineStock(batches, clinicDate) {
+  let totalStock = 0;
+  let usableStock = 0;
+  let expiredStock = 0;
+  let nearestExpiry = null;
+  let hasExpiredBatch = false;
+  let batchBelowReorderLevel = false;
+
+  for (const batch of batches) {
+    const quantity = Number(batch.qtyOnHand);
+    const reorderLevel = Number(batch.minReorderLevel);
+    totalStock += quantity;
+    const expired = batch.expiryDate < clinicDate;
+    if (expired) {
+      hasExpiredBatch = true;
+      if (quantity > 0) expiredStock += quantity;
+      continue;
+    }
+    if (quantity > 0) {
+      usableStock += quantity;
+      if (!nearestExpiry || batch.expiryDate < nearestExpiry) nearestExpiry = batch.expiryDate;
+    }
+    if (quantity <= reorderLevel) batchBelowReorderLevel = true;
+  }
+
+  return {
+    totalStock,
+    usableStock,
+    expiredStock,
+    nearestExpiry,
+    lowStock: usableStock === 0 || batchBelowReorderLevel,
+    hasExpiredBatch,
+    batchCount: batches.length
+  };
+}
+
+export function batchOperationalState(batch, clinicDate) {
+  const expired = batch.expiryDate < clinicDate;
+  const today = batch.expiryDate === clinicDate;
+  const millisecondsPerDay = 86_400_000;
+  const daysUntilExpiry = Math.round(
+    (Date.parse(`${batch.expiryDate}T00:00:00Z`) - Date.parse(`${clinicDate}T00:00:00Z`)) / millisecondsPerDay
+  );
+  return {
+    expired,
+    expiresToday: today,
+    nearExpiry: !expired && daysUntilExpiry <= 90,
+    lowStock: Number(batch.qtyOnHand) <= Number(batch.minReorderLevel)
+  };
 }

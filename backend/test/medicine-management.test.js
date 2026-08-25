@@ -4,6 +4,8 @@ import {
   buildMedicineIdentityKey,
   expiryDateSchema,
   inventoryBatchSchema,
+  inventoryReceiptSchema,
+  isInventoryBatchUniqueViolation,
   isMedicineIdentityUniqueViolation,
   normalizeBatchNumber,
   pharmacistMedicineSchema,
@@ -96,4 +98,21 @@ test('formulary identity P2002 matching is narrow', () => {
     code: 'P2002', meta: { target: 'StockMovement_idempotencyKey_key' }
   }), false);
   assert.equal(isMedicineIdentityUniqueViolation({ code: 'P2002' }), false);
+});
+
+test('inventory batch P2002 matching and receipt mass assignment are narrow', () => {
+  assert.equal(isInventoryBatchUniqueViolation({
+    code: 'P2002', meta: { target: ['drugId', 'normalizedBatchNumber', 'expiryDate'] }
+  }), true);
+  assert.equal(isInventoryBatchUniqueViolation({
+    code: 'P2002', meta: { target: 'InventoryBatch_drugId_normalizedBatchNumber_expiryDate_key' }
+  }), true);
+  assert.equal(isInventoryBatchUniqueViolation({
+    code: 'P2002', meta: { target: ['identityKey'] }
+  }), false);
+  for (const field of ['qtyOnHand', 'normalizedBatchNumber', 'resultingBalance', 'actorUserId', 'movementType']) {
+    assert.equal(inventoryReceiptSchema.safeParse({
+      batchNumber: 'LOT-1', expiryDate: '2035-01-01', receivedQuantity: 4, [field]: 'forged'
+    }).success, false);
+  }
 });

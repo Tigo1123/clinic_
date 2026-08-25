@@ -9,6 +9,7 @@ import prisma from '../src/db.js';
 import { app, httpServer } from '../src/server.js';
 import { validateEnvironment } from '../src/config.js';
 import { emitQueueUpdate } from '../src/utils/socketEvents.js';
+import { getClinicDateString } from '../src/utils/clinicTime.js';
 import { encrypt } from '../src/utils/encryption.js';
 import { authenticateSocketAccessToken } from '../src/middleware/auth.js';
 import {
@@ -38,6 +39,7 @@ let unrelatedAppointment;
 let service;
 let drug;
 let fixtureCounter = 0;
+let pharmacyApiPatientToken;
 
 async function login(username, password) {
   const response = await api.post('/api/auth/login').send({ username, password });
@@ -2282,6 +2284,305 @@ test('database batch identity constraint prevents duplicate lot rows', async () 
   } }), 1);
 });
 
+function pharmacyMedicinePayload(suffix, extra = {}) {
+  return {
+    brandName: `API Brand ${suffix}`,
+    labelAr: `دواء واجهة ${suffix}`,
+    labelEn: `API Medicine ${suffix}`,
+    genericName: `API Generic ${suffix}`,
+    strength: '30 mg',
+    dosageForm: 'Tablet',
+    ...extra
+  };
+}
+
+test('pharmacy formulary creation is pharmacist-only, strict, inactive, and unpriced', async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const payload = pharmacyMedicinePayload(suffix);
+  for (const role of ['admin', 'reception', 'doctor', 'lab']) {
+    assert.equal((await api.post('/api/pharmacy/formulary').set(auth(role)).send(payload)).status, 403);
+  }
+  assert.equal((await api.post('/api/pharmacy/formulary').send(payload)).status, 401);
+  const patientUser = await prisma.user.create({
+    data: {
+      username: `pharmacy-api-patient-${suffix}@example.test`,
+      passwordHash: await bcrypt.hash('SyntheticPass123', 10),
+      role: 'PATIENT',
+      status: 'ACTIVE'
+    }
+  });
+  pharmacyApiPatientToken = signAccessToken({
+    id: patientUser.id,
+    username: patientUser.username,
+    role: patientUser.role,
+    authVersion: patientUser.authVersion
+  });
+  assert.equal((await api.post('/api/pharmacy/formulary')
+    .set({ Authorization: `Bearer ${pharmacyApiPatientToken}` }).send(payload)).status, 403);
+  for (const injected of [
+    { status: 'ACTIVE' }, { unitPriceSdg: 1 }, { identityKey: 'forged' },
+    { actorUserId: '10000000-0000-4000-8000-000000000001' }, { ledgerVersion: 0 }
+  ]) {
+    const response = await api.post('/api/pharmacy/formulary').set(auth('pharmacy')).send({ ...payload, ...injected });
+    assert.equal(response.status, 422);
+  }
+  const created = await api.post('/api/pharmacy/formulary').set(auth('pharmacy')).send(payload);
+  assert.equal(created.status, 201);
+  assert.equal(created.body.medicine.status, 'INACTIVE');
+  assert.equal(created.body.medicine.unitPriceSdg, null);
+  assert.equal(created.body.medicine.stock.totalStock, 0);
+  assert.equal(Object.hasOwn(created.body.medicine, 'identityKey'), false);
+  const stored = await prisma.drugFormulary.findUnique({ where: { id: created.body.medicine.id } });
+  assert.equal(stored.identityKey, buildMedicineIdentityKey(payload));
+});
+
+test('pharmacy medicine creation with initial stock is atomic and ledger-backed', async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const payload = pharmacyMedicinePayload(suffix, {
+    initialBatch: { batchNumber: `INIT-${suffix}`, expiryDate: '2035-05-01', qtyOnHand: 12, minReorderLevel: 3 }
+  });
+  const response = await api.post('/api/pharmacy/formulary').set(auth('pharmacy')).send(payload);
+  assert.equal(response.status, 201);
+  const medicineId = response.body.medicine.id;
+  const batch = await prisma.inventoryBatch.findFirst({ where: { drugId: medicineId } });
+  const movement = await prisma.stockMovement.findFirst({ where: { inventoryBatchId: batch.id } });
+  const pharmacist = await prisma.user.findUnique({ where: { username: 'pharma@cms.com' } });
+  assert.equal(batch.qtyOnHand, 12);
+  assert.equal(movement.movementType, 'OPENING_BALANCE');
+  assert.equal(movement.quantityDelta, 12);
+  assert.equal(movement.resultingBalance, 12);
+  assert.equal(movement.actorUserId, pharmacist.id);
+  assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'FORMULARY_MEDICINE_CREATED', details: { contains: medicineId } } }), 1);
+});
+
+test('medicine creation movement and audit failures roll back all state', async () => {
+  for (const failure of ['movement', 'audit']) {
+    const suffix = `${failure}-${Date.now()}-${Math.random()}`;
+    const payload = pharmacyMedicinePayload(suffix, {
+      initialBatch: { batchNumber: `ROLL-${suffix}`, expiryDate: '2035-06-01', qtyOnHand: 7, minReorderLevel: 1 }
+    });
+    const functionName = `fail_phase2_${failure}`;
+    const table = failure === 'movement' ? 'StockMovement' : 'TenantAuditLog';
+    const condition = failure === 'movement'
+      ? `NEW."referenceType" = 'FORMULARY_INITIAL_BATCH'`
+      : `NEW."action" = 'FORMULARY_MEDICINE_CREATED'`;
+    await prisma.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION ${functionName}() RETURNS trigger AS $$ BEGIN IF ${condition} THEN RAISE EXCEPTION 'forced phase2 ${failure} failure'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql`);
+    await prisma.$executeRawUnsafe(`CREATE TRIGGER ${functionName}_trigger BEFORE INSERT ON "${table}" FOR EACH ROW EXECUTE FUNCTION ${functionName}()`);
+    try {
+      const response = await api.post('/api/pharmacy/formulary').set(auth('pharmacy')).send(payload);
+      assert.equal(response.status, 500);
+      assert.equal(await prisma.drugFormulary.count({ where: { identityKey: buildMedicineIdentityKey(payload) } }), 0);
+      assert.equal(await prisma.inventoryBatch.count({ where: { batchNumber: payload.initialBatch.batchNumber } }), 0);
+      assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'FORMULARY_MEDICINE_CREATED', details: { contains: suffix } } }), 0);
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${functionName}_trigger ON "${table}"`);
+      await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${functionName}()`);
+    }
+  }
+});
+
+test('equivalent and concurrent proactive medicine duplicates return deterministic conflict', async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const canonical = pharmacyMedicinePayload(suffix);
+  const variant = { ...canonical, brandName: `  ${canonical.brandName.toUpperCase()}  `, genericName: canonical.genericName.toUpperCase() };
+  assert.equal((await api.post('/api/pharmacy/formulary').set(auth('pharmacy')).send(canonical)).status, 201);
+  const duplicate = await api.post('/api/pharmacy/formulary').set(auth('pharmacy')).send(variant);
+  assert.equal(duplicate.status, 409);
+  assert.equal(duplicate.body.error.code, 'FORMULARY_MEDICINE_ALREADY_EXISTS');
+
+  const concurrentSuffix = `concurrent-${Date.now()}-${Math.random()}`;
+  const concurrent = pharmacyMedicinePayload(concurrentSuffix);
+  const responses = await Promise.all([
+    api.post('/api/pharmacy/formulary').set(auth('pharmacy')).send(concurrent),
+    api.post('/api/pharmacy/formulary').set(auth('pharmacy')).send({ ...concurrent, dosageForm: ' TABLET ' })
+  ]);
+  assert.deepEqual(responses.map((response) => response.status).sort(), [201, 409]);
+  assert.equal(responses.find((response) => response.status === 409).body.error.code, 'FORMULARY_MEDICINE_ALREADY_EXISTS');
+  assert.equal(await prisma.drugFormulary.count({ where: { identityKey: buildMedicineIdentityKey(concurrent) } }), 1);
+});
+
+test('pharmacist batch receipt is strict, allows inactive medicine, and creates receipt ledger', async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const created = await api.post('/api/pharmacy/formulary').set(auth('pharmacy')).send(pharmacyMedicinePayload(suffix));
+  const medicineId = created.body.medicine.id;
+  for (const role of ['admin', 'reception', 'doctor', 'lab']) {
+    assert.equal((await api.post(`/api/pharmacy/formulary/${medicineId}/batches`).set(auth(role)).send({
+      batchNumber: 'NOPE', expiryDate: '2035-01-01', receivedQuantity: 1
+    })).status, 403);
+  }
+  for (const expiryDate of ['2026-02-30', getClinicDateString(), '2020-01-01']) {
+    assert.equal((await api.post(`/api/pharmacy/formulary/${medicineId}/batches`).set(auth('pharmacy')).send({
+      batchNumber: `BAD-${expiryDate}`, expiryDate, receivedQuantity: 1
+    })).status, 422);
+  }
+  const response = await api.post(`/api/pharmacy/formulary/${medicineId}/batches`).set(auth('pharmacy')).send({
+    batchNumber: ` Receipt  ${suffix} `, expiryDate: '2036-01-01', receivedQuantity: 9, minReorderLevel: 2
+  });
+  assert.equal(response.status, 201);
+  const batch = await prisma.inventoryBatch.findUnique({ where: { id: response.body.batch.id } });
+  const movement = await prisma.stockMovement.findFirst({ where: { inventoryBatchId: batch.id } });
+  assert.equal(movement.movementType, 'RECEIPT');
+  assert.equal(movement.quantityDelta, 9);
+  assert.equal(movement.resultingBalance, 9);
+  assert.ok(movement.actorUserId);
+  assert.equal(batch.normalizedBatchNumber, normalizeBatchNumber(` Receipt  ${suffix} `));
+});
+
+test('duplicate and concurrent batch intake create exactly one lot', async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const created = await api.post('/api/pharmacy/formulary').set(auth('pharmacy')).send(pharmacyMedicinePayload(suffix));
+  const url = `/api/pharmacy/formulary/${created.body.medicine.id}/batches`;
+  const payload = { batchNumber: `LOT-${suffix}`, expiryDate: '2037-01-01', receivedQuantity: 5, minReorderLevel: 1 };
+  assert.equal((await api.post(url).set(auth('pharmacy')).send(payload)).status, 201);
+  const duplicate = await api.post(url).set(auth('pharmacy')).send({ ...payload, batchNumber: ` lot-${suffix} ` });
+  assert.equal(duplicate.status, 409);
+  assert.equal(duplicate.body.error.code, 'INVENTORY_BATCH_ALREADY_EXISTS');
+
+  const secondPayload = { ...payload, batchNumber: `CON-${suffix}`, expiryDate: '2038-01-01' };
+  const responses = await Promise.all([
+    api.post(url).set(auth('pharmacy')).send(secondPayload),
+    api.post(url).set(auth('pharmacy')).send({ ...secondPayload, batchNumber: ` con-${suffix} ` })
+  ]);
+  assert.deepEqual(responses.map((response) => response.status).sort(), [201, 409]);
+  assert.equal(await prisma.inventoryBatch.count({ where: {
+    drugId: created.body.medicine.id,
+    normalizedBatchNumber: normalizeBatchNumber(secondPayload.batchNumber),
+    expiryDate: secondPayload.expiryDate
+  } }), 1);
+});
+
+test('metadata editing recomputes pre-use identity and freezes used identity while allowing labels', async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const created = await api.post('/api/pharmacy/formulary').set(auth('pharmacy')).send(pharmacyMedicinePayload(suffix));
+  const id = created.body.medicine.id;
+  const edited = await api.patch(`/api/pharmacy/formulary/${id}/metadata`).set(auth('pharmacy')).send({
+    brandName: `Corrected Brand ${suffix}`
+  });
+  assert.equal(edited.status, 200);
+  const preUse = await prisma.drugFormulary.findUnique({ where: { id } });
+  assert.equal(preUse.identityKey, buildMedicineIdentityKey(preUse));
+
+  assert.equal((await api.post(`/api/pharmacy/formulary/${id}/batches`).set(auth('pharmacy')).send({
+    batchNumber: `USED-${suffix}`, expiryDate: '2039-01-01', receivedQuantity: 3
+  })).status, 201);
+  const blocked = await api.patch(`/api/pharmacy/formulary/${id}/metadata`).set(auth('pharmacy')).send({ strength: '60 mg' });
+  assert.equal(blocked.status, 409);
+  assert.equal(blocked.body.error.code, 'FORMULARY_IDENTITY_IMMUTABLE');
+  for (const forbidden of [{ status: 'ACTIVE' }, { unitPriceSdg: 20 }, { identityKey: 'forged' }, { qtyOnHand: 0 }]) {
+    assert.equal((await api.patch(`/api/pharmacy/formulary/${id}/metadata`).set(auth('pharmacy')).send(forbidden)).status, 422);
+  }
+  const label = await api.patch(`/api/pharmacy/formulary/${id}/metadata`).set(auth('pharmacy')).send({ labelEn: `Corrected Label ${suffix}` });
+  assert.equal(label.status, 200);
+  assert.equal(await prisma.tenantAuditLog.count({ where: {
+    action: 'FORMULARY_METADATA_UPDATED', details: { contains: id }
+  } }), 2);
+});
+
+test('metadata identity collision returns deterministic conflict', async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const firstPayload = pharmacyMedicinePayload(`first-${suffix}`);
+  const secondPayload = pharmacyMedicinePayload(`second-${suffix}`);
+  const first = await api.post('/api/pharmacy/formulary').set(auth('pharmacy')).send(firstPayload);
+  const second = await api.post('/api/pharmacy/formulary').set(auth('pharmacy')).send(secondPayload);
+  const response = await api.patch(`/api/pharmacy/formulary/${second.body.medicine.id}/metadata`)
+    .set(auth('pharmacy')).send({
+      brandName: firstPayload.brandName,
+      genericName: firstPayload.genericName,
+      strength: firstPayload.strength,
+      dosageForm: firstPayload.dosageForm
+    });
+  assert.equal(response.status, 409);
+  assert.equal(response.body.error.code, 'FORMULARY_MEDICINE_ALREADY_EXISTS');
+});
+
+test('batch and metadata audit failures roll back their mutations', async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const created = await api.post('/api/pharmacy/formulary').set(auth('pharmacy')).send(pharmacyMedicinePayload(suffix));
+  const id = created.body.medicine.id;
+  for (const action of ['INVENTORY_BATCH_RECEIVED', 'FORMULARY_METADATA_UPDATED']) {
+    const functionName = `fail_phase2_audit_${action.toLowerCase()}`;
+    await prisma.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION ${functionName}() RETURNS trigger AS $$ BEGIN IF NEW."action" = '${action}' THEN RAISE EXCEPTION 'forced phase2 audit failure'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql`);
+    await prisma.$executeRawUnsafe(`CREATE TRIGGER ${functionName}_trigger BEFORE INSERT ON "TenantAuditLog" FOR EACH ROW EXECUTE FUNCTION ${functionName}()`);
+    try {
+      if (action === 'INVENTORY_BATCH_RECEIVED') {
+        const response = await api.post(`/api/pharmacy/formulary/${id}/batches`).set(auth('pharmacy')).send({
+          batchNumber: `AUDIT-${suffix}`, expiryDate: '2038-06-01', receivedQuantity: 4
+        });
+        assert.equal(response.status, 500);
+        assert.equal(await prisma.inventoryBatch.count({ where: {
+          drugId: id, normalizedBatchNumber: normalizeBatchNumber(`AUDIT-${suffix}`)
+        } }), 0);
+        assert.equal(await prisma.stockMovement.count({ where: { drugId: id } }), 0);
+      } else {
+        const before = await prisma.drugFormulary.findUnique({ where: { id } });
+        const response = await api.patch(`/api/pharmacy/formulary/${id}/metadata`).set(auth('pharmacy')).send({
+          labelEn: `Rolled Back Label ${suffix}`
+        });
+        assert.equal(response.status, 500);
+        assert.equal((await prisma.drugFormulary.findUnique({ where: { id } })).labelEn, before.labelEn);
+      }
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${functionName}_trigger ON "TenantAuditLog"`);
+      await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${functionName}()`);
+    }
+  }
+});
+
+test('formulary, batch, and movement views are bounded, operational, and admin-readable', async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const created = await api.post('/api/pharmacy/formulary').set(auth('pharmacy')).send(pharmacyMedicinePayload(suffix, {
+    initialBatch: { batchNumber: `VIEW-${suffix}`, expiryDate: '2035-01-01', qtyOnHand: 2, minReorderLevel: 5 }
+  }));
+  const id = created.body.medicine.id;
+  const expiredBatch = await prisma.inventoryBatch.create({ data: {
+    drugId: id,
+    batchNumber: `EXPIRED-${suffix}`,
+    normalizedBatchNumber: normalizeBatchNumber(`EXPIRED-${suffix}`),
+    expiryDate: '2020-01-01',
+    qtyOnHand: 3,
+    minReorderLevel: 1
+  } });
+  await prisma.stockMovement.create({ data: {
+    drugId: id,
+    inventoryBatchId: expiredBatch.id,
+    movementType: 'OPENING_BALANCE',
+    quantityDelta: 3,
+    resultingBalance: 3,
+    actorUserId: null,
+    referenceType: 'TEST_LEGACY_OPENING_BALANCE',
+    referenceId: expiredBatch.id
+  } });
+  for (const role of ['pharmacy', 'admin']) {
+    const list = await api.get(`/api/pharmacy/formulary?search=${encodeURIComponent(suffix)}&page=1&pageSize=5`).set(auth(role));
+    assert.equal(list.status, 200);
+    assert.equal(list.body.items.length, 1);
+    assert.equal(list.body.items[0].stock.totalStock, 5);
+    assert.equal(list.body.items[0].stock.usableStock, 2);
+    assert.equal(list.body.items[0].stock.expiredStock, 3);
+    assert.equal(list.body.items[0].stock.hasExpiredBatch, true);
+    assert.equal(list.body.items[0].stock.nearestExpiry, '2035-01-01');
+    assert.equal(list.body.items[0].stock.lowStock, true);
+    assert.equal(Object.hasOwn(list.body.items[0], 'identityKey'), false);
+    assert.equal((await api.get(`/api/pharmacy/formulary/${id}`).set(auth(role))).status, 200);
+    const batches = await api.get(`/api/pharmacy/formulary/${id}/batches?page=1&pageSize=5`).set(auth(role));
+    assert.equal(batches.status, 200);
+    assert.equal(batches.body.items[0].expiryDate, '2035-01-01');
+    assert.equal(batches.body.items[1].state.expired, true);
+    const movements = await api.get(`/api/pharmacy/formulary/${id}/movements?page=1&pageSize=5`).set(auth(role));
+    assert.equal(movements.status, 200);
+    assert.equal(movements.body.items.length, 2);
+  }
+  for (const role of ['reception', 'doctor', 'lab']) {
+    assert.equal((await api.get('/api/pharmacy/formulary').set(auth(role))).status, 403);
+  }
+  assert.equal((await api.get('/api/pharmacy/formulary')
+    .set({ Authorization: `Bearer ${pharmacyApiPatientToken}` })).status, 403);
+  assert.equal((await api.get('/api/pharmacy/formulary?pageSize=101').set(auth('pharmacy'))).status, 422);
+  assert.equal((await api.get(`/api/pharmacy/formulary/${id}/movements?page=0`).set(auth('pharmacy'))).status, 422);
+  assert.equal((await api.patch(`/api/pharmacy/formulary/${id}/movements`).set(auth('pharmacy')).send({})).status, 404);
+  assert.equal((await api.delete(`/api/pharmacy/formulary/${id}/movements`).set(auth('pharmacy'))).status, 404);
+});
+
 test('pharmacist can mark a custom medication as external without creating a clinic pharmacy invoice', async () => {
   const fixture =
     await createCustomMedicationReviewFixture();
@@ -3616,6 +3917,10 @@ test('billing is restricted and split payments set partial then paid', async () 
   assert.equal(invoiceResponse.status, 201);
   const id = invoiceResponse.body.invoice.id;
   const total = Number(invoiceResponse.body.invoice.totalAmountSdg);
+  const pharmacistDenied = await api.post(`/api/billing/invoice/${id}/payments`)
+    .set(paymentAuth('pharmacy')).send({ payments: [{ amountSdg: 1, paymentMethod: 'CASH' }] });
+  assert.equal(pharmacistDenied.status, 403);
+  assert.equal(pharmacistDenied.body.error.code, 'INVOICE_PAYMENT_ROLE_FORBIDDEN');
   const partial = await api.post(`/api/billing/invoice/${id}/payments`).set(paymentAuth('reception')).send({ payments: [{ amountSdg: 40, paymentMethod: 'CASH' }] });
   assert.equal(partial.body.paymentStatus, 'PARTIALLY_PAID');
   assert.equal(partial.body.remainingBalanceSdg, total - 40);
@@ -4078,7 +4383,7 @@ test('pharmacy dispensing stays locked until the pharmacy invoice is fully paid'
 
   const partialPayment = await api
     .post(`/api/billing/invoice/${invoice.id}/payments`)
-    .set(paymentAuth('reception'))
+    .set(paymentAuth('pharmacy'))
     .send({
       payments: [{
         amountSdg: partialAmount,
@@ -4107,7 +4412,7 @@ test('pharmacy dispensing stays locked until the pharmacy invoice is fully paid'
 
   const fullPayment = await api
     .post(`/api/billing/invoice/${invoice.id}/payments`)
-    .set(paymentAuth('reception'))
+    .set(paymentAuth('pharmacy'))
     .send({
       payments: [{
         amountSdg: invoiceTotal - partialAmount,
@@ -4140,6 +4445,163 @@ test('pharmacy dispensing stays locked until the pharmacy invoice is fully paid'
 
   assert.equal(afterItem.qtyDispensed, beforeItem.qtyDispensed + 1);
   assert.equal(afterBatch.qtyOnHand, beforeBatch.qtyOnHand - 1);
+});
+
+test('pharmacy payment authority is pharmacist-owned and payload values cannot override finance state', async () => {
+  const fixture = await createPrescriptionFixture({ paid: false });
+  const invoiceResponse = await requestPharmacyInvoiceForFixture(fixture);
+  assert.equal(invoiceResponse.status, 201);
+  const invoice = invoiceResponse.body.invoice;
+  const total = Number(invoice.totalAmountSdg);
+  const paymentBody = { payments: [{ amountSdg: total / 2, paymentMethod: 'BANKAK' }] };
+
+  assert.equal((await api.post(`/api/billing/invoice/${invoice.id}/payments`)
+    .set('Idempotency-Key', `pharmacy-unauth-${Date.now()}`).send(paymentBody)).status, 401);
+  for (const role of ['reception', 'doctor', 'lab', 'admin']) {
+    const denied = await api.post(`/api/billing/invoice/${invoice.id}/payments`)
+      .set(paymentAuth(role, `pharmacy-role-${role}-${Date.now()}-${++fixtureCounter}`)).send(paymentBody);
+    assert.equal(denied.status, 403);
+    if (['reception', 'admin'].includes(role)) {
+      assert.equal(denied.body.error.code, 'INVOICE_PAYMENT_ROLE_FORBIDDEN');
+    } else {
+      assert.equal(denied.body.error.code, 'FORBIDDEN');
+    }
+  }
+  const patientDenied = await api.post(`/api/billing/invoice/${invoice.id}/payments`)
+    .set({ Authorization: `Bearer ${pharmacyApiPatientToken}`, 'Idempotency-Key': `pharmacy-patient-${Date.now()}` })
+    .send(paymentBody);
+  assert.equal(patientDenied.status, 403);
+
+  const forged = await api.post(`/api/billing/invoice/${invoice.id}/payments`)
+    .set(paymentAuth('pharmacy')).send({
+      ...paymentBody,
+      totalAmountSdg: 1,
+      paymentStatus: 'PAID',
+      actorUserId: 'forged',
+      role: 'ADMIN',
+      unitPriceSdg: 1
+    });
+  assert.equal(forged.status, 422);
+  assert.equal(await prisma.payment.count({ where: { invoiceId: invoice.id } }), 0);
+
+  const beforeStock = await prisma.inventoryBatch.aggregate({
+    where: { drugId: fixture.drug.id },
+    _sum: { qtyOnHand: true }
+  });
+  const beforeMovements = await prisma.stockMovement.count({ where: { drugId: fixture.drug.id } });
+  const partial = await api.post(`/api/billing/invoice/${invoice.id}/payments`)
+    .set(paymentAuth('pharmacy')).send(paymentBody);
+  assert.equal(partial.status, 200);
+  assert.equal(partial.body.paymentStatus, 'PARTIALLY_PAID');
+  assert.equal(partial.body.totalPaidSdg, total / 2);
+  assert.equal(partial.body.remainingBalanceSdg, total / 2);
+
+  const pharmacist = await prisma.user.findUnique({ where: { username: 'pharma@cms.com' }, select: { id: true } });
+  const storedPayment = await prisma.payment.findFirst({ where: { invoiceId: invoice.id } });
+  assert.equal(storedPayment.receivedBy, pharmacist.id);
+  assert.equal(Number(storedPayment.amountSdg), total / 2);
+  const paymentAudit = await prisma.tenantAuditLog.findFirst({
+    where: { action: 'PHARMACY_INVOICE_PAYMENT_RECORDED', details: { contains: invoice.id } }
+  });
+  assert.ok(paymentAudit);
+  assert.equal(paymentAudit.userId, pharmacist.id);
+  assert.equal(paymentAudit.details.includes('password'), false);
+
+  assert.equal(Number((await prisma.inventoryBatch.aggregate({
+    where: { drugId: fixture.drug.id }, _sum: { qtyOnHand: true }
+  }))._sum.qtyOnHand), Number(beforeStock._sum.qtyOnHand));
+  assert.equal(await prisma.stockMovement.count({ where: { drugId: fixture.drug.id } }), beforeMovements);
+
+  const blockedDispense = await api.post(`/api/records/prescriptions/${fixture.rx.id}/dispense`)
+    .set(auth('pharmacy')).send({ items: [{ prescribedDrugId: fixture.item.id, qtyToDispense: 1 }] });
+  assert.equal(blockedDispense.status, 403);
+  assert.equal(blockedDispense.body.error.code, 'PHARMACY_PAYMENT_REQUIRED');
+
+  const state = await api.get(`/api/pharmacy/prescriptions/${fixture.rx.id}/payment-state`).set(auth('pharmacy'));
+  assert.equal(state.status, 200);
+  assert.equal(state.body.invoice.id, invoice.id);
+  assert.equal(state.body.invoice.totalAmountSdg, total);
+  assert.equal(state.body.invoice.paidAmountSdg, total / 2);
+  assert.equal(state.body.invoice.outstandingAmountSdg, total / 2);
+  assert.equal(state.body.dispensingAllowed, false);
+  assert.deepEqual(state.body.allowedPaymentMethods, ['CASH', 'CARD', 'BANKAK', 'FAWRY']);
+  assert.equal((await api.get(`/api/pharmacy/prescriptions/${fixture.rx.id}/payment-state`).set(auth('admin'))).status, 200);
+  assert.equal((await api.get(`/api/pharmacy/prescriptions/${fixture.rx.id}/payment-state`).set(auth('reception'))).status, 403);
+
+  const completed = await api.post(`/api/billing/invoice/${invoice.id}/payments`)
+    .set(paymentAuth('pharmacy')).send({ payments: [{ amountSdg: total / 2, paymentMethod: 'CASH' }] });
+  assert.equal(completed.status, 200);
+  assert.equal(completed.body.paymentStatus, 'PAID');
+  assert.equal(completed.body.remainingBalanceSdg, 0);
+
+  const duplicate = await api.post(`/api/billing/invoice/${invoice.id}/payments`)
+    .set(paymentAuth('pharmacy')).send({ payments: [{ amountSdg: 1, paymentMethod: 'CASH' }] });
+  assert.equal(duplicate.status, 409);
+  assert.equal(duplicate.body.error.code, 'INVOICE_ALREADY_PAID');
+});
+
+test('concurrent pharmacist full payments cannot double-pay a pharmacy invoice', async () => {
+  const fixture = await createPrescriptionFixture({ paid: false });
+  const created = await requestPharmacyInvoiceForFixture(fixture);
+  assert.equal(created.status, 201);
+  const invoice = created.body.invoice;
+  const amount = Number(invoice.totalAmountSdg);
+  const body = { payments: [{ amountSdg: amount, paymentMethod: 'CASH' }] };
+  const [left, right] = await Promise.all([
+    api.post(`/api/billing/invoice/${invoice.id}/payments`)
+      .set(paymentAuth('pharmacy', `pharmacy-full-left-${Date.now()}-${++fixtureCounter}`)).send(body),
+    api.post(`/api/billing/invoice/${invoice.id}/payments`)
+      .set(paymentAuth('pharmacy', `pharmacy-full-right-${Date.now()}-${++fixtureCounter}`)).send(body)
+  ]);
+  assert.deepEqual([left.status, right.status].sort(), [200, 409]);
+  assert.equal(await prisma.payment.count({ where: { invoiceId: invoice.id } }), 1);
+  assert.equal(Number((await prisma.payment.aggregate({
+    where: { invoiceId: invoice.id }, _sum: { amountSdg: true }
+  }))._sum.amountSdg), amount);
+  assert.equal((await prisma.invoice.findUnique({ where: { id: invoice.id } })).paymentStatus, 'PAID');
+  assert.equal(await prisma.tenantAuditLog.count({
+    where: { action: 'PHARMACY_INVOICE_PAYMENT_RECORDED', details: { contains: invoice.id } }
+  }), 1);
+});
+
+test('pharmacy payment audit failure rolls back payment, invoice state, and operation', async () => {
+  const fixture = await createPrescriptionFixture({ paid: false });
+  const created = await requestPharmacyInvoiceForFixture(fixture);
+  assert.equal(created.status, 201);
+  const invoice = created.body.invoice;
+  await prisma.$executeRaw`
+    CREATE OR REPLACE FUNCTION reject_pharmacy_payment_audit() RETURNS trigger AS $$
+    BEGIN
+      IF NEW."action" = 'PHARMACY_INVOICE_PAYMENT_RECORDED' THEN
+        RAISE EXCEPTION 'synthetic audit failure';
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+  `;
+  await prisma.$executeRaw`
+    CREATE TRIGGER reject_pharmacy_payment_audit_trigger
+    BEFORE INSERT ON "TenantAuditLog"
+    FOR EACH ROW EXECUTE FUNCTION reject_pharmacy_payment_audit()
+  `;
+  try {
+    const failed = await api.post(`/api/billing/invoice/${invoice.id}/payments`)
+      .set(paymentAuth('pharmacy')).send({
+        payments: [{ amountSdg: Number(invoice.totalAmountSdg), paymentMethod: 'CASH' }]
+      });
+    assert.equal(failed.status, 500);
+    assert.equal(await prisma.payment.count({ where: { invoiceId: invoice.id } }), 0);
+    assert.equal(await prisma.paymentOperation.count({ where: { invoiceId: invoice.id } }), 0);
+    assert.equal(await prisma.tenantAuditLog.count({
+      where: { action: 'PHARMACY_INVOICE_PAYMENT_RECORDED', details: { contains: invoice.id } }
+    }), 0);
+    const persisted = await prisma.invoice.findUnique({ where: { id: invoice.id } });
+    assert.equal(persisted.paymentStatus, 'UNPAID');
+    assert.equal(persisted.ledgerVersion, invoice.ledgerVersion);
+  } finally {
+    await prisma.$executeRaw`DROP TRIGGER IF EXISTS reject_pharmacy_payment_audit_trigger ON "TenantAuditLog"`;
+    await prisma.$executeRaw`DROP FUNCTION IF EXISTS reject_pharmacy_payment_audit()`;
+  }
 });
 
 

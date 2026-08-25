@@ -1,8 +1,10 @@
 import express from 'express';
 import { createHash } from 'node:crypto';
+import { z } from 'zod';
 import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
 import { allowRoles, ROLES } from '../middleware/policies.js';
+import { validate } from '../middleware/validate.js';
 import { sendError } from '../utils/apiError.js';
 import { clinicDateSequence, clinicMonthBounds, getClinicDateString, instantToClinicDateString } from '../utils/clinicTime.js';
 import { emitQueueUpdate } from '../utils/socketEvents.js';
@@ -12,6 +14,16 @@ const MAX_MONEY_SDG = 1_000_000_000;
 const MAX_GENERAL_QUANTITY = 100;
 const MAX_GENERAL_INVOICE_ITEMS = 100;
 const MAX_INVOICE_QUANTITY = 10_000;
+const PAYMENT_METHODS = ['CASH', 'CARD', 'BANKAK', 'FAWRY'];
+const paymentRequestSchema = z.object({
+  payments: z.array(z.object({
+    amountSdg: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    paymentMethod: z.enum(PAYMENT_METHODS),
+    transactionReference: z.string().trim().min(1).max(200)
+      .regex(/^[^\u0000-\u001F\u007F]+$/).nullable().optional()
+  }).strict()).min(1).max(100)
+}).strict();
+const paymentInvoiceParamsSchema = z.object({ id: z.string().uuid() }).strict();
 const INVOICE_REQUEST_FIELDS = new Set([
   'patientId', 'appointmentId', 'labOrderId', 'prescriptionId',
   'insuranceCompanyId', 'items', 'invoiceType'
@@ -26,6 +38,26 @@ function configuredPriceOrNull(value) {
   if (value == null) return null;
   const amount = Number(value);
   return isConfiguredPrice(amount) ? amount : null;
+}
+
+function paymentRoleAllowed(role, invoiceType) {
+  if (invoiceType === 'PHARMACY') return role === ROLES.PHARMACIST;
+  return role === ROLES.ADMIN || role === ROLES.RECEPTIONIST;
+}
+
+function isUniqueViolationFor(error, fieldName, constraintName) {
+  if (error?.code !== 'P2002') return false;
+  const target = error.meta?.target;
+  if (Array.isArray(target)) {
+    return target.length === 1
+      && String(target[0]).toLowerCase() === fieldName.toLowerCase();
+  }
+  if (typeof target !== 'string') return false;
+  const normalized = target.replace(/["'`\s]/g, '').toLowerCase();
+  const normalizedConstraint = constraintName.toLowerCase();
+  return normalized === fieldName.toLowerCase()
+    || normalized === normalizedConstraint
+    || normalized.endsWith(`.${normalizedConstraint}`);
 }
 
 /**
@@ -724,14 +756,13 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
  * POST /api/billing/invoice/:id/payments
  * Records split payment methods. Validates transaction reference uniqueness.
  */
-router.post('/invoice/:id/payments', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
+router.post('/invoice/:id/payments', authenticate,
+  allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.PHARMACIST),
+  validate(paymentInvoiceParamsSchema, 'params'), validate(paymentRequestSchema), async (req, res) => {
   const invoiceId = req.params.id;
   const { payments } = req.body; // Array of { amountSdg, paymentMethod, transactionReference }
   const idempotencyKey = req.get('Idempotency-Key')?.trim();
 
-  if (!payments || payments.length === 0) {
-    return res.status(400).json({ error: 'Payment rows are required.' });
-  }
   if (!idempotencyKey || idempotencyKey.length < 8 || idempotencyKey.length > 128) {
     return sendError(res, 400, 'IDEMPOTENCY_KEY_REQUIRED', 'A valid Idempotency-Key header is required for payments.');
   }
@@ -740,10 +771,6 @@ router.post('/invoice/:id/payments', authenticate, allowRoles(ROLES.ADMIN, ROLES
   try {
     const normalizedPayments = payments.map((pay) => {
       const amount = Number(pay.amountSdg);
-      if (!Number.isFinite(amount) || amount <= 0) throw Object.assign(new Error('Payment amounts must be greater than zero.'), { status: 422, code: 'INVALID_PAYMENT_AMOUNT' });
-      if (!['CASH', 'CARD', 'BANKAK', 'FAWRY'].includes(pay.paymentMethod)) {
-        throw Object.assign(new Error('Unsupported payment method.'), { status: 422, code: 'INVALID_PAYMENT_METHOD' });
-      }
       return {
         amountSdg: amount,
         paymentMethod: pay.paymentMethod,
@@ -753,6 +780,61 @@ router.post('/invoice/:id/payments', authenticate, allowRoles(ROLES.ADMIN, ROLES
     requestHash = createHash('sha256').update(JSON.stringify({ invoiceId, payments: normalizedPayments })).digest('hex');
 
     const runPaymentTransaction = () => prisma.$transaction(async (tx) => {
+      const lockedActors = await tx.$queryRaw`
+        SELECT "id" FROM "User" WHERE "id" = ${req.user.id} FOR SHARE
+      `;
+      if (lockedActors.length !== 1) {
+        throw Object.assign(new Error('This session is no longer active.'), { status: 401, code: 'SESSION_REVOKED' });
+      }
+      const actor = await tx.user.findUnique({
+        where: { id: req.user.id },
+        select: { id: true, role: true, status: true, authVersion: true }
+      });
+      if (
+        !actor
+        || actor.status !== 'ACTIVE'
+        || actor.role !== req.user.role
+        || actor.authVersion !== req.user.av
+      ) {
+        throw Object.assign(new Error('This session is no longer active.'), { status: 401, code: 'SESSION_REVOKED' });
+      }
+
+      const lockedInvoices = await tx.$queryRaw`
+        SELECT "id" FROM "Invoice" WHERE "id" = ${invoiceId} FOR UPDATE
+      `;
+      if (lockedInvoices.length !== 1) {
+        throw Object.assign(new Error('Invoice not found.'), { status: 404, code: 'INVOICE_NOT_FOUND' });
+      }
+
+      const invoice = await tx.invoice.findUnique({
+        where: { id: invoiceId },
+        include: {
+          payments: true,
+          refunds: true,
+          prescription: { select: { id: true, patientId: true, status: true } }
+        }
+      });
+      if (!invoice) throw Object.assign(new Error('Invoice not found.'), { status: 404, code: 'INVOICE_NOT_FOUND' });
+      if (!paymentRoleAllowed(actor.role, invoice.invoiceType)) {
+        throw Object.assign(
+          new Error(invoice.invoiceType === 'PHARMACY'
+            ? 'Pharmacy invoice payments must be recorded by a pharmacist.'
+            : 'Pharmacists may record payments only for pharmacy invoices.'),
+          { status: 403, code: 'INVOICE_PAYMENT_ROLE_FORBIDDEN' }
+        );
+      }
+      if (invoice.invoiceType === 'PHARMACY' && (
+        !invoice.prescriptionId
+        || !invoice.prescription
+        || invoice.prescription.patientId !== invoice.patientId
+        || invoice.prescription.status === 'CANCELLED'
+      )) {
+        throw Object.assign(new Error('The pharmacy invoice is not linked to a valid prescription.'), {
+          status: 409,
+          code: 'PHARMACY_INVOICE_CONTEXT_INVALID'
+        });
+      }
+
       const priorOperation = await tx.paymentOperation.findUnique({ where: { idempotencyKey } });
       if (priorOperation) {
         if (priorOperation.invoiceId !== invoiceId || priorOperation.requestHash !== requestHash) {
@@ -763,8 +845,6 @@ router.post('/invoice/:id/payments', authenticate, allowRoles(ROLES.ADMIN, ROLES
         return { ...replayInvoice, totalPaidSdg: replayPaid, remainingBalanceSdg: Math.max(0, Number(replayInvoice.totalAmountSdg) - replayPaid), idempotentReplay: true };
       }
 
-      const invoice = await tx.invoice.findUnique({ where: { id: invoiceId }, include: { payments: true, refunds: true } });
-      if (!invoice) throw Object.assign(new Error('Invoice not found.'), { status: 404, code: 'INVOICE_NOT_FOUND' });
       if (invoice.refunds.length) throw Object.assign(new Error('Payments cannot be added after a refund has been recorded.'), { status: 409, code: 'REFUNDED_INVOICE_LOCKED' });
 
       for (const pay of normalizedPayments) {
@@ -778,6 +858,15 @@ router.post('/invoice/:id/payments', authenticate, allowRoles(ROLES.ADMIN, ROLES
       const newPaidSdg = normalizedPayments.reduce((sum, payment) => sum + payment.amountSdg, 0);
       const resultingPaidSdg = priorPaidSdg + newPaidSdg;
       const invoiceTotal = Number(invoice.totalAmountSdg);
+      if (![priorPaidSdg, newPaidSdg, resultingPaidSdg, invoiceTotal].every(Number.isSafeInteger)) {
+        throw Object.assign(new Error('Invoice payment values exceed the supported financial range.'), {
+          status: 422,
+          code: 'PAYMENT_AMOUNT_INVALID'
+        });
+      }
+      if (priorPaidSdg >= invoiceTotal) {
+        throw Object.assign(new Error('The invoice is already fully paid.'), { status: 409, code: 'INVOICE_ALREADY_PAID' });
+      }
       if (resultingPaidSdg > invoiceTotal + 0.001) {
         throw Object.assign(new Error('Payment exceeds the remaining invoice balance.'), { status: 409, code: 'PAYMENT_EXCEEDS_BALANCE' });
       }
@@ -788,18 +877,19 @@ router.post('/invoice/:id/payments', authenticate, allowRoles(ROLES.ADMIN, ROLES
       });
       if (claimed.count !== 1) throw Object.assign(new Error('Invoice ledger changed; retry the payment.'), { status: 409, code: 'PAYMENT_LEDGER_CONFLICT', retryable: true });
 
-      const operation = await tx.paymentOperation.create({ data: { invoiceId, idempotencyKey, requestHash, receivedBy: req.user.id } });
+      const operation = await tx.paymentOperation.create({ data: { invoiceId, idempotencyKey, requestHash, receivedBy: actor.id } });
+      const createdPayments = [];
       for (const pay of normalizedPayments) {
-        await tx.payment.create({ data: {
+        createdPayments.push(await tx.payment.create({ data: {
           invoiceId,
           amountSdg: pay.amountSdg,
           amountUsd: pay.amountSdg / Number(invoice.invoiceExchangeRate),
           paymentMethod: pay.paymentMethod,
           transactionReference: pay.transactionReference,
           verificationStatus: 'VERIFIED',
-          receivedBy: req.user.id,
+          receivedBy: actor.id,
           paymentOperationId: operation.id
-        } });
+        } }));
       }
 
       const invoiceStatus = resultingPaidSdg >= invoiceTotal ? 'PAID' : 'PARTIALLY_PAID';
@@ -808,6 +898,25 @@ router.post('/invoice/:id/payments', authenticate, allowRoles(ROLES.ADMIN, ROLES
         data: { paymentStatus: invoiceStatus },
         include: { payments: true }
       });
+
+      await tx.tenantAuditLog.create({ data: {
+        userId: actor.id,
+        action: invoice.invoiceType === 'PHARMACY'
+          ? 'PHARMACY_INVOICE_PAYMENT_RECORDED'
+          : 'INVOICE_PAYMENT_RECORDED',
+        details: JSON.stringify({
+          invoiceId: invoice.id,
+          invoiceType: invoice.invoiceType,
+          paymentOperationId: operation.id,
+          paymentIds: createdPayments.map((payment) => payment.id),
+          amountSdg: newPaidSdg,
+          paymentMethods: [...new Set(normalizedPayments.map((payment) => payment.paymentMethod))],
+          resultingPaymentStatus: invoiceStatus,
+          totalPaidSdg: resultingPaidSdg,
+          remainingBalanceSdg: Math.max(0, invoiceTotal - resultingPaidSdg)
+        }),
+        ipAddress: req.ip || 'unknown'
+      } });
 
       if (
         invoice.invoiceType === 'LABORATORY' &&
@@ -898,14 +1007,30 @@ router.post('/invoice/:id/payments', authenticate, allowRoles(ROLES.ADMIN, ROLES
 
   } catch (error) {
     if (error.status && error.code) return sendError(res, error.status, error.code, error.message);
-    if (error.code === 'P2002') {
+    if (isUniqueViolationFor(error, 'idempotencyKey', 'PaymentOperation_idempotencyKey_key')) {
       const priorOperation = await prisma.paymentOperation.findUnique({ where: { idempotencyKey } });
       if (priorOperation?.invoiceId === invoiceId && priorOperation.requestHash === requestHash) {
-        const replayInvoice = await prisma.invoice.findUnique({ where: { id: invoiceId }, include: { payments: true } });
+        const [replayInvoice, replayActor] = await Promise.all([
+          prisma.invoice.findUnique({ where: { id: invoiceId }, include: { payments: true } }),
+          prisma.user.findUnique({ where: { id: req.user.id }, select: { role: true, status: true, authVersion: true } })
+        ]);
+        if (
+          !replayInvoice
+          || !replayActor
+          || replayActor.status !== 'ACTIVE'
+          || replayActor.role !== req.user.role
+          || replayActor.authVersion !== req.user.av
+          || !paymentRoleAllowed(replayActor.role, replayInvoice.invoiceType)
+        ) {
+          return sendError(res, 403, 'INVOICE_PAYMENT_ROLE_FORBIDDEN', 'You do not have permission to record this invoice payment.');
+        }
         const replayPaid = replayInvoice.payments.reduce((sum, payment) => sum + Number(payment.amountSdg), 0);
         return res.json({ ...replayInvoice, totalPaidSdg: replayPaid, remainingBalanceSdg: Math.max(0, Number(replayInvoice.totalAmountSdg) - replayPaid), idempotentReplay: true });
       }
-      return sendError(res, 409, 'DUPLICATE_PAYMENT_REFERENCE', 'Payment reference or idempotency key has already been used.');
+      return sendError(res, 409, 'IDEMPOTENCY_KEY_REUSED', 'Idempotency key was already used for a different payment request.');
+    }
+    if (isUniqueViolationFor(error, 'transactionReference', 'Payment_transactionReference_key')) {
+      return sendError(res, 409, 'DUPLICATE_PAYMENT_REFERENCE', 'Payment reference has already been used.');
     }
     console.error('Record payment error:', error);
     return res.status(500).json({ error: 'Failed to record split payment.' });

@@ -17,6 +17,7 @@ import notificationRoutes from './routes/notifications.js';
 import patientAuthRoutes from './routes/patientAuth.js';
 import patientSelfRoutes from './routes/patient.js';
 import mfaRoutes from './routes/mfa.js';
+import pharmacyRoutes from './routes/pharmacy.js';
 import { ApiError, errorHandler, notFoundHandler } from './utils/apiError.js';
 import { fileURLToPath } from 'url';
 import { validateEnvironment } from './config.js';
@@ -128,6 +129,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/patient-auth', patientAuthRoutes);
 app.use('/api/patient', patientSelfRoutes);
+app.use('/api/pharmacy', pharmacyRoutes);
 
 // Fallback handler for unmatched API endpoints to ensure JSON response instead of HTML
 app.use('/api', notFoundHandler);
