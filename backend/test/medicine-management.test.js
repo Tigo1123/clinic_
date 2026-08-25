@@ -9,7 +9,8 @@ import {
   isMedicineIdentityUniqueViolation,
   normalizeBatchNumber,
   pharmacistMedicineSchema,
-  stockMovementSchema
+  stockMovementSchema,
+  summarizeMedicineStock
 } from '../src/utils/medicineManagement.js';
 
 const medicine = {
@@ -115,4 +116,19 @@ test('inventory batch P2002 matching and receipt mass assignment are narrow', ()
       batchNumber: 'LOT-1', expiryDate: '2035-01-01', receivedQuantity: 4, [field]: 'forged'
     }).success, false);
   }
+});
+
+test('medicine stock summary distinguishes total, usable, expired, and low-stock batches', () => {
+  const summary = summarizeMedicineStock([
+    { expiryDate: '2029-12-31', qtyOnHand: 12, minReorderLevel: 5 },
+    { expiryDate: '2030-06-30', qtyOnHand: 2, minReorderLevel: 4 },
+    { expiryDate: '2020-01-01', qtyOnHand: 7, minReorderLevel: 1 }
+  ], '2028-01-01');
+
+  assert.equal(summary.totalOnHand, 21);
+  assert.equal(summary.usableStock, 14);
+  assert.equal(summary.expiredStock, 7);
+  assert.equal(summary.nearestUnexpiredExpiry, '2029-12-31');
+  assert.equal(summary.expiredBatchCount, 1);
+  assert.equal(summary.lowStockBatchCount, 1);
 });

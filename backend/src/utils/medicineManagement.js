@@ -164,8 +164,8 @@ export function summarizeMedicineStock(batches, clinicDate) {
   let usableStock = 0;
   let expiredStock = 0;
   let nearestExpiry = null;
-  let hasExpiredBatch = false;
-  let batchBelowReorderLevel = false;
+  let expiredBatchCount = 0;
+  let lowStockBatchCount = 0;
 
   for (const batch of batches) {
     const quantity = Number(batch.qtyOnHand);
@@ -173,7 +173,7 @@ export function summarizeMedicineStock(batches, clinicDate) {
     totalStock += quantity;
     const expired = batch.expiryDate < clinicDate;
     if (expired) {
-      hasExpiredBatch = true;
+      expiredBatchCount += 1;
       if (quantity > 0) expiredStock += quantity;
       continue;
     }
@@ -181,16 +181,20 @@ export function summarizeMedicineStock(batches, clinicDate) {
       usableStock += quantity;
       if (!nearestExpiry || batch.expiryDate < nearestExpiry) nearestExpiry = batch.expiryDate;
     }
-    if (quantity <= reorderLevel) batchBelowReorderLevel = true;
+    if (quantity <= reorderLevel) lowStockBatchCount += 1;
   }
 
   return {
     totalStock,
+    totalOnHand: totalStock,
     usableStock,
     expiredStock,
     nearestExpiry,
-    lowStock: usableStock === 0 || batchBelowReorderLevel,
-    hasExpiredBatch,
+    nearestUnexpiredExpiry: nearestExpiry,
+    lowStock: usableStock === 0 || lowStockBatchCount > 0,
+    lowStockBatchCount,
+    hasExpiredBatch: expiredBatchCount > 0,
+    expiredBatchCount,
     batchCount: batches.length
   };
 }

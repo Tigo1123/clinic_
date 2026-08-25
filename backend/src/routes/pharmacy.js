@@ -75,11 +75,13 @@ async function loadStockSummaries(drugIds, clinicDate = getClinicDateString()) {
       MIN("expiryDate") FILTER (
         WHERE "expiryDate" >= ${clinicDate} AND "qtyOnHand" > 0
       ) AS "nearestExpiry",
-      BOOL_OR("expiryDate" < ${clinicDate}) AS "hasExpiredBatch",
-      BOOL_OR(
-        "expiryDate" >= ${clinicDate}
+      COUNT(*) FILTER (
+        WHERE "expiryDate" < ${clinicDate}
+      )::text AS "expiredBatchCount",
+      COUNT(*) FILTER (
+        WHERE "expiryDate" >= ${clinicDate}
         AND "qtyOnHand" <= "minReorderLevel"
-      ) AS "batchBelowReorderLevel",
+      )::text AS "lowStockBatchCount",
       COUNT(*)::text AS "batchCount"
     FROM "InventoryBatch"
     WHERE "drugId" IN (${Prisma.join(drugIds)})
@@ -88,13 +90,19 @@ async function loadStockSummaries(drugIds, clinicDate = getClinicDateString()) {
   return new Map(rows.map((row) => {
     const totalStock = safeStockNumber(row.totalStock);
     const usableStock = safeStockNumber(row.usableStock);
+    const expiredBatchCount = safeStockNumber(row.expiredBatchCount);
+    const lowStockBatchCount = safeStockNumber(row.lowStockBatchCount);
     return [row.drugId, {
       totalStock,
+      totalOnHand: totalStock,
       usableStock,
       expiredStock: safeStockNumber(row.expiredStock),
       nearestExpiry: row.nearestExpiry,
-      lowStock: usableStock === 0 || row.batchBelowReorderLevel,
-      hasExpiredBatch: row.hasExpiredBatch,
+      nearestUnexpiredExpiry: row.nearestExpiry,
+      lowStock: usableStock === 0 || lowStockBatchCount > 0,
+      lowStockBatchCount,
+      hasExpiredBatch: expiredBatchCount > 0,
+      expiredBatchCount,
       batchCount: safeStockNumber(row.batchCount)
     }];
   }));
@@ -103,11 +111,15 @@ async function loadStockSummaries(drugIds, clinicDate = getClinicDateString()) {
 function emptyStockSummary() {
   return {
     totalStock: 0,
+    totalOnHand: 0,
     usableStock: 0,
     expiredStock: 0,
     nearestExpiry: null,
+    nearestUnexpiredExpiry: null,
     lowStock: true,
+    lowStockBatchCount: 0,
     hasExpiredBatch: false,
+    expiredBatchCount: 0,
     batchCount: 0
   };
 }
@@ -207,13 +219,13 @@ router.post('/formulary', authenticate, pharmacistOnly, validate(pharmacistMedic
           }
         });
         const movement = stockMovementSchema.parse({
-          movementType: 'OPENING_BALANCE',
+          movementType: 'RECEIPT',
           quantityDelta: initialBatch.qtyOnHand,
           resultingBalance: initialBatch.qtyOnHand,
           actorUserId: req.user.id,
           referenceType: 'FORMULARY_INITIAL_BATCH',
           referenceId: batch.id,
-          reason: 'Initial inventory recorded during proactive medicine creation.'
+          reason: 'Initial inventory batch received during medicine creation.'
         });
         await tx.stockMovement.create({ data: {
           ...movement, drugId: medicine.id, inventoryBatchId: batch.id
@@ -272,7 +284,14 @@ router.patch('/formulary/:id/metadata', authenticate, pharmacistOnly,
         await tx.tenantAuditLog.create({ data: {
           userId: req.user.id,
           action: 'FORMULARY_METADATA_UPDATED',
-          details: JSON.stringify({ medicineId: current.id, changedFields }),
+          details: JSON.stringify({
+            medicineId: current.id,
+            changedFields,
+            changes: Object.fromEntries(changedFields.map((field) => [field, {
+              before: current[field],
+              after: updated[field]
+            }]))
+          }),
           ipAddress: req.ip || 'unknown'
         } });
         return updated;
@@ -399,6 +418,7 @@ router.get('/formulary/:id/movements', authenticate, readRoles,
       ]);
       return res.json({ items: movements.map((movement) => ({
         id: movement.id,
+        inventoryBatchId: movement.inventoryBatch.id,
         movementType: movement.movementType,
         batch: movement.inventoryBatch,
         quantityDelta: movement.quantityDelta,

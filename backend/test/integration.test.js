@@ -2357,7 +2357,7 @@ test('pharmacy medicine creation with initial stock is atomic and ledger-backed'
   const movement = await prisma.stockMovement.findFirst({ where: { inventoryBatchId: batch.id } });
   const pharmacist = await prisma.user.findUnique({ where: { username: 'pharma@cms.com' } });
   assert.equal(batch.qtyOnHand, 12);
-  assert.equal(movement.movementType, 'OPENING_BALANCE');
+  assert.equal(movement.movementType, 'RECEIPT');
   assert.equal(movement.quantityDelta, 12);
   assert.equal(movement.resultingBalance, 12);
   assert.equal(movement.actorUserId, pharmacist.id);
@@ -2482,9 +2482,14 @@ test('metadata editing recomputes pre-use identity and freezes used identity whi
   }
   const label = await api.patch(`/api/pharmacy/formulary/${id}/metadata`).set(auth('pharmacy')).send({ labelEn: `Corrected Label ${suffix}` });
   assert.equal(label.status, 200);
-  assert.equal(await prisma.tenantAuditLog.count({ where: {
+  const metadataAudits = await prisma.tenantAuditLog.findMany({ where: {
     action: 'FORMULARY_METADATA_UPDATED', details: { contains: id }
-  } }), 2);
+  } });
+  assert.equal(metadataAudits.length, 2);
+  const labelAudit = metadataAudits.map((entry) => JSON.parse(entry.details))
+    .find((details) => details.changedFields.includes('labelEn'));
+  assert.equal(labelAudit.changes.labelEn.before, created.body.medicine.labelEn);
+  assert.equal(labelAudit.changes.labelEn.after, `Corrected Label ${suffix}`);
 });
 
 test('metadata identity collision returns deterministic conflict', async () => {
@@ -2566,11 +2571,15 @@ test('formulary, batch, and movement views are bounded, operational, and admin-r
     assert.equal(list.status, 200);
     assert.equal(list.body.items.length, 1);
     assert.equal(list.body.items[0].stock.totalStock, 5);
+    assert.equal(list.body.items[0].stock.totalOnHand, 5);
     assert.equal(list.body.items[0].stock.usableStock, 2);
     assert.equal(list.body.items[0].stock.expiredStock, 3);
     assert.equal(list.body.items[0].stock.hasExpiredBatch, true);
+    assert.equal(list.body.items[0].stock.expiredBatchCount, 1);
     assert.equal(list.body.items[0].stock.nearestExpiry, '2035-01-01');
+    assert.equal(list.body.items[0].stock.nearestUnexpiredExpiry, '2035-01-01');
     assert.equal(list.body.items[0].stock.lowStock, true);
+    assert.equal(list.body.items[0].stock.lowStockBatchCount, 1);
     assert.equal(Object.hasOwn(list.body.items[0], 'identityKey'), false);
     assert.equal((await api.get(`/api/pharmacy/formulary/${id}`).set(auth(role))).status, 200);
     const batches = await api.get(`/api/pharmacy/formulary/${id}/batches?page=1&pageSize=5`).set(auth(role));
@@ -2580,6 +2589,7 @@ test('formulary, batch, and movement views are bounded, operational, and admin-r
     const movements = await api.get(`/api/pharmacy/formulary/${id}/movements?page=1&pageSize=5`).set(auth(role));
     assert.equal(movements.status, 200);
     assert.equal(movements.body.items.length, 2);
+    assert.ok(movements.body.items.every((movement) => movement.inventoryBatchId));
   }
   for (const role of ['reception', 'doctor', 'lab']) {
     assert.equal((await api.get('/api/pharmacy/formulary').set(auth(role))).status, 403);
