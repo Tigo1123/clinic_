@@ -816,7 +816,7 @@ export default function ReceptionDashboard({ lang, t }) {
           payment.amountSdg > 0
       );
 
-    if (validPayments.length === 0) {
+    if (!isPharmacyBilling && validPayments.length === 0) {
       setErrorMsg(
         lang === 'ar'
           ? 'أدخل مبلغ دفع صحيح.'
@@ -887,6 +887,16 @@ export default function ReceptionDashboard({ lang, t }) {
         return;
       }
 
+      if (isPharmacyBilling) {
+        await refreshPharmacyBillingQueue();
+        setSuccessMsg(
+          lang === 'ar'
+            ? 'تم إصدار فاتورة الصيدلية. تسجيل الدفع من اختصاص الصيدلي.'
+            : 'Pharmacy invoice issued. Payment must be recorded by the pharmacist.'
+        );
+        return;
+      }
+
       const paymentRes = await fetchWithAuth(
         `/api/billing/invoice/${data.invoice.id}/payments`,
         {
@@ -933,14 +943,6 @@ export default function ReceptionDashboard({ lang, t }) {
           );
 
           setSelectedLabBillingOrder(null);
-        } else if (isPharmacyBilling) {
-          setSuccessMsg(
-            lang === 'ar'
-              ? 'تم دفع فاتورة الصيدلية بالكامل. الوصفة الآن جاهزة للصرف.'
-              : 'Pharmacy invoice paid in full. The prescription is now ready for dispensing.'
-          );
-
-          setSelectedPharmacyBillingPrescription(null);
         } else {
           setSuccessMsg(
             lang === 'ar'
@@ -2143,7 +2145,8 @@ export default function ReceptionDashboard({ lang, t }) {
                       </span>
                     </div>
 
-                    {/* Split Payments row configuration */}
+                    {!selectedPharmacyBillingPrescription && <>
+                    {/* Split Payments row configuration for receptionist-authorized invoice types */}
                     <div style={{ marginTop: '1rem' }}>
                       <label className="form-label">{lang === 'ar' ? 'توزيع الدفعات' : 'Payment Allocation'}</label>
                       {paymentRows.map((row, idx) => (
@@ -2225,10 +2228,7 @@ export default function ReceptionDashboard({ lang, t }) {
                       disabled={
                         billingSubmitting ||
                         selectedLabBillingOrder?.status === 'PAID' ||
-                        selectedLabBillingOrder?.pricingRequired ||
-                        selectedPharmacyBillingPrescription?.billingStatus === 'PAID' ||
-                        selectedPharmacyBillingPrescription?.pricingRequired ||
-                        selectedPharmacyBillingPrescription?.automaticBillingAvailable === false
+                        selectedLabBillingOrder?.pricingRequired
                       }
                     >
                       {billingSubmitting
@@ -2247,30 +2247,35 @@ export default function ReceptionDashboard({ lang, t }) {
                               : (lang === 'ar'
                                   ? 'دفع رسوم المختبر'
                                   : 'Pay Laboratory')
-                          : selectedPharmacyBillingPrescription
-                            ? selectedPharmacyBillingPrescription.billingStatus === 'PAID'
-                              ? (lang === 'ar'
-                                  ? 'مدفوع — جاهز للصرف'
-                                  : 'Paid — Ready to Dispense')
-                              : selectedPharmacyBillingPrescription.pricingRequired
-                                ? (lang === 'ar'
-                                    ? 'سعر الدواء غير مكتمل'
-                                    : 'Medication Price Required')
-                                : selectedPharmacyBillingPrescription.automaticBillingAvailable === false
-                                  ? (lang === 'ar'
-                                      ? 'لا توجد أدوية قابلة للفوترة'
-                                      : 'No Billable Medication')
-                                  : selectedPharmacyBillingPrescription.billingStatus === 'PARTIALLY_PAID'
-                                    ? (lang === 'ar'
-                                        ? 'إكمال دفع الصيدلية'
-                                        : 'Continue Pharmacy Payment')
-                                    : (lang === 'ar'
-                                        ? 'دفع فاتورة الصيدلية'
-                                        : 'Pay Pharmacy Invoice')
-                            : (lang === 'ar'
-                                ? 'إصدار الفاتورة وتأكيد الدفع'
-                                : 'Issue Invoice & Confirm Payment')}
+                          : (lang === 'ar'
+                              ? 'إصدار الفاتورة وتأكيد الدفع'
+                              : 'Issue Invoice & Confirm Payment')}
                     </button>
+                    </>}
+                    {selectedPharmacyBillingPrescription && (
+                      <div style={{ marginTop: '1rem' }}>
+                        <p className="form-help">
+                          {lang === 'ar'
+                            ? 'يمكن للاستقبال إصدار الفاتورة فقط. تسجيل دفع فاتورة الصيدلية من اختصاص الصيدلي.'
+                            : 'Reception may issue the invoice only. Pharmacy payment is recorded by the pharmacist.'}
+                        </p>
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          style={{ width: '100%' }}
+                          onClick={handleCreateInvoice}
+                          disabled={
+                            billingSubmitting ||
+                            selectedPharmacyBillingPrescription.pricingRequired ||
+                            selectedPharmacyBillingPrescription.automaticBillingAvailable === false
+                          }
+                        >
+                          {billingSubmitting
+                            ? (lang === 'ar' ? 'جارٍ إصدار الفاتورة…' : 'Issuing invoice…')
+                            : (lang === 'ar' ? 'إصدار فاتورة الصيدلية' : 'Issue Pharmacy Invoice')}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

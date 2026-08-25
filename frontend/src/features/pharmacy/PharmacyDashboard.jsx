@@ -3,12 +3,17 @@ import { AlertTriangle, FileText, HelpCircle, Sliders, Stethoscope } from 'lucid
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import RoleHero from '../../components/healthcare/RoleHero';
 import { clinicDateString } from '../../utils/clinicTime';
+import PharmacyManagement from './PharmacyManagement';
+import PharmacyPayment from './PharmacyPayment';
 
 export default function PharmacyDashboard({ lang, t }) {
   const [prescriptions, setPrescriptions] = useState([]);
   const [selectedRx, setSelectedRx] = useState(null);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [paymentState, setPaymentState] = useState(null);
+  const [managementRefresh, setManagementRefresh] = useState(0);
+  const [dispensing, setDispensing] = useState(false);
 
   // Inventory warnings
   const [inventoryAlerts, setInventoryAlerts] = useState([]);
@@ -455,7 +460,7 @@ export default function PharmacyDashboard({ lang, t }) {
     setErrorMsg('');
     setSuccessMsg('');
 
-    if (rx.billingStatus !== 'PAID') {
+    if (!paymentState?.dispensingAllowed) {
       setErrorMsg(
         lang === 'ar'
           ? 'لا يمكن صرف هذه الوصفة قبل دفع فاتورة الصيدلية بالكامل.'
@@ -486,6 +491,7 @@ export default function PharmacyDashboard({ lang, t }) {
     }
 
     try {
+      setDispensing(true);
       const res = await fetchWithAuth(`/api/records/prescriptions/${rx.id}/dispense`, {
         method: 'POST',
         body: JSON.stringify({ items })
@@ -493,6 +499,8 @@ export default function PharmacyDashboard({ lang, t }) {
       if (res.ok) {
         setSuccessMsg(lang === 'ar' ? 'تم صرف الوصفة الطبية وإنقاص المخزون بنجاح.' : 'Prescription dispensed successfully.');
         setSelectedRx(null);
+        setPaymentState(null);
+        setManagementRefresh((value) => value + 1);
         fetchPendingRx();
       } else {
         const err = await res.json();
@@ -501,6 +509,8 @@ export default function PharmacyDashboard({ lang, t }) {
     } catch (e) {
       console.error(e);
       setErrorMsg('Dispensing transaction failed.');
+    } finally {
+      setDispensing(false);
     }
   };
 
@@ -508,6 +518,8 @@ export default function PharmacyDashboard({ lang, t }) {
     <div className="dashboard-wrapper">
       <div className="workspace-panel" style={{ padding: '1rem' }}>
         <RoleHero role="pharmacy" lang={lang}/>
+
+        <PharmacyManagement lang={lang} refreshToken={managementRefresh} />
 
         <div
           className="glass-panel"
@@ -1514,7 +1526,7 @@ export default function PharmacyDashboard({ lang, t }) {
                 <div
                   key={rx.id}
                   className={`queue-card-item glass-panel ${selectedRx?.id === rx.id ? 'selected' : ''}`}
-                  onClick={() => setSelectedRx(rx)}
+                  onClick={() => { setSelectedRx(rx); setPaymentState(null); }}
                 >
                   <div
                     style={{
@@ -1647,34 +1659,7 @@ export default function PharmacyDashboard({ lang, t }) {
                   {lang === 'ar' ? 'الطبيب المعالج:' : 'Doctor:'} {lang === 'ar' ? selectedRx.doctor.fullNameAr : selectedRx.doctor.fullNameEn}
                 </p>
 
-                <div
-                  className={`badge ${
-                    selectedRx.billingStatus === 'PAID'
-                      ? 'badge-success'
-                      : 'badge-warning'
-                  }`}
-                  style={{
-                    padding: '0.6rem',
-                    marginBottom: '1rem',
-                    display: 'block'
-                  }}
-                >
-                  {selectedRx.billingStatus === 'PAID'
-                    ? (lang === 'ar'
-                        ? '✓ تم الدفع بالكامل — الوصفة جاهزة للصرف'
-                        : '✓ Paid in Full — Ready to Dispense')
-                    : selectedRx.billingStatus === 'PARTIALLY_PAID'
-                      ? (lang === 'ar'
-                          ? '🔒 تم الدفع جزئياً — يجب إكمال الدفع عند الاستقبال'
-                          : '🔒 Partially Paid — Payment must be completed at Reception')
-                      : selectedRx.billingStatus === 'UNPAID'
-                        ? (lang === 'ar'
-                            ? '🔒 الفاتورة غير مدفوعة — راجع الاستقبال'
-                            : '🔒 Invoice Unpaid — Refer to Reception')
-                        : (lang === 'ar'
-                            ? '🔒 لم تصدر فاتورة الصيدلية بعد — راجع الاستقبال'
-                            : '🔒 Pharmacy Invoice Not Issued — Refer to Reception')}
-                </div>
+                <PharmacyPayment key={selectedRx.id} prescriptionId={selectedRx.id} lang={lang} onStateChange={setPaymentState} />
 
                 {selectedRx.prescribedDrugs.map((item) => {
                   const isCustom = !item.drug;
@@ -1823,12 +1808,12 @@ export default function PharmacyDashboard({ lang, t }) {
                     marginTop: '1.5rem'
                   }}
                   onClick={() => handleDispense(selectedRx)}
-                  disabled={selectedRx.billingStatus !== 'PAID'}
+                  disabled={!paymentState?.dispensingAllowed || dispensing}
                 >
-                  {selectedRx.billingStatus === 'PAID'
+                  {paymentState?.dispensingAllowed
                     ? (lang === 'ar'
-                        ? 'صرف الأدوية وتحديث المستودع'
-                        : 'Confirm Dispensation')
+                        ? (dispensing ? 'جارٍ الصرف…' : 'صرف الأدوية وتحديث المستودع')
+                        : (dispensing ? 'Dispensing…' : 'Confirm Dispensation'))
                     : (lang === 'ar'
                         ? '🔒 الدفع الكامل مطلوب قبل الصرف'
                         : '🔒 Full Payment Required Before Dispensing')}
