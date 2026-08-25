@@ -51,3 +51,6 @@ export function paymentAttemptIsReflected(attempt, paymentState) {
   return Boolean(attempt && paymentState?.invoice?.id === attempt.invoiceId)
     && Number(paymentState.invoice.paidAmountSdg) >= attempt.paidBefore + attempt.amount;
 }
+export function updateMedicineField(current, field, value) {
+  return { ...current, [field]: value };
+}

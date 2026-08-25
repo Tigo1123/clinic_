@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { PackagePlus, RefreshCw, Search } from 'lucide-react';
 import Dialog from '../../components/ui/Dialog';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
-import { buildBatchPayload, buildMedicinePayload, buildMetadataPayload } from '../../utils/pharmacyManagement';
+import { buildBatchPayload, buildMedicinePayload, buildMetadataPayload, updateMedicineField } from '../../utils/pharmacyManagement';
 
 const emptyMedicine = {
   brandName: '', labelAr: '', labelEn: '', genericName: '', strength: '', dosageForm: '',
@@ -25,8 +25,8 @@ async function jsonRequest(url, options, fallback, lang) {
   return payload;
 }
 
-function Field({ label, ...props }) {
-  return <label className="form-group"><span className="form-label">{label}</span><input className="form-input" {...props} /></label>;
+function Field({ id, label, ...props }) {
+  return <div className="form-group"><label className="form-label" htmlFor={id}>{label}</label><input id={id} className="form-input" {...props} /></div>;
 }
 
 function DialogFeedback({ feedback }) {
@@ -43,15 +43,15 @@ function MedicineFields({ form, setForm, lang, labelsOnly = false }) {
         ['labelEn', 'الاسم الإنجليزي', 'English label'], ['genericName', 'الاسم العلمي', 'Generic name'],
         ['strength', 'التركيز', 'Strength'], ['dosageForm', 'الشكل الدوائي', 'Dosage form']
       ];
-  return <div className="pharmacy-form-grid">{fields.map(([name, ar, en]) => <Field key={name} required label={lang === 'ar' ? ar : en} value={form[name] || ''} onChange={(event) => setForm((current) => ({ ...current, [name]: event.target.value }))} />)}</div>;
+  return <div className="pharmacy-form-grid">{fields.map(([name, ar, en]) => <Field key={name} id={`medicine-${name}`} name={name} required label={lang === 'ar' ? ar : en} dir={name === 'labelAr' ? 'rtl' : 'ltr'} value={form[name] || ''} onChange={(event) => setForm((current) => updateMedicineField(current, name, event.target.value))} />)}</div>;
 }
 
-function BatchFields({ form, setForm, lang }) {
+function BatchFields({ form, setForm, lang, idPrefix = 'batch' }) {
   return <div className="pharmacy-form-grid">
-    <Field required label={lang === 'ar' ? 'رقم الدفعة' : 'Batch number'} value={form.batchNumber} onChange={(event) => setForm((current) => ({ ...current, batchNumber: event.target.value }))} />
-    <Field required type="date" label={lang === 'ar' ? 'تاريخ الصلاحية' : 'Expiry date'} value={form.expiryDate} onChange={(event) => setForm((current) => ({ ...current, expiryDate: event.target.value }))} />
-    <Field required type="number" min="1" step="1" label={lang === 'ar' ? 'الكمية المستلمة' : 'Received quantity'} value={form.receivedQuantity} onChange={(event) => setForm((current) => ({ ...current, receivedQuantity: event.target.value }))} />
-    <Field required type="number" min="0" step="1" label={lang === 'ar' ? 'حد إعادة الطلب' : 'Reorder level'} value={form.minReorderLevel} onChange={(event) => setForm((current) => ({ ...current, minReorderLevel: event.target.value }))} />
+    <Field id={`${idPrefix}-batchNumber`} name="batchNumber" dir="ltr" required label={lang === 'ar' ? 'رقم الدفعة' : 'Batch number'} value={form.batchNumber} onChange={(event) => setForm((current) => ({ ...current, batchNumber: event.target.value }))} />
+    <Field id={`${idPrefix}-expiryDate`} name="expiryDate" dir="ltr" required type="date" label={lang === 'ar' ? 'تاريخ الصلاحية' : 'Expiry date'} value={form.expiryDate} onChange={(event) => setForm((current) => ({ ...current, expiryDate: event.target.value }))} />
+    <Field id={`${idPrefix}-receivedQuantity`} name="receivedQuantity" dir="ltr" required type="number" min="1" step="1" label={lang === 'ar' ? 'الكمية المستلمة' : 'Received quantity'} value={form.receivedQuantity} onChange={(event) => setForm((current) => ({ ...current, receivedQuantity: event.target.value }))} />
+    <Field id={`${idPrefix}-minReorderLevel`} name="minReorderLevel" dir="ltr" required type="number" min="0" step="1" label={lang === 'ar' ? 'حد إعادة الطلب' : 'Reorder level'} value={form.minReorderLevel} onChange={(event) => setForm((current) => ({ ...current, minReorderLevel: event.target.value }))} />
   </div>;
 }
 
@@ -70,6 +70,7 @@ export default function PharmacyManagement({ lang, refreshToken = 0 }) {
   const [pagination, setPagination] = useState({ page: 1, totalPages: 1, total: 0 });
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
+  const [searchSubmission, setSearchSubmission] = useState(0);
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -82,14 +83,15 @@ export default function PharmacyManagement({ lang, refreshToken = 0 }) {
   const [movements, setMovements] = useState([]);
   const formularyRequestRef = useRef(0);
   const detailRequestRef = useRef(0);
+  const savingRef = useRef(false);
 
-  const loadFormulary = useCallback(async (page = 1) => {
+  const loadFormulary = useCallback(async (page, submittedSearch, selectedStatus) => {
     const requestId = ++formularyRequestRef.current;
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), pageSize: '20' });
-      if (search) params.set('search', search);
-      if (status) params.set('status', status);
+      if (submittedSearch) params.set('search', submittedSearch);
+      if (selectedStatus) params.set('status', selectedStatus);
       const data = await jsonRequest(`/api/pharmacy/formulary?${params}`, {}, 'Unable to load formulary.', lang);
       if (requestId === formularyRequestRef.current) {
         setItems(data.items || []);
@@ -100,18 +102,20 @@ export default function PharmacyManagement({ lang, refreshToken = 0 }) {
     } finally {
       if (requestId === formularyRequestRef.current) setLoading(false);
     }
-  }, [lang, search, status]);
+  }, [lang]);
 
   useEffect(() => {
-    loadFormulary(1);
+    loadFormulary(1, search, status);
     return () => { formularyRequestRef.current += 1; };
-  }, [loadFormulary, refreshToken]);
+  }, [loadFormulary, refreshToken, search, searchSubmission, status]);
 
-  const closeDialog = (force = false) => {
-    if (saving && force !== true) return;
+  useEffect(() => { savingRef.current = saving; }, [saving]);
+
+  const closeDialog = useCallback((force = false) => {
+    if (savingRef.current && force !== true) return;
     detailRequestRef.current += 1;
     setDialog(null); setSelected(null); setMedicineForm(emptyMedicine); setBatchForm(emptyBatch); setBatches([]); setMovements([]);
-  };
+  }, []);
 
   const showDetails = async (medicine, mode = 'details') => {
     const requestId = ++detailRequestRef.current;
@@ -140,7 +144,7 @@ export default function PharmacyManagement({ lang, refreshToken = 0 }) {
     event.preventDefault(); setSaving(true);
     try {
       await jsonRequest('/api/pharmacy/formulary', { method: 'POST', body: JSON.stringify(buildMedicinePayload(medicineForm)) }, 'Unable to create medicine.', lang);
-      closeDialog(true); setFeedback({ type: 'success', text: lang === 'ar' ? 'تم إنشاء الدواء بنجاح.' : 'Medicine created successfully.' }); await loadFormulary(1);
+      closeDialog(true); setFeedback({ type: 'success', text: lang === 'ar' ? 'تم إنشاء الدواء بنجاح.' : 'Medicine created successfully.' }); await loadFormulary(1, search, status);
     } catch (error) { setFeedback({ type: 'danger', text: error.message }); } finally { setSaving(false); }
   };
 
@@ -148,7 +152,7 @@ export default function PharmacyManagement({ lang, refreshToken = 0 }) {
     event.preventDefault(); setSaving(true);
     try {
       await jsonRequest(`/api/pharmacy/formulary/${selected.id}/metadata`, { method: 'PATCH', body: JSON.stringify(buildMetadataPayload(medicineForm)) }, 'Unable to update medicine.', lang);
-      closeDialog(true); setFeedback({ type: 'success', text: lang === 'ar' ? 'تم تحديث بيانات الدواء.' : 'Medicine metadata updated.' }); await loadFormulary(pagination.page);
+      closeDialog(true); setFeedback({ type: 'success', text: lang === 'ar' ? 'تم تحديث بيانات الدواء.' : 'Medicine metadata updated.' }); await loadFormulary(pagination.page, search, status);
     } catch (error) { setFeedback({ type: 'danger', text: error.message }); } finally { setSaving(false); }
   };
 
@@ -156,7 +160,7 @@ export default function PharmacyManagement({ lang, refreshToken = 0 }) {
     event.preventDefault(); setSaving(true);
     try {
       await jsonRequest(`/api/pharmacy/formulary/${selected.id}/batches`, { method: 'POST', body: JSON.stringify(buildBatchPayload(batchForm)) }, 'Unable to receive batch.', lang);
-      closeDialog(true); setFeedback({ type: 'success', text: lang === 'ar' ? 'تم استلام دفعة المخزون.' : 'Inventory batch received.' }); await loadFormulary(pagination.page);
+      closeDialog(true); setFeedback({ type: 'success', text: lang === 'ar' ? 'تم استلام دفعة المخزون.' : 'Inventory batch received.' }); await loadFormulary(pagination.page, search, status);
     } catch (error) { setFeedback({ type: 'danger', text: error.message }); } finally { setSaving(false); }
   };
 
@@ -165,11 +169,11 @@ export default function PharmacyManagement({ lang, refreshToken = 0 }) {
       <div><h2 id="pharmacy-management-title">{lang === 'ar' ? 'إدارة الأدوية والمخزون' : 'Medicine & Inventory Management'}</h2><p>{lang === 'ar' ? 'إدارة قائمة الأدوية والدفعات وسجل حركة المخزون.' : 'Manage formulary metadata, inventory batches, and stock history.'}</p></div>
       <button className="btn btn-primary" type="button" onClick={() => { setFeedback({ type: '', text: '' }); setMedicineForm(emptyMedicine); setDialog('create'); }}><PackagePlus size={16} /> {lang === 'ar' ? 'إضافة دواء' : 'Add Medicine'}</button>
     </div>
-    <form className="pharmacy-toolbar" onSubmit={(event) => { event.preventDefault(); setSearch(searchInput.trim()); }}>
-      <label><span className="sr-only">{lang === 'ar' ? 'بحث' : 'Search'}</span><div className="pharmacy-search"><Search size={16} /><input value={searchInput} maxLength={100} onChange={(event) => setSearchInput(event.target.value)} placeholder={lang === 'ar' ? 'بحث في الأدوية' : 'Search medicines'} /></div></label>
-      <select aria-label={lang === 'ar' ? 'حالة الدواء' : 'Medicine status'} value={status} onChange={(event) => { if (['', 'ACTIVE', 'INACTIVE'].includes(event.target.value)) setStatus(event.target.value); }}><option value="">{lang === 'ar' ? 'كل الحالات' : 'All statuses'}</option><option value="ACTIVE">ACTIVE</option><option value="INACTIVE">INACTIVE</option></select>
+    <form className="pharmacy-toolbar" onSubmit={(event) => { event.preventDefault(); setSearch(searchInput.trim()); setSearchSubmission((value) => value + 1); }}>
+      <label htmlFor="pharmacy-formulary-search"><span className="sr-only">{lang === 'ar' ? 'بحث' : 'Search'}</span><div className="pharmacy-search"><Search size={16} /><input id="pharmacy-formulary-search" name="formularySearch" value={searchInput} maxLength={100} onChange={(event) => setSearchInput(event.target.value)} placeholder={lang === 'ar' ? 'بحث في الأدوية' : 'Search medicines'} /></div></label>
+      <select id="pharmacy-formulary-status" name="formularyStatus" aria-label={lang === 'ar' ? 'حالة الدواء' : 'Medicine status'} value={status} onChange={(event) => { if (['', 'ACTIVE', 'INACTIVE'].includes(event.target.value)) setStatus(event.target.value); }}><option value="">{lang === 'ar' ? 'كل الحالات' : 'All statuses'}</option><option value="ACTIVE">ACTIVE</option><option value="INACTIVE">INACTIVE</option></select>
       <button className="btn" type="submit">{lang === 'ar' ? 'بحث' : 'Search'}</button>
-      <button className="btn" type="button" disabled={loading} onClick={() => loadFormulary(pagination.page)}><RefreshCw size={15} /> {lang === 'ar' ? 'تحديث' : 'Refresh'}</button>
+      <button className="btn" type="button" disabled={loading} onClick={() => loadFormulary(pagination.page, search, status)}><RefreshCw size={15} /> {lang === 'ar' ? 'تحديث' : 'Refresh'}</button>
     </form>
     {feedback.text && <div role="status" className={`badge badge-${feedback.type}`} style={{ display: 'block', padding: '.65rem', margin: '.7rem 0' }}>{feedback.text}</div>}
     {loading ? <p className="pharmacy-empty">{lang === 'ar' ? 'جارٍ تحميل الأدوية…' : 'Loading medicines…'}</p> : items.length === 0 ? <p className="pharmacy-empty">{lang === 'ar' ? 'لا توجد أدوية مطابقة.' : 'No medicines found.'}</p> : <div className="pharmacy-card-grid">{items.map((medicine) => <article className="pharmacy-medicine-card" key={medicine.id}>
@@ -178,9 +182,9 @@ export default function PharmacyManagement({ lang, refreshToken = 0 }) {
       <dl className="pharmacy-summary"><div><dt>{lang === 'ar' ? 'السعر الرسمي' : 'Official price'}</dt><dd>{medicine.unitPriceSdg == null ? '—' : `${Number(medicine.unitPriceSdg).toLocaleString()} SDG`}</dd></div><div><dt>{lang === 'ar' ? 'الإجمالي/القابل للصرف' : 'Total / usable'}</dt><dd>{medicine.stock.totalStock} / {medicine.stock.usableStock}</dd></div><div><dt>{lang === 'ar' ? 'أقرب صلاحية' : 'Nearest expiry'}</dt><dd>{medicine.stock.nearestExpiry || '—'}</dd></div><div><dt>{lang === 'ar' ? 'الدفعات' : 'Batches'}</dt><dd>{medicine.stock.batchCount}</dd></div></dl>
       <div className="pharmacy-card-actions"><button type="button" className="btn" onClick={() => showDetails(medicine)}>{lang === 'ar' ? 'التفاصيل' : 'Details'}</button><button type="button" className="btn" onClick={() => showDetails(medicine, 'edit')}>{lang === 'ar' ? 'تعديل' : 'Edit'}</button><button type="button" className="btn" onClick={() => { setFeedback({ type: '', text: '' }); setSelected(medicine); setBatchForm(emptyBatch); setDialog('receive'); }}>{lang === 'ar' ? 'إضافة دفعة' : 'Receive batch'}</button><button type="button" className="btn" onClick={() => showDetails(medicine, 'batches')}>{lang === 'ar' ? 'الدفعات' : 'Batches'}</button><button type="button" className="btn" onClick={() => showDetails(medicine, 'movements')}>{lang === 'ar' ? 'الحركات' : 'Movements'}</button></div>
     </article>)}</div>}
-    <div className="pharmacy-pagination"><button type="button" className="btn" disabled={pagination.page <= 1 || loading} onClick={() => loadFormulary(pagination.page - 1)}>{lang === 'ar' ? 'السابق' : 'Previous'}</button><span>{pagination.page} / {Math.max(1, pagination.totalPages)}</span><button type="button" className="btn" disabled={pagination.page >= pagination.totalPages || loading} onClick={() => loadFormulary(pagination.page + 1)}>{lang === 'ar' ? 'التالي' : 'Next'}</button></div>
+    <div className="pharmacy-pagination"><button type="button" className="btn" disabled={pagination.page <= 1 || loading} onClick={() => loadFormulary(pagination.page - 1, search, status)}>{lang === 'ar' ? 'السابق' : 'Previous'}</button><span>{pagination.page} / {Math.max(1, pagination.totalPages)}</span><button type="button" className="btn" disabled={pagination.page >= pagination.totalPages || loading} onClick={() => loadFormulary(pagination.page + 1, search, status)}>{lang === 'ar' ? 'التالي' : 'Next'}</button></div>
 
-    <Dialog open={dialog === 'create'} title={lang === 'ar' ? 'إضافة دواء' : 'Add Medicine'} description={lang === 'ar' ? 'سيتم إنشاء الدواء بحالة غير نشطة وبدون سعر. يجب على المدير تحديد السعر وتفعيل الدواء.' : 'The medicine will be created inactive and without a price. An administrator must price and activate it.'} onClose={closeDialog}><DialogFeedback feedback={feedback} /><form onSubmit={submitMedicine}><MedicineFields form={medicineForm} setForm={setMedicineForm} lang={lang} /><label className="pharmacy-checkbox"><input type="checkbox" checked={medicineForm.includeInitialBatch} onChange={(event) => setMedicineForm((current) => ({ ...current, includeInitialBatch: event.target.checked }))} /> {lang === 'ar' ? 'إضافة دفعة أولية اختيارية' : 'Add optional initial batch'}</label>{medicineForm.includeInitialBatch && <BatchFields form={medicineForm} setForm={setMedicineForm} lang={lang} />}<div className="dialog-actions"><button type="button" className="btn" onClick={() => closeDialog()}>{lang === 'ar' ? 'إلغاء' : 'Cancel'}</button><button disabled={saving} className="btn btn-primary">{saving ? '…' : lang === 'ar' ? 'إنشاء' : 'Create'}</button></div></form></Dialog>
+    <Dialog open={dialog === 'create'} title={lang === 'ar' ? 'إضافة دواء' : 'Add Medicine'} description={lang === 'ar' ? 'سيتم إنشاء الدواء بحالة غير نشطة وبدون سعر. يجب على المدير تحديد السعر وتفعيل الدواء.' : 'The medicine will be created inactive and without a price. An administrator must price and activate it.'} onClose={closeDialog}><DialogFeedback feedback={feedback} /><form onSubmit={submitMedicine}><MedicineFields form={medicineForm} setForm={setMedicineForm} lang={lang} /><label className="pharmacy-checkbox" htmlFor="medicine-includeInitialBatch"><input id="medicine-includeInitialBatch" name="includeInitialBatch" type="checkbox" checked={medicineForm.includeInitialBatch} onChange={(event) => setMedicineForm((current) => ({ ...current, includeInitialBatch: event.target.checked }))} /> {lang === 'ar' ? 'إضافة دفعة أولية اختيارية' : 'Add optional initial batch'}</label>{medicineForm.includeInitialBatch && <BatchFields form={medicineForm} setForm={setMedicineForm} lang={lang} idPrefix="initial-batch" />}<div className="dialog-actions"><button type="button" className="btn" onClick={() => closeDialog()}>{lang === 'ar' ? 'إلغاء' : 'Cancel'}</button><button disabled={saving} className="btn btn-primary">{saving ? '…' : lang === 'ar' ? 'إنشاء' : 'Create'}</button></div></form></Dialog>
     <Dialog open={dialog === 'edit'} title={lang === 'ar' ? 'تعديل بيانات الدواء' : 'Edit medicine metadata'} onClose={closeDialog}><DialogFeedback feedback={feedback} /><form onSubmit={submitMetadata}><MedicineFields form={medicineForm} setForm={setMedicineForm} lang={lang} /><p className="form-help">{lang === 'ar' ? 'قد يرفض الخادم تغيير هوية دواء استُخدم سريرياً أو في المخزون؛ تظل الأسماء المعروضة قابلة للتصحيح.' : 'The server prevents identity changes after clinical or inventory use; display labels remain correctable.'}</p><div className="dialog-actions"><button type="button" className="btn" onClick={() => closeDialog()}>{lang === 'ar' ? 'إلغاء' : 'Cancel'}</button><button disabled={saving} className="btn btn-primary">{saving ? '…' : lang === 'ar' ? 'حفظ' : 'Save'}</button></div></form></Dialog>
     <Dialog open={dialog === 'receive'} title={`${lang === 'ar' ? 'إضافة دفعة' : 'Receive batch'} — ${selected?.brandName || ''}`} onClose={closeDialog}><DialogFeedback feedback={feedback} /><form onSubmit={submitBatch}><BatchFields form={batchForm} setForm={setBatchForm} lang={lang} /><div className="dialog-actions"><button type="button" className="btn" onClick={() => closeDialog()}>{lang === 'ar' ? 'إلغاء' : 'Cancel'}</button><button disabled={saving} className="btn btn-primary">{saving ? '…' : lang === 'ar' ? 'استلام' : 'Receive'}</button></div></form></Dialog>
     <Dialog open={dialog === 'details'} title={lang === 'ar' ? 'تفاصيل الدواء' : 'Medicine details'} onClose={closeDialog}><DialogFeedback feedback={feedback} />{selected && <><StockBadges medicine={selected} lang={lang} /><dl className="pharmacy-detail-list">{[['brandName','Brand'],['labelAr','Arabic label'],['labelEn','English label'],['genericName','Generic'],['strength','Strength'],['dosageForm','Dosage form'],['status','Status'],['unitPriceSdg','Official price']].map(([field,label]) => <div key={field}><dt>{label}</dt><dd>{selected[field] ?? '—'}</dd></div>)}{[['totalStock','Total stock'],['usableStock','Usable stock'],['expiredStock','Expired stock'],['nearestExpiry','Nearest expiry'],['batchCount','Batch count']].map(([field,label]) => <div key={field}><dt>{label}</dt><dd>{selected.stock?.[field] ?? '—'}</dd></div>)}</dl><button type="button" className="btn" onClick={() => closeDialog()}>{lang === 'ar' ? 'إغلاق' : 'Close'}</button></>}</Dialog>

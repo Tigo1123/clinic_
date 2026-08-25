@@ -8,6 +8,7 @@ import {
   buildMedicinePayload,
   buildMetadataPayload,
   buildPaymentPayload,
+  updateMedicineField,
   newPaymentAttempt,
   paymentAttemptIsReflected,
   samePaymentAttempt
@@ -93,4 +94,56 @@ test('pharmacist price and status remain display-only', () => {
   assert.match(management, /Official price/);
   assert.doesNotMatch(management, /unitPriceSdg[^\n]*(onChange|setForm)/);
   assert.doesNotMatch(management, /name="(unitPriceSdg|status)"/);
+});
+
+test('each Add Medicine text field updates only its own immutable state property', () => {
+  const fields = ['brandName', 'labelAr', 'labelEn', 'genericName', 'strength', 'dosageForm'];
+  const entered = Object.fromEntries(fields.map((field) => [field, `${field}-before`]));
+
+  for (const field of fields) {
+    const next = updateMedicineField(entered, field, `${field}-after`);
+    assert.notEqual(next, entered, `${field} update must return a new state object`);
+    assert.equal(next[field], `${field}-after`);
+    for (const other of fields.filter((candidate) => candidate !== field)) {
+      assert.equal(next[other], entered[other], `${field} must preserve ${other}`);
+    }
+  }
+});
+
+test('Add Medicine controls have stable unique IDs, matching names and explicit labels', () => {
+  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
+  assert.match(management, /htmlFor=\{id\}/);
+  assert.match(management, /<input id=\{id\}/);
+  assert.match(management, /key=\{name\} id=\{`medicine-\$\{name\}`\} name=\{name\}/);
+  assert.match(management, /dir=\{name === 'labelAr' \? 'rtl' : 'ltr'\}/);
+  assert.match(management, /updateMedicineField\(current, name, event\.target\.value\)/);
+
+  const fields = ['brandName', 'labelAr', 'labelEn', 'genericName', 'strength', 'dosageForm'];
+  const ids = fields.map((field) => `medicine-${field}`);
+  assert.equal(new Set(ids).size, fields.length);
+});
+
+test('formulary search is submit-driven and opening or typing in the dialog cannot request it', () => {
+  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
+  assert.match(management, /onChange=\{\(event\) => setSearchInput\(event\.target\.value\)\}/);
+  assert.doesNotMatch(management, /setSearchInput\([^\n]*loadFormulary/);
+  assert.match(management, /onSubmit=\{\(event\) => \{ event\.preventDefault\(\); setSearch\(searchInput\.trim\(\)\); setSearchSubmission/);
+  assert.match(management, /\[loadFormulary, refreshToken, search, searchSubmission, status\]/);
+  assert.doesNotMatch(management, /setDialog\('create'\)[^\n]*loadFormulary/);
+});
+
+test('one search submission has one effect-owned request and keeps latest-response protection', () => {
+  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
+  const submit = management.match(/<form className="pharmacy-toolbar" onSubmit=\{([\s\S]*?)\}>/)?.[1] || '';
+  assert.equal((submit.match(/setSearchSubmission/g) || []).length, 1);
+  assert.equal((submit.match(/loadFormulary/g) || []).length, 0);
+  assert.match(management, /const requestId = \+\+formularyRequestRef\.current/);
+  assert.match(management, /if \(requestId === formularyRequestRef\.current\) \{\s*setItems\(data\.items \|\| \[\]\)/);
+  assert.match(management, /return \(\) => \{ formularyRequestRef\.current \+= 1; \}/);
+});
+
+test('dialog close identity stays stable so ordinary field rerenders preserve focus', () => {
+  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
+  assert.match(management, /const closeDialog = useCallback\([\s\S]*?\}, \[\]\);/);
+  assert.match(management, /<Dialog open=\{dialog === 'create'\}[\s\S]*?onClose=\{closeDialog\}/);
 });
