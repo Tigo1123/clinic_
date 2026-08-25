@@ -567,7 +567,7 @@ export default function PharmacyDashboard({ lang, t }) {
           >
             {lang === 'ar'
               ? 'الأدوية التي كتبها الطبيب ولم يتم اعتمادها بعد من الصيدلية. يجب ربط الدواء بالمخزون أو إضافته وتسعيره أو تحديده كدواء خارجي.'
-              : 'Custom medicines entered by doctors must be reviewed before reception billing. Link them to existing stock, create and stock them, or mark them for external purchase.'}
+              : 'Custom medicines entered by doctors must be reviewed before automatic billing. Link them to existing stock, create and price them, or mark them for external purchase.'}
           </p>
 
           {reviewErrorMsg && (

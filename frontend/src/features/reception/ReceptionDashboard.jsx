@@ -66,11 +66,6 @@ export default function ReceptionDashboard({ lang, t }) {
   const [selectedLabBillingOrder, setSelectedLabBillingOrder] = useState(null);
   const [labBillingLoading, setLabBillingLoading] = useState(false);
 
-  // Pharmacy billing queue
-  const [pharmacyBillingPrescriptions, setPharmacyBillingPrescriptions] = useState([]);
-  const [selectedPharmacyBillingPrescription, setSelectedPharmacyBillingPrescription] = useState(null);
-  const [pharmacyBillingLoading, setPharmacyBillingLoading] = useState(false);
-
   const appointmentStatusLabels = {
     PENDING: {
       ar: 'قيد المراجعة',
@@ -187,45 +182,11 @@ export default function ReceptionDashboard({ lang, t }) {
     }
   };
 
-  const refreshPharmacyBillingQueue = async () => {
-    setPharmacyBillingLoading(true);
-
-    try {
-      const res = await fetchWithAuth('/api/billing/prescriptions/pending');
-      const data = await res.json().catch(() => []);
-
-      if (!res.ok) {
-        console.error('Pharmacy billing queue failed:', data);
-        setPharmacyBillingPrescriptions([]);
-        return;
-      }
-
-      const queue = Array.isArray(data) ? data : [];
-      setPharmacyBillingPrescriptions(queue);
-
-      setSelectedPharmacyBillingPrescription((current) => {
-        if (!current) return null;
-
-        return (
-          queue.find(
-            (prescription) => prescription.id === current.id
-          ) || null
-        );
-      });
-    } catch (err) {
-      console.error('Pharmacy billing queue error:', err);
-      setPharmacyBillingPrescriptions([]);
-    } finally {
-      setPharmacyBillingLoading(false);
-    }
-  };
-
   const handleSelectLabBillingOrder = (order) => {
     setErrorMsg('');
     setSuccessMsg('');
 
     setSelectedLabBillingOrder(order);
-    setSelectedPharmacyBillingPrescription(null);
     setBillingPatient(order.patient);
     setBillingAppointment(null);
     setInsuranceCompanyId('');
@@ -252,53 +213,6 @@ export default function ReceptionDashboard({ lang, t }) {
         : Number(
             order.invoice?.remainingBalanceSdg ??
             order.estimatedTotalSdg ??
-            0
-          );
-
-    setPaymentRows([
-      {
-        amountSdg: amount > 0 ? String(amount) : '',
-        paymentMethod: 'CASH',
-        transactionReference: ''
-      }
-    ]);
-  };
-
-  const handleSelectPharmacyBillingPrescription = (prescription) => {
-    setErrorMsg('');
-    setSuccessMsg('');
-
-    setSelectedPharmacyBillingPrescription(prescription);
-    setSelectedLabBillingOrder(null);
-
-    setBillingPatient(prescription.patient);
-    setBillingAppointment(null);
-    setInsuranceCompanyId('');
-
-    setAddedServices(
-      prescription.items
-        .filter(
-          (item) =>
-            item.drug &&
-            item.remainingQty > 0
-        )
-        .map((item) => ({
-          id: item.id,
-          labelAr: item.drug.labelAr,
-          labelEn: item.drug.labelEn,
-          baseFeeSdg: item.drug.unitPriceSdg == null ? null : Number(item.drug.unitPriceSdg),
-          qty: item.remainingQty
-        }))
-    );
-
-    const amount =
-      prescription.pricingRequired ||
-      !prescription.automaticBillingAvailable ||
-      prescription.billingStatus === 'PAID'
-        ? ''
-        : Number(
-            prescription.invoice?.remainingBalanceSdg ??
-            prescription.estimatedTotalSdg ??
             0
           );
 
@@ -386,7 +300,6 @@ export default function ReceptionDashboard({ lang, t }) {
   useEffect(() => {
     fetchPendingAppointments();
     refreshLabBillingQueue();
-    refreshPharmacyBillingQueue();
 
     apiRequest('/api/appointments/doctors')
       .then((data) => setDoctors(Array.isArray(data) ? data : []))
@@ -660,7 +573,6 @@ export default function ReceptionDashboard({ lang, t }) {
     if (!app.patient || app.status !== 'CHECKED_IN') return;
 
     setSelectedLabBillingOrder(null);
-    setSelectedPharmacyBillingPrescription(null);
     setBillingPatient(app.patient);
     setBillingAppointment(app);
     setActiveTab('billing');
@@ -728,13 +640,8 @@ export default function ReceptionDashboard({ lang, t }) {
     }
 
     const isLaboratoryBilling = Boolean(selectedLabBillingOrder);
-    const isPharmacyBilling = Boolean(
-      selectedPharmacyBillingPrescription
-    );
-
     if (
       !isLaboratoryBilling &&
-      !isPharmacyBilling &&
       addedServices.length === 0
     ) {
       setErrorMsg(
@@ -769,42 +676,6 @@ export default function ReceptionDashboard({ lang, t }) {
       return;
     }
 
-    if (
-      isPharmacyBilling &&
-      !selectedPharmacyBillingPrescription.automaticBillingAvailable
-    ) {
-      setErrorMsg(
-        lang === 'ar'
-          ? 'هذه الوصفة لا تحتوي على أدوية مرتبطة بمخزون الصيدلية يمكن إصدار فاتورة لها.'
-          : 'This prescription has no formulary-linked medications available for automatic pharmacy billing.'
-      );
-      return;
-    }
-
-    if (
-      isPharmacyBilling &&
-      selectedPharmacyBillingPrescription.pricingRequired
-    ) {
-      setErrorMsg(
-        lang === 'ar'
-          ? 'يوجد دواء في الوصفة بدون سعر بيع معتمد. يجب ضبط سعر الدواء أولاً.'
-          : 'One or more medications do not have an approved pharmacy selling price.'
-      );
-      return;
-    }
-
-    if (
-      isPharmacyBilling &&
-      selectedPharmacyBillingPrescription.billingStatus === 'PAID'
-    ) {
-      setSuccessMsg(
-        lang === 'ar'
-          ? 'تم دفع فاتورة الصيدلية بالكامل. الوصفة جاهزة للصرف.'
-          : 'The pharmacy invoice is fully paid. The prescription is ready for dispensing.'
-      );
-      return;
-    }
-
     const validPayments = paymentRows
       .map((payment) => ({
         ...payment,
@@ -816,7 +687,7 @@ export default function ReceptionDashboard({ lang, t }) {
           payment.amountSdg > 0
       );
 
-    if (!isPharmacyBilling && validPayments.length === 0) {
+    if (validPayments.length === 0) {
       setErrorMsg(
         lang === 'ar'
           ? 'أدخل مبلغ دفع صحيح.'
@@ -830,16 +701,14 @@ export default function ReceptionDashboard({ lang, t }) {
     try {
       const invoiceType = isLaboratoryBilling
         ? 'LABORATORY'
-        : isPharmacyBilling
-          ? 'PHARMACY'
-          : billingAppointment
-            ? 'CONSULTATION'
-            : 'GENERAL';
+        : billingAppointment
+          ? 'CONSULTATION'
+          : 'GENERAL';
 
       const invoicePayload = {
         patientId: billingPatient.id,
         appointmentId:
-          !isLaboratoryBilling && !isPharmacyBilling
+          !isLaboratoryBilling
             ? billingAppointment?.id || undefined
             : undefined,
 
@@ -848,15 +717,10 @@ export default function ReceptionDashboard({ lang, t }) {
             ? selectedLabBillingOrder.id
             : undefined,
 
-        prescriptionId:
-          isPharmacyBilling
-            ? selectedPharmacyBillingPrescription.id
-            : undefined,
-
         invoiceType,
 
         insuranceCompanyId:
-          !isLaboratoryBilling && !isPharmacyBilling
+          !isLaboratoryBilling
             ? insuranceCompanyId || undefined
             : undefined
       };
@@ -883,16 +747,6 @@ export default function ReceptionDashboard({ lang, t }) {
               ? 'تعذر إنشاء الفاتورة.'
               : 'Failed to create the invoice.'
           )
-        );
-        return;
-      }
-
-      if (isPharmacyBilling) {
-        await refreshPharmacyBillingQueue();
-        setSuccessMsg(
-          lang === 'ar'
-            ? 'تم إصدار فاتورة الصيدلية. تسجيل الدفع من اختصاص الصيدلي.'
-            : 'Pharmacy invoice issued. Payment must be recorded by the pharmacist.'
         );
         return;
       }
@@ -932,7 +786,6 @@ export default function ReceptionDashboard({ lang, t }) {
 
       refreshDoctorQueue();
       await refreshLabBillingQueue();
-      await refreshPharmacyBillingQueue();
 
       if (paymentData.paymentStatus === 'PAID') {
         if (isLaboratoryBilling) {
@@ -1773,225 +1626,6 @@ export default function ReceptionDashboard({ lang, t }) {
                   )}
                 </section>
 
-                {/* Pharmacy Billing Queue */}
-                <section
-                  className="glass-panel"
-                  style={{
-                    padding: '1rem',
-                    marginBottom: '0.75rem'
-                  }}
-                >
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      gap: '0.75rem',
-                      marginBottom: '0.75rem'
-                    }}
-                  >
-                    <div>
-                      <strong>
-                        {lang === 'ar'
-                          ? 'فواتير الصيدلية'
-                          : 'Pharmacy Bills'}
-                      </strong>
-
-                      <div
-                        style={{
-                          fontSize: '0.78rem',
-                          color: 'var(--text-secondary)',
-                          marginTop: '0.2rem'
-                        }}
-                      >
-                        {lang === 'ar'
-                          ? 'الوصفات الطبية الصادرة من الطبيب'
-                          : 'Prescriptions submitted by doctors'}
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      style={{
-                        padding: '4px 10px',
-                        fontSize: '0.75rem'
-                      }}
-                      onClick={refreshPharmacyBillingQueue}
-                      disabled={pharmacyBillingLoading}
-                    >
-                      {pharmacyBillingLoading
-                        ? (lang === 'ar'
-                            ? 'جاري التحديث...'
-                            : 'Refreshing...')
-                        : (lang === 'ar'
-                            ? 'تحديث'
-                            : 'Refresh')}
-                    </button>
-                  </div>
-
-                  {pharmacyBillingPrescriptions.length === 0 ? (
-                    <div
-                      style={{
-                        padding: '1rem',
-                        textAlign: 'center',
-                        color: 'var(--text-secondary)',
-                        fontSize: '0.85rem'
-                      }}
-                    >
-                      {lang === 'ar'
-                        ? 'لا توجد وصفات تحتاج متابعة مالية حالياً.'
-                        : 'No prescriptions currently require pharmacy billing follow-up.'}
-                    </div>
-                  ) : (
-                    <div
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '0.5rem'
-                      }}
-                    >
-                      {pharmacyBillingPrescriptions.map((prescription) => {
-                        const paid =
-                          prescription.billingStatus === 'PAID';
-
-                        const remaining =
-                          prescription.invoice?.remainingBalanceSdg ??
-                          prescription.estimatedTotalSdg ??
-                          0;
-
-                        return (
-                          <button
-                            key={prescription.id}
-                            type="button"
-                            className={`queue-card-item glass-panel ${
-                              selectedPharmacyBillingPrescription?.id ===
-                              prescription.id
-                                ? 'selected'
-                                : ''
-                            }`}
-                            style={{
-                              width: '100%',
-                              textAlign: 'start',
-                              cursor: 'pointer'
-                            }}
-                            onClick={() =>
-                              handleSelectPharmacyBillingPrescription(
-                                prescription
-                              )
-                            }
-                          >
-                            <div
-                              style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                gap: '0.75rem',
-                                flexWrap: 'wrap'
-                              }}
-                            >
-                              <strong>
-                                {lang === 'ar'
-                                  ? prescription.patient.fullNameAr
-                                  : prescription.patient.fullNameEn}
-                              </strong>
-
-                              <span
-                                className={`badge ${
-                                  paid
-                                    ? 'badge-success'
-                                    : 'badge-warning'
-                                }`}
-                              >
-                                {!prescription.automaticBillingAvailable
-                                  ? (lang === 'ar'
-                                      ? 'لا توجد أدوية قابلة للفوترة'
-                                      : 'No Billable Medication')
-                                  : prescription.pricingRequired
-                                    ? (lang === 'ar'
-                                        ? 'السعر يحتاج اعتماد'
-                                        : 'Pricing Required')
-                                    : paid
-                                      ? (lang === 'ar'
-                                          ? 'مدفوع — جاهز للصرف'
-                                          : 'Paid — Ready to Dispense')
-                                      : prescription.billingStatus ===
-                                          'PARTIALLY_PAID'
-                                        ? (lang === 'ar'
-                                            ? 'مدفوع جزئياً'
-                                            : 'Partially Paid')
-                                        : (lang === 'ar'
-                                            ? 'بانتظار الدفع'
-                                            : 'Waiting for Payment')}
-                              </span>
-                            </div>
-
-                            <div
-                              style={{
-                                fontSize: '0.8rem',
-                                color: 'var(--text-secondary)',
-                                marginTop: '0.35rem'
-                              }}
-                            >
-                              {prescription.items
-                                .map((item) =>
-                                  item.drug
-                                    ? `${lang === 'ar'
-                                        ? item.drug.labelAr
-                                        : item.drug.labelEn} × ${item.remainingQty}`
-                                    : item.customDrugName
-                                )
-                                .filter(Boolean)
-                                .join(' • ')}
-                            </div>
-
-                            {prescription.customMedicationCount > 0 && (
-                              <div
-                                style={{
-                                  fontSize: '0.75rem',
-                                  color: 'var(--warning)',
-                                  marginTop: '0.35rem'
-                                }}
-                              >
-                                {lang === 'ar'
-                                  ? `${prescription.customMedicationCount} دواء مكتوب يدويًا خارج الفوترة والمخزون التلقائي`
-                                  : `${prescription.customMedicationCount} custom medication(s) excluded from automatic billing and inventory`}
-                              </div>
-                            )}
-
-                            {prescription.automaticBillingAvailable &&
-                              !prescription.pricingRequired && (
-                                <div
-                                  style={{
-                                    marginTop: '0.35rem',
-                                    fontWeight: '600'
-                                  }}
-                                >
-                                  {paid
-                                    ? (lang === 'ar'
-                                        ? 'جاهز للصيدلية'
-                                        : 'Ready for Pharmacy')
-                                    : `${lang === 'ar'
-                                        ? 'المتبقي'
-                                        : 'Remaining'}: ${Number(
-                                        remaining
-                                      ).toLocaleString(
-                                        lang === 'ar'
-                                          ? 'ar'
-                                          : 'en'
-                                      )} ${
-                                        lang === 'ar'
-                                          ? 'ج.س'
-                                          : 'SDG'
-                                      }`}
-                                </div>
-                              )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </section>
-
                 {/* Search Patient */}
                 <div className="search-wrapper">
                   <Search className="search-icon-svg" size={16} />
@@ -2014,7 +1648,6 @@ export default function ReceptionDashboard({ lang, t }) {
                           className="dropdown-item-patient"
                           onClick={() => {
                             setSelectedLabBillingOrder(null);
-                            setSelectedPharmacyBillingPrescription(null);
                             setBillingAppointment(null);
                             setAddedServices([]);
                             setBillingPatient(p);
@@ -2068,10 +1701,7 @@ export default function ReceptionDashboard({ lang, t }) {
                         className="btn btn-secondary"
                         style={{ padding: '4px 8px', fontSize: '0.75rem' }}
                         onClick={() => handleAddBillingService(svc)}
-                        disabled={Boolean(
-                          selectedLabBillingOrder ||
-                          selectedPharmacyBillingPrescription
-                        )}
+                        disabled={Boolean(selectedLabBillingOrder)}
                       >
                         {lang === 'ar' ? svc.labelAr : svc.labelEn}
                       </button>
@@ -2095,10 +1725,7 @@ export default function ReceptionDashboard({ lang, t }) {
                               type="button"
                               style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}
                               onClick={() => handleRemoveBillingService(idx)}
-                              disabled={Boolean(
-                                selectedLabBillingOrder ||
-                                selectedPharmacyBillingPrescription
-                              )}
+                              disabled={Boolean(selectedLabBillingOrder)}
                             >
                               <Trash2 size={14} />
                             </button>
@@ -2145,7 +1772,6 @@ export default function ReceptionDashboard({ lang, t }) {
                       </span>
                     </div>
 
-                    {!selectedPharmacyBillingPrescription && <>
                     {/* Split Payments row configuration for receptionist-authorized invoice types */}
                     <div style={{ marginTop: '1rem' }}>
                       <label className="form-label">{lang === 'ar' ? 'توزيع الدفعات' : 'Payment Allocation'}</label>
@@ -2251,31 +1877,6 @@ export default function ReceptionDashboard({ lang, t }) {
                               ? 'إصدار الفاتورة وتأكيد الدفع'
                               : 'Issue Invoice & Confirm Payment')}
                     </button>
-                    </>}
-                    {selectedPharmacyBillingPrescription && (
-                      <div style={{ marginTop: '1rem' }}>
-                        <p className="form-help">
-                          {lang === 'ar'
-                            ? 'يمكن للاستقبال إصدار الفاتورة فقط. تسجيل دفع فاتورة الصيدلية من اختصاص الصيدلي.'
-                            : 'Reception may issue the invoice only. Pharmacy payment is recorded by the pharmacist.'}
-                        </p>
-                        <button
-                          type="button"
-                          className="btn btn-primary"
-                          style={{ width: '100%' }}
-                          onClick={handleCreateInvoice}
-                          disabled={
-                            billingSubmitting ||
-                            selectedPharmacyBillingPrescription.pricingRequired ||
-                            selectedPharmacyBillingPrescription.automaticBillingAvailable === false
-                          }
-                        >
-                          {billingSubmitting
-                            ? (lang === 'ar' ? 'جارٍ إصدار الفاتورة…' : 'Issuing invoice…')
-                            : (lang === 'ar' ? 'إصدار فاتورة الصيدلية' : 'Issue Pharmacy Invoice')}
-                        </button>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>

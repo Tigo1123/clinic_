@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -8,6 +8,8 @@ import {
   buildMedicinePayload,
   buildMetadataPayload,
   buildPaymentPayload,
+  pharmacyBillingPendingCopy,
+  pharmacyBillingRequiresReview,
   updateMedicineField,
   newPaymentAttempt,
   paymentAttemptIsReflected,
@@ -16,6 +18,10 @@ import {
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (relative) => readFileSync(path.join(root, relative), 'utf8');
+const sourceTree = (relative) => readdirSync(path.join(root, relative), { recursive: true, withFileTypes: true })
+  .filter((entry) => entry.isFile() && /\.[jt]sx?$/.test(entry.name))
+  .map((entry) => readFileSync(path.join(entry.parentPath, entry.name), 'utf8'))
+  .join('\n');
 
 test('pharmacist medicine payload is allow-listed and supports optional opening stock', () => {
   const payload = buildMedicinePayload({
@@ -77,16 +83,50 @@ test('dashboard integrates bounded APIs, server payment state, and read-only mov
   assert.match(payment, /if \(!responseReceived\) requireReconciliation\(true\)/);
   assert.match(payment, /attemptRef\.current = null/);
   assert.match(payment, /loadState\(\)/);
+  assert.match(payment, /\/api\/pharmacy\/prescriptions\/\$\{prescriptionId\}\/payment-state/);
+  assert.match(payment, /useEffect\([\s\S]*?loadState\(\)/);
+  assert.match(payment, /state\?\.billingPending\?\.code/);
+  assert.doesNotMatch(payment, /Issue Pharmacy Invoice|إصدار فاتورة الصيدلية/);
   assert.doesNotMatch(payment, /\/dispense/);
   assert.match(dashboard, /paymentState\?\.dispensingAllowed/);
+  assert.match(dashboard, /disabled=\{!paymentState\?\.dispensingAllowed \|\| dispensing\}/);
 });
 
-test('reception pharmacy billing is read-only while non-pharmacy payment controls remain', () => {
+test('reception has no pharmacy billing or payment mutation while non-pharmacy billing remains', () => {
   const reception = source('src/features/reception/ReceptionDashboard.jsx');
-  assert.match(reception, /Reception may issue the invoice only\. Pharmacy payment is recorded by the pharmacist\./);
-  assert.match(reception, /!selectedPharmacyBillingPrescription && <>/);
+  assert.doesNotMatch(reception, /PHARMACY/);
+  assert.doesNotMatch(reception, /Pharmacy Billing Queue|Pharmacy Bills|Issue Pharmacy Invoice/);
+  assert.doesNotMatch(reception, /pharmacyBilling|selectedPharmacy|prescriptions\/pending/);
+  assert.match(reception, /fetchWithAuth\('\/api\/billing\/invoice'/);
+  assert.match(reception, /\? 'LABORATORY'/);
+  assert.match(reception, /\? 'CONSULTATION'/);
+  assert.match(reception, /: 'GENERAL'/);
   assert.match(reception, /Pay Consultation/);
   assert.match(reception, /Pay Laboratory/);
+  assert.match(reception, /Issue Invoice & Confirm Payment/);
+});
+
+test('automatic pharmacy billing pending and review copy is safe and receptionist-independent', () => {
+  const normalAr = pharmacyBillingPendingCopy('PHARMACY_INVOICE_PENDING', 'ar');
+  const normalEn = pharmacyBillingPendingCopy('PHARMACY_INVOICE_PENDING', 'en');
+  const refundedAr = pharmacyBillingPendingCopy('PHARMACY_REFUNDED_INVOICE_REVIEW_REQUIRED', 'ar');
+  const invariantEn = pharmacyBillingPendingCopy('PHARMACY_INVOICE_INVARIANT_VIOLATION', 'en');
+  assert.match(normalAr, /قيد التجهيز تلقائيًا/);
+  assert.match(normalAr, /مراجعة أو تسعير/);
+  assert.match(normalEn, /prepared automatically/);
+  assert.match(refundedAr, /مراجعة قبل المتابعة/);
+  assert.match(invariantEn, /requires review/);
+  assert.equal(pharmacyBillingRequiresReview('PHARMACY_REFUNDED_INVOICE_REVIEW_REQUIRED'), true);
+  assert.equal(pharmacyBillingRequiresReview('PHARMACY_INVOICE_PENDING'), false);
+  for (const copy of [normalAr, normalEn, refundedAr, invariantEn]) {
+    assert.doesNotMatch(copy, /reception|receptionist|الاستقبال/i);
+  }
+});
+
+test('no frontend path submits a PHARMACY invoice through generic billing', () => {
+  const frontendFiles = sourceTree('src');
+  assert.doesNotMatch(frontendFiles, /invoiceType\s*:\s*['"]PHARMACY['"]/);
+  assert.doesNotMatch(frontendFiles, /Issue Pharmacy Invoice|إصدار فاتورة الصيدلية/);
 });
 
 test('pharmacist price and status remain display-only', () => {

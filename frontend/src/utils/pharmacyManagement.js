@@ -1,4 +1,23 @@
 const metadataFields = ['brandName', 'labelAr', 'labelEn', 'genericName', 'strength', 'dosageForm'];
+const pharmacyReviewRequiredCodes = new Set([
+  'PHARMACY_REFUNDED_INVOICE_REVIEW_REQUIRED',
+  'PHARMACY_INVOICE_INVARIANT_VIOLATION'
+]);
+
+export function pharmacyBillingRequiresReview(code) {
+  return pharmacyReviewRequiredCodes.has(code);
+}
+
+export function pharmacyBillingPendingCopy(code, lang) {
+  if (pharmacyBillingRequiresReview(code)) {
+    return lang === 'ar'
+      ? 'تحتاج فاتورة الصيدلية إلى مراجعة قبل المتابعة.'
+      : 'The pharmacy invoice requires review before continuing.';
+  }
+  return lang === 'ar'
+    ? 'فاتورة الدواء قيد التجهيز تلقائيًا. قد يحتاج أحد الأدوية إلى مراجعة أو تسعير قبل إنشاء الفاتورة.'
+    : 'The medicine invoice is being prepared automatically. A medication may require review or pricing before the invoice can be created.';
+}
 
 export function buildMedicinePayload(form) {
   const payload = Object.fromEntries(metadataFields.map((field) => [field, String(form[field] || '').trim()]));

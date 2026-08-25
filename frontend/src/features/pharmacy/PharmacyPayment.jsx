@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
-import { buildPaymentPayload, newPaymentAttempt, paymentAttemptIsReflected, samePaymentAttempt } from '../../utils/pharmacyManagement';
+import { buildPaymentPayload, newPaymentAttempt, paymentAttemptIsReflected, pharmacyBillingPendingCopy, pharmacyBillingRequiresReview, samePaymentAttempt } from '../../utils/pharmacyManagement';
 
 const methodLabels = { CASH: 'CASH', CARD: 'CARD', BANKAK: 'BANKAK', FAWRY: 'FAWRY' };
-
 export default function PharmacyPayment({ prescriptionId, lang, onStateChange }) {
   const [state, setState] = useState(null);
   const [amount, setAmount] = useState('');
@@ -29,6 +28,20 @@ export default function PharmacyPayment({ prescriptionId, lang, onStateChange })
     try {
       const response = await fetchWithAuth(`/api/pharmacy/prescriptions/${prescriptionId}/payment-state`);
       const payload = await response.json().catch(() => ({}));
+      if (!response.ok && pharmacyBillingRequiresReview(payload?.error?.code)) {
+        const pendingState = {
+          prescriptionId,
+          invoice: null,
+          billingPending: { code: payload.error.code },
+          dispensingAllowed: false,
+          allowedPaymentMethods: []
+        };
+        if (!mountedRef.current || requestId !== stateRequestRef.current) return null;
+        setState(pendingState);
+        setAmount('');
+        onStateChange?.(pendingState);
+        return pendingState;
+      }
       if (!response.ok) throw new Error(apiErrorMessage(payload, 'Unable to load payment state.'));
       if (!mountedRef.current || requestId !== stateRequestRef.current) return null;
       setState(payload);
@@ -108,7 +121,7 @@ export default function PharmacyPayment({ prescriptionId, lang, onStateChange })
   };
 
   if (loading && !state) return <section className="pharmacy-payment"><p>{lang === 'ar' ? 'جارٍ تحميل فاتورة الأدوية…' : 'Loading medicine invoice…'}</p></section>;
-  if (!state?.invoice) return <section className="pharmacy-payment"><h3>{lang === 'ar' ? 'فاتورة الأدوية' : 'Medicine Invoice'}</h3><p>{lang === 'ar' ? 'لم تُصدر فاتورة صيدلية لهذه الوصفة بعد.' : 'No pharmacy invoice has been issued for this prescription.'}</p><button type="button" className="btn" disabled={loading} onClick={loadState}>{lang === 'ar' ? 'تحديث' : 'Refresh'}</button></section>;
+  if (!state?.invoice) return <section className="pharmacy-payment"><h3>{lang === 'ar' ? 'فاتورة الأدوية' : 'Medicine Invoice'}</h3><p>{pharmacyBillingPendingCopy(state?.billingPending?.code, lang)}</p><button type="button" className="btn" disabled={loading} onClick={loadState}>{lang === 'ar' ? 'تحديث' : 'Refresh'}</button></section>;
   const invoice = state.invoice;
   return <section className="pharmacy-payment" aria-labelledby="medicine-invoice-title">
     <div className="pharmacy-management-header"><h3 id="medicine-invoice-title">{lang === 'ar' ? 'فاتورة الأدوية' : 'Medicine Invoice'}</h3><button type="button" className="btn" disabled={loading || submitting} onClick={loadState}>{lang === 'ar' ? 'تحديث الحالة' : 'Refresh state'}</button></div>
