@@ -9,6 +9,7 @@ import { EmptyState, ErrorState, Skeleton } from '../../components/feedback/Stat
 import HealthcareIllustration from '../../components/healthcare/HealthcareIllustration';
 import { clinicCalendarDays } from '../../utils/clinicTime';
 import { formatPatientDateTime } from '../../utils/patientRecord';
+import { doctorMatchesDirectorySearch, doctorSpecialtyKey, doctorSpecialtyOptions, localizeDoctorSpecialty } from '../../utils/doctorSpecialty';
 
 function useApi(path){
   const [result,setResult]=useState({path:null,data:null,error:null,loading:true});
@@ -52,20 +53,6 @@ const patientGreeting = (profile, language) => {
     : `Good evening${name ? `, ${name}` : ''}`;
 };
 
-const normalizeDoctorSearch = (value = '') =>
-  String(value)
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[\u064B-\u065F\u0670]/g, '')
-    .replace(/[أإآٱ]/g, 'ا')
-    .replace(/ؤ/g, 'و')
-    .replace(/ئ/g, 'ي')
-    .replace(/ى/g, 'ي')
-    .replace(/(^|\s)(دكتور|دكتورة|د\.?|doctor|dr\.?)\s*/gi, ' ')
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
 export function Dashboard(){const{t,i18n}=useTranslation();const profile=useApi('/api/patient/me');const appointments=useApi('/api/patient/appointments?group=upcoming');const labs=useApi('/api/patient/lab-results');const prescriptions=useApi('/api/patient/prescriptions');if(profile.error?.includes('not linked'))return <><div className="patient-alert error">{profile.error}</div><Link className="patient-button" to="/patient/claim">{t('claimRecord')}</Link></>;const next=appointments.data?.[0];return <State loading={profile.loading} error={profile.error}><section className="patient-hero patient-hero--care"><div className="patient-hero__copy"><span className="patient-hero__eyebrow"><HeartPulse size={15}/>{t('welcome')}</span><h1>{patientGreeting(profile.data, i18n.language)}</h1><p>{t('patientHeroText')}</p><Link className="patient-button" to="/patient/doctors"><CalendarDays size={18}/>{t('bookAppointment')}</Link></div><HealthcareIllustration variant="patient"/></section><div className="section-heading-row"><h2>{t('healthServices')}</h2></div><div className="service-grid"><Service to="/patient/doctors" icon={<Stethoscope/>} label={t('doctors')}/><Service to="/patient/appointments" icon={<CalendarDays/>} label={t('myAppointments')}/><Service to="/patient/lab-results" icon={<FlaskConical/>} label={t('labResults')}/><Service to="/patient/records" icon={<FileHeart/>} label={t('medicalRecords')}/></div><div className="section-heading-row"><h2>{t('upcomingAppointments')}</h2><Link to="/patient/appointments">{t('all')}</Link></div>{next?<article className="patient-card appointment-card"><div className="appointment-card__date"><span>{new Date(`${next.appointmentDate}T00:00:00`).toLocaleDateString(i18n.language,{month:'short'})}</span><strong>{new Date(`${next.appointmentDate}T00:00:00`).getDate()}</strong></div><div><h2>{doctorName(next.doctor,i18n.language)}</h2><p>{next.doctor?.specialtyEn}</p><p>{next.appointmentTime} · <StatusBadge status={next.status}/></p></div><Link className="patient-button secondary" to={`/patient/appointments/${next.id}`}>{t('details')}</Link></article>:<Empty>{t('noAppointments')}</Empty>}<div className="section-heading-row"><h2>{t('recentPatientInfo')}</h2></div><div className="patient-grid"><Summary to="/patient/appointments" icon={<CalendarDays/>} title={t('upcomingAppointments')} value={appointments.data?.length||0}/><Summary to="/patient/lab-results" icon={<FlaskConical/>} title={t('recentLabResults')} value={labs.data?.length||0}/><Summary to="/patient/prescriptions" icon={<Pill/>} title={t('prescriptions')} value={prescriptions.data?.length||0}/></div></State>}
 function Service({to,icon,label}){return <Link className="service-card" to={to}><span className="service-card__icon">{icon}</span><strong>{label}</strong></Link>}
 function Summary({to,icon,title,value}){return <Link className="patient-card health-summary-card" to={to}><div style={{color:'var(--color-primary)'}}>{icon}</div><h3>{title}</h3><strong>{value}</strong></Link>}
@@ -75,51 +62,23 @@ export function Doctors(){
   const { data, error, loading } = useApi('/api/patient/doctors');
   const [query, setQuery] = useState('');
   const [specialty, setSpecialty] = useState('');
+  const language = i18n.language?.startsWith('ar') ? 'ar' : 'en';
 
-  const specialties = [
-    ...new Set(
-      (data || [])
-        .map((doctor) =>
-          i18n.language === 'ar'
-            ? doctor.specialtyAr
-            : doctor.specialtyEn
-        )
-        .filter(Boolean)
-    )
-  ];
-
-  const normalizedQuery = normalizeDoctorSearch(query);
+  const specialties = doctorSpecialtyOptions(data || [], language);
 
   const filtered = (data || []).filter((doctor) => {
-    const displayedSpecialty =
-      i18n.language === 'ar'
-        ? doctor.specialtyAr
-        : doctor.specialtyEn;
-
-    const searchableText = normalizeDoctorSearch(
-      [
-        doctor.fullNameAr,
-        doctor.fullNameEn,
-        doctor.specialtyAr,
-        doctor.specialtyEn
-      ]
-        .filter(Boolean)
-        .join(' ')
-    );
-
-    const matchesQuery =
-      !normalizedQuery ||
-      searchableText.includes(normalizedQuery);
+    const matchesQuery = doctorMatchesDirectorySearch(doctor, query);
 
     const matchesSpecialty =
       !specialty ||
-      displayedSpecialty === specialty;
+      doctorSpecialtyKey(doctor) === specialty;
 
     return matchesQuery && matchesSpecialty;
   });
 
   return (
     <State loading={loading} error={error}>
+      <div className="patient-doctors-directory" dir={language === 'ar' ? 'rtl' : 'ltr'}>
       <header className="doctor-search-header">
         <div>
           <span>{t('healthServices')}</span>
@@ -128,11 +87,11 @@ export function Doctors(){
 
         <label className="doctor-search">
           <Search size={19}/>
-          <span className="sr-only">{t('search')}</span>
+          <span className="sr-only">{t('searchDoctors')}</span>
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder={t('search')}
+            placeholder={t('searchDoctors')}
           />
         </label>
       </header>
@@ -151,11 +110,11 @@ export function Doctors(){
 
           {specialties.map((item) => (
             <button
-              className={specialty === item ? 'selected' : ''}
-              onClick={() => setSpecialty(item)}
-              key={item}
+              className={specialty === item.key ? 'selected' : ''}
+              onClick={() => setSpecialty(item.key)}
+              key={item.key}
             >
-              {item}
+              {item.label}
             </button>
           ))}
         </div>
@@ -183,9 +142,7 @@ export function Doctors(){
                 <h2>{doctorName(doctor, i18n.language)}</h2>
 
                 <p>
-                  {i18n.language === 'ar'
-                    ? doctor.specialtyAr
-                    : doctor.specialtyEn}
+                  {localizeDoctorSpecialty(doctor, language)}
                 </p>
 
                 <strong>
@@ -215,11 +172,12 @@ export function Doctors(){
           ))}
         </div>
       )}
+      </div>
     </State>
   );
 }
 
-export function DoctorDetails(){const{id}=useParams();const{t,i18n}=useTranslation();const{data,error,loading,reload}=useApi(`/api/patient/doctors/${id}`);if(loading)return <div className="patient-card"><Skeleton/></div>;if(error)return <ErrorState message={error} onRetry={reload}/>;if(!data)return <EmptyState title={t('doctorNotFound')}/>;return <article className="patient-card doctor-profile"><div className="doctor-profile__avatar"><UserRound/></div><div><span className="doctor-profile__label"><Stethoscope size={16}/>{t('doctors')}</span><h1>{doctorName(data,i18n.language)}</h1><p>{i18n.language==='ar'?data.specialtyAr:data.specialtyEn}</p><strong>
+export function DoctorDetails(){const{id}=useParams();const{t,i18n}=useTranslation();const{data,error,loading,reload}=useApi(`/api/patient/doctors/${id}`);if(loading)return <div className="patient-card"><Skeleton/></div>;if(error)return <ErrorState message={error} onRetry={reload}/>;if(!data)return <EmptyState title={t('doctorNotFound')}/>;return <article className="patient-card doctor-profile"><div className="doctor-profile__avatar"><UserRound/></div><div><span className="doctor-profile__label"><Stethoscope size={16}/>{t('doctors')}</span><h1>{doctorName(data,i18n.language)}</h1><p>{localizeDoctorSpecialty(data,i18n.language)}</p><strong>
       {Number(data.consultationFee).toLocaleString(
         i18n.language === 'ar' ? 'ar' : 'en'
       )}{' '}
