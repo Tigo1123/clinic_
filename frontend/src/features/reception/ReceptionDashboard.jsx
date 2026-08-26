@@ -36,6 +36,16 @@ export default function ReceptionDashboard({ lang, t }) {
   const [addressDetails, setAddressDetails] = useState('');
   const [emergencyContact, setEmergencyContact] = useState('');
 
+  // Walk-in intake state
+  const [walkInMode, setWalkInMode] = useState('EXISTING');
+  const [walkInPatientQuery, setWalkInPatientQuery] = useState('');
+  const [walkInPatientResults, setWalkInPatientResults] = useState([]);
+  const [walkInPatient, setWalkInPatient] = useState(null);
+  const [walkInDoctorId, setWalkInDoctorId] = useState('');
+  const [walkInSlots, setWalkInSlots] = useState([]);
+  const [walkInTime, setWalkInTime] = useState('');
+  const [walkInSubmitting, setWalkInSubmitting] = useState(false);
+
   // Selected Patient for Billing
   const [billingPatient, setBillingPatient] = useState(null);
   const [insuranceCompanyId, setInsuranceCompanyId] = useState('');
@@ -531,6 +541,98 @@ export default function ReceptionDashboard({ lang, t }) {
           ? 'تعذر الاتصال بالخادم. تحقق من الاتصال وحاول مرة أخرى.'
           : 'Unable to connect to the server. Please try again.'
       );
+    }
+  };
+
+  const searchWalkInPatients = async (value) => {
+    setWalkInPatientQuery(value);
+    setWalkInPatient(null);
+    if (value.trim().length < 2) {
+      setWalkInPatientResults([]);
+      return;
+    }
+    try {
+      const res = await fetchWithAuth(`/api/patients/search?q=${encodeURIComponent(value.trim())}`);
+      const data = await res.json().catch(() => []);
+      setWalkInPatientResults(res.ok && Array.isArray(data) ? data : []);
+    } catch {
+      setWalkInPatientResults([]);
+    }
+  };
+
+  const handleWalkInDoctorChange = async (doctorId) => {
+    setWalkInDoctorId(doctorId);
+    setWalkInTime('');
+    if (!doctorId) {
+      setWalkInSlots([]);
+      return;
+    }
+    try {
+      const res = await fetchWithAuth(`/api/appointments/slots?doctorId=${encodeURIComponent(doctorId)}&date=${clinicDateString()}`);
+      const data = await res.json().catch(() => []);
+      setWalkInSlots(res.ok && Array.isArray(data) ? data : []);
+    } catch {
+      setWalkInSlots([]);
+    }
+  };
+
+  const handleWalkInSubmit = async (event) => {
+    event.preventDefault();
+    if (walkInSubmitting || !walkInDoctorId || !walkInTime || (walkInMode === 'EXISTING' && !walkInPatient)) return;
+    setWalkInSubmitting(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+    const body = {
+      mode: walkInMode,
+      doctorId: walkInDoctorId,
+      appointmentDate: clinicDateString(),
+      appointmentTime: walkInTime
+    };
+    if (walkInMode === 'EXISTING') {
+      body.patientId = walkInPatient.id;
+    } else {
+      body.patient = {
+        fullNameAr,
+        fullNameEn,
+        gender,
+        dateOfBirth: dob,
+        nationalId: nationalId || undefined,
+        phone,
+        addressStateId: parseInt(addressStateId),
+        addressDetails: addressDetails || undefined,
+        emergencyContact: emergencyContact || 'Self'
+      };
+    }
+    try {
+      const res = await fetchWithAuth('/api/appointments/walk-in', {
+        method: 'POST',
+        body: JSON.stringify(body)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErrorMsg(apiErrorMessage(data, lang === 'ar' ? 'تعذر تسجيل المريض المباشر.' : 'Unable to register walk-in patient.'));
+        return;
+      }
+      setSuccessMsg(lang === 'ar' ? 'تم تسجيل المريض وإدخاله في طابور الطبيب بنجاح.' : 'Patient checked in and sent to the doctor queue successfully.');
+      const doctor = doctors.find((item) => item.id === walkInDoctorId);
+      if (doctor) {
+        setSelectedDoctor(doctor);
+        const queueRes = await fetchWithAuth(`/api/appointments/queue/${doctor.id}?date=${clinicDateString()}`);
+        const queueData = await queueRes.json().catch(() => []);
+        if (queueRes.ok && Array.isArray(queueData)) setAppointments(queueData);
+      }
+      setWalkInPatient(null);
+      setWalkInPatientQuery('');
+      setWalkInPatientResults([]);
+      setWalkInTime('');
+      setWalkInSlots([]);
+      if (walkInMode === 'NEW') {
+        setFullNameAr(''); setFullNameEn(''); setPhone(''); setDob(''); setNationalId(''); setAddressDetails(''); setEmergencyContact('');
+      }
+    } catch {
+      setErrorMsg(lang === 'ar' ? 'تعذر الاتصال بالخادم. تحقق من الاتصال وحاول مرة أخرى.' : 'Unable to reach the server. Check your connection and try again.');
+    } finally {
+      setWalkInSubmitting(false);
     }
   };
 
@@ -1142,6 +1244,12 @@ export default function ReceptionDashboard({ lang, t }) {
                 {lang === 'ar' ? 'تسجيل مريض' : 'Register Patient'}
               </button>
               <button
+                className={`tab-select-btn ${activeTab === 'walkin' ? 'active' : ''}`}
+                onClick={() => setActiveTab('walkin')}
+              >
+                {lang === 'ar' ? 'إدخال مريض مباشر' : 'Walk-in Patient'}
+              </button>
+              <button
                 className={`tab-select-btn ${activeTab === 'patients' ? 'active' : ''}`}
                 onClick={() => setActiveTab('patients')}
               >
@@ -1228,6 +1336,48 @@ export default function ReceptionDashboard({ lang, t }) {
                 <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
                   {lang === 'ar' ? 'حفظ ملف المريض' : 'Save Patient Profile'}
                 </button>
+              </form>
+            )}
+
+            {/* TAB: WALK-IN INTAKE */}
+            {activeTab === 'walkin' && (
+              <form onSubmit={handleWalkInSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', overflowY: 'auto' }}>
+                <div className="form-group">
+                  <label className="form-label">{lang === 'ar' ? 'نوع المريض' : 'Patient type'}</label>
+                  <select className="form-input" value={walkInMode} onChange={(e) => { setWalkInMode(e.target.value); setWalkInPatient(null); }}>
+                    <option value="EXISTING">{lang === 'ar' ? 'مريض مسجل مسبقًا' : 'Existing patient'}</option>
+                    <option value="NEW">{lang === 'ar' ? 'مريض جديد' : 'New patient'}</option>
+                  </select>
+                </div>
+                {walkInMode === 'EXISTING' ? (
+                  <div className="form-group" style={{ position: 'relative' }}>
+                    <label className="form-label">{lang === 'ar' ? 'ابحث عن المريض' : 'Search patient'} *</label>
+                    <input className="form-input" value={walkInPatientQuery} onChange={(e) => searchWalkInPatients(e.target.value)} placeholder={lang === 'ar' ? 'الاسم أو الهاتف أو الرقم الوطني' : 'Name, phone or National ID'} />
+                    {walkInPatientResults.length > 0 && (
+                      <div className="patient-search-dropdown">
+                        {walkInPatientResults.map((item) => (
+                          <button key={item.id} type="button" className="dropdown-item-patient" onClick={() => { setWalkInPatient(item); setWalkInPatientQuery(item.fullNameAr || item.fullNameEn || item.phone); setWalkInPatientResults([]); }}>
+                            <strong>{lang === 'ar' ? item.fullNameAr : item.fullNameEn}</strong><small>{item.phone}</small>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {walkInPatient && <div className="badge badge-success" style={{ marginTop: '0.35rem' }}>{lang === 'ar' ? 'تم اختيار المريض' : 'Patient selected'}</div>}
+                  </div>
+                ) : (
+                  <>
+                    <div className="form-group"><label className="form-label">{t('fullNameAr')} *</label><input required className="form-input" value={fullNameAr} onChange={(e) => setFullNameAr(e.target.value)} /></div>
+                    <div className="form-group"><label className="form-label">{t('fullNameEn')} *</label><input required className="form-input" value={fullNameEn} onChange={(e) => setFullNameEn(e.target.value)} /></div>
+                    <div className="form-group"><label className="form-label">{t('phone')} *</label><input required className="form-input" value={phone} onChange={(e) => setPhone(e.target.value)} /></div>
+                    <div className="form-group"><label className="form-label">{lang === 'ar' ? 'تاريخ الميلاد' : 'Date of Birth'} *</label><input required type="date" className="form-input" value={dob} onChange={(e) => setDob(e.target.value)} /></div>
+                    <div className="form-group"><label className="form-label">{t('gender')}</label><select className="form-input" value={gender} onChange={(e) => setGender(e.target.value)}><option value="MALE">{t('male')}</option><option value="FEMALE">{t('female')}</option></select></div>
+                    <div className="form-group"><label className="form-label">{t('addressState')}</label><select className="form-input" value={addressStateId} onChange={(e) => setAddressStateId(e.target.value)}>{SUDANESE_STATES.map((st) => <option key={st.id} value={st.id}>{lang === 'ar' ? st.labelAr : st.labelEn}</option>)}</select></div>
+                  </>
+                )}
+                <div className="form-group"><label className="form-label">{lang === 'ar' ? 'الطبيب' : 'Doctor'} *</label><select required className="form-input" value={walkInDoctorId} onChange={(e) => handleWalkInDoctorChange(e.target.value)}><option value="">{lang === 'ar' ? 'اختر الطبيب' : 'Select doctor'}</option>{doctors.filter((doctor) => doctor.status === 'ACTIVE').map((doctor) => <option key={doctor.id} value={doctor.id}>{lang === 'ar' ? doctor.fullNameAr : doctor.fullNameEn}</option>)}</select></div>
+                <div className="form-group"><label className="form-label">{lang === 'ar' ? 'موعد اليوم' : "Today's slot"} *</label><select required className="form-input" value={walkInTime} onChange={(e) => setWalkInTime(e.target.value)} disabled={!walkInDoctorId}><option value="">{walkInSlots.length ? (lang === 'ar' ? 'اختر الوقت' : 'Select time') : (lang === 'ar' ? 'لا توجد أوقات متاحة' : 'No available slots')}</option>{walkInSlots.map((slot) => <option key={slot} value={slot}>{slot}</option>)}</select></div>
+                <div className="badge badge-info">{lang === 'ar' ? 'سيتم تسجيل الحضور فورًا مع الالتزام ببوابة دفع الكشف.' : 'The patient will be checked in immediately; the consultation payment gate still applies.'}</div>
+                <button type="submit" className="btn btn-primary" disabled={walkInSubmitting || !walkInDoctorId || !walkInTime || (walkInMode === 'EXISTING' && !walkInPatient)}>{walkInSubmitting ? (lang === 'ar' ? 'جارٍ التسجيل...' : 'Registering...') : (lang === 'ar' ? 'تسجيل الحضور وإرسال المريض للطبيب' : 'Check in and send to doctor')}</button>
               </form>
             )}
 

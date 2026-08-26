@@ -42,14 +42,56 @@ function appointmentStateConflict() {
 }
 
 function isAppointmentSlotConflict(error) {
-  return error?.code === 'P2002'
-    && String(error.message || '').includes('Appointment_active_doctor_slot_key');
+  if (error?.code !== 'P2002') return false;
+  const target = error?.meta?.target;
+  const slotFields = ['doctorId', 'appointmentDate', 'appointmentTime'];
+  const metadataMatchesSlot = Array.isArray(target)
+    && target.length === slotFields.length
+    && slotFields.every((field) => target.includes(field))
+    && (!error?.meta?.modelName || error.meta.modelName === 'Appointment');
+  return metadataMatchesSlot
+    || String(error.message || '').includes('Appointment_active_doctor_slot_key');
+}
+
+function isPatientNationalIdConflict(error) {
+  if (error?.code !== 'P2002') return false;
+  const target = error?.meta?.target;
+  return (Array.isArray(target) && target.includes('nationalId'))
+    || String(error.message || '').includes('Patient_nationalId_key');
 }
 
 function isEmergencyOverrideConflict(error) {
   return error?.code === 'P2002'
     && String(error.message || '').includes('EmergencyOverride_appointmentId_key');
 }
+
+const walkInPatientSchema = z.object({
+  fullNameAr: z.string().trim().min(2).max(150),
+  fullNameEn: z.string().trim().min(2).max(150),
+  gender: z.enum(['MALE', 'FEMALE']),
+  dateOfBirth: z.string().regex(DATE_PATTERN),
+  nationalId: z.string().trim().max(30).optional(),
+  phone: z.string().trim().min(7).max(20),
+  addressStateId: z.coerce.number().int().min(1).max(18),
+  addressDetails: z.string().trim().max(300).optional(),
+  emergencyContact: z.string().trim().max(150).optional()
+}).strict();
+
+const walkInSchema = z.object({
+  mode: z.enum(['EXISTING', 'NEW']),
+  patientId: z.string().uuid().optional(),
+  doctorId: z.string().uuid(),
+  appointmentDate: z.string().regex(DATE_PATTERN),
+  appointmentTime: z.string().regex(TIME_PATTERN),
+  patient: walkInPatientSchema.optional()
+}).superRefine((value, ctx) => {
+  if (value.mode === 'EXISTING' && (!value.patientId || value.patient)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['patientId'], message: 'Existing walk-ins require a patientId only.' });
+  }
+  if (value.mode === 'NEW' && (value.patientId || !value.patient)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['patient'], message: 'New walk-ins require patient registration details only.' });
+  }
+}).strict();
 
 router.get('/slots', validate(z.object({ doctorId: z.string().uuid(), date: z.string().regex(DATE_PATTERN) }), 'query'), async (req, res) => {
   const { doctorId, date } = req.query;
@@ -288,6 +330,114 @@ router.get('/pending', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST)
   } catch (error) {
     console.error('Pending appointments fetch error:', error);
     return res.status(500).json({ error: 'Failed to retrieve pending appointments.' });
+  }
+});
+
+/**
+ * POST /api/appointments/walk-in
+ * Creates a same-day receptionist walk-in and immediately checks it in.
+ */
+router.post('/walk-in', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), validate(walkInSchema), async (req, res) => {
+  const { mode, patientId, doctorId, appointmentDate, appointmentTime, patient } = req.body;
+
+  if (appointmentDate !== todayString()) {
+    return sendError(res, 422, 'WALK_IN_DATE_INVALID', 'Walk-in appointments must use the clinic date.');
+  }
+
+  try {
+    const doctor = await prisma.doctor.findFirst({ where: { id: doctorId, status: 'ACTIVE' } });
+    if (!doctor) return sendError(res, 404, 'DOCTOR_NOT_FOUND', 'Active doctor not found.');
+    if (!configuredSlots(doctor, appointmentDate).includes(appointmentTime)) {
+      return sendError(res, 422, 'INVALID_APPOINTMENT_SLOT', 'The selected time is not in the doctor schedule.');
+    }
+    if (mode === 'NEW' && patient.dateOfBirth >= todayString()) {
+      return sendError(res, 422, 'INVALID_DATE_OF_BIRTH', 'Date of birth must be in the past.');
+    }
+
+    const appointment = await prisma.$transaction(async (tx) => {
+      let targetPatient;
+      if (mode === 'EXISTING') {
+        targetPatient = await tx.patient.findUnique({ where: { id: patientId } });
+        if (!targetPatient || targetPatient.status !== 'ACTIVE') {
+          throw Object.assign(new Error('Patient not found.'), { status: 404, code: 'PATIENT_NOT_FOUND' });
+        }
+      } else {
+        if (patient.nationalId) {
+          const existingByNationalId = await tx.patient.findUnique({ where: { nationalId: patient.nationalId } });
+          if (existingByNationalId) {
+            throw Object.assign(new Error('A patient with this National ID is already registered.'), { status: 409, code: 'PATIENT_ALREADY_EXISTS' });
+          }
+        }
+        targetPatient = await tx.patient.create({
+          data: {
+            fullNameAr: patient.fullNameAr,
+            fullNameEn: patient.fullNameEn,
+            gender: patient.gender,
+            dateOfBirth: patient.dateOfBirth,
+            nationalId: patient.nationalId || null,
+            phone: patient.phone,
+            addressStateId: patient.addressStateId,
+            addressDetails: patient.addressDetails || null,
+            emergencyContact: patient.emergencyContact || 'Self',
+            status: 'ACTIVE'
+          }
+        });
+      }
+
+      // Serialize same-patient intake attempts so repeated receptionist
+      // submissions cannot create multiple active walk-ins for today.
+      await tx.$queryRaw`SELECT "id" FROM "Patient" WHERE "id" = ${targetPatient.id} FOR UPDATE`;
+      const existingWalkIn = await tx.appointment.findFirst({
+        where: {
+          patientId: targetPatient.id,
+          appointmentDate,
+          status: { notIn: ['CANCELLED', 'NO_SHOW'] }
+        },
+        select: { id: true }
+      });
+      if (existingWalkIn) {
+        throw Object.assign(new Error('This patient already has an active appointment today.'), {
+          status: 409,
+          code: 'WALK_IN_ALREADY_EXISTS'
+        });
+      }
+
+      const created = await tx.appointment.create({
+        data: {
+          patientId: targetPatient.id,
+          doctorId,
+          appointmentDate,
+          appointmentTime,
+          status: 'SCHEDULED'
+        },
+        include: { patient: true, doctor: true }
+      });
+
+      const claimed = await tx.appointment.updateMany({
+        where: { id: created.id, status: 'SCHEDULED', doctorId },
+        data: { status: 'CHECKED_IN' }
+      });
+      if (claimed.count !== 1) throw appointmentStateConflict();
+
+      await tx.tenantAuditLog.create({ data: {
+        userId: req.user.id,
+        action: 'WALK_IN_APPOINTMENT_CREATED',
+        details: JSON.stringify({ patientId: targetPatient.id, appointmentId: created.id, doctorId, status: 'CHECKED_IN' }),
+        ipAddress: req.ip || 'unknown'
+      } });
+
+      return tx.appointment.findUnique({ where: { id: created.id }, include: { patient: true, doctor: true } });
+    });
+
+    const notifResult = await sendStatusUpdateNotification(appointment, 'CHECKED_IN');
+    emitQueueUpdate(req.app.get('io'), { type: 'STATUS_UPDATE', appointmentId: appointment.id, status: 'CHECKED_IN', doctorId }, [doctorId]);
+    return res.status(201).json({ ...appointment, whatsAppLinkAr: notifResult?.whatsAppLinkAr, whatsAppLinkEn: notifResult?.whatsAppLinkEn });
+  } catch (error) {
+    if (error.status && error.code) return sendError(res, error.status, error.code, error.message);
+    if (isAppointmentSlotConflict(error)) return sendError(res, 409, 'APPOINTMENT_SLOT_UNAVAILABLE', 'This appointment slot is no longer available.');
+    if (isPatientNationalIdConflict(error)) return sendError(res, 409, 'PATIENT_ALREADY_EXISTS', 'A patient with this National ID is already registered.');
+    console.error('Walk-in appointment error:', error);
+    return res.status(500).json({ error: 'Failed to register walk-in appointment.' });
   }
 });
 
