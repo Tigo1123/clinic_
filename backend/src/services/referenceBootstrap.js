@@ -21,6 +21,13 @@ export const REFERENCE_BOOTSTRAP_STATES = Object.freeze([
   { id: 18, labelAr: 'وسط دارفور', labelEn: 'Central Darfur' }
 ]);
 
+// Reference bootstrap is an explicit operator action and may run over a
+// higher-latency connection than the application normally uses. Keep these
+// bounds finite while allowing the advisory-lock/read/insert transaction to
+// complete safely over that connection.
+export const REFERENCE_BOOTSTRAP_TRANSACTION_MAX_WAIT_MS = 10_000;
+export const REFERENCE_BOOTSTRAP_TRANSACTION_TIMEOUT_MS = 30_000;
+
 const serviceSchema = z.object({
   labelAr: z.string().trim().min(1).max(150),
   labelEn: z.string().trim().min(1).max(150),
@@ -230,6 +237,9 @@ export async function runReferenceBootstrap({ prisma, manifest: manifestInput, e
       });
     }
     return inspectReferenceData(tx, manifest);
+  }, {
+    maxWait: REFERENCE_BOOTSTRAP_TRANSACTION_MAX_WAIT_MS,
+    timeout: REFERENCE_BOOTSTRAP_TRANSACTION_TIMEOUT_MS
   });
 
   return { environment: options.deploymentEnvironment, database: actualDatabase, mode: 'WRITE', report };

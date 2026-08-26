@@ -7,6 +7,8 @@ import { Client } from 'pg';
 import { PrismaClient } from '../src/generated/prisma/index.js';
 import {
   REFERENCE_BOOTSTRAP_STATES,
+  REFERENCE_BOOTSTRAP_TRANSACTION_MAX_WAIT_MS,
+  REFERENCE_BOOTSTRAP_TRANSACTION_TIMEOUT_MS,
   ReferenceBootstrapError,
   parseReferenceManifest,
   runReferenceBootstrap
@@ -208,4 +210,11 @@ test('bootstrap creates no operational or identity rows', async () => {
     user: 0, patient: 0, doctor: 0, drugFormulary: 0, inventoryBatch: 0,
     stockMovement: 0, invoice: 0, payment: 0
   });
+});
+
+test('write transaction uses finite latency-tolerant interactive timeout bounds', () => {
+  assert.equal(REFERENCE_BOOTSTRAP_TRANSACTION_MAX_WAIT_MS, 10_000);
+  assert.equal(REFERENCE_BOOTSTRAP_TRANSACTION_TIMEOUT_MS, 30_000);
+  assert.ok(REFERENCE_BOOTSTRAP_TRANSACTION_TIMEOUT_MS > 5_000);
+  assert.ok(REFERENCE_BOOTSTRAP_TRANSACTION_TIMEOUT_MS < 120_000);
 });
