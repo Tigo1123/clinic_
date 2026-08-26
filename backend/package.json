@@ -18,6 +18,7 @@
     "qa:visual-fixtures": "node scripts/seed-qa-visual-states.js",
     "test": "node test/run-tests.js",
     "backup:postgres": "sh scripts/backup-postgres.sh",
+    "bootstrap:reference": "node scripts/bootstrap-reference-data.js",
     "start:staging": "node src/server.js"
   },
   "dependencies": {

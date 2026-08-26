@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "services": [
+    {
+      "labelAr": "فحص دم كامل",
+      "labelEn": "Complete Blood Count",
+      "category": "LABORATORY",
+      "status": "INACTIVE",
+      "baseFeeSdg": null
+    }
+  ]
+}
