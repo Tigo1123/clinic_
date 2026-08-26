@@ -901,9 +901,42 @@
 .pharmacy-paid { display: block; padding: .65rem; }
 .form-help { color: var(--text-secondary); font-size: .78rem; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+.doctor-medicine-mode { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin-bottom: .9rem; padding: .3rem; background: color-mix(in srgb, var(--primary) 7%, transparent); border-radius: 12px; }
+.doctor-medicine-mode button, .doctor-rx-helpers button { border: 1px solid transparent; background: transparent; color: var(--text-secondary); border-radius: 9px; padding: .55rem .7rem; cursor: pointer; font: inherit; }
+.doctor-medicine-mode button.is-selected { background: var(--card-bg, #fff); border-color: var(--border-color, var(--border)); color: var(--primary); font-weight: 700; box-shadow: var(--shadow-sm); }
+.doctor-medicine-combobox { position: relative; margin-bottom: .9rem; }
+.doctor-medicine-search { position: relative; display: flex; align-items: center; }
+.doctor-medicine-search > svg { position: absolute; inset-inline-start: .8rem; z-index: 1; color: var(--text-secondary); pointer-events: none; }
+.doctor-medicine-search .form-input { padding-inline-start: 2.45rem; }
+.doctor-medicine-results { position: absolute; z-index: 30; inset-inline: 0; top: calc(100% + .3rem); max-height: min(330px, 50vh); overflow-y: auto; padding: .35rem; background: var(--card-bg, #fff); border: 1px solid var(--border-color, var(--border)); border-radius: 12px; box-shadow: var(--shadow-lg); }
+.doctor-medicine-results > p { margin: 0; padding: 1rem; text-align: center; color: var(--text-secondary); }
+.doctor-medicine-option { width: 100%; display: grid; gap: .15rem; padding: .65rem .75rem; text-align: start; border: 0; border-radius: 9px; background: transparent; color: inherit; cursor: pointer; }
+.doctor-medicine-option:hover, .doctor-medicine-option.is-active, .doctor-medicine-option[aria-selected="true"] { background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.doctor-medicine-option span, .doctor-medicine-option small { color: var(--text-secondary); }
+.doctor-custom-medicine small { display: block; margin-top: .35rem; color: var(--warning); }
+.doctor-prescription-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+.doctor-prescription-fields .form-group { margin: 0; }
+.doctor-rx-helpers { display: flex; gap: .3rem; flex-wrap: wrap; margin-top: .35rem; }
+.doctor-rx-helpers button { padding: .25rem .45rem; font-size: .72rem; border-color: var(--border-color, var(--border)); }
+.doctor-rx-helpers button:hover, .doctor-rx-helpers button:focus-visible { color: var(--primary); border-color: var(--primary); }
+.doctor-prescription-message { margin-top: .75rem; padding: .65rem; color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, transparent); border-radius: 9px; }
+.doctor-add-prescription { width: 100%; margin-top: .8rem; }
+.doctor-prescribed-list { display: grid; gap: .65rem; margin-top: 1rem; }
+.doctor-prescribed-card { padding: .8rem; border: 1px solid var(--border-color, var(--border)); border-radius: 12px; background: color-mix(in srgb, var(--primary) 3%, transparent); }
+.doctor-prescribed-card__header { display: flex; justify-content: space-between; gap: .75rem; align-items: flex-start; }
+.doctor-prescribed-card__header > div { display: grid; gap: .2rem; min-width: 0; }
+.doctor-prescribed-card__header small { color: var(--text-secondary); overflow-wrap: anywhere; }
+.doctor-prescribed-card dl { display: flex; flex-wrap: wrap; gap: .6rem 1rem; margin: .65rem 0; }
+.doctor-prescribed-card dl div { min-width: 90px; }
+.doctor-prescribed-card dt { color: var(--text-secondary); font-size: .7rem; }
+.doctor-prescribed-card dd { margin: .1rem 0 0; }
+.doctor-prescribed-actions { display: flex; justify-content: flex-end; gap: .45rem; }
 @media (max-width: 680px) {
   .pharmacy-form-grid, .pharmacy-payment-form { grid-template-columns: 1fr; }
   .pharmacy-management-header > .btn, .pharmacy-toolbar .btn, .pharmacy-card-actions .btn { flex: 1 1 auto; }
   .pharmacy-language-labels { flex-direction: column; gap: .2rem; }
   .pharmacy-scroll-table table { min-width: 560px; }
+  .doctor-medicine-mode, .doctor-prescription-fields { grid-template-columns: 1fr; }
+  .doctor-prescribed-card__header { flex-direction: column; }
+  .doctor-prescribed-actions .btn { flex: 1; }
 }

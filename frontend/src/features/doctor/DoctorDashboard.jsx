@@ -7,6 +7,8 @@ import { staffSocket as socket } from '../../services/staffSocket';
 import RoleHero from '../../components/healthcare/RoleHero';
 import { clinicDateString } from '../../utils/clinicTime';
 import { staffApiRequest as apiRequest } from '../../services/apiClient';
+import MedicineCombobox from './MedicineCombobox';
+import { doctorPrescriptionItem, duplicatePrescriptionItem } from '../../utils/doctorPrescription';
 
 export default function DoctorDashboard({ user, lang, t }) {
   const [queue, setQueue] = useState([]);
@@ -41,6 +43,9 @@ export default function DoctorDashboard({ user, lang, t }) {
   const [instrAr, setInstrAr] = useState('');
   const [instrEn, setInstrEn] = useState('');
   const [prescribedItems, setPrescribedItems] = useState([]);
+  const [medicineMode, setMedicineMode] = useState('official');
+  const [editingPrescriptionIndex, setEditingPrescriptionIndex] = useState(-1);
+  const [prescriptionMessage, setPrescriptionMessage] = useState('');
 
   // Lab services selectors
   const [clinicalServices, setClinicalServices] = useState([]);
@@ -325,41 +330,18 @@ export default function DoctorDashboard({ user, lang, t }) {
       !Number.isInteger(parsedQuantity) ||
       parsedQuantity <= 0
     ) {
+      setPrescriptionMessage(lang === 'ar' ? 'اختر دواءً وأكمل الجرعة والمدة والكمية.' : 'Choose a medicine and complete dosage, duration, and quantity.');
       return;
     }
 
-    if (selectedDrug) {
-      const drugObj = drugs.find((d) => d.id === selectedDrug);
-      if (!drugObj) return;
-
-      setPrescribedItems([
-        ...prescribedItems,
-        {
-          drugId: selectedDrug,
-          nameAr: drugObj.labelAr,
-          nameEn: drugObj.labelEn,
-          dosage,
-          duration,
-          instructionsAr: instrAr,
-          instructionsEn: instrEn,
-          qtyPrescribed: parsedQuantity
-        }
-      ]);
-    } else {
-      setPrescribedItems([
-        ...prescribedItems,
-        {
-          customDrugName: customName,
-          nameAr: customName,
-          nameEn: customName,
-          dosage,
-          duration,
-          instructionsAr: instrAr,
-          instructionsEn: instrEn,
-          qtyPrescribed: parsedQuantity
-        }
-      ]);
+    const drugObj = selectedDrug ? drugs.find((drug) => drug.id === selectedDrug) : null;
+    if (selectedDrug && !drugObj) return;
+    const candidate = doctorPrescriptionItem(drugObj, { customDrugName: customName, dosage, duration, instructionsAr: instrAr, instructionsEn: instrEn, quantity: parsedQuantity });
+    if (duplicatePrescriptionItem(prescribedItems, candidate, editingPrescriptionIndex)) {
+      setPrescriptionMessage(lang === 'ar' ? 'هذا الدواء موجود بالفعل في الوصفة. عدّل الإدخال الحالي بدلاً من إضافته مرة أخرى.' : 'This medicine is already in the prescription. Edit the existing entry instead of adding it again.');
+      return;
     }
+    setPrescribedItems((current) => editingPrescriptionIndex >= 0 ? current.map((item, index) => index === editingPrescriptionIndex ? candidate : item) : [...current, candidate]);
 
     setSelectedDrug('');
     setCustomDrugName('');
@@ -368,6 +350,22 @@ export default function DoctorDashboard({ user, lang, t }) {
     setQuantity('');
     setInstrAr('');
     setInstrEn('');
+    setEditingPrescriptionIndex(-1);
+    setPrescriptionMessage('');
+  };
+
+  const handleEditPrescriptionItem = (item, index) => {
+    setMedicineMode(item.drugId ? 'official' : 'custom');
+    setSelectedDrug(item.drugId || ''); setCustomDrugName(item.customDrugName || '');
+    setDosage(item.dosage); setDuration(item.duration); setQuantity(String(item.qtyPrescribed));
+    setInstrAr(item.instructionsAr || ''); setInstrEn(item.instructionsEn || '');
+    setEditingPrescriptionIndex(index); setPrescriptionMessage('');
+  };
+
+  const handleRemovePrescriptionItem = (index) => {
+    setPrescribedItems((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    if (editingPrescriptionIndex === index) { setEditingPrescriptionIndex(-1); setSelectedDrug(''); setCustomDrugName(''); }
+    else if (editingPrescriptionIndex > index) setEditingPrescriptionIndex((current) => current - 1);
   };
 
   const handleToggleTest = (serviceId) => {
@@ -966,220 +964,25 @@ export default function DoctorDashboard({ user, lang, t }) {
                         <Sliders size={16} color="var(--primary)" />
                         {lang === 'ar' ? 'الوصفة الطبية السريعة' : 'Rapid Prescription Builder'}
                       </h4>
-                      <div style={{ marginBottom: '0.75rem' }}>
-                        <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>
-                          {lang === 'ar' ? 'نماذج أدوية سريعة:' : 'Quick Medications:'}
-                        </span>
-
-                        <div
-                          style={{
-                            display: 'flex',
-                            flexWrap: 'wrap',
-                            gap: '0.25rem',
-                            marginTop: '0.35rem'
-                          }}
-                        >
-                          {drugs.slice(0, 10).map((drug) => (
-                            <button
-                              key={drug.id}
-                              type="button"
-                              className="btn btn-secondary"
-                              style={{
-                                padding: '3px 8px',
-                                fontSize: '0.7rem',
-                                textTransform: 'none',
-                                background:
-                                  selectedDrug === drug.id
-                                    ? 'rgba(0,120,255,0.15)'
-                                    : 'rgba(255,255,255,0.05)'
-                              }}
-                              onClick={() => {
-                                setSelectedDrug(drug.id);
-                                setCustomDrugName('');
-                              }}
-                            >
-                              {lang === 'ar' ? drug.labelAr : drug.labelEn}
-                            </button>
-                          ))}
-                        </div>
+                      <div className="doctor-medicine-mode" role="group" aria-label={lang === 'ar' ? 'نوع الدواء' : 'Medicine type'}>
+                        <button type="button" className={medicineMode === 'official' ? 'is-selected' : ''} aria-pressed={medicineMode === 'official'} onClick={() => { setMedicineMode('official'); setCustomDrugName(''); }}>{lang === 'ar' ? 'دواء من القائمة الرسمية' : 'Official formulary medicine'}</button>
+                        <button type="button" className={medicineMode === 'custom' ? 'is-selected' : ''} aria-pressed={medicineMode === 'custom'} onClick={() => { setMedicineMode('custom'); setSelectedDrug(''); }}>{lang === 'ar' ? 'دواء غير موجود / كتابة يدوية' : 'Medicine not found / custom'}</button>
                       </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: '0.5rem' }}>
-                        <div>
-                          <select
-                            className="form-input"
-                            value={selectedDrug}
-                            disabled={Boolean(customDrugName.trim())}
-                            onChange={(e) => {
-                              setSelectedDrug(e.target.value);
-                              if (e.target.value) setCustomDrugName('');
-                            }}
-                          >
-                            <option value="">
-                              {lang === 'ar' ? 'اختر الدواء...' : 'Medication...'}
-                            </option>
-
-                            {drugs.map((d) => (
-                              <option key={d.id} value={d.id}>
-                                {lang === 'ar' ? d.labelAr : d.labelEn}
-                              </option>
-                            ))}
-                          </select>
-
-                          <div
-                            style={{
-                              textAlign: 'center',
-                              fontSize: '0.7rem',
-                              opacity: 0.7,
-                              margin: '5px 0'
-                            }}
-                          >
-                            {lang === 'ar' ? 'أو' : 'OR'}
-                          </div>
-
-                          <input
-                            type="text"
-                            className="form-input"
-                            disabled={Boolean(selectedDrug)}
-                            placeholder={
-                              lang === 'ar'
-                                ? 'اكتب اسم الدواء يدويًا'
-                                : 'Type medication name manually'
-                            }
-                            value={customDrugName}
-                            onChange={(e) => {
-                              setCustomDrugName(e.target.value);
-                              if (e.target.value) setSelectedDrug('');
-                            }}
-                          />
-
-                          <div
-                            style={{
-                              fontSize: '0.68rem',
-                              opacity: 0.7,
-                              marginTop: '5px'
-                            }}
-                          >
-                            {lang === 'ar'
-                              ? 'استخدم اختيار الدواء أو الكتابة اليدوية، وليس الاثنين معًا.'
-                              : 'Use either the medication list or manual entry, not both.'}
-                          </div>
-                        </div>
-
-                        <div>
-                          <input
-                            type="text"
-                            placeholder={
-  lang === 'ar'
-    ? 'الجرعة، مثال: 500mg'
-    : 'Dosage, e.g. 500mg'
-}
-                            className="form-input"
-                            value={dosage}
-                            onChange={(e) => setDosage(e.target.value)}
-                          />
-                          <div style={{ display: 'flex', gap: '2px', marginTop: '4px', flexWrap: 'wrap' }}>
-                            {quickDosagePresets.map(p => (
-                              <button
-                                key={p}
-                                type="button"
-                                style={{ padding: '2px 4px', fontSize: '0.65rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'rgba(255,255,255,0.03)', cursor: 'pointer', color: 'var(--text-secondary)' }}
-                                onClick={() => setDosage(p)}
-                              >
-                                {p}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div>
-                          <input
-                            type="text"
-                            placeholder={
-  lang === 'ar'
-    ? 'مدة العلاج، مثال: 5 أيام'
-    : 'Duration, e.g. 5 days'
-}
-                            className="form-input"
-                            value={duration}
-                            onChange={(e) => setDuration(e.target.value)}
-                          />
-                          <div style={{ display: 'flex', gap: '2px', marginTop: '4px', flexWrap: 'wrap' }}>
-                            {quickDurationPresets.map((preset) => (
-                              <button
-                                key={preset.value}
-                                type="button"
-                                style={{ padding: '2px 4px', fontSize: '0.65rem', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'rgba(255,255,255,0.03)', cursor: 'pointer', color: 'var(--text-secondary)' }}
-                                onClick={() => setDuration(preset.value)}
-                              >
-                                {lang === 'ar' ? preset.ar : preset.en}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
+                      {medicineMode === 'official' ? <MedicineCombobox medicines={drugs} selectedId={selectedDrug} lang={lang} onSelect={(id) => { setSelectedDrug(id); setCustomDrugName(''); setPrescriptionMessage(''); }} /> : <div className="form-group doctor-custom-medicine"><label className="form-label" htmlFor="doctor-custom-medicine">{lang === 'ar' ? 'اسم الدواء المكتوب يدويًا' : 'Custom medicine name'}</label><input id="doctor-custom-medicine" type="text" className="form-input" dir={lang === 'ar' ? 'rtl' : 'ltr'} value={customDrugName} onChange={(event) => { setCustomDrugName(event.target.value); setSelectedDrug(''); setPrescriptionMessage(''); }} /><small>{lang === 'ar' ? 'سيُرسل هذا الدواء إلى الصيدلي للمراجعة ولن يتحول تلقائيًا إلى دواء رسمي.' : 'This medicine will require pharmacist review and will not become a formulary entry automatically.'}</small></div>}
+                      <div className="doctor-prescription-fields">
+                        <div className="form-group"><label className="form-label" htmlFor="doctor-rx-dosage">{lang === 'ar' ? 'الجرعة والتكرار' : 'Dosage and frequency'}</label><input id="doctor-rx-dosage" type="text" className="form-input" dir="ltr" value={dosage} onChange={(event) => setDosage(event.target.value)} /><div className="doctor-rx-helpers">{quickDosagePresets.map((preset) => <button key={preset} type="button" onClick={() => setDosage(preset)}>{preset}</button>)}</div></div>
+                        <div className="form-group"><label className="form-label" htmlFor="doctor-rx-duration">{lang === 'ar' ? 'مدة العلاج' : 'Duration'}</label><input id="doctor-rx-duration" type="text" className="form-input" value={duration} onChange={(event) => setDuration(event.target.value)} /><div className="doctor-rx-helpers">{quickDurationPresets.map((preset) => <button key={preset.value} type="button" onClick={() => setDuration(preset.value)}>{lang === 'ar' ? preset.ar : preset.en}</button>)}</div></div>
+                        <div className="form-group"><label className="form-label" htmlFor="doctor-rx-quantity">{lang === 'ar' ? 'الكمية الموصوفة' : 'Prescribed quantity'}</label><input id="doctor-rx-quantity" type="number" min="1" step="1" className="form-input" dir="ltr" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></div>
+                        <div className="form-group"><label className="form-label" htmlFor="doctor-rx-instructions-ar">تعليمات الدواء بالعربية</label><input id="doctor-rx-instructions-ar" type="text" className="form-input" dir="rtl" value={instrAr} onChange={(event) => setInstrAr(event.target.value)} /></div>
+                        <div className="form-group"><label className="form-label" htmlFor="doctor-rx-instructions-en">Medication instructions in English</label><input id="doctor-rx-instructions-en" type="text" className="form-input" dir="ltr" value={instrEn} onChange={(event) => setInstrEn(event.target.value)} /></div>
                       </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.75rem' }}>
-                        <input
-                          type="number"
-                          min="1"
-                          step="1"
-                          placeholder={lang === 'ar' ? 'الكمية' : 'Quantity'}
-                          aria-label={lang === 'ar' ? 'الكمية الموصوفة' : 'Prescribed quantity'}
-                          className="form-input"
-                          value={quantity}
-                          onChange={(e) => setQuantity(e.target.value)}
-                        />
-                        <input
-                          type="text"
-                          placeholder={
-  lang === 'ar'
-    ? 'تعليمات الدواء بالعربية'
-    : 'Medication instructions in Arabic'
-}
-                          className="form-input"
-                          value={instrAr}
-                          onChange={(e) => setInstrAr(e.target.value)}
-                        />
-                        <input
-                          type="text"
-                          placeholder={
-  lang === 'ar'
-    ? 'تعليمات الدواء بالإنجليزية'
-    : 'Medication instructions in English'
-}
-                          className="form-input"
-                          value={instrEn}
-                          onChange={(e) => setInstrEn(e.target.value)}
-                        />
-                      </div>
-                      <button type="button" className="btn btn-secondary" style={{ width: '100%', marginTop: '0.5rem', padding: '6px' }} onClick={handleAddDrugToRx}>
-                        {t('prescribe')}
-                      </button>
-
-                      {/* Prescribed Items Table */}
-                      {prescribedItems.length > 0 && (
-                        <table className="staff-table" style={{ fontSize: '0.75rem', marginTop: '0.75rem' }}>
-                          <thead>
-                            <tr>
-                              <th>{lang === 'ar' ? 'الدواء' : 'Medication'}</th>
-                              <th>{lang === 'ar' ? 'الجرعة' : 'Dosage'}</th>
-                              <th>{lang === 'ar' ? 'المدة' : 'Duration'}</th>
-                              <th>{lang === 'ar' ? 'الكمية' : 'Quantity'}</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {prescribedItems.map((item, idx) => (
-                              <tr key={idx}>
-                                <td>{lang === 'ar' ? item.nameAr : item.nameEn}</td>
-                                <td>{item.dosage}</td>
-                                <td>{item.duration}</td>
-                                <td>{item.qtyPrescribed}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      )}
+                      {prescriptionMessage && <div className="doctor-prescription-message" role="alert">{prescriptionMessage}</div>}
+                      <button type="button" className="btn btn-secondary doctor-add-prescription" onClick={handleAddDrugToRx}>{editingPrescriptionIndex >= 0 ? (lang === 'ar' ? 'حفظ تعديل الدواء' : 'Save medicine changes') : t('prescribe')}</button>
+                      {prescribedItems.length > 0 && <div className="doctor-prescribed-list" aria-label={lang === 'ar' ? 'الأدوية المختارة' : 'Selected medicines'}>{prescribedItems.map((item, index) => { const displayDrug = item.drugId ? drugs.find((drug) => drug.id === item.drugId) : null; return <article className="doctor-prescribed-card" key={item.drugId || `custom-${item.customDrugName}-${index}`}>
+                        <div className="doctor-prescribed-card__header"><div><strong>{lang === 'ar' ? item.nameAr : item.nameEn}</strong>{item.drugId ? <small>{[displayDrug?.brandName, displayDrug?.genericName, displayDrug?.strength, displayDrug?.dosageForm].filter(Boolean).join(' · ')}</small> : <span className="badge badge-warning">{lang === 'ar' ? 'دواء مكتوب يدويًا — يحتاج مراجعة الصيدلي' : 'Custom medicine — pharmacist review required'}</span>}</div><span className="badge badge-info">{lang === 'ar' ? `الكمية ${item.qtyPrescribed}` : `Qty ${item.qtyPrescribed}`}</span></div>
+                        <dl><div><dt>{lang === 'ar' ? 'الجرعة' : 'Dosage'}</dt><dd>{item.dosage}</dd></div><div><dt>{lang === 'ar' ? 'المدة' : 'Duration'}</dt><dd>{item.duration}</dd></div>{(item.instructionsAr || item.instructionsEn) && <div><dt>{lang === 'ar' ? 'التعليمات' : 'Instructions'}</dt><dd>{lang === 'ar' ? item.instructionsAr || item.instructionsEn : item.instructionsEn || item.instructionsAr}</dd></div>}</dl>
+                        <div className="doctor-prescribed-actions"><button type="button" className="btn" onClick={() => handleEditPrescriptionItem(item, index)}>{lang === 'ar' ? 'تعديل' : 'Edit'}</button><button type="button" className="btn btn-danger" onClick={() => handleRemovePrescriptionItem(index)}>{lang === 'ar' ? 'إزالة' : 'Remove'}</button></div>
+                      </article>; })}</div>}
                     </div>
 
                     {/* Labs orders */}
