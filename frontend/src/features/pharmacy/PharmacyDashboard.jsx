@@ -6,7 +6,7 @@ import { clinicDateString } from '../../utils/clinicTime';
 import PharmacyManagement from './PharmacyManagement';
 import PharmacyPayment from './PharmacyPayment';
 import Dialog from '../../components/ui/Dialog';
-import { buildMedicationReviewPayload, customMedicineRequiresReview } from '../../utils/pharmacyManagement';
+import { authoritativeStockSummary, buildMedicationReviewPayload, customMedicineRequiresReview, localizedStockState, pharmacyInventoryAlert, stockPresentation } from '../../utils/pharmacyManagement';
 
 export default function PharmacyDashboard({ lang, t }) {
   const [prescriptions, setPrescriptions] = useState([]);
@@ -18,8 +18,7 @@ export default function PharmacyDashboard({ lang, t }) {
   const [paymentRefresh, setPaymentRefresh] = useState(0);
   const [dispensing, setDispensing] = useState(false);
 
-  // Inventory warnings
-  const [inventoryAlerts, setInventoryAlerts] = useState([]);
+  const [selectedStock, setSelectedStock] = useState({});
 
   // Read-only formulary pricing; official prices are configured by ADMIN.
   const [drugCatalog, setDrugCatalog] = useState([]);
@@ -54,8 +53,7 @@ export default function PharmacyDashboard({ lang, t }) {
           Array.isArray(data) ? data : []
         );
       })
-      .catch((error) => {
-        console.error(error);
+      .catch(() => {
         setMedicationReviews([]);
         setReviewErrorMsg(
           lang === 'ar'
@@ -81,8 +79,7 @@ export default function PharmacyDashboard({ lang, t }) {
           );
         });
       })
-      .catch((err) => {
-        console.error(err);
+      .catch(() => {
         setPrescriptions([]);
       });
   };
@@ -96,95 +93,26 @@ export default function PharmacyDashboard({ lang, t }) {
       .then((data) => {
         if (Array.isArray(data)) {
           setDrugCatalog(data);
-
-          const today = clinicDateString();
-
-          const expiryCutoff = new Date(`${today}T00:00:00Z`);
-          expiryCutoff.setUTCDate(expiryCutoff.getUTCDate() + 30);
-          const expiryCutoffDate = expiryCutoff.toISOString().slice(0, 10);
-
-          const alerts = data
-            .map((drug) => {
-              const batches = Array.isArray(drug.inventoryBatches)
-                ? drug.inventoryBatches
-                : [];
-
-              // A batch is usable only when it has stock and has not expired.
-              // This intentionally matches the current pharmacy dispensing rule.
-              const usableBatches = batches.filter(
-                (batch) =>
-                  Number(batch.qtyOnHand) > 0 &&
-                  batch.expiryDate >= today
-              );
-
-              const totalUsableStock = usableBatches.reduce(
-                (sum, batch) => sum + Number(batch.qtyOnHand || 0),
-                0
-              );
-
-              const reorderLevel = batches.length
-                ? Math.max(
-                    ...batches.map((batch) =>
-                      Number(batch.minReorderLevel || 0)
-                    )
-                  )
-                : 0;
-
-              const expiredBatches = batches.filter(
-                (batch) =>
-                  Number(batch.qtyOnHand) > 0 &&
-                  batch.expiryDate < today
-              );
-
-              const expiringSoonBatches = batches
-                .filter(
-                  (batch) =>
-                    Number(batch.qtyOnHand) > 0 &&
-                    batch.expiryDate >= today &&
-                    batch.expiryDate <= expiryCutoffDate
-                )
-                .sort((a, b) =>
-                  a.expiryDate.localeCompare(b.expiryDate)
-                );
-
-              const isOutOfStock = totalUsableStock === 0;
-
-              const isLowStock =
-                totalUsableStock > 0 &&
-                totalUsableStock <= reorderLevel;
-
-              const hasExpiryAlert =
-                expiredBatches.length > 0 ||
-                expiringSoonBatches.length > 0;
-
-              if (!isOutOfStock && !isLowStock && !hasExpiryAlert) {
-                return null;
-              }
-
-              return {
-                ...drug,
-                totalUsableStock,
-                reorderLevel,
-                isOutOfStock,
-                isLowStock,
-                expiredBatches,
-                expiringSoonBatches
-              };
-            })
-            .filter(Boolean);
-
-          setInventoryAlerts(alerts);
         } else {
           setDrugCatalog([]);
-          setInventoryAlerts([]);
         }
       })
-      .catch((err) => {
-        console.error(err);
+      .catch(() => {
         setDrugCatalog([]);
-        setInventoryAlerts([]);
       });
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    const ids = [...new Set((selectedRx?.prescribedDrugs || []).map((item) => item.drugId || item.drug?.id).filter(Boolean))];
+    if (!ids.length) { setSelectedStock({}); return () => { active = false; }; }
+    Promise.all(ids.map(async (id) => {
+      const response = await fetchWithAuth(`/api/pharmacy/formulary/${id}`);
+      if (!response.ok) return [id, null];
+      return [id, await response.json()];
+    })).then((entries) => { if (active) setSelectedStock(Object.fromEntries(entries)); }).catch(() => { if (active) setSelectedStock({}); });
+    return () => { active = false; };
+  }, [selectedRx, managementRefresh]);
 
   const setReviewMode = (item, mode) => {
     setReviewErrorMsg('');
@@ -446,9 +374,7 @@ export default function PharmacyDashboard({ lang, t }) {
                 : `${item.customDrugName} was approved successfully.`
             )
       );
-    } catch (error) {
-      console.error(error);
-
+    } catch {
       setReviewErrorMsg(
         lang === 'ar'
           ? 'تعذر إكمال مراجعة الدواء.'
@@ -509,13 +435,25 @@ export default function PharmacyDashboard({ lang, t }) {
         const err = await res.json();
         setErrorMsg(apiErrorMessage(err, 'Dispense failed.'));
       }
-    } catch (e) {
-      console.error(e);
+    } catch {
       setErrorMsg('Dispensing transaction failed.');
     } finally {
       setDispensing(false);
     }
   };
+
+  const inventoryAlerts = Object.values(selectedStock).filter(Boolean).map((medicine) => {
+    const alert = pharmacyInventoryAlert(medicine);
+    return {
+      ...medicine,
+      totalUsableStock: alert.usableStock,
+      reorderLevel: alert.lowStockBatchCount,
+      expiredBatchCount: alert.expiredBatchCount,
+      isOutOfStock: ['OUT_OF_STOCK', 'EXPIRED'].includes(alert.state),
+      isLowStock: alert.state === 'LOW_STOCK',
+      expiringSoonBatches: []
+    };
+  }).filter((medicine) => medicine.isOutOfStock || medicine.isLowStock || medicine.expiredBatchCount > 0);
 
   return (
     <div className="dashboard-wrapper">
@@ -1750,15 +1688,11 @@ export default function PharmacyDashboard({ lang, t }) {
                     );
                   }
 
-                  const qtyOnHand =
-                    item.drug.inventoryBatches?.reduce(
-                      (sum, b) => sum + (b.qtyOnHand || 0),
-                      0
-                    ) || 0;
-
-                  const isOutOfStock = qtyOnHand === 0;
-                  const isInsufficient = qtyOnHand < item.qtyPrescribed;
-                  const isLowStock = qtyOnHand < 25;
+                  const authoritativeMedicine = selectedStock[item.drugId || item.drug.id];
+                  const stock = authoritativeStockSummary(authoritativeMedicine || {});
+                  const stockState = authoritativeMedicine ? stockPresentation(stock) : null;
+                  const isInsufficient = authoritativeMedicine && stock.usableStock < item.qtyPrescribed;
+                  const badgeTone = !authoritativeMedicine || isInsufficient || ['OUT_OF_STOCK', 'EXPIRED'].includes(stockState) ? 'danger' : ['LOW_STOCK', 'NEAR_EXPIRY'].includes(stockState) ? 'warning' : 'success';
 
                   return (
                     <div
@@ -1769,9 +1703,9 @@ export default function PharmacyDashboard({ lang, t }) {
                         marginBottom: '0.5rem',
                         fontSize: '0.9rem',
                         borderLeft:
-                          isOutOfStock || isInsufficient
+                          !authoritativeMedicine || isInsufficient || ['OUT_OF_STOCK', 'EXPIRED'].includes(stockState)
                             ? '3px solid var(--danger)'
-                            : isLowStock
+                            : ['LOW_STOCK', 'NEAR_EXPIRY'].includes(stockState)
                               ? '3px solid var(--warning)'
                               : '3px solid var(--success)'
                       }}
@@ -1797,25 +1731,9 @@ export default function PharmacyDashboard({ lang, t }) {
                           Dosage: {item.dosage} | Duration: {item.duration}
                         </span>
 
-                        {isOutOfStock ? (
-                          <span className="badge badge-danger" style={{ fontSize: '0.7rem' }}>
-                            {lang === 'ar' ? 'غير متوفر' : 'Out of stock'}
-                          </span>
-                        ) : isInsufficient ? (
-                          <span className="badge badge-danger" style={{ fontSize: '0.7rem' }}>
-                            {lang === 'ar' ? 'غير كافٍ' : `Insufficient (${qtyOnHand})`}
-                          </span>
-                        ) : isLowStock ? (
-                          <span className="badge badge-warning" style={{ fontSize: '0.7rem' }}>
-                            {lang === 'ar'
-      ? `مخزون منخفض (${qtyOnHand} متوفر)`
-      : `Low stock (${qtyOnHand} available)`}
-                          </span>
-                        ) : (
-                          <span className="badge badge-success" style={{ fontSize: '0.7rem' }}>
-                            {lang === 'ar' ? 'متوفر' : `In Stock (${qtyOnHand})`}
-                          </span>
-                        )}
+                        <span className={`badge badge-${badgeTone}`} style={{ fontSize: '0.7rem' }}>
+                          {!authoritativeMedicine ? (lang === 'ar' ? 'جارٍ التحقق من المخزون' : 'Checking stock') : isInsufficient ? (lang === 'ar' ? `غير كافٍ (${stock.usableStock})` : `Insufficient (${stock.usableStock})`) : `${localizedStockState(stockState, lang)} (${stock.usableStock})`}
+                        </span>
                       </div>
 
                       <div
@@ -1825,15 +1743,7 @@ export default function PharmacyDashboard({ lang, t }) {
                           marginTop: '0.5rem'
                         }}
                       >
-                        FEFO: Batch{' '}
-                        {[...(item.drug.inventoryBatches || [])]
-                          .sort((a, b) => a.expiryDate.localeCompare(b.expiryDate))[0]
-                          ?.batchNumber || 'N/A'}{' '}
-                        (Exp:{' '}
-                        {[...(item.drug.inventoryBatches || [])]
-                          .sort((a, b) => a.expiryDate.localeCompare(b.expiryDate))[0]
-                          ?.expiryDate || 'N/A'}
-                        )
+                        {lang === 'ar' ? 'أقرب صلاحية سارية: ' : 'Nearest unexpired expiry: '}{stock.nearestUnexpiredExpiry || '—'}
                       </div>
                     </div>
                   );
@@ -1930,8 +1840,8 @@ export default function PharmacyDashboard({ lang, t }) {
                     {drug.isLowStock && (
                       <div className="badge badge-warning">
                         {lang === 'ar'
-                          ? `مخزون منخفض: ${drug.totalUsableStock} متوفر — حد إعادة الطلب ${drug.reorderLevel}`
-                          : `Low stock: ${drug.totalUsableStock} available — reorder level ${drug.reorderLevel}`}
+                          ? `مخزون منخفض: ${drug.totalUsableStock} متوفر — دفعات منخفضة ${drug.reorderLevel}`
+                          : `Low stock: ${drug.totalUsableStock} available — low-stock batches ${drug.reorderLevel}`}
                       </div>
                     )}
 
@@ -1940,6 +1850,14 @@ export default function PharmacyDashboard({ lang, t }) {
                         {lang === 'ar'
                           ? `المخزون الصالح للصرف: ${drug.totalUsableStock}`
                           : `Usable stock: ${drug.totalUsableStock}`}
+                      </div>
+                    )}
+
+                    {drug.expiredBatchCount > 0 && (
+                      <div className="badge badge-danger" style={{ display: 'block', whiteSpace: 'normal' }}>
+                        {lang === 'ar'
+                          ? `يوجد ${drug.expiredBatchCount} دفعة منتهية الصلاحية لهذا الدواء`
+                          : `This medicine has ${drug.expiredBatchCount} expired batches`}
                       </div>
                     )}
 
@@ -1958,20 +1876,6 @@ export default function PharmacyDashboard({ lang, t }) {
                       </div>
                     ))}
 
-                    {drug.expiredBatches.map((batch) => (
-                      <div
-                        key={`expired-${batch.id}`}
-                        className="badge badge-danger"
-                        style={{
-                          display: 'block',
-                          whiteSpace: 'normal'
-                        }}
-                      >
-                        {lang === 'ar'
-                          ? `منتهي الصلاحية — التشغيلة ${batch.batchNumber} — انتهت ${batch.expiryDate} — الكمية ${batch.qtyOnHand}`
-                          : `Expired — Batch ${batch.batchNumber} — Expired ${batch.expiryDate} — Qty ${batch.qtyOnHand}`}
-                      </div>
-                    ))}
                   </div>
                 </div>
               ))

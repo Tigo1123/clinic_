@@ -12,6 +12,14 @@ import {
   customMedicineRequiresReview,
   pharmacyBillingPendingCopy,
   pharmacyBillingRequiresReview,
+  authoritativeStockSummary,
+  batchPresentation,
+  localizedMovementType,
+  localizedStockState,
+  pharmacyManagementError,
+  pharmacyInventoryAlert,
+  stockPresentation,
+  validateBatchForm,
   updateMedicineField,
   newPaymentAttempt,
   paymentAttemptIsReflected,
@@ -68,13 +76,14 @@ test('payment payload is minimal and exact-attempt retries reuse one idempotency
 
 test('dashboard integrates bounded APIs, server payment state, and read-only movement history', () => {
   const management = source('src/features/pharmacy/PharmacyManagement.jsx');
+  const managementUtils = source('src/utils/pharmacyManagement.js');
   const payment = source('src/features/pharmacy/PharmacyPayment.jsx');
   const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
   assert.match(management, /Medicine & Inventory Management/);
   assert.match(management, /pageSize: '20'/);
-  assert.match(management, /FORMULARY_MEDICINE_ALREADY_EXISTS/);
-  assert.match(management, /FORMULARY_IDENTITY_IMMUTABLE/);
-  assert.match(management, /INVENTORY_BATCH_ALREADY_EXISTS/);
+  assert.match(managementUtils, /FORMULARY_MEDICINE_ALREADY_EXISTS/);
+  assert.match(managementUtils, /FORMULARY_IDENTITY_IMMUTABLE/);
+  assert.match(managementUtils, /INVENTORY_BATCH_ALREADY_EXISTS/);
   assert.match(management, /read-only and cannot be edited or deleted/);
   assert.doesNotMatch(management, /method: '(PUT|DELETE)'/);
   assert.match(payment, /Idempotency-Key/);
@@ -92,6 +101,88 @@ test('dashboard integrates bounded APIs, server payment state, and read-only mov
   assert.doesNotMatch(payment, /\/dispense/);
   assert.match(dashboard, /paymentState\?\.dispensingAllowed/);
   assert.match(dashboard, /disabled=\{!paymentState\?\.dispensingAllowed \|\| dispensing\}/);
+});
+
+test('authoritative pharmacy summaries and stock states use final Phase 2 fields', () => {
+  const medicine = { stock: { totalOnHand: 12, usableStock: 7, nearestUnexpiredExpiry: '2030-01-01', expiredBatchCount: 2, lowStockBatchCount: 1, batchCount: 3 } };
+  assert.deepEqual(authoritativeStockSummary(medicine), {
+    totalOnHand: 12, usableStock: 7, nearestUnexpiredExpiry: '2030-01-01', expiredBatchCount: 2, lowStockBatchCount: 1, batchCount: 3, nearExpiry: false
+  });
+  assert.equal(stockPresentation(authoritativeStockSummary(medicine)), 'LOW_STOCK');
+  assert.equal(stockPresentation({ totalOnHand: 5, usableStock: 0, expiredBatchCount: 1 }), 'EXPIRED');
+  assert.equal(stockPresentation({ totalOnHand: 0, usableStock: 0 }), 'OUT_OF_STOCK');
+  assert.equal(stockPresentation({ totalOnHand: 8, usableStock: 8, nearExpiry: true }), 'NEAR_EXPIRY');
+  assert.equal(stockPresentation({ totalOnHand: 8, usableStock: 8 }), 'HEALTHY');
+  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
+  assert.match(management, /stock\.totalOnHand/);
+  assert.match(management, /stock\.nearestUnexpiredExpiry/);
+  assert.doesNotMatch(management, /stock\.totalStock|stock\.nearestExpiry/);
+});
+
+test('stock and movement states localize in Arabic and English', () => {
+  for (const state of ['OUT_OF_STOCK', 'LOW_STOCK', 'EXPIRED', 'NEAR_EXPIRY', 'HEALTHY']) {
+    assert.notEqual(localizedStockState(state, 'ar'), state);
+    assert.notEqual(localizedStockState(state, 'en'), state);
+  }
+  assert.equal(localizedMovementType('OPENING_BALANCE', 'ar'), 'رصيد افتتاحي');
+  assert.equal(localizedMovementType('RECEIPT', 'en'), 'Stock receipt');
+  assert.equal(localizedMovementType('DISPENSE', 'en'), 'Dispense');
+  assert.equal(batchPresentation({ qtyOnHand: 5, state: { nearExpiry: true } }), 'NEAR_EXPIRY');
+  assert.equal(batchPresentation({ qtyOnHand: 5, state: { expired: true } }), 'EXPIRED');
+});
+
+test('management errors and batch validation are safe and localized', () => {
+  assert.match(pharmacyManagementError({ error: { code: 'INVENTORY_BATCH_ALREADY_EXISTS' } }, 409, 'ar'), /مسجلة بالفعل/);
+  assert.match(pharmacyManagementError({ error: { code: 'FORMULARY_IDENTITY_IMMUTABLE' } }, 409, 'en'), /clinical or inventory use/);
+  assert.doesNotMatch(pharmacyManagementError({ error: { message: 'Prisma P2002 secret' } }, 500, 'en'), /Prisma|P2002/);
+  const errors = validateBatchForm({ batchNumber: '', expiryDate: 'not-a-date', receivedQuantity: '0', minReorderLevel: '-1' }, 'en');
+  assert.deepEqual(Object.keys(errors).sort(), ['batchNumber', 'expiryDate', 'minReorderLevel', 'receivedQuantity']);
+});
+
+test('422 expiry and network failures are safely localized without raw errors', () => {
+  const expiryPayload = { error: { code: 'INVENTORY_EXPIRY_INVALID', message: 'internal detail' } };
+  assert.equal(pharmacyManagementError(expiryPayload, 422, 'ar'), 'تاريخ انتهاء الدفعة غير صالح. يجب اختيار تاريخ انتهاء مستقبلي صالح.');
+  assert.equal(pharmacyManagementError(expiryPayload, 422, 'en'), 'The batch expiry date is invalid. Choose a valid future expiry date.');
+  assert.equal(pharmacyManagementError({ error: { code: 'UNKNOWN_VALIDATION', message: 'Prisma detail' } }, 422, 'ar'), 'بيانات المخزون غير صالحة. راجع الحقول وحاول مرة أخرى.');
+  assert.equal(pharmacyManagementError({}, 0, 'ar', 'Unable to load formulary.'), 'تعذر الاتصال بالخادم. تحقق من الاتصال وحاول مرة أخرى.');
+  assert.equal(pharmacyManagementError({}, 0, 'en', 'تعذر التحميل'), 'Unable to reach the server. Check your connection and try again.');
+  for (const message of [
+    pharmacyManagementError({ error: { message: 'Error: raw stack' } }, 422, 'ar'),
+    pharmacyManagementError({ error: { message: 'Error: raw stack' } }, 500, 'en')
+  ]) assert.doesNotMatch(message, /raw stack|Error:|Prisma/);
+});
+
+test('expired-batch alerts coexist with authoritative usable and healthy or low stock', () => {
+  const healthy = pharmacyInventoryAlert({ stock: { totalOnHand: 12, usableStock: 10, expiredBatchCount: 2, lowStockBatchCount: 0 } });
+  assert.equal(healthy.usableStock, 10);
+  assert.equal(healthy.expiredBatchCount, 2);
+  assert.equal(healthy.hasExpiredBatches, true);
+  assert.equal(healthy.state, 'HEALTHY');
+  const low = pharmacyInventoryAlert({ stock: { totalOnHand: 8, usableStock: 6, expiredBatchCount: 1, lowStockBatchCount: 1 } });
+  assert.equal(low.usableStock, 6);
+  assert.equal(low.hasExpiredBatches, true);
+  assert.equal(low.state, 'LOW_STOCK');
+  const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
+  assert.match(dashboard, /drug\.expiredBatchCount > 0/);
+  assert.match(dashboard, /This medicine has \$\{drug\.expiredBatchCount\} expired batches/);
+  assert.doesNotMatch(dashboard, /expiredBatches.*reduce|expiredBatchCount.*qtyOnHand/);
+});
+
+test('management provides paging, retry, lifecycle copy, and no operational threshold', () => {
+  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
+  const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
+  assert.match(management, /batchPagination\.page - 1/);
+  assert.match(management, /movementPagination\.page \+ 1/);
+  assert.match(management, /Loading batches/);
+  assert.match(management, /No inventory batches found/);
+  assert.match(management, /Loading movements/);
+  assert.match(management, /No stock movements found/);
+  assert.match(management, /Retry/);
+  assert.match(management, /remain inactive and unpriced until an Admin/);
+  assert.match(management, /Waiting for Admin pricing and activation/);
+  assert.doesNotMatch(dashboard, /qtyOnHand < 25/);
+  assert.match(dashboard, /authoritativeStockSummary/);
+  assert.match(dashboard, /setManagementRefresh\(\(value\) => value \+ 1\)/);
 });
 
 test('reception has no pharmacy billing or payment mutation while non-pharmacy billing remains', () => {

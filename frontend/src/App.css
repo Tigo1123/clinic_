@@ -876,12 +876,20 @@
 .pharmacy-medicine-card { border: 1px solid var(--border-color, var(--border)); border-radius: 14px; padding: .9rem; min-width: 0; }
 .pharmacy-medicine-card h3 { margin: 0 0 .2rem; }
 .pharmacy-medicine-card small { color: var(--text-secondary); overflow-wrap: anywhere; }
+.pharmacy-language-labels { display: flex; justify-content: space-between; gap: .75rem; margin-top: .45rem; color: var(--text-secondary); font-size: .78rem; }
+.pharmacy-admin-note { margin: .65rem 0; padding: .55rem .65rem; color: var(--warning); background: color-mix(in srgb, var(--warning) 10%, transparent); border-radius: 8px; font-size: .8rem; font-weight: 650; }
+.pharmacy-state-badge { white-space: normal; text-align: center; }
+.pharmacy-card-grid.is-refreshing { opacity: .65; pointer-events: none; }
 .pharmacy-summary, .pharmacy-detail-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: .55rem; margin: .8rem 0; }
 .pharmacy-summary div, .pharmacy-detail-list div { padding: .5rem; border-radius: 8px; background: color-mix(in srgb, var(--primary) 6%, transparent); }
 .pharmacy-summary dt, .pharmacy-detail-list dt { color: var(--text-secondary); font-size: .72rem; }
 .pharmacy-summary dd, .pharmacy-detail-list dd { margin: .15rem 0 0; font-weight: 650; overflow-wrap: anywhere; }
 .pharmacy-pagination { justify-content: center; margin-top: 1rem; }
 .pharmacy-empty { text-align: center; padding: 2rem; color: var(--text-secondary); }
+.pharmacy-feedback { display: block; padding: .65rem; margin: .7rem 0; white-space: normal; }
+.pharmacy-field-error { display: block; margin-top: .3rem; color: var(--danger); font-size: .76rem; }
+.form-input-error { border-color: var(--danger) !important; }
+.pharmacy-dialog-state { display: grid; justify-items: start; gap: .75rem; padding: 1rem 0; }
 .pharmacy-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; }
 .pharmacy-checkbox { display: flex; gap: .5rem; align-items: center; margin: .8rem 0; }
 .dialog-actions { justify-content: flex-end; margin-top: 1rem; }
@@ -896,4 +904,6 @@
 @media (max-width: 680px) {
   .pharmacy-form-grid, .pharmacy-payment-form { grid-template-columns: 1fr; }
   .pharmacy-management-header > .btn, .pharmacy-toolbar .btn, .pharmacy-card-actions .btn { flex: 1 1 auto; }
+  .pharmacy-language-labels { flex-direction: column; gap: .2rem; }
+  .pharmacy-scroll-table table { min-width: 560px; }
 }
