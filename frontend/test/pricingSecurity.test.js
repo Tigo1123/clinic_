@@ -60,3 +60,15 @@ test('nullable official prices remain visibly unconfigured instead of displaying
   assert.match(reception, /Pricing required/);
   assert.match(pharmacy, /unitPriceSdg == null \? '—'/);
 });
+
+test('admin pricing uses dedicated confirmations for service status changes', () => {
+  const admin = source('src/features/admin/AdminDashboard.jsx');
+
+  assert.match(admin, /const statusChanged = draft\.status && draft\.status !== item\.status/);
+  assert.match(admin, /هل أنت متأكد من تعطيل هذه الخدمة؟ لن تظهر للأطباء كخدمة متاحة جديدة/);
+  assert.match(admin, /Are you sure you want to deactivate this service\? It will no longer appear to doctors as an available service\./);
+  assert.match(admin, /هل أنت متأكد من تفعيل هذه الخدمة؟ ستصبح متاحة للأطباء/);
+  assert.match(admin, /Are you sure you want to activate this service\? It will become available to doctors\./);
+  assert.match(admin, /lang === 'ar' \? 'تأكيد تغيير السعر الرسمي؟' : 'Confirm this official price change\?'/);
+  assert.match(admin, /if \(!globalThis\.confirm\(confirmationMessage\)\) return;/);
+});

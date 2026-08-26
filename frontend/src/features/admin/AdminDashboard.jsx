@@ -166,7 +166,17 @@ export default function AdminDashboard({ user, lang, t }) {
       setErrorMsg(lang === 'ar' ? 'أدخل سعراً صحيحاً موجباً.' : 'Enter a valid positive whole-number price.');
       return;
     }
-    if (!globalThis.confirm(lang === 'ar' ? 'تأكيد تغيير السعر الرسمي؟' : 'Confirm this official price change?')) return;
+    const statusChanged = draft.status && draft.status !== item.status;
+    const confirmationMessage = statusChanged
+      ? (draft.status === 'ACTIVE'
+        ? (lang === 'ar'
+          ? 'هل أنت متأكد من تفعيل هذه الخدمة؟ ستصبح متاحة للأطباء.'
+          : 'Are you sure you want to activate this service? It will become available to doctors.')
+        : (lang === 'ar'
+          ? 'هل أنت متأكد من تعطيل هذه الخدمة؟ لن تظهر للأطباء كخدمة متاحة جديدة.'
+          : 'Are you sure you want to deactivate this service? It will no longer appear to doctors as an available service.'))
+      : (lang === 'ar' ? 'تأكيد تغيير السعر الرسمي؟' : 'Confirm this official price change?');
+    if (!globalThis.confirm(confirmationMessage)) return;
     setErrorMsg('');
     setSuccessMsg('');
     try {
