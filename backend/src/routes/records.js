@@ -150,6 +150,9 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
       return sendError(res, 403, 'CONSULTATION_RELATIONSHIP_INVALID', 'The appointment is not assigned to this doctor and patient.');
     }
     if (appointment.status !== 'IN_CONSULTATION') {
+      if (appointment.status === 'COMPLETED') {
+        return sendError(res, 409, 'VISIT_ALREADY_COMPLETED', 'This completed visit is read-only.');
+      }
       return sendError(res, 409, 'CONSULTATION_STATUS_INVALID', 'The appointment must be in consultation before clinical notes can be saved.');
     }
     // Check if EMR already exists for this appointment
@@ -394,6 +397,9 @@ router.put('/:id/finalize', authenticate, checkRoles('DOCTOR'), validate(z.objec
     }
 
     if (record.appointment.status !== 'IN_CONSULTATION') {
+      if (record.appointment.status === 'COMPLETED') {
+        return sendError(res, 409, 'VISIT_ALREADY_COMPLETED', 'This completed visit is read-only.');
+      }
       return sendError(
         res,
         409,

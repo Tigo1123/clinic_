@@ -85,3 +85,11 @@ test('doctor UI exposes no price, status, or stock mutation authority', () => {
   assert.doesNotMatch(combobox, /unitPriceSdg|price|method: ['"](POST|PATCH|PUT|DELETE)/);
   assert.match(dashboard, /fetchWithAuth\('\/api\/records\/drugs'\)/);
 });
+
+test('completed doctor visits render an explicit read-only consultation state', () => {
+  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
+  assert.match(dashboard, /Completed visit — read only/);
+  assert.match(dashboard, /زيارة مكتملة — للعرض فقط/);
+  assert.match(dashboard, /<fieldset disabled=\{isReadOnlyVisit\}/);
+  assert.match(dashboard, /disabled=\{isSavingConsultation \|\| isReadOnlyVisit\}/);
+});

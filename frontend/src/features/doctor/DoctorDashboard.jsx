@@ -15,6 +15,7 @@ export default function DoctorDashboard({ user, lang, t }) {
   const [filterDate, setFilterDate] = useState(clinicDateString());
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [selectedAppointmentId, setSelectedAppointmentId] = useState('');
+  const [selectedAppointmentStatus, setSelectedAppointmentStatus] = useState('');
 
   // EMR Details
   const [historyData, setHistoryData] = useState([]);
@@ -23,8 +24,11 @@ export default function DoctorDashboard({ user, lang, t }) {
 
   // Lab-return / consultation finalization
   const [isFinalizingVisit, setIsFinalizingVisit] = useState(false);
+  const isReadOnlyVisit = selectedAppointmentStatus === 'COMPLETED';
   const [currentRecordId, setCurrentRecordId] = useState(null);
   const [currentLabResults, setCurrentLabResults] = useState([]);
+  const [historicalPrescriptions, setHistoricalPrescriptions] = useState([]);
+  const [historicalLabOrders, setHistoricalLabOrders] = useState([]);
 
   // Consult records entry
   const [symptoms, setSymptoms] = useState('');
@@ -248,7 +252,7 @@ export default function DoctorDashboard({ user, lang, t }) {
       // patient returning after laboratory results.
       let existingSummary = null;
 
-      if (appt.status === 'IN_CONSULTATION' && appt.medicalRecordId) {
+      if ((appt.status === 'IN_CONSULTATION' || appt.status === 'COMPLETED') && (appt.medicalRecordId || appt.status === 'COMPLETED')) {
         const summaryRes = await fetchWithAuth(`/api/records/${appt.id}/summary`);
 
         if (summaryRes.ok) {
@@ -266,12 +270,15 @@ export default function DoctorDashboard({ user, lang, t }) {
 
       setSelectedPatient(appt.patient);
       setSelectedAppointmentId(appt.id);
+      setSelectedAppointmentStatus(appt.status);
       fetchPatientHistory(appt.patient.id);
 
       if (existingSummary) {
-        setIsFinalizingVisit(true);
+        setIsFinalizingVisit(appt.status !== 'COMPLETED');
         setCurrentRecordId(existingSummary.id);
         setCurrentLabResults(existingSummary.labOrders || []);
+        setHistoricalPrescriptions(existingSummary.prescriptions || []);
+        setHistoricalLabOrders(existingSummary.labOrders || []);
 
         setSymptoms(existingSummary.symptoms || '');
         setDiagnosis(existingSummary.diagnosis || '');
@@ -301,6 +308,8 @@ export default function DoctorDashboard({ user, lang, t }) {
         setIsFinalizingVisit(false);
         setCurrentRecordId(null);
         setCurrentLabResults([]);
+        setHistoricalPrescriptions([]);
+        setHistoricalLabOrders([]);
       }
 
       fetchDoctorQueue();
@@ -397,6 +406,10 @@ export default function DoctorDashboard({ user, lang, t }) {
   };
 
   const handleSaveConsultation = async () => {
+    if (isReadOnlyVisit) {
+      setErrorMsg(lang === 'ar' ? 'هذه الزيارة مكتملة ولا يمكن تعديلها.' : 'This visit is completed and cannot be edited.');
+      return;
+    }
     if (consultationSaveLock.current) {
       return;
     }
@@ -506,6 +519,7 @@ export default function DoctorDashboard({ user, lang, t }) {
 
       setSelectedPatient(null);
       setSelectedAppointmentId('');
+      setSelectedAppointmentStatus('');
       setSymptoms('');
       setDiagnosis('');
       setTreatment('');
@@ -525,6 +539,8 @@ export default function DoctorDashboard({ user, lang, t }) {
       setIsFinalizingVisit(false);
       setCurrentRecordId(null);
       setCurrentLabResults([]);
+      setHistoricalPrescriptions([]);
+      setHistoricalLabOrders([]);
 
       fetchDoctorQueue();
     } catch (err) {
@@ -665,7 +681,37 @@ export default function DoctorDashboard({ user, lang, t }) {
                   </button>
                 </div>
 
+                {isReadOnlyVisit && (
+                  <div className="badge badge-info" role="status" style={{ width: '100%', marginBottom: '1rem', padding: '0.75rem' }}>
+                    {lang === 'ar' ? 'زيارة مكتملة — للعرض فقط' : 'Completed visit — read only'}
+                  </div>
+                )}
 
+                {isReadOnlyVisit && (historicalPrescriptions.length > 0 || historicalLabOrders.length > 0) && (
+                  <div className="glass-panel" style={{ padding: '1rem', marginBottom: '1rem' }}>
+                    <h4 style={{ marginTop: 0 }}>{lang === 'ar' ? 'ملخص الوصفة والفحوصات' : 'Prescription and laboratory summary'}</h4>
+                    {historicalPrescriptions.length > 0 && <div>
+                      <strong>{lang === 'ar' ? 'الوصفة الطبية' : 'Prescription'}</strong>
+                      {historicalPrescriptions.map((item, index) => (
+                        <div key={item.id || index} style={{ marginTop: '0.35rem' }}>
+                          {lang === 'ar' ? item.drugNameAr : item.drugNameEn}
+                          {' — '}{item.dosage} · {item.duration} · {lang === 'ar' ? `الكمية ${item.qtyPrescribed}` : `Qty ${item.qtyPrescribed}`}
+                        </div>
+                      ))}
+                    </div>}
+                    {historicalLabOrders.length > 0 && <div style={{ marginTop: '0.75rem' }}>
+                      <strong>{lang === 'ar' ? 'الفحوصات المخبرية' : 'Laboratory tests'}</strong>
+                      {historicalLabOrders.map((item, index) => (
+                        <div key={item.id || index} style={{ marginTop: '0.35rem' }}>
+                          {lang === 'ar' ? item.serviceNameAr : item.serviceNameEn}
+                          {item.resultValue ? ` — ${item.resultValue}` : ''}
+                        </div>
+                      ))}
+                    </div>}
+                  </div>
+                )}
+
+                <fieldset disabled={isReadOnlyVisit} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '1.5rem', alignItems: 'start' }}>
                   {/* Left Column: Full Patient History at a glance */}
                   <div className="glass-panel" style={{ padding: '1rem', maxHeight: '70vh', overflowY: 'auto' }}>
@@ -1106,7 +1152,7 @@ export default function DoctorDashboard({ user, lang, t }) {
                       className="btn btn-primary"
                       style={{ width: '100%', padding: '12px', fontSize: '1rem', fontWeight: 'bold' }}
                       onClick={handleSaveConsultation}
-                      disabled={isSavingConsultation}
+                      disabled={isSavingConsultation || isReadOnlyVisit}
                     >
                       {isFinalizingVisit
                         ? (lang === 'ar'
@@ -1122,6 +1168,7 @@ export default function DoctorDashboard({ user, lang, t }) {
                     </button>
                   </div>
                 </div>
+                </fieldset>
               </div>
             ) : (
               <div style={{ textAlign: 'center', padding: '5rem', color: 'var(--text-secondary)' }}>

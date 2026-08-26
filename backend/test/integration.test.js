@@ -10,7 +10,7 @@ import { app, httpServer } from '../src/server.js';
 import { validateEnvironment } from '../src/config.js';
 import { emitQueueUpdate } from '../src/utils/socketEvents.js';
 import { getClinicDateString } from '../src/utils/clinicTime.js';
-import { encrypt } from '../src/utils/encryption.js';
+import { encrypt, decrypt } from '../src/utils/encryption.js';
 import { authenticateSocketAccessToken } from '../src/middleware/auth.js';
 import {
   ACCESS_TOKEN_ALGORITHM,
@@ -2189,6 +2189,55 @@ test('doctor can complete an assigned consultation atomically', async () => {
   const response = await api.post('/api/records').set(auth('doctor')).send({ patientId: patient1.id, appointmentId: relatedAppointment.id, diagnosis: 'Test diagnosis', symptoms: 'Test symptom', vitalSigns: {} });
   assert.equal(response.status, 201);
   assert.equal((await prisma.appointment.findUnique({ where: { id: relatedAppointment.id } })).status, 'COMPLETED');
+});
+
+test('completed visits remain readable but reject every doctor clinical write', async () => {
+  const appointment = await prisma.appointment.create({
+    data: {
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      appointmentDate: '2030-01-07',
+      appointmentTime: '09:30',
+      status: 'COMPLETED'
+    }
+  });
+  const record = await prisma.medicalRecord.create({
+    data: {
+      patientId: patient1.id,
+      doctorId: doctor1.id,
+      appointmentId: appointment.id,
+      symptomsEncrypted: encrypt('completed symptoms'),
+      diagnosisEncrypted: encrypt('completed diagnosis'),
+      treatmentEncrypted: encrypt('completed treatment'),
+      clinicalNotesEncrypted: encrypt('completed notes'),
+      vitalSignsJson: JSON.stringify({ blood_pressure: '120/80' })
+    }
+  });
+
+  const summary = await api.get(`/api/records/${appointment.id}/summary`).set(auth('doctor'));
+  assert.equal(summary.status, 200);
+  assert.equal(summary.body.diagnosis, 'completed diagnosis');
+
+  const rejectedCreate = await api.post('/api/records').set(auth('doctor')).send({
+    patientId: patient1.id,
+    appointmentId: appointment.id,
+    diagnosis: 'attempted overwrite',
+    prescribedDrugs: [{ drugId: drug.id, dosage: '1', duration: '1 day', qtyPrescribed: 1 }],
+    orderedServices: [service.id]
+  });
+  assert.equal(rejectedCreate.status, 409);
+  assert.equal(rejectedCreate.body.error.code, 'VISIT_ALREADY_COMPLETED');
+
+  const rejectedFinalize = await api.put(`/api/records/${record.id}/finalize`).set(auth('doctor')).send({
+    diagnosis: 'attempted finalize', treatment: 'attempted treatment', vitalSigns: {}
+  });
+  assert.equal(rejectedFinalize.status, 409);
+  assert.equal(rejectedFinalize.body.error.code, 'VISIT_ALREADY_COMPLETED');
+
+  const unchanged = await prisma.medicalRecord.findUnique({ where: { id: record.id } });
+  assert.equal(decrypt(unchanged.diagnosisEncrypted), 'completed diagnosis');
+  assert.equal(decrypt(unchanged.treatmentEncrypted), 'completed treatment');
+  assert.equal(await prisma.appointment.findUnique({ where: { id: appointment.id } }).then((row) => row.status), 'COMPLETED');
 });
 
 test('drug inventory is not public and is available to pharmacy', async () => {
