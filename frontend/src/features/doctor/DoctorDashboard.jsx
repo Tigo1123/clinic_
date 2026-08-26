@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
-import { Activity, Lock, MessageCircle, Printer, Sliders, Stethoscope, User } from 'lucide-react';
+import { Activity, FlaskConical, Lock, MessageCircle, Printer, Search, Sliders, Stethoscope, User } from 'lucide-react';
 import { PatientProfileModal, PostVisitSummaryModal } from '../clinical/ClinicalModals';
 import { getWhatsAppLink } from '../reception/clinicData';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
@@ -56,6 +56,8 @@ export default function DoctorDashboard({ user, lang, t }) {
   const [orderedTests, setOrderedTests] = useState([]);
   const [customTestName, setCustomTestName] = useState('');
   const [customTests, setCustomTests] = useState([]);
+  const [labServiceSearch, setLabServiceSearch] = useState('');
+  const [showCustomTestInput, setShowCustomTestInput] = useState(false);
 
   // Messages
   const [successMsg, setSuccessMsg] = useState('');
@@ -1031,121 +1033,57 @@ export default function DoctorDashboard({ user, lang, t }) {
                       </article>; })}</div>}
                     </div>
 
-                    {/* Labs orders */}
-                    <div className="glass-panel" style={{ padding: '1rem' }}>
-                      <h4 style={{ marginBottom: '0.5rem' }}>{lang === 'ar' ? 'طلب فحوصات مخبرية / أشعة' : 'Order Diagnostic Tests'}</h4>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                        {clinicalServices
-                          .filter((s) => s.category === 'LABORATORY' || s.category === 'RADIOLOGY')
-                          .map((svc) => (
-                            <label
-                              key={svc.id}
-                              className="glass-panel"
-                              style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer', padding: '4px 8px', margin: 0, background: orderedTests.includes(svc.id) ? 'rgba(20, 184, 166, 0.15)' : 'rgba(255,255,255,0.03)' }}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={orderedTests.includes(svc.id)}
-                                onChange={() => handleToggleTest(svc.id)}
-                              />
-                              <span>{lang === 'ar' ? svc.labelAr : svc.labelEn}</span>
-                            </label>
-                          ))}
-
+                    {/* Laboratory / radiology orders */}
+                    <section className="doctor-lab-order-card" aria-labelledby="doctor-lab-order-title">
+                      <div className="doctor-lab-order-header">
+                        <div>
+                          <h4 id="doctor-lab-order-title"><FlaskConical size={17} aria-hidden="true" />{lang === 'ar' ? 'طلب الفحوصات' : 'Order investigations'}</h4>
+                          <p>{lang === 'ar' ? 'اختر الفحوصات المطلوبة للمريض من القائمة المعتمدة.' : 'Select the required tests from the approved catalogue.'}</p>
+                        </div>
+                        <span className="doctor-lab-selected-count" aria-live="polite">
+                          {lang === 'ar' ? `تم اختيار ${orderedTests.length} فحوصات` : `${orderedTests.length} test${orderedTests.length === 1 ? '' : 's'} selected`}
+                        </span>
                       </div>
 
-                      {!isFinalizingVisit && (
-                        <div style={{ marginTop: '0.9rem' }}>
-                          <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.45rem' }}>
-                            {lang === 'ar' ? 'إضافة فحص غير موجود في القائمة' : 'Add a test not in the catalogue'}
-                          </div>
-
-                          <div
-                            style={{
-                              display: 'flex',
-                              gap: '0.5rem',
-                              flexWrap: 'wrap'
-                            }}
-                          >
-                            <input
-                              type="text"
-                              value={customTestName}
-                              onChange={(event) => setCustomTestName(event.target.value)}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter') {
-                                  event.preventDefault();
-                                  handleAddCustomTest();
-                                }
-                              }}
-                              placeholder={
-                                lang === 'ar'
-                                  ? 'مثال: CRP أو Thyroid Function Test'
-                                  : 'Example: CRP or Thyroid Function Test'
-                              }
-                              style={{
-                                flex: '1 1 260px',
-                                minWidth: 0
-                              }}
-                            />
-
-                            <button
-                              type="button"
-                              className="btn btn-secondary"
-                              onClick={handleAddCustomTest}
-                            >
-                              {lang === 'ar' ? 'إضافة الفحص' : 'Add Test'}
-                            </button>
-                          </div>
-
-                          {customTests.length > 0 && (
-                            <div
-                              style={{
-                                display: 'flex',
-                                flexWrap: 'wrap',
-                                gap: '0.5rem',
-                                marginTop: '0.65rem'
-                              }}
-                            >
-                              {customTests.map((testName) => (
-                                <div
-                                  key={testName}
-                                  className="glass-panel"
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.45rem',
-                                    padding: '5px 8px',
-                                    margin: 0,
-                                    fontSize: '0.8rem'
-                                  }}
-                                >
-                                  <span>{testName}</span>
-
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemoveCustomTest(testName)}
-                                    aria-label={
-                                      lang === 'ar'
-                                        ? `حذف ${testName}`
-                                        : `Remove ${testName}`
-                                    }
-                                    style={{
-                                      border: 0,
-                                      background: 'transparent',
-                                      cursor: 'pointer',
-                                      fontWeight: 700,
-                                      color: 'var(--danger)'
-                                    }}
-                                  >
-                                    ×
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
+                      {clinicalServices.filter((serviceItem) => serviceItem.category === 'LABORATORY' || serviceItem.category === 'RADIOLOGY').length > 4 && (
+                        <label className="doctor-lab-search">
+                          <Search size={16} aria-hidden="true" />
+                          <span className="sr-only">{lang === 'ar' ? 'البحث في الفحوصات' : 'Search tests'}</span>
+                          <input type="search" value={labServiceSearch} onChange={(event) => setLabServiceSearch(event.target.value)} placeholder={lang === 'ar' ? 'ابحث عن فحص...' : 'Search tests...'} />
+                        </label>
                       )}
-                    </div>
+
+                      {['LABORATORY', 'RADIOLOGY'].map((category) => {
+                        const normalizedSearch = labServiceSearch.trim().toLocaleLowerCase();
+                        const services = clinicalServices.filter((serviceItem) => {
+                          if (serviceItem.category !== category) return false;
+                          if (!normalizedSearch) return true;
+                          return [serviceItem.labelAr, serviceItem.labelEn].filter(Boolean).some((label) => label.toLocaleLowerCase().includes(normalizedSearch));
+                        });
+                        if (services.length === 0) return null;
+                        return <div className="doctor-lab-subsection" key={category}>
+                          <h5>{category === 'LABORATORY' ? (lang === 'ar' ? 'الفحوصات المخبرية' : 'Laboratory tests') : (lang === 'ar' ? 'الأشعة' : 'Radiology')}</h5>
+                          <div className="doctor-lab-service-grid">
+                            {services.map((svc) => <label className={`doctor-lab-service-option ${orderedTests.includes(svc.id) ? 'is-selected' : ''}`} key={svc.id}>
+                              <input type="checkbox" checked={orderedTests.includes(svc.id)} onChange={() => handleToggleTest(svc.id)} />
+                              <span className="doctor-lab-service-copy"><strong>{lang === 'ar' ? svc.labelAr : svc.labelEn}</strong>{lang === 'ar' && svc.labelEn && <small>{svc.labelEn}</small>}{lang !== 'ar' && svc.labelAr && <small>{svc.labelAr}</small>}</span>
+                              <span className="doctor-lab-checkmark" aria-hidden="true">{orderedTests.includes(svc.id) ? '✓' : ''}</span>
+                            </label>)}
+                          </div>
+                        </div>;
+                      })}
+
+                      {!isFinalizingVisit && <div className="doctor-custom-test-area">
+                        <button type="button" className="doctor-custom-test-toggle" onClick={() => setShowCustomTestInput((visible) => !visible)} aria-expanded={showCustomTestInput}>
+                          + {lang === 'ar' ? 'إضافة فحص غير موجود في القائمة' : 'Add a test not in the catalogue'}
+                        </button>
+                        {showCustomTestInput && <div className="doctor-custom-test-form">
+                          <input type="text" value={customTestName} onChange={(event) => setCustomTestName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); handleAddCustomTest(); } }} placeholder={lang === 'ar' ? 'مثال: CRP أو Thyroid Function Test' : 'Example: CRP or Thyroid Function Test'} aria-label={lang === 'ar' ? 'اسم الفحص المخصص' : 'Custom test name'} />
+                          <button type="button" className="btn btn-secondary" onClick={handleAddCustomTest}>{lang === 'ar' ? 'إضافة الفحص' : 'Add Test'}</button>
+                        </div>}
+                        {customTests.length > 0 && <div className="doctor-custom-test-list">{customTests.map((testName) => <div className="doctor-custom-test-chip" key={testName}><span>{testName}</span><button type="button" onClick={() => handleRemoveCustomTest(testName)} aria-label={lang === 'ar' ? `حذف ${testName}` : `Remove ${testName}`}>×</button></div>)}</div>}
+                      </div>}
+                    </section>
 
                     <button
                       type="button"
