@@ -32,6 +32,7 @@ test('admin pricing management covers consultations, services, laboratory, and p
 test('laboratory and pharmacy workflows cannot submit official selling prices', () => {
   const laboratory = source('src/features/laboratory/LaboratoryDashboard.jsx');
   const pharmacy = source('src/features/pharmacy/PharmacyDashboard.jsx');
+  const pharmacyManagement = source('src/features/pharmacy/PharmacyManagement.jsx');
   const pharmacyUtils = source('src/utils/pharmacyManagement.js');
   const labCreatePayload = laboratory.slice(
     laboratory.indexOf("if (decision === 'CREATE_SERVICE')"),
@@ -45,17 +46,17 @@ test('laboratory and pharmacy workflows cannot submit official selling prices', 
   assert.doesNotMatch(pharmacyCreatePayload, /unitPriceSdg/);
   assert.doesNotMatch(pharmacy, /\/api\/records\/drugs\/\$\{drug\.id\}\/price/);
   assert.match(laboratory, /Create for Admin Pricing/);
-  assert.match(pharmacy, /Administrators price and activate new medicines/);
+  assert.match(pharmacyManagement, /An administrator must price and activate it/);
 });
 
 test('nullable official prices remain visibly unconfigured instead of displaying zero', () => {
   const admin = source('src/features/admin/AdminDashboard.jsx');
   const reception = source('src/features/reception/ReceptionDashboard.jsx');
-  const pharmacy = source('src/features/pharmacy/PharmacyDashboard.jsx');
+  const pharmacy = source('src/features/pharmacy/PharmacyManagement.jsx');
 
   assert.match(admin, /currentPrice == null \? ''/);
   assert.match(admin, /Not configured/);
   assert.match(reception, /baseFeeSdg == null \? null/);
   assert.match(reception, /Pricing required/);
-  assert.match(pharmacy, /Not set/);
+  assert.match(pharmacy, /unitPriceSdg == null \? '—'/);
 });

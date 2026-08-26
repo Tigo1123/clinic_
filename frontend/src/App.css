@@ -931,6 +931,43 @@
 .doctor-prescribed-card dt { color: var(--text-secondary); font-size: .7rem; }
 .doctor-prescribed-card dd { margin: .1rem 0 0; }
 .doctor-prescribed-actions { display: flex; justify-content: flex-end; gap: .45rem; }
+
+/* Pharmacy pilot workspace */
+.pharmacy-pilot-summary { display: flex; gap: .65rem; flex-wrap: wrap; margin: .65rem 0; }
+.pharmacy-pilot-summary > div { display: flex; align-items: baseline; gap: .4rem; padding: .45rem .7rem; border: 1px solid var(--border-color, var(--border)); border-radius: 10px; background: color-mix(in srgb, var(--primary) 4%, transparent); }
+.pharmacy-pilot-summary strong { color: var(--primary); font-size: 1.05rem; }
+.pharmacy-pilot-summary span { color: var(--text-secondary); font-size: .78rem; }
+.pharmacy-workspace-tabs { display: flex; gap: .35rem; overflow-x: auto; padding: .3rem; margin-bottom: .8rem; border: 1px solid var(--border-color, var(--border)); border-radius: 12px; background: color-mix(in srgb, var(--primary) 4%, transparent); scrollbar-width: thin; }
+.pharmacy-workspace-tabs button { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: .4rem; flex: 1 0 max-content; padding: .5rem .75rem; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--text-secondary); font: inherit; font-weight: 650; cursor: pointer; }
+.pharmacy-workspace-tabs button.is-active { color: var(--primary); border-color: var(--border-color, var(--border)); background: var(--card-bg, #fff); box-shadow: var(--shadow-sm); }
+.pharmacy-workspace-tabs button:focus-visible { outline: 3px solid color-mix(in srgb, var(--primary) 28%, transparent); outline-offset: 1px; }
+.pharmacy-tab-count { min-width: 1.35rem; padding: .08rem .35rem; border-radius: 999px; background: color-mix(in srgb, var(--primary) 12%, transparent); font-size: .7rem; text-align: center; }
+.pharmacy-operational-grid { grid-template-columns: minmax(250px, .72fr) minmax(0, 1.55fr); gap: .8rem; }
+.pharmacy-view-dispensing .pharmacy-alert-column { display: none; }
+.pharmacy-view-alerts { display: block; }
+.pharmacy-view-alerts .pharmacy-queue-column, .pharmacy-view-alerts .pharmacy-dispense-column { display: none; }
+.pharmacy-compact-empty { display: grid; justify-items: center; gap: .35rem; padding: 1.25rem .75rem; color: var(--text-secondary); text-align: center; }
+.pharmacy-compact-empty p { margin: 0; }
+.pharmacy-select-prescription { min-height: 150px; align-content: center; }
+
+.pharmacy-inventory-list { overflow: visible; border: 1px solid var(--border-color, var(--border)); border-radius: 12px; }
+.pharmacy-inventory-list.is-refreshing { opacity: .65; pointer-events: none; }
+.pharmacy-inventory-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+.pharmacy-inventory-table th { color: var(--text-secondary); font-size: .7rem; font-weight: 700; background: color-mix(in srgb, var(--primary) 5%, transparent); }
+.pharmacy-inventory-table th, .pharmacy-inventory-table td { padding: .62rem .55rem; text-align: start; vertical-align: middle; border-bottom: 1px solid var(--border-color, var(--border)); }
+.pharmacy-inventory-table tbody tr:last-child td { border-bottom: 0; }
+.pharmacy-inventory-table tbody tr:hover { background: color-mix(in srgb, var(--primary) 3%, transparent); }
+.pharmacy-inventory-table td > strong, .pharmacy-inventory-table td > small { display: block; }
+.pharmacy-inventory-table td > small { margin-top: .16rem; color: var(--text-secondary); }
+.pharmacy-inventory-table .pharmacy-admin-note { display: block; margin: .35rem 0 0; padding: .25rem .4rem; font-size: .68rem; }
+.pharmacy-expired-note { color: var(--danger) !important; }
+.pharmacy-action-cell { width: 52px; overflow: visible; }
+.pharmacy-action-menu { position: relative; display: flex; justify-content: flex-end; }
+.pharmacy-action-trigger { width: 40px; min-height: 40px; border: 1px solid var(--border-color, var(--border)); border-radius: 9px; background: var(--card-bg, #fff); color: var(--text-primary); font-size: 1.35rem; line-height: 1; cursor: pointer; }
+.pharmacy-action-trigger:hover, .pharmacy-action-trigger:focus-visible { border-color: var(--primary); color: var(--primary); }
+.pharmacy-action-popover { position: absolute; z-index: 25; inset-inline-end: 0; top: calc(100% + .25rem); min-width: 180px; padding: .3rem; border: 1px solid var(--border-color, var(--border)); border-radius: 10px; background: var(--card-bg, #fff); box-shadow: var(--shadow-lg); }
+.pharmacy-action-popover button { display: block; width: 100%; min-height: 38px; padding: .45rem .6rem; border: 0; border-radius: 7px; background: transparent; color: inherit; text-align: start; font: inherit; cursor: pointer; }
+.pharmacy-action-popover button:hover, .pharmacy-action-popover button:focus-visible { background: color-mix(in srgb, var(--primary) 9%, transparent); color: var(--primary); }
 @media (max-width: 680px) {
   .pharmacy-form-grid, .pharmacy-payment-form { grid-template-columns: 1fr; }
   .pharmacy-management-header > .btn, .pharmacy-toolbar .btn, .pharmacy-card-actions .btn { flex: 1 1 auto; }
@@ -939,4 +976,16 @@
   .doctor-medicine-mode, .doctor-prescription-fields { grid-template-columns: 1fr; }
   .doctor-prescribed-card__header { flex-direction: column; }
   .doctor-prescribed-actions .btn { flex: 1; }
+  .pharmacy-pilot-summary > div { flex: 1 1 140px; }
+  .pharmacy-operational-grid { display: block; }
+  .pharmacy-queue-column { margin-bottom: .75rem; }
+  .pharmacy-inventory-list { border: 0; }
+  .pharmacy-inventory-table, .pharmacy-inventory-table tbody, .pharmacy-inventory-table tr, .pharmacy-inventory-table td { display: block; width: 100%; }
+  .pharmacy-inventory-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+  .pharmacy-inventory-table tr { position: relative; margin-bottom: .65rem; padding: .65rem; border: 1px solid var(--border-color, var(--border)); border-radius: 12px; background: var(--card-bg, #fff); }
+  .pharmacy-inventory-table td { display: flex; justify-content: space-between; align-items: flex-start; gap: .75rem; padding: .38rem 0; border: 0; }
+  .pharmacy-inventory-table td::before { content: attr(data-label); flex: 0 0 38%; color: var(--text-secondary); font-size: .7rem; font-weight: 700; }
+  .pharmacy-inventory-table .pharmacy-action-cell { position: absolute; inset-block-start: .45rem; inset-inline-end: .45rem; width: auto; padding: 0; }
+  .pharmacy-inventory-table .pharmacy-action-cell::before { display: none; }
+  .pharmacy-action-popover { position: fixed; inset-inline: 1rem; top: auto; bottom: 1rem; min-width: 0; }
 }

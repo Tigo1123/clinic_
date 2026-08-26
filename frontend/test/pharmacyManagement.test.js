@@ -103,6 +103,59 @@ test('dashboard integrates bounded APIs, server payment state, and read-only mov
   assert.match(dashboard, /disabled=\{!paymentState\?\.dispensingAllowed \|\| dispensing\}/);
 });
 
+test('pharmacy pilot workspace defaults to dispensing and exposes accessible focused sections', () => {
+  const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
+  assert.match(dashboard, /useState\('dispensing'\)/);
+  assert.match(dashboard, /role="tablist"/);
+  assert.match(dashboard, /role="tab"/);
+  assert.match(dashboard, /aria-selected=\{activeSection === id\}/);
+  for (const section of ['Prescription Dispensing', 'Medicines & Inventory', 'Stock & Expiry Alerts', 'Custom Medicine Review']) {
+    assert.match(dashboard, new RegExp(section));
+  }
+  assert.match(dashboard, /activeSection === 'inventory'/);
+  assert.match(dashboard, /activeSection === 'reviews'/);
+  assert.doesNotMatch(dashboard, /Official Medication Prices/);
+});
+
+test('medicine inventory uses a compact responsive table and one keyboard-safe action menu', () => {
+  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
+  const css = source('src/App.css');
+  assert.match(management, /pharmacy-inventory-table/);
+  assert.match(management, /aria-haspopup="menu"/);
+  assert.match(management, /role="menu"/);
+  assert.match(management, /event\.key === 'Escape'/);
+  for (const action of ['View details', 'Edit metadata', 'Add batch', 'View batches', 'Movement history']) {
+    assert.match(management, new RegExp(action));
+  }
+  assert.doesNotMatch(management, /pharmacy-card-actions/);
+  assert.match(css, /\.pharmacy-inventory-table thead/);
+  assert.match(css, /content: attr\(data-label\)/);
+});
+
+test('pilot redesign preserves management actions, search, filters, alerts, and review decisions', () => {
+  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
+  const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
+  assert.match(management, /pharmacy-formulary-search/);
+  assert.match(management, /pharmacy-formulary-status/);
+  assert.match(management, /setDialog\('create'\)/);
+  assert.match(management, /showDetails\(medicine, action === 'details'/);
+  assert.match(management, /openBatchDialog\(medicine\)/);
+  assert.match(management, /loadMovements\(medicine\.id, 1\)/);
+  assert.match(dashboard, /لا توجد تنبيهات مخزون أو صلاحية حالياً/);
+  assert.match(dashboard, /inventoryAlerts\.map/);
+  assert.match(dashboard, /chooseReviewDecision\('LINK_EXISTING'\)/);
+  assert.match(dashboard, /chooseReviewDecision\('CREATE_FORMULARY'\)/);
+  assert.match(dashboard, /chooseReviewDecision\('EXTERNAL'\)/);
+});
+
+test('pharmacist sees official price read-only without price or status mutation controls', () => {
+  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
+  assert.match(management, /Official price/);
+  assert.match(management, /unitPriceSdg == null/);
+  assert.doesNotMatch(management, /name="unitPriceSdg"|name="status"/);
+  assert.doesNotMatch(management, /Activate medicine|Deactivate medicine|Set price/);
+});
+
 test('authoritative pharmacy summaries and stock states use final Phase 2 fields', () => {
   const medicine = { stock: { totalOnHand: 12, usableStock: 7, nearestUnexpiredExpiry: '2030-01-01', expiredBatchCount: 2, lowStockBatchCount: 1, batchCount: 3 } };
   assert.deepEqual(authoritativeStockSummary(medicine), {

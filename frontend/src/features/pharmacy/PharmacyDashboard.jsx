@@ -8,7 +8,7 @@ import PharmacyPayment from './PharmacyPayment';
 import Dialog from '../../components/ui/Dialog';
 import { authoritativeStockSummary, buildMedicationReviewPayload, customMedicineRequiresReview, localizedStockState, pharmacyInventoryAlert, stockPresentation } from '../../utils/pharmacyManagement';
 
-export default function PharmacyDashboard({ lang, t }) {
+export default function PharmacyDashboard({ lang, t: _t }) {
   const [prescriptions, setPrescriptions] = useState([]);
   const [selectedRx, setSelectedRx] = useState(null);
   const [successMsg, setSuccessMsg] = useState('');
@@ -17,6 +17,7 @@ export default function PharmacyDashboard({ lang, t }) {
   const [managementRefresh, setManagementRefresh] = useState(0);
   const [paymentRefresh, setPaymentRefresh] = useState(0);
   const [dispensing, setDispensing] = useState(false);
+  const [activeSection, setActiveSection] = useState('dispensing');
 
   const [selectedStock, setSelectedStock] = useState({});
 
@@ -459,8 +460,20 @@ export default function PharmacyDashboard({ lang, t }) {
     <div className="dashboard-wrapper">
       <div className="workspace-panel" style={{ padding: '1rem' }}>
         <RoleHero role="pharmacy" lang={lang}/>
+        <div className="pharmacy-pilot-summary" aria-label={lang === 'ar' ? 'ملخص العمل' : 'Operational summary'}>
+          <div><strong>{prescriptions.length}</strong><span>{lang === 'ar' ? 'وصفات بانتظار الصرف' : 'Pending prescriptions'}</span></div>
+          <div><strong>{medicationReviews.length}</strong><span>{lang === 'ar' ? 'طلبات أدوية جديدة' : 'Custom medicine requests'}</span></div>
+        </div>
+        <div className="pharmacy-workspace-tabs" role="tablist" aria-label={lang === 'ar' ? 'أقسام الصيدلية' : 'Pharmacy sections'}>
+          {[
+            ['dispensing', lang === 'ar' ? 'صرف الوصفات' : 'Prescription Dispensing', prescriptions.length],
+            ['inventory', lang === 'ar' ? 'الأدوية والمخزون' : 'Medicines & Inventory', null],
+            ['alerts', lang === 'ar' ? 'التنبيهات' : 'Stock & Expiry Alerts', inventoryAlerts.length],
+            ['reviews', lang === 'ar' ? 'طلبات الأدوية الجديدة' : 'Custom Medicine Review', medicationReviews.length]
+          ].map(([id, label, count]) => <button key={id} type="button" role="tab" aria-selected={activeSection === id} aria-controls={`pharmacy-section-${id}`} className={activeSection === id ? 'is-active' : ''} onClick={() => setActiveSection(id)}><span>{label}</span>{count !== null && <span className="pharmacy-tab-count">{count}</span>}</button>)}
+        </div>
 
-        <PharmacyManagement lang={lang} refreshToken={managementRefresh} />
+        {activeSection === 'inventory' && <div id="pharmacy-section-inventory" role="tabpanel"><PharmacyManagement lang={lang} refreshToken={managementRefresh} /></div>}
 
         <Dialog
           open={Boolean(reviewDialogItem)}
@@ -484,7 +497,7 @@ export default function PharmacyDashboard({ lang, t }) {
           </div>
         </Dialog>
 
-        <div
+        {activeSection === 'reviews' && <div id="pharmacy-section-reviews" role="tabpanel"><div
           ref={reviewSectionRef}
           className="glass-panel"
           style={{
@@ -1285,182 +1298,15 @@ export default function PharmacyDashboard({ lang, t }) {
               })}
             </div>
           )}
-        </div>
+        </div></div>}
 
-        <div
-          className="glass-panel"
-          style={{
-            padding: '1rem',
-            marginBottom: '1rem'
-          }}
+        {(activeSection === 'dispensing' || activeSection === 'alerts') && <div
+          id={`pharmacy-section-${activeSection}`}
+          role="tabpanel"
+          className={`panel-grid pharmacy-operational-grid pharmacy-view-${activeSection}`}
         >
-          <div className="panel-header">
-            <span className="panel-title">
-              {lang === 'ar'
-                ? 'أسعار الأدوية الرسمية'
-                : 'Official Medication Prices'}
-            </span>
-          </div>
-
-          <p
-            style={{
-              fontSize: '0.82rem',
-              color: 'var(--text-secondary)',
-              marginBottom: '1rem'
-            }}
-          >
-            {lang === 'ar'
-              ? 'يمكن للصيدلي عرض الأسعار الرسمية. يحدد المسؤول الأسعار ويعتمد الأدوية الجديدة للفوترة.'
-              : 'Pharmacists can view official prices. Administrators price and activate new medicines for billing.'}
-          </p>
-
-          {drugCatalog.length === 0 ? (
-            <div
-              style={{
-                textAlign: 'center',
-                padding: '1.5rem',
-                color: 'var(--text-secondary)'
-              }}
-            >
-              {lang === 'ar'
-                ? 'لا توجد أدوية متاحة.'
-                : 'No medications available.'}
-            </div>
-          ) : (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns:
-                  'repeat(auto-fit, minmax(260px, 1fr))',
-                gap: '0.75rem'
-              }}
-            >
-              {[...drugCatalog]
-                .sort((a, b) => {
-                  const aMissing =
-                    a.unitPriceSdg == null ||
-                    Number(a.unitPriceSdg) <= 0;
-
-                  const bMissing =
-                    b.unitPriceSdg == null ||
-                    Number(b.unitPriceSdg) <= 0;
-
-                  if (aMissing !== bMissing) {
-                    return aMissing ? -1 : 1;
-                  }
-
-                  return String(a.labelEn || '').localeCompare(
-                    String(b.labelEn || '')
-                  );
-                })
-                .map((drug) => {
-                  const currentPrice =
-                    drug.unitPriceSdg == null
-                      ? null
-                      : Number(drug.unitPriceSdg);
-
-                  const hasValidPrice =
-                    Number.isFinite(currentPrice) &&
-                    currentPrice > 0;
-
-                  return (
-                    <div
-                      key={drug.id}
-                      className="glass-panel"
-                      style={{
-                        padding: '0.85rem',
-                        borderLeft: hasValidPrice
-                          ? '4px solid var(--success)'
-                          : '4px solid var(--warning)'
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          gap: '0.5rem',
-                          alignItems: 'flex-start'
-                        }}
-                      >
-                        <div>
-                          <strong>
-                            {lang === 'ar'
-                              ? drug.labelAr
-                              : drug.labelEn}
-                          </strong>
-
-                          <div
-                            style={{
-                              fontSize: '0.75rem',
-                              color: 'var(--text-secondary)',
-                              marginTop: '0.2rem'
-                            }}
-                          >
-                            {[drug.strength, drug.dosageForm]
-                              .filter(Boolean)
-                              .join(' • ')}
-                          </div>
-                        </div>
-
-                        <span
-                          className={`badge ${
-                            hasValidPrice
-                              ? 'badge-success'
-                              : 'badge-warning'
-                          }`}
-                          style={{
-                            fontSize: '0.68rem',
-                            whiteSpace: 'nowrap'
-                          }}
-                        >
-                          {hasValidPrice
-                            ? (lang === 'ar'
-                                ? 'سعر معتمد'
-                                : 'PRICED')
-                            : (lang === 'ar'
-                                ? 'السعر مطلوب'
-                                : 'PRICE REQUIRED')}
-                        </span>
-                      </div>
-
-                      <div
-                        style={{
-                          marginTop: '0.75rem',
-                          fontSize: '0.8rem',
-                          color: 'var(--text-secondary)'
-                        }}
-                      >
-                        {lang === 'ar'
-                          ? 'السعر الحالي:'
-                          : 'Current price:'}{' '}
-
-                        <strong
-                          style={{
-                            color: 'var(--text-primary)'
-                          }}
-                        >
-                          {hasValidPrice
-                            ? `${currentPrice.toLocaleString(
-                                lang === 'ar'
-                                  ? 'ar-SD'
-                                  : 'en-US'
-                              )} SDG`
-                            : (lang === 'ar'
-                                ? 'غير محدد'
-                                : 'Not set')}
-                        </strong>
-                      </div>
-
-                    </div>
-                  );
-                })}
-            </div>
-          )}
-        </div>
-
-        <div className="panel-grid">
           {/* COLUMN 1: ACTIVE RX QUEUE */}
-          <div className="panel-column glass-panel" style={{ padding: '1rem' }}>
+          <div className="panel-column glass-panel pharmacy-queue-column" style={{ padding: '1rem' }}>
             <div className="panel-header">
               <span className="panel-title">
                 <FileText size={18} />
@@ -1482,9 +1328,9 @@ export default function PharmacyDashboard({ lang, t }) {
               </button>
             </div>
             {prescriptions.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
-                <HelpCircle size={36} />
-                <p style={{ marginTop: '0.5rem' }}>{t('pharmacyQueueEmpty')}</p>
+              <div className="pharmacy-compact-empty">
+                <HelpCircle size={24} />
+                <p>{lang === 'ar' ? 'لا توجد وصفات بانتظار الصرف.' : 'No prescriptions are awaiting dispensing.'}</p>
               </div>
             ) : (
               prescriptions.map((rx) => (
@@ -1604,7 +1450,7 @@ export default function PharmacyDashboard({ lang, t }) {
           </div>
 
           {/* COLUMN 2: PRESCRIPTION DISPENSER */}
-          <div className="panel-column glass-panel" style={{ padding: '1rem' }}>
+          <div className="panel-column glass-panel pharmacy-dispense-column" style={{ padding: '1rem' }}>
             <div className="panel-header">
               <span className="panel-title">
                 <Sliders size={18} />
@@ -1768,9 +1614,9 @@ export default function PharmacyDashboard({ lang, t }) {
                 </button>
               </div>
             ) : (
-              <div style={{ textAlign: 'center', padding: '5rem', color: 'var(--text-secondary)' }}>
-                <Stethoscope size={64} />
-                <p style={{ marginTop: '1rem' }}>{lang === 'ar'
+              <div className="pharmacy-compact-empty pharmacy-select-prescription">
+                <Stethoscope size={28} />
+                <p>{lang === 'ar'
       ? 'اختر وصفة طبية من القائمة لعرض الأدوية والتحقق من المخزون.'
       : 'Select a prescription to review medications and inventory availability.'}</p>
               </div>
@@ -1778,7 +1624,7 @@ export default function PharmacyDashboard({ lang, t }) {
           </div>
 
           {/* COLUMN 3: ALERTS & INVENTORY */}
-          <div className="panel-column glass-panel" style={{ padding: '1rem' }}>
+          <div className="panel-column glass-panel pharmacy-alert-column" style={{ padding: '1rem' }}>
             <div className="panel-header">
               <span className="panel-title">
                 <AlertTriangle size={18} color="var(--warning)" />
@@ -1786,13 +1632,7 @@ export default function PharmacyDashboard({ lang, t }) {
               </span>
             </div>
             {inventoryAlerts.length === 0 ? (
-              <div
-                style={{
-                  textAlign: 'center',
-                  padding: '2rem',
-                  color: 'var(--text-secondary)'
-                }}
-              >
+              <div className="pharmacy-compact-empty">
                 <p>
                   {lang === 'ar'
                     ? 'لا توجد تنبيهات مخزون أو صلاحية حالياً.'
@@ -1881,7 +1721,7 @@ export default function PharmacyDashboard({ lang, t }) {
               ))
             )}
           </div>
-        </div>
+        </div>}
       </div>
     </div>
   );
