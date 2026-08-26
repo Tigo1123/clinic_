@@ -1,4 +1,5 @@
 import express from 'express';
+import { Prisma } from '../generated/prisma/index.js';
 import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
 import { encrypt, decrypt } from '../utils/encryption.js';
@@ -20,6 +21,56 @@ import {
 import { ensurePharmacyInvoiceInTransaction } from '../services/pharmacyInvoice.js';
 
 const router = express.Router();
+
+function authorityError(status, code, message) {
+  return Object.assign(new Error(message), { status, code });
+}
+
+async function lockAndValidateClinicalSelections(tx, { prescribedDrugs = [], orderedServices = [] }) {
+  const drugIds = [...new Set(
+    prescribedDrugs.map((item) => item.drugId).filter(Boolean)
+  )].sort();
+  const serviceIds = [...new Set(orderedServices)].sort();
+
+  if (drugIds.length > 0) {
+    const medicines = await tx.$queryRaw`
+      SELECT "id", "status"
+      FROM "DrugFormulary"
+      WHERE "id" IN (${Prisma.join(drugIds)})
+      ORDER BY "id"
+      FOR UPDATE
+    `;
+    const medicinesById = new Map(medicines.map((medicine) => [medicine.id, medicine]));
+    const missingId = drugIds.find((id) => !medicinesById.has(id));
+    if (missingId) {
+      throw authorityError(404, 'FORMULARY_MEDICINE_NOT_FOUND', 'A selected formulary medicine was not found.');
+    }
+    if (drugIds.some((id) => medicinesById.get(id).status !== 'ACTIVE')) {
+      throw authorityError(409, 'FORMULARY_MEDICINE_INACTIVE', 'A selected formulary medicine is inactive.');
+    }
+  }
+
+  if (serviceIds.length > 0) {
+    const services = await tx.$queryRaw`
+      SELECT "id", "status", "category"
+      FROM "ClinicalService"
+      WHERE "id" IN (${Prisma.join(serviceIds)})
+      ORDER BY "id"
+      FOR UPDATE
+    `;
+    const servicesById = new Map(services.map((service) => [service.id, service]));
+    const missingId = serviceIds.find((id) => !servicesById.has(id));
+    if (missingId) {
+      throw authorityError(404, 'CLINICAL_SERVICE_NOT_FOUND', 'A selected clinical service was not found.');
+    }
+    if (serviceIds.some((id) => servicesById.get(id).status !== 'ACTIVE')) {
+      throw authorityError(409, 'CLINICAL_SERVICE_INACTIVE', 'A selected clinical service is inactive.');
+    }
+    if (serviceIds.some((id) => servicesById.get(id).category !== 'LABORATORY')) {
+      throw authorityError(422, 'CLINICAL_SERVICE_NOT_LABORATORY', 'A selected clinical service is not eligible for a laboratory order.');
+    }
+  }
+}
 
 /**
  * POST /api/records
@@ -130,6 +181,8 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
 
     // Execute atomic transaction
     const result = await prisma.$transaction(async (tx) => {
+      await lockAndValidateClinicalSelections(tx, { prescribedDrugs, orderedServices });
+
       // a. Create EMR Medical Record
       const record = await tx.medicalRecord.create({
         data: {
@@ -227,10 +280,13 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
           ? 'WAITING_LAB'
           : 'COMPLETED';
 
-      await tx.appointment.update({
-        where: { id: appointmentId },
+      const transitionedAppointment = await tx.appointment.updateMany({
+        where: { id: appointmentId, status: 'IN_CONSULTATION' },
         data: { status: nextAppointmentStatus }
       });
+      if (transitionedAppointment.count !== 1) {
+        throw authorityError(409, 'APPOINTMENT_STATE_CONFLICT', 'Appointment state changed before the consultation could be saved.');
+      }
 
       return { record, prescription, labOrder };
     });
@@ -248,6 +304,9 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
     });
 
   } catch (error) {
+    if (error.status && error.code) {
+      return sendError(res, error.status, error.code, error.message);
+    }
     console.error('Save clinical record error:', error);
     return res.status(500).json({ error: 'Failed to save EMR consultation record.' });
   }
@@ -359,6 +418,8 @@ router.put('/:id/finalize', authenticate, checkRoles('DOCTOR'), validate(z.objec
     }
 
     const result = await prisma.$transaction(async (tx) => {
+      await lockAndValidateClinicalSelections(tx, { prescribedDrugs });
+
       const updatedRecord = await tx.medicalRecord.update({
         where: { id: record.id },
         data: {
@@ -452,6 +513,10 @@ router.put('/:id/finalize', authenticate, checkRoles('DOCTOR'), validate(z.objec
     });
 
   } catch (error) {
+    if (error.status && error.code) {
+      return sendError(res, error.status, error.code, error.message);
+    }
+
     console.error('Finalize consultation error:', error);
 
     if (

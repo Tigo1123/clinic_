@@ -84,6 +84,7 @@ router.patch('/pricing/doctors/:id', authenticate, checkRoles('ADMIN'), validate
 router.patch('/pricing/services/:id', authenticate, checkRoles('ADMIN'), validate(priceUpdateSchema), async (req, res) => {
   try {
     const service = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "ClinicalService" WHERE "id" = ${req.params.id} FOR UPDATE`;
       const existing = await tx.clinicalService.findUnique({ where: { id: req.params.id } });
       if (!existing) throw Object.assign(new Error('Clinical service not found.'), { status: 404, code: 'SERVICE_NOT_FOUND' });
       const updated = await tx.clinicalService.update({
@@ -119,6 +120,7 @@ router.patch('/pricing/services/:id', authenticate, checkRoles('ADMIN'), validat
 router.patch('/pricing/medicines/:id', authenticate, checkRoles('ADMIN'), validate(priceUpdateSchema), async (req, res) => {
   try {
     const medicine = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "DrugFormulary" WHERE "id" = ${req.params.id} FOR UPDATE`;
       const existing = await tx.drugFormulary.findUnique({ where: { id: req.params.id } });
       if (!existing) throw Object.assign(new Error('Medicine not found.'), { status: 404, code: 'MEDICINE_NOT_FOUND' });
       const updated = await tx.drugFormulary.update({

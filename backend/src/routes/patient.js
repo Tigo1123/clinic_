@@ -21,8 +21,23 @@ function safeDecrypt(value) {
   return result.startsWith('[Decryption Error') ? '' : result;
 }
 
-async function audit(req, action, details) {
-  await prisma.tenantAuditLog.create({ data: { userId: req.user.id, action, details, ipAddress: req.ip || 'unknown' } });
+async function audit(req, action, details, db = prisma) {
+  await db.tenantAuditLog.create({ data: { userId: req.user.id, action, details, ipAddress: req.ip || 'unknown' } });
+}
+
+function stateConflict() {
+  return Object.assign(new Error('Appointment state changed before this operation could be completed.'), {
+    status: 409,
+    code: 'APPOINTMENT_STATE_CONFLICT'
+  });
+}
+
+function isAppointmentSlotConflict(error) {
+  if (error?.code !== 'P2002') return false;
+  const target = error?.meta?.target;
+  return String(error.message || '').includes('Appointment_active_doctor_slot_key')
+    || (Array.isArray(target)
+      && ['doctorId', 'appointmentDate', 'appointmentTime'].every((field) => target.includes(field)));
 }
 
 const doctorSelect = { id: true, fullNameAr: true, fullNameEn: true, specialtyAr: true, specialtyEn: true, consultationFee: true, status: true };
@@ -794,15 +809,35 @@ router.post('/appointments', validate(bookingSchema), async (req, res, next) => 
   }
 });
 
-router.post('/appointments/:id/cancel', async (req, res) => {
+router.post('/appointments/:id/cancel', async (req, res, next) => {
   const appointment = await prisma.appointment.findFirst({ where: { id: req.params.id, patientId: req.patient.id } });
   if (!appointment) return sendError(res, 404, 'APPOINTMENT_NOT_FOUND', 'Appointment not found.');
   if (!['PENDING', 'SCHEDULED', 'CONFIRMED'].includes(appointment.status)) return sendError(res, 409, 'APPOINTMENT_CANNOT_BE_CANCELLED', 'Appointment can no longer be cancelled.');
   const cutoffHours = Number(process.env.PATIENT_CANCELLATION_CUTOFF_HOURS || 2);
   if (cancellationCutoffReached(appointment.appointmentDate, appointment.appointmentTime, cutoffHours)) return sendError(res, 409, 'CANCELLATION_CUTOFF_REACHED', 'Appointment cancellation cutoff has passed.');
-  await prisma.appointment.update({ where: { id: appointment.id }, data: { status: 'CANCELLED' } });
-  await audit(req, 'PATIENT_APPOINTMENT_CANCELLED', `Patient cancelled appointment ${appointment.id}.`);
-  return res.json({ success: true });
+  try {
+    await prisma.$transaction(async (tx) => {
+      const claimed = await tx.appointment.updateMany({
+        where: {
+          id: appointment.id,
+          patientId: req.patient.id,
+          status: appointment.status,
+          doctorId: appointment.doctorId,
+          appointmentDate: appointment.appointmentDate,
+          appointmentTime: appointment.appointmentTime
+        },
+        data: { status: 'CANCELLED' }
+      });
+      if (claimed.count !== 1) throw stateConflict();
+      await audit(req, 'PATIENT_APPOINTMENT_CANCELLED', `Patient cancelled appointment ${appointment.id}.`, tx);
+    });
+    return res.json({ success: true });
+  } catch (error) {
+    if (error.status === 409 && error.code === 'APPOINTMENT_STATE_CONFLICT') {
+      return sendError(res, 409, error.code, error.message);
+    }
+    return next(error);
+  }
 });
 
 router.put('/appointments/:id/reschedule', validate(bookingSchema), async (req, res, next) => {
@@ -811,11 +846,26 @@ router.put('/appointments/:id/reschedule', validate(bookingSchema), async (req, 
   if (!['PENDING', 'SCHEDULED', 'CONFIRMED'].includes(appointment.status)) return sendError(res, 409, 'APPOINTMENT_CANNOT_BE_RESCHEDULED', 'Appointment can no longer be rescheduled.');
   if (!(await validateSlot(res, req.body.doctorId, req.body.appointmentDate, req.body.appointmentTime))) return;
   try {
-    const updated = await prisma.appointment.update({ where: { id: appointment.id }, data: { ...req.body, status: 'PENDING' }, include: { doctor: { select: doctorSelect } } });
-    await audit(req, 'PATIENT_APPOINTMENT_RESCHEDULED', `Patient rescheduled appointment ${appointment.id}.`);
+    const updated = await prisma.$transaction(async (tx) => {
+      const claimed = await tx.appointment.updateMany({
+        where: {
+          id: appointment.id,
+          patientId: req.patient.id,
+          status: appointment.status,
+          doctorId: appointment.doctorId,
+          appointmentDate: appointment.appointmentDate,
+          appointmentTime: appointment.appointmentTime
+        },
+        data: { ...req.body, status: 'PENDING' }
+      });
+      if (claimed.count !== 1) throw stateConflict();
+      await audit(req, 'PATIENT_APPOINTMENT_RESCHEDULED', `Patient rescheduled appointment ${appointment.id}.`, tx);
+      return tx.appointment.findUnique({ where: { id: appointment.id }, include: { doctor: { select: doctorSelect } } });
+    });
     return res.json(updated);
   } catch (error) {
-    if (error.code === 'P2002') return sendError(res, 409, 'APPOINTMENT_SLOT_UNAVAILABLE', 'The requested new slot is no longer available; the original appointment was preserved.');
+    if (error.status === 409 && error.code === 'APPOINTMENT_STATE_CONFLICT') return sendError(res, 409, error.code, error.message);
+    if (isAppointmentSlotConflict(error)) return sendError(res, 409, 'APPOINTMENT_SLOT_UNAVAILABLE', 'The requested new slot is no longer available; the original appointment was preserved.');
     next(error);
   }
 });

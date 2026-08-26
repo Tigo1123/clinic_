@@ -34,6 +34,23 @@ const transitions = {
   NO_SHOW: []
 };
 
+function appointmentStateConflict() {
+  return Object.assign(new Error('Appointment state changed before this operation could be completed.'), {
+    status: 409,
+    code: 'APPOINTMENT_STATE_CONFLICT'
+  });
+}
+
+function isAppointmentSlotConflict(error) {
+  return error?.code === 'P2002'
+    && String(error.message || '').includes('Appointment_active_doctor_slot_key');
+}
+
+function isEmergencyOverrideConflict(error) {
+  return error?.code === 'P2002'
+    && String(error.message || '').includes('EmergencyOverride_appointmentId_key');
+}
+
 router.get('/slots', validate(z.object({ doctorId: z.string().uuid(), date: z.string().regex(DATE_PATTERN) }), 'query'), async (req, res) => {
   const { doctorId, date } = req.query;
 
@@ -405,13 +422,22 @@ router.put('/:id/status', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONI
       }
     }
 
-    const appointment = await prisma.appointment.update({
-      where: { id: req.params.id },
-      data: { status },
-      include: {
-        patient: true,
-        doctor: true
-      }
+    const appointment = await prisma.$transaction(async (tx) => {
+      const claimed = await tx.appointment.updateMany({
+        where: { id: current.id, status: current.status, doctorId: current.doctorId },
+        data: { status }
+      });
+      if (claimed.count !== 1) throw appointmentStateConflict();
+      await tx.tenantAuditLog.create({ data: {
+        userId: req.user.id,
+        action: 'APPOINTMENT_STATUS_UPDATED',
+        details: JSON.stringify({ appointmentId: current.id, previousStatus: current.status, status }),
+        ipAddress: req.ip || 'unknown'
+      } });
+      return tx.appointment.findUnique({
+        where: { id: current.id },
+        include: { patient: true, doctor: true }
+      });
     });
 
     // Trigger status update notification (SMS/Email) & get WhatsApp links
@@ -427,6 +453,9 @@ router.put('/:id/status', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONI
       whatsAppLinkEn: notifResult?.whatsAppLinkEn
     });
   } catch (error) {
+    if (error.status === 409 && error.code === 'APPOINTMENT_STATE_CONFLICT') {
+      return sendError(res, 409, error.code, error.message);
+    }
     console.error('Update status error:', error);
     return res.status(500).json({ error: 'Failed to update appointment status.' });
   }
@@ -458,28 +487,29 @@ router.post('/:id/override', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTI
       return sendError(res, 409, 'OVERRIDE_ALREADY_APPLIED', 'An emergency override already exists for this appointment.');
     }
 
-    // Update status to Checked In (if not already) and create Override log
-    await prisma.$transaction([
-      prisma.appointment.update({
-        where: { id: req.params.id },
+    // Atomically claim the observed state before creating the override and audit.
+    await prisma.$transaction(async (tx) => {
+      const claimed = await tx.appointment.updateMany({
+        where: { id: appointment.id, status: appointment.status },
         data: { status: 'CHECKED_IN' }
-      }),
-      prisma.emergencyOverride.create({
+      });
+      if (claimed.count !== 1) throw appointmentStateConflict();
+      await tx.emergencyOverride.create({
         data: {
           appointmentId: req.params.id,
           justification: justification.trim(),
           authorizedById: req.user.id
         }
-      }),
-      prisma.tenantAuditLog.create({
+      });
+      await tx.tenantAuditLog.create({
         data: {
           userId: req.user.id,
           action: 'QUEUE_EMERGENCY_OVERRIDE',
           details: `Emergency override requested for Appointment ${req.params.id}. Justification: ${justification.trim()}`,
           ipAddress: req.ip || '127.0.0.1'
         }
-      })
-    ]);
+      });
+    });
 
     // Emit WebSocket update
     const io = req.app.get('io');
@@ -487,6 +517,8 @@ router.post('/:id/override', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTI
 
     return res.json({ success: true, message: 'Emergency queue override applied successfully.' });
   } catch (error) {
+    if (error.status === 409 && error.code === 'APPOINTMENT_STATE_CONFLICT') return sendError(res, 409, error.code, error.message);
+    if (isEmergencyOverrideConflict(error)) return sendError(res, 409, 'OVERRIDE_ALREADY_APPLIED', 'An emergency override already exists for this appointment.');
     console.error('Override execution error:', error);
     return res.status(500).json({ error: 'Failed to apply emergency override.' });
   }
@@ -519,23 +551,24 @@ router.post('/:id/transfer', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTI
       appointmentTime: appointment.appointmentTime, status: { notIn: ['CANCELLED', 'NO_SHOW'] }, id: { not: appointment.id }
     } });
     if (conflict) return sendError(res, 409, 'APPOINTMENT_SLOT_UNAVAILABLE', 'Target doctor already has an appointment in this slot.');
-    await prisma.$transaction([
-      prisma.appointment.update({
-        where: { id: req.params.id },
+    await prisma.$transaction(async (tx) => {
+      const claimed = await tx.appointment.updateMany({
+        where: { id: appointment.id, status: 'CHECKED_IN', doctorId: appointment.doctorId },
         data: {
           doctorId: targetDoctorId,
           status: 'CHECKED_IN' // Maintain checked-in status in target doctor's queue
         }
-      }),
-      prisma.tenantAuditLog.create({
+      });
+      if (claimed.count !== 1) throw appointmentStateConflict();
+      await tx.tenantAuditLog.create({
         data: {
           userId: req.user.id,
           action: 'PATIENT_INTERNAL_TRANSFER',
           details: `Transferred appointment ${req.params.id} to Doctor ${targetDoctorId}`,
           ipAddress: req.ip || '127.0.0.1'
         }
-      })
-    ]);
+      });
+    });
 
     // Emit WebSocket update
     const io = req.app.get('io');
@@ -543,6 +576,8 @@ router.post('/:id/transfer', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTI
 
     return res.json({ success: true, message: 'Patient transferred internally successfully.' });
   } catch (error) {
+    if (error.status === 409 && error.code === 'APPOINTMENT_STATE_CONFLICT') return sendError(res, 409, error.code, error.message);
+    if (isAppointmentSlotConflict(error)) return sendError(res, 409, 'APPOINTMENT_SLOT_UNAVAILABLE', 'Target doctor already has an appointment in this slot.');
     console.error('Transfer execution error:', error);
     return res.status(500).json({ error: 'Failed to complete internal transfer.' });
   }
