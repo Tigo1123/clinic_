@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { patientApiRequest as apiRequest } from '../../services/apiClient';
 import StatusBadge from '../../components/ui/StatusBadge';
@@ -10,19 +10,21 @@ import HealthcareIllustration from '../../components/healthcare/HealthcareIllust
 import { clinicCalendarDays } from '../../utils/clinicTime';
 import { formatPatientDateTime } from '../../utils/patientRecord';
 import { doctorMatchesDirectorySearch, doctorSpecialtyKey, doctorSpecialtyOptions, localizeDoctorSpecialty } from '../../utils/doctorSpecialty';
+import { hasPendingAppointments } from '../../utils/appointmentStatus';
 
-function useApi(path){
+function useApi(path,{pollWhen=null,pollInterval=45000}={}){
   const [result,setResult]=useState({path:null,data:null,error:null,loading:true});
   const [reloadToken,setReloadToken]=useState(0);
   const reload=()=>setReloadToken(token=>token+1);
   useEffect(()=>{
     let current=true;
-    setResult({path,data:null,error:null,loading:true});
+    let pollTimer;
+    setResult((currentResult)=>currentResult.path===path?currentResult:{path,data:null,error:null,loading:true});
     apiRequest(path)
-      .then(data=>{if(current)setResult({path,data,error:null,loading:false})})
+      .then(data=>{if(current){setResult({path,data,error:null,loading:false});if(pollWhen?.(data))pollTimer=setTimeout(()=>setReloadToken(token=>token+1),pollInterval)}})
       .catch(error=>{if(current)setResult({path,data:null,error,loading:false})});
-    return()=>{current=false};
-  },[path,reloadToken]);
+    return()=>{current=false;clearTimeout(pollTimer)};
+  },[path,reloadToken,pollWhen,pollInterval]);
   const isCurrent=result.path===path;
   return{data:isCurrent?result.data:null,error:isCurrent?result.error?.message||'':'',errorStatus:isCurrent?result.error?.status:null,loading:!isCurrent||result.loading,reload};
 }
@@ -53,7 +55,7 @@ const patientGreeting = (profile, language) => {
     : `Good evening${name ? `, ${name}` : ''}`;
 };
 
-export function Dashboard(){const{t,i18n}=useTranslation();const profile=useApi('/api/patient/me');const appointments=useApi('/api/patient/appointments?group=upcoming');const labs=useApi('/api/patient/lab-results');const prescriptions=useApi('/api/patient/prescriptions');if(profile.error?.includes('not linked'))return <><div className="patient-alert error">{profile.error}</div><Link className="patient-button" to="/patient/claim">{t('claimRecord')}</Link></>;const next=appointments.data?.[0];return <State loading={profile.loading} error={profile.error}><section className="patient-hero patient-hero--care"><div className="patient-hero__copy"><span className="patient-hero__eyebrow"><HeartPulse size={15}/>{t('welcome')}</span><h1>{patientGreeting(profile.data, i18n.language)}</h1><p>{t('patientHeroText')}</p><Link className="patient-button" to="/patient/doctors"><CalendarDays size={18}/>{t('bookAppointment')}</Link></div><HealthcareIllustration variant="patient"/></section><div className="section-heading-row"><h2>{t('healthServices')}</h2></div><div className="service-grid"><Service to="/patient/doctors" icon={<Stethoscope/>} label={t('doctors')}/><Service to="/patient/appointments" icon={<CalendarDays/>} label={t('myAppointments')}/><Service to="/patient/lab-results" icon={<FlaskConical/>} label={t('labResults')}/><Service to="/patient/records" icon={<FileHeart/>} label={t('medicalRecords')}/></div><div className="section-heading-row"><h2>{t('upcomingAppointments')}</h2><Link to="/patient/appointments">{t('all')}</Link></div>{next?<article className="patient-card appointment-card"><div className="appointment-card__date"><span>{new Date(`${next.appointmentDate}T00:00:00`).toLocaleDateString(i18n.language,{month:'short'})}</span><strong>{new Date(`${next.appointmentDate}T00:00:00`).getDate()}</strong></div><div><h2>{doctorName(next.doctor,i18n.language)}</h2><p>{next.doctor?.specialtyEn}</p><p>{next.appointmentTime} · <StatusBadge status={next.status}/></p></div><Link className="patient-button secondary" to={`/patient/appointments/${next.id}`}>{t('details')}</Link></article>:<Empty>{t('noAppointments')}</Empty>}<div className="section-heading-row"><h2>{t('recentPatientInfo')}</h2></div><div className="patient-grid"><Summary to="/patient/appointments" icon={<CalendarDays/>} title={t('upcomingAppointments')} value={appointments.data?.length||0}/><Summary to="/patient/lab-results" icon={<FlaskConical/>} title={t('recentLabResults')} value={labs.data?.length||0}/><Summary to="/patient/prescriptions" icon={<Pill/>} title={t('prescriptions')} value={prescriptions.data?.length||0}/></div></State>}
+export function Dashboard(){const{t,i18n}=useTranslation();const profile=useApi('/api/patient/me');const appointments=useApi('/api/patient/appointments?group=upcoming',{pollWhen:hasPendingAppointments});const labs=useApi('/api/patient/lab-results');const prescriptions=useApi('/api/patient/prescriptions');if(profile.error?.includes('not linked'))return <><div className="patient-alert error">{profile.error}</div><Link className="patient-button" to="/patient/claim">{t('claimRecord')}</Link></>;const next=appointments.data?.[0];const hasPending=hasPendingAppointments(appointments.data);return <State loading={profile.loading} error={profile.error}><section className="patient-hero patient-hero--care"><div className="patient-hero__copy"><span className="patient-hero__eyebrow"><HeartPulse size={15}/>{t('welcome')}</span><h1>{patientGreeting(profile.data, i18n.language)}</h1><p>{t('patientHeroText')}</p><Link className="patient-button" to="/patient/doctors"><CalendarDays size={18}/>{t('bookAppointment')}</Link></div><HealthcareIllustration variant="patient"/></section>{hasPending&&<aside className="patient-alert warning patient-pending-reminder"><strong>{t('appointmentPendingTitle')}</strong><p>{t('appointmentPendingReminder')}</p><Link className="patient-button secondary" to="/patient/appointments">{t('followMyAppointments')}</Link></aside>}<div className="section-heading-row"><h2>{t('healthServices')}</h2></div><div className="service-grid"><Service to="/patient/doctors" icon={<Stethoscope/>} label={t('doctors')}/><Service to="/patient/appointments" icon={<CalendarDays/>} label={t('myAppointments')}/><Service to="/patient/lab-results" icon={<FlaskConical/>} label={t('labResults')}/><Service to="/patient/records" icon={<FileHeart/>} label={t('medicalRecords')}/></div><div className="section-heading-row"><h2>{t('upcomingAppointments')}</h2><Link to="/patient/appointments">{t('all')}</Link></div>{next?<article className="patient-card appointment-card"><div className="appointment-card__date"><span>{new Date(`${next.appointmentDate}T00:00:00`).toLocaleDateString(i18n.language,{month:'short'})}</span><strong>{new Date(`${next.appointmentDate}T00:00:00`).getDate()}</strong></div><div><h2>{doctorName(next.doctor,i18n.language)}</h2><p>{next.doctor?.specialtyEn}</p><p>{next.appointmentTime} · <StatusBadge status={next.status} language={i18n.language}/></p></div><Link className="patient-button secondary" to={`/patient/appointments/${next.id}`}>{t('details')}</Link></article>:<Empty>{t('noAppointments')}</Empty>}<div className="section-heading-row"><h2>{t('recentPatientInfo')}</h2></div><div className="patient-grid"><Summary to="/patient/appointments" icon={<CalendarDays/>} title={t('upcomingAppointments')} value={appointments.data?.length||0}/><Summary to="/patient/lab-results" icon={<FlaskConical/>} title={t('recentLabResults')} value={labs.data?.length||0}/><Summary to="/patient/prescriptions" icon={<Pill/>} title={t('prescriptions')} value={prescriptions.data?.length||0}/></div></State>}
 function Service({to,icon,label}){return <Link className="service-card" to={to}><span className="service-card__icon">{icon}</span><strong>{label}</strong></Link>}
 function Summary({to,icon,title,value}){return <Link className="patient-card health-summary-card" to={to}><div style={{color:'var(--color-primary)'}}>{icon}</div><h3>{title}</h3><strong>{value}</strong></Link>}
 
@@ -183,9 +185,97 @@ export function DoctorDetails(){const{id}=useParams();const{t,i18n}=useTranslati
       )}{' '}
       {i18n.language === 'ar' ? 'ج.س' : 'SDG'}
     </strong></div><Link className="patient-button" to={`/patient/book/${id}`}><CalendarDays size={18}/>{t('bookAppointment')}</Link></article>}
-export function BookAppointment(){const{doctorId}=useParams();const{t,i18n}=useTranslation();const nav=useNavigate();const[date,setDate]=useState(''),[slots,setSlots]=useState([]),[time,setTime]=useState(''),[error,setError]=useState(''),[loading,setLoading]=useState(false),[successAppointmentId,setSuccessAppointmentId]=useState('');const days=clinicCalendarDays(7);useEffect(()=>{if(date)apiRequest(`/api/appointments/slots?doctorId=${doctorId}&date=${date}`).then(setSlots).catch(e=>setError(e.message));else setSlots([])},[doctorId,date]);async function submit(e){e.preventDefault();setLoading(true);setError('');try{const app=await apiRequest('/api/patient/appointments',{method:'POST',body:JSON.stringify({doctorId,appointmentDate:date,appointmentTime:time})});setSuccessAppointmentId(app.id)}catch(e){setError(e.message)}finally{setLoading(false)}}if(successAppointmentId)return <section className="patient-card"><div className="patient-alert success"><strong>{t('bookingSuccess')}</strong><p style={{margin:'.6rem 0 0'}}>{t('bookingAttendanceNotice')}</p></div><Link className="patient-button" to={`/patient/appointments/${successAppointmentId}`} style={{marginTop:'1rem'}}>{t('viewAppointment')}</Link></section>;return <section className="patient-card"><h1>{t('bookAppointment')}</h1><form onSubmit={submit}><div className="section-heading-row"><h2>{t('selectDate')}</h2></div><div className="date-strip">{days.map(day=>{const value=day.date;return <button type="button" className={`date-chip ${date===value?'selected':''}`} key={value} onClick={()=>{setDate(value);setTime('')}} aria-pressed={date===value}><span>{day.calendarDate.toLocaleDateString(i18n.language,{weekday:'short',timeZone:'UTC'})}</span><strong>{day.calendarDate.getUTCDate()}</strong></button>})}</div>{date&&<fieldset className="patient-card"><legend>{t('selectTime')}</legend><div className="slot-grid">{slots.map(slot=><button type="button" className={`slot-chip ${time===slot?'selected':''}`} key={slot} onClick={()=>setTime(slot)} aria-pressed={time===slot}>{slot}</button>)}</div>{!slots.length&&<p>{t('noSlots')}</p>}</fieldset>}{error&&<div className="patient-alert error">{error}</div>}<button className="patient-button" style={{width:'100%'}} disabled={!time||loading}>{loading?t('loading'):t('confirmBooking')}</button></form></section>}
+export function BookAppointment() {
+  const { doctorId } = useParams();
+  const { t, i18n } = useTranslation();
+  const [date, setDate] = useState('');
+  const [slots, setSlots] = useState([]);
+  const [time, setTime] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [successAppointmentId, setSuccessAppointmentId] = useState('');
+  const days = clinicCalendarDays(7);
 
-export function Appointments(){const{t,i18n}=useTranslation();const[group,setGroup]=useState('upcoming');const{data,error,loading}=useApi(`/api/patient/appointments?group=${group}`);return <State loading={loading} error={error}><h1>{t('myAppointments')}</h1><div className="patient-tabs">{['upcoming','past','cancelled','all'].map(x=><button className={`patient-button ${group===x?'':'secondary'}`} onClick={()=>setGroup(x)} key={x}>{t(x)}</button>)}</div>{!data?.length?<Empty>{t('noAppointments')}</Empty>:<div className="patient-list">{data.map(a=><article className="patient-card patient-row" key={a.id}><div><h2>{doctorName(a.doctor,i18n.language)}</h2><p>{a.appointmentDate} · {a.appointmentTime}</p><StatusBadge status={a.status}/></div><Link className="patient-button secondary" to={`/patient/appointments/${a.id}`}>{t('details')}</Link></article>)}</div>}</State>}
+  useEffect(() => {
+    if (date) {
+      apiRequest(`/api/appointments/slots?doctorId=${doctorId}&date=${date}`)
+        .then(setSlots)
+        .catch((requestError) => setError(requestError.message));
+    } else {
+      setSlots([]);
+    }
+  }, [doctorId, date]);
+
+  async function submit(event) {
+    event.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const appointment = await apiRequest('/api/patient/appointments', {
+        method: 'POST',
+        body: JSON.stringify({ doctorId, appointmentDate: date, appointmentTime: time })
+      });
+      setSuccessAppointmentId(appointment.id);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (successAppointmentId) {
+    return <section className="patient-card patient-booking-pending">
+      <div className="patient-alert success">
+        <strong>{t('bookingRequestSent')}</strong>
+        <p>{t('bookingPendingReview')}</p>
+        <p>{t('bookingFollowStatus')}</p>
+      </div>
+      <div className="patient-actions">
+        <Link className="patient-button" to="/patient/appointments">{t('followMyAppointments')}</Link>
+        <Link className="patient-button secondary" to={`/patient/appointments/${successAppointmentId}`}>{t('details')}</Link>
+      </div>
+    </section>;
+  }
+
+  return <section className="patient-card">
+    <h1>{t('bookAppointment')}</h1>
+    <form onSubmit={submit}>
+      <div className="section-heading-row"><h2>{t('selectDate')}</h2></div>
+      <div className="date-strip">{days.map((day) => {
+        const value = day.date;
+        return <button type="button" className={`date-chip ${date === value ? 'selected' : ''}`} key={value} onClick={() => { setDate(value); setTime(''); }} aria-pressed={date === value}>
+          <span>{day.calendarDate.toLocaleDateString(i18n.language, { weekday: 'short', timeZone: 'UTC' })}</span>
+          <strong>{day.calendarDate.getUTCDate()}</strong>
+        </button>;
+      })}</div>
+      {date && <fieldset className="patient-card">
+        <legend>{t('selectTime')}</legend>
+        <div className="slot-grid">{slots.map((slot) => <button type="button" className={`slot-chip ${time === slot ? 'selected' : ''}`} key={slot} onClick={() => setTime(slot)} aria-pressed={time === slot}>{slot}</button>)}</div>
+        {!slots.length && <p>{t('noSlots')}</p>}
+      </fieldset>}
+      {error && <div className="patient-alert error">{error}</div>}
+      <button className="patient-button" style={{ width: '100%' }} disabled={!time || loading}>{loading ? t('loading') : t('confirmBooking')}</button>
+    </form>
+  </section>;
+}
+
+export function Appointments() {
+  const { t, i18n } = useTranslation();
+  const [group, setGroup] = useState('upcoming');
+  const { data, error, loading } = useApi(`/api/patient/appointments?group=${group}`, { pollWhen: hasPendingAppointments });
+  return <State loading={loading} error={error}>
+    <h1>{t('myAppointments')}</h1>
+    <div className="patient-tabs">{['upcoming', 'past', 'cancelled', 'all'].map((item) => <button className={`patient-button ${group === item ? '' : 'secondary'}`} onClick={() => setGroup(item)} key={item}>{t(item)}</button>)}</div>
+    {!data?.length ? <Empty>{t('noAppointments')}</Empty> : <div className="patient-list">{data.map((appointment) => <article className="patient-card patient-row" key={appointment.id}>
+      <div>
+        <h2>{doctorName(appointment.doctor, i18n.language)}</h2>
+        <p>{appointment.appointmentDate} · {appointment.appointmentTime}</p>
+        <StatusBadge status={appointment.status} language={i18n.language}/>
+      </div>
+      <Link className="patient-button secondary" to={`/patient/appointments/${appointment.id}`}>{t('details')}</Link>
+    </article>)}</div>}
+  </State>;
+}
 export function AppointmentDetails(){
   const{id}=useParams();
   const{t,i18n}=useTranslation();
@@ -210,7 +300,7 @@ export function AppointmentDetails(){
   if(!appointment)return <EmptyState title={t('appointmentNotFound')} message={t('appointmentNotFoundMessage')}/>;
 
   const canModify=['PENDING','SCHEDULED','CONFIRMED'].includes(appointment.status);
-  return <article className="patient-card"><h1>{t('appointmentDetails')}</h1><StatusBadge status={appointment.status}/><h2 style={{marginTop:'1.25rem'}}>{doctorName(appointment.doctor,i18n.language)}</h2><p>{appointment.appointmentDate} · {appointment.appointmentTime}</p><p>#{String(appointment.id).slice(0,8).toUpperCase()}</p>{actionError&&<div className="patient-alert error">{actionError}</div>}{canModify&&<div className="patient-actions" style={{marginTop:'1.25rem'}}><Link className="patient-button secondary" to={`/patient/appointments/${id}/reschedule`}>{t('rescheduleAppointment')}</Link><button className="patient-button" onClick={()=>setConfirming(true)}>{t('cancelAppointment')}</button></div>}<Dialog open={confirming} onClose={()=>!cancelling&&setConfirming(false)} title={t('cancelAppointmentQuestion')} description={t('cancelWarning')}><div className="ui-dialog__details"><strong>{doctorName(appointment.doctor,i18n.language)}</strong><span>{appointment.appointmentDate}</span><span>{appointment.appointmentTime}</span></div>{actionError&&<div className="patient-alert error" role="alert">{actionError}</div>}<div className="ui-dialog__actions"><button className="ui-button ui-button--outline" autoFocus onClick={()=>setConfirming(false)} disabled={cancelling}>{t('keepAppointment')}</button><button className="ui-button ui-button--danger" onClick={cancel} disabled={cancelling} aria-busy={cancelling}>{cancelling?t('loading'):t('cancelAppointment')}</button></div></Dialog></article>;
+  return <article className="patient-card"><h1>{t('appointmentDetails')}</h1><StatusBadge status={appointment.status} language={i18n.language}/><h2 style={{marginTop:'1.25rem'}}>{doctorName(appointment.doctor,i18n.language)}</h2><p>{appointment.appointmentDate} · {appointment.appointmentTime}</p><p>#{String(appointment.id).slice(0,8).toUpperCase()}</p>{actionError&&<div className="patient-alert error">{actionError}</div>}{canModify&&<div className="patient-actions" style={{marginTop:'1.25rem'}}><Link className="patient-button secondary" to={`/patient/appointments/${id}/reschedule`}>{t('rescheduleAppointment')}</Link><button className="patient-button" onClick={()=>setConfirming(true)}>{t('cancelAppointment')}</button></div>}<Dialog open={confirming} onClose={()=>!cancelling&&setConfirming(false)} title={t('cancelAppointmentQuestion')} description={t('cancelWarning')}><div className="ui-dialog__details"><strong>{doctorName(appointment.doctor,i18n.language)}</strong><span>{appointment.appointmentDate}</span><span>{appointment.appointmentTime}</span></div>{actionError&&<div className="patient-alert error" role="alert">{actionError}</div>}<div className="ui-dialog__actions"><button className="ui-button ui-button--outline" autoFocus onClick={()=>setConfirming(false)} disabled={cancelling}>{t('keepAppointment')}</button><button className="ui-button ui-button--danger" onClick={cancel} disabled={cancelling} aria-busy={cancelling}>{cancelling?t('loading'):t('cancelAppointment')}</button></div></Dialog></article>;
 }
 
 export function LabResults() {
