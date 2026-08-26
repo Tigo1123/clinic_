@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, FileText, HelpCircle, Sliders, Stethoscope } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import RoleHero from '../../components/healthcare/RoleHero';
@@ -6,7 +6,7 @@ import { clinicDateString } from '../../utils/clinicTime';
 import PharmacyManagement from './PharmacyManagement';
 import PharmacyPayment from './PharmacyPayment';
 import Dialog from '../../components/ui/Dialog';
-import { authoritativeStockSummary, buildMedicationReviewPayload, customMedicineRequiresReview, localizedStockState, pharmacyInventoryAlert, stockPresentation } from '../../utils/pharmacyManagement';
+import { authoritativeStockSummary, buildMedicationReviewPayload, customMedicineRequiresReview, localizedStockState, pharmacyAlertModel, stockPresentation } from '../../utils/pharmacyManagement';
 
 export default function PharmacyDashboard({ lang, t: _t }) {
   const [prescriptions, setPrescriptions] = useState([]);
@@ -18,6 +18,8 @@ export default function PharmacyDashboard({ lang, t: _t }) {
   const [paymentRefresh, setPaymentRefresh] = useState(0);
   const [dispensing, setDispensing] = useState(false);
   const [activeSection, setActiveSection] = useState('dispensing');
+  const [alertMedicines, setAlertMedicines] = useState(null);
+  const [alertLoadError, setAlertLoadError] = useState('');
 
   const [selectedStock, setSelectedStock] = useState({});
 
@@ -33,6 +35,33 @@ export default function PharmacyDashboard({ lang, t: _t }) {
   const [reviewErrorMsg, setReviewErrorMsg] = useState('');
   const [reviewDialogItem, setReviewDialogItem] = useState(null);
   const reviewSectionRef = useRef(null);
+  const alertRequestRef = useRef(0);
+
+  const loadAlertInventory = useCallback(async () => {
+    const requestId = ++alertRequestRef.current;
+    setAlertLoadError('');
+    try {
+      const firstResponse = await fetchWithAuth('/api/pharmacy/formulary?page=1&pageSize=100');
+      if (!firstResponse.ok) throw new Error('FORMULARY_ALERT_LOAD_FAILED');
+      const firstPage = await firstResponse.json();
+      const totalPages = Math.max(1, Number(firstPage.pagination?.totalPages) || 1);
+      const allItems = [...(firstPage.items || [])];
+      for (let page = 2; page <= totalPages; page += 1) {
+        const response = await fetchWithAuth(`/api/pharmacy/formulary?page=${page}&pageSize=100`);
+        if (!response.ok) throw new Error('FORMULARY_ALERT_LOAD_FAILED');
+        const payload = await response.json();
+        allItems.push(...(payload.items || []));
+      }
+      if (requestId === alertRequestRef.current) {
+        setAlertMedicines(allItems);
+      }
+    } catch {
+      if (requestId === alertRequestRef.current) {
+        setAlertMedicines(null);
+        setAlertLoadError(lang === 'ar' ? 'تعذر تحميل تنبيهات المخزون.' : 'Unable to load inventory alerts.');
+      }
+    }
+  }, [lang]);
 
   const fetchMedicationReviews = () => {
     fetchWithAuth('/api/records/medication-reviews/pending')
@@ -102,6 +131,11 @@ export default function PharmacyDashboard({ lang, t: _t }) {
         setDrugCatalog([]);
       });
   }, []);
+
+  useEffect(() => {
+    loadAlertInventory();
+    return () => { alertRequestRef.current += 1; };
+  }, [loadAlertInventory, managementRefresh]);
 
   useEffect(() => {
     let active = true;
@@ -443,18 +477,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
     }
   };
 
-  const inventoryAlerts = Object.values(selectedStock).filter(Boolean).map((medicine) => {
-    const alert = pharmacyInventoryAlert(medicine);
-    return {
-      ...medicine,
-      totalUsableStock: alert.usableStock,
-      reorderLevel: alert.lowStockBatchCount,
-      expiredBatchCount: alert.expiredBatchCount,
-      isOutOfStock: ['OUT_OF_STOCK', 'EXPIRED'].includes(alert.state),
-      isLowStock: alert.state === 'LOW_STOCK',
-      expiringSoonBatches: []
-    };
-  }).filter((medicine) => medicine.isOutOfStock || medicine.isLowStock || medicine.expiredBatchCount > 0);
+  const alertModel = pharmacyAlertModel(alertMedicines || []);
 
   return (
     <div className="dashboard-wrapper">
@@ -468,12 +491,12 @@ export default function PharmacyDashboard({ lang, t: _t }) {
           {[
             ['dispensing', lang === 'ar' ? 'صرف الوصفات' : 'Prescription Dispensing', prescriptions.length],
             ['inventory', lang === 'ar' ? 'الأدوية والمخزون' : 'Medicines & Inventory', null],
-            ['alerts', lang === 'ar' ? 'التنبيهات' : 'Stock & Expiry Alerts', inventoryAlerts.length],
+            ['alerts', lang === 'ar' ? 'التنبيهات' : 'Stock & Expiry Alerts', alertMedicines ? alertModel.totalAlertCount : null],
             ['reviews', lang === 'ar' ? 'طلبات الأدوية الجديدة' : 'Custom Medicine Review', medicationReviews.length]
           ].map(([id, label, count]) => <button key={id} type="button" role="tab" aria-selected={activeSection === id} aria-controls={`pharmacy-section-${id}`} className={activeSection === id ? 'is-active' : ''} onClick={() => setActiveSection(id)}><span>{label}</span>{count !== null && <span className="pharmacy-tab-count">{count}</span>}</button>)}
         </div>
 
-        {activeSection === 'inventory' && <div id="pharmacy-section-inventory" role="tabpanel"><PharmacyManagement lang={lang} refreshToken={managementRefresh} /></div>}
+        {activeSection === 'inventory' && <div id="pharmacy-section-inventory" role="tabpanel"><PharmacyManagement lang={lang} refreshToken={managementRefresh} onInventoryChanged={loadAlertInventory} /></div>}
 
         <Dialog
           open={Boolean(reviewDialogItem)}
@@ -1630,8 +1653,15 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                 <AlertTriangle size={18} color="var(--warning)" />
                 {lang === 'ar' ? 'تنبيهات المخازن والصلاحية' : 'Stock Alerts & Expiry'}
               </span>
+              <button type="button" className="btn btn-secondary" onClick={loadAlertInventory}>
+                {lang === 'ar' ? 'تحديث' : 'Refresh'}
+              </button>
             </div>
-            {inventoryAlerts.length === 0 ? (
+            {alertLoadError ? (
+              <div className="pharmacy-compact-empty"><p role="alert">{alertLoadError}</p><button type="button" className="btn" onClick={loadAlertInventory}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button></div>
+            ) : alertMedicines === null ? (
+              <div className="pharmacy-compact-empty"><p>{lang === 'ar' ? 'جارٍ تحميل التنبيهات…' : 'Loading alerts…'}</p></div>
+            ) : alertModel.totalAlertCount === 0 ? (
               <div className="pharmacy-compact-empty">
                 <p>
                   {lang === 'ar'
@@ -1639,87 +1669,17 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                     : 'There are no inventory or expiry alerts at this time.'}
                 </p>
               </div>
-            ) : (
-              inventoryAlerts.map((drug) => (
-                <div
-                  key={drug.id}
-                  className="glass-panel"
-                  style={{
-                    padding: '0.85rem',
-                    marginBottom: '0.65rem',
-                    fontSize: '0.85rem',
-                    borderLeft: drug.isOutOfStock
-                      ? '4px solid var(--danger)'
-                      : '4px solid var(--warning)',
-                    background: drug.isOutOfStock
-                      ? 'rgba(239, 68, 68, 0.05)'
-                      : 'rgba(245, 158, 11, 0.05)'
-                  }}
-                >
-                  <strong>
-                    {lang === 'ar'
-                      ? drug.labelAr
-                      : drug.labelEn}
-                  </strong>
-
-                  <div
-                    style={{
-                      display: 'grid',
-                      gap: '0.4rem',
-                      marginTop: '0.6rem'
-                    }}
-                  >
-                    {drug.isOutOfStock && (
-                      <div className="badge badge-danger">
-                        {lang === 'ar'
-                          ? 'نفد المخزون القابل للصرف'
-                          : 'No usable stock available'}
-                      </div>
-                    )}
-
-                    {drug.isLowStock && (
-                      <div className="badge badge-warning">
-                        {lang === 'ar'
-                          ? `مخزون منخفض: ${drug.totalUsableStock} متوفر — دفعات منخفضة ${drug.reorderLevel}`
-                          : `Low stock: ${drug.totalUsableStock} available — low-stock batches ${drug.reorderLevel}`}
-                      </div>
-                    )}
-
-                    {!drug.isOutOfStock && !drug.isLowStock && (
-                      <div style={{ color: 'var(--text-secondary)' }}>
-                        {lang === 'ar'
-                          ? `المخزون الصالح للصرف: ${drug.totalUsableStock}`
-                          : `Usable stock: ${drug.totalUsableStock}`}
-                      </div>
-                    )}
-
-                    {drug.expiredBatchCount > 0 && (
-                      <div className="badge badge-danger" style={{ display: 'block', whiteSpace: 'normal' }}>
-                        {lang === 'ar'
-                          ? `يوجد ${drug.expiredBatchCount} دفعة منتهية الصلاحية لهذا الدواء`
-                          : `This medicine has ${drug.expiredBatchCount} expired batches`}
-                      </div>
-                    )}
-
-                    {drug.expiringSoonBatches.map((batch) => (
-                      <div
-                        key={`soon-${batch.id}`}
-                        className="badge badge-warning"
-                        style={{
-                          display: 'block',
-                          whiteSpace: 'normal'
-                        }}
-                      >
-                        {lang === 'ar'
-                          ? `قريب الانتهاء — التشغيلة ${batch.batchNumber} — تنتهي ${batch.expiryDate} — الكمية ${batch.qtyOnHand}`
-                          : `Expiring soon — Batch ${batch.batchNumber} — Expires ${batch.expiryDate} — Qty ${batch.qtyOnHand}`}
-                      </div>
-                    ))}
-
-                  </div>
-                </div>
-              ))
-            )}
+            ) : <div className="pharmacy-alert-groups">
+              {[
+                ['OUT_OF_STOCK', lang === 'ar' ? 'نفد المخزون' : 'Out of stock', alertModel.stockAlerts.filter((alert) => alert.state === 'OUT_OF_STOCK'), 'danger'],
+                ['LOW_STOCK', lang === 'ar' ? 'مخزون منخفض' : 'Low stock', alertModel.stockAlerts.filter((alert) => alert.state === 'LOW_STOCK'), 'warning'],
+                ['NEAR_EXPIRY', lang === 'ar' ? 'قريب انتهاء الصلاحية' : 'Near expiry', alertModel.nearExpiryAlerts, 'warning'],
+                ['EXPIRED', lang === 'ar' ? 'منتهي الصلاحية' : 'Expired', alertModel.expiredAlerts, 'danger']
+              ].filter(([, , alerts]) => alerts.length > 0).map(([state, title, alerts, tone]) => <section key={state} className="pharmacy-alert-group" aria-labelledby={`pharmacy-alert-${state}`}>
+                <h3 id={`pharmacy-alert-${state}`}>{title} <span className={`badge badge-${tone}`}>{state === 'EXPIRED' ? alerts.reduce((total, alert) => total + alert.count, 0) : alerts.length}</span></h3>
+                <div>{alerts.map((alert) => <article key={`${state}-${alert.medicine.id}`} className="pharmacy-alert-item"><strong>{lang === 'ar' ? alert.medicine.labelAr : alert.medicine.labelEn}</strong><span>{state === 'LOW_STOCK' ? (lang === 'ar' ? `${alert.stock.usableStock} متوفر` : `${alert.stock.usableStock} available`) : state === 'EXPIRED' ? (lang === 'ar' ? `${alert.count} دفعة منتهية` : `${alert.count} expired batch(es)`) : localizedStockState(state, lang)}</span></article>)}</div>
+              </section>)}
+            </div>}
           </div>
         </div>}
       </div>

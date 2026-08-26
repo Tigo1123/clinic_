@@ -64,7 +64,7 @@ function StockBadges({ medicine, lang }) {
   </div>;
 }
 
-export default function PharmacyManagement({ lang, refreshToken = 0 }) {
+export default function PharmacyManagement({ lang, refreshToken = 0, onInventoryChanged = () => {} }) {
   const [items, setItems] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, totalPages: 1, total: 0 });
   const [searchInput, setSearchInput] = useState('');
@@ -165,7 +165,7 @@ export default function PharmacyManagement({ lang, refreshToken = 0 }) {
     setSaving(true);
     try {
       await jsonRequest('/api/pharmacy/formulary', { method: 'POST', body: JSON.stringify(buildMedicinePayload(medicineForm)) }, 'Unable to create medicine.', lang);
-      closeDialog(true); setFeedback({ type: 'success', text: lang === 'ar' ? 'تم إنشاء الدواء بنجاح. سيظل غير نشط وبدون سعر حتى تقوم الإدارة بالتسعير والتفعيل.' : 'Medicine created successfully. It will remain inactive and unpriced until an Admin sets the official price and activates it.' }); await loadFormulary(1, search, status);
+      closeDialog(true); setFeedback({ type: 'success', text: lang === 'ar' ? 'تم إنشاء الدواء بنجاح. سيظل غير نشط وبدون سعر حتى تقوم الإدارة بالتسعير والتفعيل.' : 'Medicine created successfully. It will remain inactive and unpriced until an Admin sets the official price and activates it.' }); await loadFormulary(1, search, status); onInventoryChanged();
     } catch (error) { setFeedback({ type: 'danger', text: error.message }); } finally { setSaving(false); }
   };
 
@@ -173,7 +173,7 @@ export default function PharmacyManagement({ lang, refreshToken = 0 }) {
     event.preventDefault(); setSaving(true);
     try {
       await jsonRequest(`/api/pharmacy/formulary/${selected.id}/metadata`, { method: 'PATCH', body: JSON.stringify(buildMetadataPayload(medicineForm)) }, 'Unable to update medicine.', lang);
-      closeDialog(true); setFeedback({ type: 'success', text: lang === 'ar' ? 'تم تحديث بيانات الدواء.' : 'Medicine metadata updated.' }); await loadFormulary(pagination.page, search, status);
+      closeDialog(true); setFeedback({ type: 'success', text: lang === 'ar' ? 'تم تحديث بيانات الدواء.' : 'Medicine metadata updated.' }); await loadFormulary(pagination.page, search, status); onInventoryChanged();
     } catch (error) { setFeedback({ type: 'danger', text: error.message }); } finally { setSaving(false); }
   };
 
@@ -181,7 +181,7 @@ export default function PharmacyManagement({ lang, refreshToken = 0 }) {
     event.preventDefault(); const errors = validateBatchForm(batchForm, lang); setBatchErrors(errors); if (Object.keys(errors).length) return; setSaving(true);
     try {
       await jsonRequest(`/api/pharmacy/formulary/${selected.id}/batches`, { method: 'POST', body: JSON.stringify(buildBatchPayload(batchForm)) }, 'Unable to receive batch.', lang);
-      setBatchForm(emptyBatch); setBatchErrors({}); setFeedback({ type: 'success', text: lang === 'ar' ? 'تم استلام دفعة المخزون.' : 'Inventory batch received.' }); await loadFormulary(pagination.page, search, status);
+      setBatchForm(emptyBatch); setBatchErrors({}); setFeedback({ type: 'success', text: lang === 'ar' ? 'تم استلام دفعة المخزون.' : 'Inventory batch received.' }); await loadFormulary(pagination.page, search, status); onInventoryChanged();
     } catch (error) { setFeedback({ type: 'danger', text: error.message }); } finally { setSaving(false); }
   };
 
@@ -207,7 +207,7 @@ export default function PharmacyManagement({ lang, refreshToken = 0 }) {
       <label htmlFor="pharmacy-formulary-search"><span className="sr-only">{lang === 'ar' ? 'بحث' : 'Search'}</span><div className="pharmacy-search"><Search size={16} /><input id="pharmacy-formulary-search" name="formularySearch" value={searchInput} maxLength={100} onChange={(event) => setSearchInput(event.target.value)} placeholder={lang === 'ar' ? 'بحث في الأدوية' : 'Search medicines'} /></div></label>
       <select id="pharmacy-formulary-status" name="formularyStatus" aria-label={lang === 'ar' ? 'حالة الدواء' : 'Medicine status'} value={status} onChange={(event) => { if (['', 'ACTIVE', 'INACTIVE'].includes(event.target.value)) setStatus(event.target.value); }}><option value="">{lang === 'ar' ? 'كل الحالات' : 'All statuses'}</option><option value="ACTIVE">ACTIVE</option><option value="INACTIVE">INACTIVE</option></select>
       <button className="btn" type="submit">{lang === 'ar' ? 'بحث' : 'Search'}</button>
-      <button className="btn" type="button" disabled={loading} onClick={() => loadFormulary(pagination.page, search, status)}><RefreshCw size={15} /> {lang === 'ar' ? 'تحديث' : 'Refresh'}</button>
+      <button className="btn" type="button" disabled={loading} onClick={async () => { await loadFormulary(pagination.page, search, status); onInventoryChanged(); }}><RefreshCw size={15} /> {lang === 'ar' ? 'تحديث' : 'Refresh'}</button>
     </form>
     {feedback.text && <div role="status" className={`badge badge-${feedback.type}`} style={{ display: 'block', padding: '.65rem', margin: '.7rem 0' }}>{feedback.text}</div>}
     {loading && items.length === 0 ? <p className="pharmacy-empty">{lang === 'ar' ? 'جارٍ تحميل الأدوية…' : 'Loading medicines…'}</p> : items.length === 0 ? <p className="pharmacy-empty">{lang === 'ar' ? 'لا توجد أدوية مطابقة.' : 'No medicines found.'}</p> : <div className={`pharmacy-inventory-list${loading ? ' is-refreshing' : ''}`}>

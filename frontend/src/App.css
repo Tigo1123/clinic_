@@ -949,6 +949,12 @@
 .pharmacy-compact-empty { display: grid; justify-items: center; gap: .35rem; padding: 1.25rem .75rem; color: var(--text-secondary); text-align: center; }
 .pharmacy-compact-empty p { margin: 0; }
 .pharmacy-select-prescription { min-height: 150px; align-content: center; }
+.pharmacy-alert-groups { display: grid; gap: .75rem; }
+.pharmacy-alert-group { padding: .75rem; border: 1px solid var(--border-color, var(--border)); border-radius: 12px; background: color-mix(in srgb, var(--primary) 2%, transparent); }
+.pharmacy-alert-group h3 { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin: 0 0 .55rem; font-size: .92rem; }
+.pharmacy-alert-group > div { display: grid; gap: .4rem; }
+.pharmacy-alert-item { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .55rem .6rem; border-radius: 8px; background: var(--card-bg, #fff); font-size: .8rem; }
+.pharmacy-alert-item span { color: var(--text-secondary); }
 
 .pharmacy-inventory-list { overflow: visible; border: 1px solid var(--border-color, var(--border)); border-radius: 12px; }
 .pharmacy-inventory-list.is-refreshing { opacity: .65; pointer-events: none; }

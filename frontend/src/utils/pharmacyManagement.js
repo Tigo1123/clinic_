@@ -166,6 +166,39 @@ export function pharmacyInventoryAlert(medicine = {}) {
   };
 }
 
+export function pharmacyAlertModel(medicines = []) {
+  const stockAlerts = [];
+  const expiredAlerts = [];
+  const nearExpiryAlerts = [];
+
+  for (const medicine of medicines) {
+    const stock = authoritativeStockSummary(medicine);
+    if (stock.usableStock <= 0) {
+      stockAlerts.push({ medicine, stock, state: 'OUT_OF_STOCK' });
+    } else if (stock.lowStockBatchCount > 0) {
+      stockAlerts.push({ medicine, stock, state: 'LOW_STOCK' });
+    }
+
+    if (stock.expiredBatchCount > 0) {
+      expiredAlerts.push({ medicine, stock, count: stock.expiredBatchCount, state: 'EXPIRED' });
+    }
+    if (stock.nearExpiry) {
+      nearExpiryAlerts.push({ medicine, stock, count: 1, state: 'NEAR_EXPIRY' });
+    }
+  }
+
+  const expiredBatchCount = expiredAlerts.reduce((total, alert) => total + alert.count, 0);
+  const nearExpiryCount = nearExpiryAlerts.reduce((total, alert) => total + alert.count, 0);
+  return {
+    stockAlerts,
+    expiredAlerts,
+    nearExpiryAlerts,
+    stockAlertCount: stockAlerts.length,
+    expiryAlertCount: expiredBatchCount + nearExpiryCount,
+    totalAlertCount: stockAlerts.length + expiredBatchCount + nearExpiryCount
+  };
+}
+
 export function validateBatchForm(form, lang = 'en') {
   const errors = {};
   const ar = lang === 'ar';

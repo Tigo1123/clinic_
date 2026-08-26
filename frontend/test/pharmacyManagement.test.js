@@ -17,6 +17,7 @@ import {
   localizedMovementType,
   localizedStockState,
   pharmacyManagementError,
+  pharmacyAlertModel,
   pharmacyInventoryAlert,
   stockPresentation,
   validateBatchForm,
@@ -142,7 +143,7 @@ test('pilot redesign preserves management actions, search, filters, alerts, and 
   assert.match(management, /openBatchDialog\(medicine\)/);
   assert.match(management, /loadMovements\(medicine\.id, 1\)/);
   assert.match(dashboard, /لا توجد تنبيهات مخزون أو صلاحية حالياً/);
-  assert.match(dashboard, /inventoryAlerts\.map/);
+  assert.match(dashboard, /alertModel\.stockAlerts/);
   assert.match(dashboard, /chooseReviewDecision\('LINK_EXISTING'\)/);
   assert.match(dashboard, /chooseReviewDecision\('CREATE_FORMULARY'\)/);
   assert.match(dashboard, /chooseReviewDecision\('EXTERNAL'\)/);
@@ -216,9 +217,48 @@ test('expired-batch alerts coexist with authoritative usable and healthy or low 
   assert.equal(low.hasExpiredBatches, true);
   assert.equal(low.state, 'LOW_STOCK');
   const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
-  assert.match(dashboard, /drug\.expiredBatchCount > 0/);
-  assert.match(dashboard, /This medicine has \$\{drug\.expiredBatchCount\} expired batches/);
+  assert.match(dashboard, /alertModel\.expiredAlerts/);
+  assert.match(dashboard, /\$\{alert\.count\} expired batch\(es\)/);
   assert.doesNotMatch(dashboard, /expiredBatches.*reduce|expiredBatchCount.*qtyOnHand/);
+});
+
+test('alert model counts medicines once for stock state and keeps expiry separate', () => {
+  const medicines = [
+    { id: 'a', stock: { totalOnHand: 0, usableStock: 0, expiredBatchCount: 0, lowStockBatchCount: 2 } },
+    { id: 'b', stock: { totalOnHand: 4, usableStock: 0, expiredBatchCount: 0, lowStockBatchCount: 1 } },
+    { id: 'c', stock: { totalOnHand: 8, usableStock: 8, expiredBatchCount: 0, lowStockBatchCount: 1 } },
+    { id: 'healthy', stock: { totalOnHand: 20, usableStock: 20, expiredBatchCount: 0, lowStockBatchCount: 0 } }
+  ];
+  const model = pharmacyAlertModel(medicines);
+  assert.equal(model.stockAlertCount, 3);
+  assert.equal(model.expiryAlertCount, 0);
+  assert.equal(model.totalAlertCount, 3);
+  assert.equal(model.stockAlerts.filter((alert) => alert.state === 'OUT_OF_STOCK').length, 2);
+  assert.equal(model.stockAlerts.filter((alert) => alert.state === 'LOW_STOCK').length, 1);
+  assert.equal(model.stockAlerts.some((alert) => alert.medicine.id === 'healthy'), false);
+});
+
+test('alert model refresh derives a new count without stale mutable counters', () => {
+  const initial = pharmacyAlertModel([{ id: 'a', stock: { usableStock: 0 } }]);
+  const refreshed = pharmacyAlertModel([{ id: 'a', stock: { usableStock: 12, lowStockBatchCount: 0 } }]);
+  assert.equal(initial.stockAlertCount, 1);
+  assert.equal(refreshed.stockAlertCount, 0);
+  const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
+  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
+  assert.match(dashboard, /loadAlertInventory\(\)/);
+  assert.match(dashboard, /managementRefresh/);
+  assert.match(management, /onInventoryChanged\(\)/);
+});
+
+test('alerts tab and grouped section use the canonical model and guard the empty state', () => {
+  const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
+  assert.match(dashboard, /alertModel\.totalAlertCount/);
+  assert.match(dashboard, /alertModel\.totalAlertCount === 0/);
+  assert.match(dashboard, /alertModel\.stockAlerts\.filter/);
+  assert.match(dashboard, /alertModel\.nearExpiryAlerts/);
+  assert.match(dashboard, /alertModel\.expiredAlerts/);
+  assert.match(dashboard, /activeSection === 'dispensing'/);
+  assert.match(dashboard, /onClick=\{\(\) => setActiveSection\(id\)\}/);
 });
 
 test('management provides paging, retry, lifecycle copy, and no operational threshold', () => {
