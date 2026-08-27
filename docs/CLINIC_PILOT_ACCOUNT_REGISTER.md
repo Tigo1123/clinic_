@@ -6,12 +6,12 @@ Use approved placeholders until the clinic pilot owner assigns account identifie
 
 | Role | Display Name | Username/Email | Purpose | MFA Required? | Status | Owner | Notes |
 |---|---|---|---|---|---|---|---|
-| ADMIN | `[Pilot Admin]` | `[assigned separately]` | Pilot administration and staff support | Yes | `[Planned/Active/Inactive]` | `[Named owner]` | Use only for Admin tasks. |
-| RECEPTIONIST | `[Pilot Reception]` | `[assigned separately]` | Registration, appointments, check-in, and billing | Per clinic policy | `[Planned/Active/Inactive]` | `[Named owner]` | Do not share across shifts. |
-| DOCTOR | `[Pilot Doctor]` | `[assigned separately]` | Assigned consultations and prescriptions | Per clinic policy | `[Planned/Active/Inactive]` | `[Named owner]` | Link only to the intended doctor profile. |
-| LAB_TECH | `[Pilot Laboratory]` | `[assigned separately]` | Laboratory processing and result release | Per clinic policy | `[Planned/Active/Inactive]` | `[Named owner]` | Laboratory workflow only. |
-| PHARMACIST | `[Pilot Pharmacy]` | `[assigned separately]` | Formulary review, inventory, and dispensing | Per clinic policy | `[Planned/Active/Inactive]` | `[Named owner]` | Pharmacy workflow only. |
-| PATIENT | `[Fictional Test Patient]` | `[assigned separately]` | Controlled self-service demonstration | Per clinic policy | `[Planned/Active/Inactive]` | `[Pilot test owner]` | Must not represent a real patient. |
+| ADMIN | `Pilot Administrator` | `[assigned separately]` | Pilot administration and staff support | Yes | `[Planned/Active/Inactive]` | `[Named owner]` | Confirm MFA and Admin-only use before demo. |
+| RECEPTIONIST | `Pilot Receptionist` | `[assigned separately]` | Registration, appointments, check-in, and billing | Recommended | `[Planned/Active/Inactive]` | `[Named owner]` | Confirm reception and billing access; do not share across shifts. |
+| DOCTOR | `Dr. Demo General` | `[assigned separately]` | Assigned consultations and prescriptions | Recommended | `[Planned/Active/Inactive]` | `[Named owner]` | Confirm doctor profile, schedule, fee, and assignment. |
+| LAB_TECH | `Pilot Laboratory Technician` | `[assigned separately]` | Laboratory processing and result release | Recommended | `[Planned/Active/Inactive]` | `[Named owner]` | Confirm laboratory queue and result actions. |
+| PHARMACIST | `Pilot Pharmacist` | `[assigned separately]` | Formulary review, inventory, billing, and dispensing | Recommended | `[Planned/Active/Inactive]` | `[Named owner]` | Confirm pharmacy invoice, stock, and dispensing access. |
+| PATIENT | `Demo Patient Alpha` | `[assigned separately]` | Controlled self-service demonstration | Not applicable | `[Planned/Active/Inactive]` | `[Pilot test owner]` | Must use normal patient registration and remain entirely fictional. |
 
 ## Register rules
 
