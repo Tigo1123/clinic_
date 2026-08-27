@@ -19,6 +19,24 @@ function positiveInteger(name, fallback) {
   return value;
 }
 
+export function canonicalProductionOrigin(origin) {
+  if (origin === '*' || !origin.startsWith('https://')) return null;
+  try {
+    const parsed = new URL(origin);
+    if (parsed.protocol !== 'https:' || !parsed.hostname || parsed.username || parsed.password) return null;
+    if (parsed.pathname !== '/' || parsed.search || parsed.hash) return null;
+    if (origin === parsed.origin) return parsed.origin;
+    if (origin.endsWith(':443') && parsed.origin === origin.slice(0, -4)) return parsed.origin;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function isCanonicalProductionOrigin(origin) {
+  return canonicalProductionOrigin(origin) !== null;
+}
+
 export function validateEnvironment() {
   const production = process.env.NODE_ENV === 'production';
   const errors = [];
@@ -49,7 +67,7 @@ export function validateEnvironment() {
     if (jwtSecret && encryptionKey && jwtSecret === encryptionKey) errors.push('JWT_SECRET and MEDICAL_ENCRYPTION_KEY must be different.');
     if (mfaEncryptionKey && [jwtSecret, encryptionKey].includes(mfaEncryptionKey)) errors.push('MFA_ENCRYPTION_KEY must be different from JWT_SECRET and MEDICAL_ENCRYPTION_KEY.');
     if (!origins.length) errors.push('CORS_ALLOWED_ORIGINS must list trusted HTTPS origins.');
-    if (origins.some((origin) => origin === '*' || !origin.startsWith('https://'))) errors.push('Production CORS origins must be explicit HTTPS URLs and cannot use wildcards.');
+    if (origins.some((origin) => !isCanonicalProductionOrigin(origin))) errors.push('Production CORS origins must be canonical explicit HTTPS origins and cannot use wildcards.');
     if (process.env.VERIFICATION_PROVIDER === 'development') errors.push('The development verification provider is forbidden in production.');
     if (process.env.VERIFICATION_PROVIDER === 'email') {
       try {
@@ -65,7 +83,9 @@ export function validateEnvironment() {
   if (errors.length) throw new Error(`Invalid environment configuration:\n- ${[...new Set(errors)].join('\n- ')}`);
   return {
     production,
-    allowedOrigins: origins.length ? origins : ['http://localhost:5173'],
+    allowedOrigins: origins.length
+      ? (production ? [...new Set(origins.map(canonicalProductionOrigin))] : origins)
+      : ['http://localhost:5173'],
     clinicTimeZone,
     socketRevocation: {
       databaseUrl: socketRevocationDatabaseUrl,
@@ -80,5 +100,6 @@ export const rateLimits = {
   login: positiveInteger('RATE_LIMIT_LOGIN_MAX', process.env.NODE_ENV === 'test' ? 100 : 10),
   registration: positiveInteger('RATE_LIMIT_REGISTRATION_MAX', process.env.NODE_ENV === 'test' ? 100 : 10),
   verification: positiveInteger('RATE_LIMIT_VERIFICATION_MAX', process.env.NODE_ENV === 'test' ? 100 : 10),
-  claim: positiveInteger('RATE_LIMIT_CLAIM_MAX', process.env.NODE_ENV === 'test' ? 100 : 10)
+  claim: positiveInteger('RATE_LIMIT_CLAIM_MAX', process.env.NODE_ENV === 'test' ? 100 : 10),
+  adminReset: positiveInteger('RATE_LIMIT_ADMIN_RESET_MAX', process.env.NODE_ENV === 'test' ? 100 : 10)
 };

@@ -1,10 +1,14 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'crypto';
+import fs from 'fs';
+import express from 'express';
 import request from 'supertest';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import nodemailer from 'nodemailer';
 import * as OTPAuth from 'otpauth';
+import { Client } from 'pg';
 import prisma from '../src/db.js';
 import { app, httpServer } from '../src/server.js';
 import { validateEnvironment } from '../src/config.js';
@@ -21,7 +25,15 @@ import {
 } from '../src/services/accessTokens.js';
 import { decryptMfaSecret, encryptMfaSecret } from '../src/services/mfaCrypto.js';
 import { buildMedicineIdentityKey, normalizeBatchNumber } from '../src/utils/medicineManagement.js';
+import { errorHandler } from '../src/utils/apiError.js';
 import { ensurePharmacyInvoiceForPrescription } from '../src/services/pharmacyInvoice.js';
+import { SOCKET_REVOCATION_CHANNEL } from '../src/services/socketRevocation.js';
+import {
+  corsMiddleware,
+  createAdminResetLimiter,
+  createLoginLimiter,
+  securityHeadersMiddleware
+} from '../src/utils/edgeSecurity.js';
 import {
   consumeMfaChallenge,
   createMfaChallenge,
@@ -68,6 +80,34 @@ async function checkSocketToken(token) {
 }
 function paymentAuth(role, key = `payment-test-${Date.now()}-${++fixtureCounter}`) {
   return { ...auth(role), 'Idempotency-Key': key };
+}
+
+function assertSafeAuthorizationDenial(response, expectedStatus) {
+  assert.equal(response.status, expectedStatus);
+  assert.doesNotMatch(
+    JSON.stringify(response.body),
+    /Prisma|PrismaClient|P20\d{2}|SQL|constraint|stack|database|passwordHash|mfaSecret|jwt|Bearer\s+[A-Za-z0-9._-]+/i
+  );
+}
+
+function assertSafeValidationError(response, attackerMarkers = []) {
+  assert.equal(response.status, 422);
+  assert.equal(response.body.error.code, 'VALIDATION_ERROR');
+  const serialized = JSON.stringify(response.body);
+  assert.doesNotMatch(
+    serialized,
+    /Prisma|PrismaClient|P20\d{2}|SQL|constraint|stack|database|node_modules|\/home\/|file:\/\/|Bearer\s+[A-Za-z0-9._-]+|eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/i
+  );
+  for (const marker of attackerMarkers) assert.equal(serialized.includes(marker), false);
+}
+
+function assertNoSensitiveErrorLeak(body, markers = []) {
+  const serialized = JSON.stringify(body);
+  assert.doesNotMatch(
+    serialized,
+    /Prisma|PrismaClient|P20\d{2}|SQL|constraint|stack|database_url|postgres(?:ql)?:\/\/|node_modules|\/home\/|file:\/\/|Bearer\s+[A-Za-z0-9._-]+|eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/i
+  );
+  for (const marker of markers) assert.equal(serialized.includes(marker), false);
 }
 
 async function createLabReviewFixture(customName, { includeStandard = true } = {}) {
@@ -492,6 +532,186 @@ before(async () => {
 after(async () => {
   await prisma.$disconnect();
   if (httpServer.listening) await new Promise((resolve) => httpServer.close(resolve));
+});
+
+test('centralized unknown errors return only the canonical safe 500 response', () => {
+  const markers = [
+    `CENTRAL-SECRET-${Date.now()}`,
+    'postgresql://db-user:db-password@internal.example/clinic',
+    '/home/clinic/private/server.js',
+    'Bearer eyJhbGciOiJIUzI1NiJ9.sensitive.signature',
+    'P2002 fake_constraint SQL SELECT passwordHash mfaSecret recovery-code'
+  ];
+  const internal = new Error(markers.join(' | '));
+  internal.stack = `Error: ${markers[0]}\n at ${markers[2]}:99:1`;
+  const req = { id: 'central-error-test', method: 'GET', path: '/api/internal-test' };
+  const response = {
+    headersSent: false,
+    statusCode: null,
+    body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; }
+  };
+  errorHandler(internal, req, response, () => assert.fail('Unknown errors must be handled centrally.'));
+  assert.equal(response.statusCode, 500);
+  assert.deepEqual(response.body, {
+    error: { code: 'INTERNAL_SERVER_ERROR', message: 'An unexpected server error occurred.' }
+  });
+  assertNoSensitiveErrorLeak(response.body, markers);
+});
+
+test('legacy patient search returns a fixed 500 without raw dependency errors', async () => {
+  const markers = [
+    `LEGACY-PRISMA-${Date.now()}`,
+    'P2025 LEGACY_FAKE_CONSTRAINT',
+    'SQL SELECT * FROM Patient',
+    '/home/clinic/private/patient-query.js'
+  ];
+  const originalFindMany = prisma.patient.findMany;
+  prisma.patient.findMany = async () => {
+    const error = new Error(markers.join(' | '));
+    error.stack = `Error: ${markers[0]} at ${markers[3]}`;
+    throw error;
+  };
+  try {
+    const response = await api.get('/api/patients/search?q=legacy-error-marker').set(auth('reception'));
+    assert.equal(response.status, 500);
+    assert.deepEqual(response.body, { error: 'Failed to search patients.' });
+    assertNoSensitiveErrorLeak(response.body, markers);
+  } finally {
+    prisma.patient.findMany = originalFindMany;
+  }
+});
+
+test('authorized attachment filesystem failures are centrally sanitized', async () => {
+  const filename = `${crypto.randomUUID()}.pdf`;
+  const publicPath = `/api/upload/${filename}`;
+  const appointment = await prisma.appointment.create({ data: {
+    patientId: patient1.id, doctorId: doctor1.id,
+    appointmentDate: '2067-08-08', appointmentTime: '08:00', status: 'COMPLETED'
+  } });
+  await prisma.medicalRecord.create({ data: {
+    patientId: patient1.id, doctorId: doctor1.id, appointmentId: appointment.id,
+    symptomsEncrypted: '', diagnosisEncrypted: '', treatmentEncrypted: '', clinicalNotesEncrypted: '',
+    vitalSignsJson: '{}', attachmentPath: publicPath
+  } });
+  const markers = [
+    `FILESYSTEM-SECRET-${Date.now()}`,
+    `/home/clinic/private/uploads/${filename}`,
+    'EACCES permission denied open'
+  ];
+  const originalExistsSync = fs.existsSync;
+  fs.existsSync = (candidate) => {
+    if (String(candidate).endsWith(filename)) {
+      const error = new Error(markers.join(' | '));
+      error.code = 'EACCES';
+      throw error;
+    }
+    return originalExistsSync(candidate);
+  };
+  try {
+    const response = await api.get(publicPath).set(auth('doctor'));
+    assert.equal(response.status, 500);
+    assert.equal(response.body.error.code, 'INTERNAL_SERVER_ERROR');
+    assert.equal(response.body.error.message, 'An unexpected server error occurred.');
+    assertNoSensitiveErrorLeak(response.body, markers);
+  } finally {
+    fs.existsSync = originalExistsSync;
+  }
+});
+
+test('clinical summary rejects attacker-controlled recipient fields', async () => {
+  const appointment = await prisma.appointment.create({ data: {
+    patientId: patient1.id, doctorId: doctor1.id, appointmentDate: '2062-01-01', appointmentTime: '09:00', status: 'COMPLETED'
+  } });
+  const record = await prisma.medicalRecord.create({ data: {
+    patientId: patient1.id, doctorId: doctor1.id, appointmentId: appointment.id,
+    symptomsEncrypted: encrypt('symptoms'), diagnosisEncrypted: encrypt('diagnosis'), treatmentEncrypted: encrypt('treatment'),
+    vitalSignsJson: '{}', clinicalNotesEncrypted: ''
+  } });
+  const response = await api.post(`/api/records/${record.id}/send-summary`).set(auth('doctor')).send({
+    email: 'attacker@example.com',
+    recipient: 'attacker@example.com',
+    to: 'attacker@example.com'
+  });
+  assert.equal(response.status, 422);
+  assert.doesNotMatch(JSON.stringify(response.body), /attacker@example\.com|diagnosis|treatment|Prisma|SQL|stack/i);
+});
+
+test('clinical summary requires a verified patient email and never falls back to a supplied address', async () => {
+  const appointment = await prisma.appointment.create({ data: {
+    patientId: patient1.id, doctorId: doctor1.id, appointmentDate: '2062-01-02', appointmentTime: '09:00', status: 'COMPLETED'
+  } });
+  const record = await prisma.medicalRecord.create({ data: {
+    patientId: patient1.id, doctorId: doctor1.id, appointmentId: appointment.id,
+    symptomsEncrypted: encrypt('symptoms'), diagnosisEncrypted: encrypt('diagnosis'), treatmentEncrypted: encrypt('treatment'),
+    vitalSignsJson: '{}', clinicalNotesEncrypted: ''
+  } });
+  const response = await api.post(`/api/records/${record.id}/send-summary`).set(auth('doctor')).send({});
+  assert.equal(response.status, 409);
+  assert.equal(response.body.error.code, 'PATIENT_VERIFIED_EMAIL_REQUIRED');
+  assert.doesNotMatch(JSON.stringify(response.body), /diagnosis|treatment|Prisma|SQL|stack|database/i);
+});
+
+test('clinical summary SMTP provider failures expose no transport or clinical content', async () => {
+  const portal = await createAppointmentConcurrencyPatient();
+  const appointment = await prisma.appointment.create({ data: {
+    patientId: portal.patient.id, doctorId: doctor1.id,
+    appointmentDate: '2067-09-09', appointmentTime: '09:00', status: 'COMPLETED'
+  } });
+  const clinicalMarker = `CLINICAL-SUMMARY-SECRET-${Date.now()}-${++fixtureCounter}`;
+  const record = await prisma.medicalRecord.create({ data: {
+    patientId: portal.patient.id, doctorId: doctor1.id, appointmentId: appointment.id,
+    symptomsEncrypted: encrypt(clinicalMarker),
+    diagnosisEncrypted: encrypt(clinicalMarker),
+    treatmentEncrypted: encrypt(clinicalMarker),
+    clinicalNotesEncrypted: encrypt(clinicalMarker),
+    vitalSignsJson: JSON.stringify({ blood_pressure: clinicalMarker })
+  } });
+  const markers = [
+    `SMTP-HOST-${Date.now()}`,
+    `SMTP-USER-${Date.now()}`,
+    `SMTP-PROVIDER-DIAGNOSTIC-${Date.now()}`,
+    `SMTP-TRANSPORT-STACK-${Date.now()}`,
+    clinicalMarker
+  ];
+  const originalCreateTransport = nodemailer.createTransport;
+  const previousEnvironment = {
+    NOTIFICATIONS_DISABLED: process.env.NOTIFICATIONS_DISABLED,
+    SMTP_HOST: process.env.SMTP_HOST,
+    SMTP_PORT: process.env.SMTP_PORT,
+    SMTP_USER: process.env.SMTP_USER,
+    SMTP_PASS: process.env.SMTP_PASS,
+    SMTP_FROM_EMAIL: process.env.SMTP_FROM_EMAIL
+  };
+  nodemailer.createTransport = () => ({
+    async sendMail() {
+      const error = new Error(markers.slice(0, 3).join(' | '));
+      error.stack = `${markers[3]} at /home/smtp/provider.js:1:1`;
+      throw error;
+    }
+  });
+  Object.assign(process.env, {
+    NOTIFICATIONS_DISABLED: 'false',
+    SMTP_HOST: markers[0],
+    SMTP_PORT: '2525',
+    SMTP_USER: markers[1],
+    SMTP_PASS: `SMTP-PASSWORD-${Date.now()}`,
+    SMTP_FROM_EMAIL: 'clinic@example.test'
+  });
+  try {
+    const response = await api.post(`/api/records/${record.id}/send-summary`).set(auth('doctor')).send({});
+    assert.equal(response.status, 503);
+    assert.equal(response.body.error.code, 'EMAIL_DELIVERY_FAILED');
+    assert.equal(response.body.error.message, 'Post-visit summary could not be delivered.');
+    assertNoSensitiveErrorLeak(response.body, markers);
+  } finally {
+    nodemailer.createTransport = originalCreateTransport;
+    for (const [name, value] of Object.entries(previousEnvironment)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
 });
 
 test('doctor clinical writes accept active formulary medicines and preserve server price authority', async () => {
@@ -964,6 +1184,7 @@ test('emergency override and transfer atomically claim their observed appointmen
 test('staff login succeeds with valid credentials', async () => {
   const response = await api.post('/api/auth/login').send({ username: 'admin@cms.com', password: 'Admin@123' });
   assert.equal(response.status, 200);
+  assert.match(response.headers['cache-control'], /(?:^|,)\s*no-store(?:,|$)/);
   assert.equal(response.body.user.role, 'ADMIN');
   const claims = verifyAccessToken(response.body.token);
   assert.equal(claims.typ, 'access');
@@ -1130,6 +1351,7 @@ test('staff MFA enrollment, enforced login, recovery, challenge, and disable lif
   const firstEnrollment = await api.post('/api/auth/mfa/enroll')
     .set({ Authorization: `Bearer ${staffToken}` }).send({ currentPassword: password });
   assert.equal(firstEnrollment.status, 201);
+  assert.match(firstEnrollment.headers['cache-control'], /(?:^|,)\s*no-store(?:,|$)/);
   assert.equal(firstEnrollment.body.state, 'PENDING');
   let configuration = await prisma.mfaConfiguration.findUnique({ where: { userId: staff.id } });
   assert.equal(configuration.state, 'PENDING');
@@ -1528,23 +1750,46 @@ test('staff MFA enrollment, enforced login, recovery, challenge, and disable lif
     .set({ Authorization: `Bearer ${staffToken}` })
     .send({ currentPassword: password, recoveryCode: confirmation.body.recoveryCodes[1] });
   assert.equal(regenerate.status, 200);
+  assert.match(regenerate.headers['cache-control'], /(?:^|,)\s*no-store(?:,|$)/);
   assert.equal(regenerate.body.recoveryCodes.length, 10);
+
+  const beforeDisable = await prisma.user.findUnique({ where: { id: staff.id }, select: { authVersion: true } });
 
   const invalidatedRecoveryLogin = await recoveryChallengeFor();
   assert.equal((await verifyRecovery(invalidatedRecoveryLogin, confirmation.body.recoveryCodes[9])).status, 401);
 
+  const beforeFailedDisable = await prisma.user.findUnique({ where: { id: staff.id }, select: { authVersion: true, mfaEnabled: true } });
+  const failedDisableAuditCount = await prisma.tenantAuditLog.count({ where: { userId: staff.id, action: 'MFA_DISABLED' } });
   let disable = await api.delete('/api/auth/mfa').set({ Authorization: `Bearer ${staffToken}` })
     .send({ currentPassword: 'wrong-password', recoveryCode: regenerate.body.recoveryCodes[0] });
   assert.equal(disable.status, 401);
   disable = await api.delete('/api/auth/mfa').set({ Authorization: `Bearer ${staffToken}` })
     .send({ currentPassword: password, recoveryCode: 'AAAAA-AAAAA-AAAAA-AAAAA' });
   assert.equal(disable.status, 401);
+  const afterFailedDisable = await prisma.user.findUnique({ where: { id: staff.id }, select: { authVersion: true, mfaEnabled: true } });
+  assert.equal(afterFailedDisable.authVersion, beforeFailedDisable.authVersion);
+  assert.equal(afterFailedDisable.mfaEnabled, true);
+  assert.equal(await prisma.tenantAuditLog.count({ where: { userId: staff.id, action: 'MFA_DISABLED' } }), failedDisableAuditCount);
   disable = await api.delete('/api/auth/mfa').set({ Authorization: `Bearer ${staffToken}` })
     .send({ currentPassword: password, recoveryCode: regenerate.body.recoveryCodes[0] });
   assert.equal(disable.status, 200);
-  assert.equal((await prisma.user.findUnique({ where: { id: staff.id } })).mfaEnabled, false);
+  const disabledUser = await prisma.user.findUnique({ where: { id: staff.id } });
+  assert.equal(disabledUser.mfaEnabled, false);
+  assert.equal(disabledUser.authVersion, beforeDisable.authVersion + 1);
   assert.equal(await prisma.mfaConfiguration.findUnique({ where: { userId: staff.id } }), null);
   assert.equal(await prisma.mfaRecoveryCode.count({ where: { userId: staff.id } }), 0);
+  assert.equal(await prisma.tenantAuditLog.count({ where: { userId: staff.id, action: 'MFA_DISABLED' } }), failedDisableAuditCount + 1);
+
+  const staleHttpSession = await api.get('/api/appointments/pending')
+    .set({ Authorization: `Bearer ${staffToken}` });
+  assert.equal(staleHttpSession.status, 401);
+  assert.equal(staleHttpSession.body.error.code, 'SESSION_REVOKED');
+  assert.ok((await checkSocketToken(staffToken)).error instanceof Error);
+
+  const newSession = await api.post('/api/auth/login').send({ username, password });
+  assert.equal(newSession.status, 200);
+  assert.equal(verifyAccessToken(newSession.body.token).av, disabledUser.authVersion);
+  assert.equal((await api.get('/api/appointments/pending').set({ Authorization: `Bearer ${newSession.body.token}` })).status, 200);
 
   const audits = await prisma.tenantAuditLog.findMany({
     where: { userId: staff.id, action: { startsWith: 'MFA_' } },
@@ -2345,6 +2590,102 @@ test('staff status response never exposes password hash', async () => {
   assert.equal(Object.hasOwn(response.body, 'passwordHash'), false);
 });
 
+test('staff status transitions revoke old HTTP sessions once and never resurrect them', async () => {
+  const username = `status-revocation-${Date.now()}@example.test`;
+  const password = 'StatusRevocationPass1';
+  const target = await prisma.user.create({
+    data: { username, passwordHash: await bcrypt.hash(password, 10), role: 'RECEPTIONIST', status: 'ACTIVE' }
+  });
+  const endpoint = `/api/auth/users/${target.id}/status`;
+  const oldLogin = await api.post('/api/auth/login').send({ username, password });
+  assert.equal(oldLogin.status, 200);
+  assert.equal((await api.get('/api/patients').set({ Authorization: `Bearer ${oldLogin.body.token}` })).status, 200);
+
+  const noOp = await api.put(endpoint).set(auth('admin')).send({ status: 'ACTIVE' });
+  assert.equal(noOp.status, 200);
+  assert.equal((await prisma.user.findUnique({ where: { id: target.id } })).authVersion, target.authVersion);
+  assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'USER_STATUS_CHANGE', details: { contains: username } } }), 0);
+
+  const transitions = await Promise.all([
+    api.put(endpoint).set(auth('admin')).send({ status: 'INACTIVE' }),
+    api.put(endpoint).set(auth('admin')).send({ status: 'INACTIVE' })
+  ]);
+  assert.equal(transitions.every((response) => response.status === 200), true);
+  const inactive = await prisma.user.findUnique({ where: { id: target.id } });
+  assert.equal(inactive.status, 'INACTIVE');
+  assert.equal(inactive.authVersion, target.authVersion + 1);
+  assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'USER_STATUS_CHANGE', details: { contains: username } } }), 1);
+
+  let rejected = await api.get('/api/patients').set({ Authorization: `Bearer ${oldLogin.body.token}` });
+  assert.equal(rejected.status, 401);
+  assert.equal(rejected.body.error.code, 'SESSION_REVOKED');
+
+  const reactivated = await api.put(endpoint).set(auth('admin')).send({ status: 'ACTIVE' });
+  assert.equal(reactivated.status, 200);
+  const active = await prisma.user.findUnique({ where: { id: target.id } });
+  assert.equal(active.authVersion, target.authVersion + 2);
+  assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'USER_STATUS_CHANGE', details: { contains: username } } }), 2);
+
+  rejected = await api.get('/api/patients').set({ Authorization: `Bearer ${oldLogin.body.token}` });
+  assert.equal(rejected.status, 401);
+  assert.equal(rejected.body.error.code, 'SESSION_REVOKED');
+  const currentLogin = await api.post('/api/auth/login').send({ username, password });
+  assert.equal(currentLogin.status, 200);
+  assert.equal((await api.get('/api/patients').set({ Authorization: `Bearer ${currentLogin.body.token}` })).status, 200);
+});
+
+test('failed staff status requests do not rotate sessions or create success audits', async () => {
+  const username = `status-failure-${Date.now()}@example.test`;
+  const target = await prisma.user.create({
+    data: { username, passwordHash: await bcrypt.hash('StatusFailurePass1', 10), role: 'RECEPTIONIST', status: 'ACTIVE' }
+  });
+  const endpoint = `/api/auth/users/${target.id}/status`;
+  const invalid = await api.put(endpoint).set(auth('admin')).send({ status: 'DISABLED' });
+  assert.equal(invalid.status, 422);
+  assert.equal((await api.put(endpoint).set(auth('pharmacy')).send({ status: 'INACTIVE' })).status, 403);
+  assert.equal((await api.put('/api/auth/users/00000000-0000-4000-8000-000000000099/status').set(auth('admin')).send({ status: 'INACTIVE' })).status, 500);
+  const unchanged = await prisma.user.findUnique({ where: { id: target.id } });
+  assert.equal(unchanged.status, target.status);
+  assert.equal(unchanged.authVersion, target.authVersion);
+  assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'USER_STATUS_CHANGE', details: { contains: username } } }), 0);
+});
+
+test('staff status audit failure rolls back status, authVersion, audit, and revocation notification', async () => {
+  const username = `status-audit-rollback-${Date.now()}@example.test`;
+  const target = await prisma.user.create({
+    data: { username, passwordHash: await bcrypt.hash('StatusAuditRollback1', 10), role: 'RECEPTIONIST', status: 'ACTIVE' }
+  });
+  const functionName = `fail_status_audit_${target.id.replaceAll('-', '_')}`;
+  const triggerName = `fail_status_audit_trigger_${target.id.replaceAll('-', '_')}`;
+  const listener = new Client({ connectionString: process.env.SOCKET_REVOCATION_DATABASE_URL || process.env.DATABASE_URL });
+  const events = [];
+  await listener.connect();
+  await listener.query(`LISTEN ${SOCKET_REVOCATION_CHANNEL}`);
+  listener.on('notification', (message) => {
+    try {
+      const payload = JSON.parse(message.payload);
+      if (payload.userId === target.id) events.push(payload);
+    } catch {}
+  });
+  await prisma.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION ${functionName}() RETURNS trigger AS $$ BEGIN IF NEW."action" = 'USER_STATUS_CHANGE' AND NEW."details" LIKE '%${username}%' THEN RAISE EXCEPTION 'forced status audit failure'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql`);
+  await prisma.$executeRawUnsafe(`CREATE TRIGGER ${triggerName} BEFORE INSERT ON "TenantAuditLog" FOR EACH ROW EXECUTE FUNCTION ${functionName}()`);
+  try {
+    const response = await api.put(`/api/auth/users/${target.id}/status`).set(auth('admin')).send({ status: 'INACTIVE' });
+    assert.equal(response.status, 500);
+    assertNoSensitiveErrorLeak(response.body, ['forced status audit failure']);
+    const after = await prisma.user.findUnique({ where: { id: target.id } });
+    assert.equal(after.status, target.status);
+    assert.equal(after.authVersion, target.authVersion);
+    assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'USER_STATUS_CHANGE', details: { contains: username } } }), 0);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(events.length, 0);
+  } finally {
+    await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${triggerName} ON "TenantAuditLog"`);
+    await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${functionName}()`);
+    await listener.end();
+  }
+});
+
 test('production environment validation rejects insecure secrets and wildcard CORS', () => {
   const previous = { ...process.env };
   try {
@@ -2381,6 +2722,152 @@ test('untrusted browser origins receive a safe CORS rejection with security head
   assert.ok(response.headers['x-request-id']);
 });
 
+test('trusted, multiple, null, and absent origins follow the exact CORS contract', async () => {
+  const trustedOrigin = 'http://localhost:5173';
+  const trusted = await api.get('/api/health/live').set('Origin', trustedOrigin);
+  assert.equal(trusted.status, 200);
+  assert.equal(trusted.headers['access-control-allow-origin'], trustedOrigin);
+  assert.equal(trusted.headers['access-control-allow-credentials'], undefined);
+
+  const noOrigin = await api.get('/api/health/live');
+  assert.equal(noOrigin.status, 200);
+  assert.equal(noOrigin.headers['access-control-allow-origin'], undefined);
+
+  const nullOrigin = await api.get('/api/health/live').set('Origin', 'null');
+  assert.equal(nullOrigin.status, 403);
+  assert.equal(nullOrigin.body.error.code, 'CORS_ORIGIN_FORBIDDEN');
+
+  const origins = ['https://clinic-a.example', 'https://clinic-b.example'];
+  const corsApp = express();
+  corsApp.use(corsMiddleware(origins));
+  corsApp.get('/probe', (req, res) => res.json({ ok: true }));
+  corsApp.use(errorHandler);
+  for (const origin of origins) {
+    const accepted = await request(corsApp).get('/probe').set('Origin', origin);
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.headers['access-control-allow-origin'], origin);
+    assert.equal(accepted.headers['access-control-allow-credentials'], undefined);
+  }
+  const rejected = await request(corsApp).get('/probe').set('Origin', 'https://attacker.example');
+  assert.equal(rejected.status, 403);
+  assert.equal(rejected.body.error.code, 'CORS_ORIGIN_FORBIDDEN');
+  assertNoSensitiveErrorLeak(rejected.body);
+});
+
+test('production CORS accepts canonical HTTPS origins and rejects malformed values', () => {
+  const previous = { ...process.env };
+  const secure = {
+    NODE_ENV: 'production',
+    DATABASE_URL: 'postgresql://clinic.invalid/clinic',
+    SOCKET_REVOCATION_DATABASE_URL: 'postgresql://clinic.invalid/clinic',
+    JWT_SECRET: 'a-secure-jwt-secret-that-is-longer-than-32',
+    MEDICAL_ENCRYPTION_KEY: 'a-distinct-medical-key-that-is-over-32-chars',
+    MFA_ENCRYPTION_KEY: 'a-third-distinct-mfa-key-that-is-over-32-characters',
+    CLINIC_TIME_ZONE: 'Africa/Khartoum',
+    VERIFICATION_PROVIDER: 'disabled'
+  };
+  try {
+    Object.assign(process.env, secure);
+    process.env.CORS_ALLOWED_ORIGINS = ' https://clinic.example.com , https://clinic.example.com:8443 ';
+    assert.deepEqual(validateEnvironment().allowedOrigins, ['https://clinic.example.com', 'https://clinic.example.com:8443']);
+    process.env.CORS_ALLOWED_ORIGINS = 'https://clinic.example.com:443';
+    assert.deepEqual(validateEnvironment().allowedOrigins, ['https://clinic.example.com']);
+    for (const origin of [
+      '*',
+      'http://clinic.example.com',
+      'https://clinic.example.com/path',
+      'https://clinic.example.com/',
+      'https://clinic.example.com/?x=1',
+      'https://clinic.example.com/#fragment',
+      'https://user:pass@clinic.example.com',
+      'https://'
+    ]) {
+      process.env.CORS_ALLOWED_ORIGINS = origin;
+      assert.throws(() => validateEnvironment(), /canonical explicit HTTPS origins/);
+    }
+  } finally {
+    for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
+    Object.assign(process.env, previous);
+  }
+});
+
+test('material Helmet headers and production HSTS are maintained', async () => {
+  const response = await api.get('/api/health/live');
+  assert.equal(response.headers['x-powered-by'], undefined);
+  assert.equal(response.headers['x-content-type-options'], 'nosniff');
+  assert.equal(response.headers['referrer-policy'], 'no-referrer');
+  assert.equal(response.headers['x-frame-options'], 'SAMEORIGIN');
+  assert.equal(response.headers['cross-origin-resource-policy'], 'same-site');
+
+  const productionApp = express();
+  productionApp.disable('x-powered-by');
+  productionApp.use(securityHeadersMiddleware(true));
+  productionApp.get('/probe', (req, res) => res.json({ ok: true }));
+  const production = await request(productionApp).get('/probe');
+  assert.match(production.headers['strict-transport-security'], /max-age=31536000/i);
+  assert.match(production.headers['strict-transport-security'], /includeSubDomains/i);
+  assert.equal(production.headers['x-powered-by'], undefined);
+});
+
+test('representative login limiter returns a safe draft-7 429 response', async () => {
+  const limiterApp = express();
+  limiterApp.use(createLoginLimiter({ windowMs: 60_000, limit: 2 }));
+  limiterApp.post('/login', (req, res) => res.status(401).json({ error: 'Invalid username or password.' }));
+  assert.equal((await request(limiterApp).post('/login')).status, 401);
+  assert.equal((await request(limiterApp).post('/login')).status, 401);
+  const limited = await request(limiterApp).post('/login');
+  assert.equal(limited.status, 429);
+  assert.equal(limited.body.error.code, 'LOGIN_RATE_LIMITED');
+  assert.ok(limited.headers.ratelimit);
+  assert.ok(limited.headers['ratelimit-policy']);
+  assert.ok(limited.headers['retry-after']);
+  assertNoSensitiveErrorLeak(limited.body, ['password-marker', 'token-marker']);
+});
+
+test('Admin reset limiter is composite, safe, and cannot execute a throttled mutation', async () => {
+  let handlerExecutions = 0;
+  let mutations = 0;
+  const limiterApp = express();
+  limiterApp.use((req, res, next) => {
+    req.user = { id: req.get('x-test-admin') || 'admin-a' };
+    next();
+  });
+  limiterApp.use(createAdminResetLimiter({ windowMs: 60_000, limit: 2 }));
+  limiterApp.post('/reset', (req, res) => {
+    handlerExecutions += 1;
+    return res.status(401).json({ error: 'Administrator reauthentication failed.' });
+  });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    assert.equal((await request(limiterApp).post('/reset').set('x-test-admin', 'admin-a')).status, 401);
+  }
+  const limited = await request(limiterApp).post('/reset').set('x-test-admin', 'admin-a');
+  assert.equal(limited.status, 429);
+  assert.equal(limited.body.error.code, 'ADMIN_RESET_RATE_LIMITED');
+  assert.ok(limited.headers.ratelimit);
+  assert.ok(limited.headers['ratelimit-policy']);
+  assert.equal(handlerExecutions, 2);
+  assert.equal(mutations, 0);
+  assert.equal((await request(limiterApp).post('/reset').set('x-test-admin', 'admin-b')).status, 401);
+  assert.equal(handlerExecutions, 3);
+  assertNoSensitiveErrorLeak(limited.body, ['current-password-marker', 'totp-marker']);
+});
+
+test('disabled trust proxy ignores spoofed forwarded client IP', async () => {
+  const proxyApp = express();
+  proxyApp.set('trust proxy', false);
+  proxyApp.get('/ip', (req, res) => res.json({ ip: req.ip }));
+  const response = await request(proxyApp).get('/ip').set('X-Forwarded-For', '198.51.100.77');
+  assert.equal(response.status, 200);
+  assert.notEqual(response.body.ip, '198.51.100.77');
+});
+
+test('development appointment OTP responses are explicitly non-cacheable', async () => {
+  const response = await api.post('/api/appointments/otp/request').send({ phone: `0999${Date.now()}` });
+  assert.equal(response.status, 200);
+  assert.equal(typeof response.body.developmentCode, 'string');
+  assert.match(response.headers['cache-control'], /(?:^|,)\s*no-store(?:,|$)/);
+});
+
 test('patient search is limited to reception and admin', async () => {
   assert.equal((await api.get('/api/patients/search?q=Test').set(auth('reception'))).status, 200);
   assert.equal((await api.get('/api/patients/search?q=Test').set(auth('pharmacy'))).status, 403);
@@ -2400,6 +2887,450 @@ test('pharmacist cannot retrieve complete patient profile', async () => {
 test('doctor cannot access an unrelated patient', async () => {
   assert.equal((await api.get(`/api/patients/${patient2.id}/history`).set(auth('doctor'))).status, 403);
   assert.equal((await api.get(`/api/patients/${patient2.id}/profile`).set(auth('doctor'))).status, 403);
+});
+
+test('Patient A cannot use Patient B direct IDs or discover protected portal resources', async () => {
+  const [attacker, victim] = await Promise.all([
+    createAppointmentConcurrencyPatient(),
+    createAppointmentConcurrencyPatient()
+  ]);
+  const victimAppointment = await createConcurrencyAppointment(victim.patient.id, 'CONFIRMED');
+  const victimRecord = await prisma.medicalRecord.create({ data: {
+    patientId: victim.patient.id,
+    doctorId: doctor2.id,
+    appointmentId: victimAppointment.id,
+    symptomsEncrypted: encrypt('victim-only symptoms'),
+    diagnosisEncrypted: encrypt('victim-only diagnosis'),
+    treatmentEncrypted: encrypt('victim-only treatment'),
+    clinicalNotesEncrypted: encrypt('victim-only notes'),
+    vitalSignsJson: JSON.stringify({ secret: 'victim-only vital sign' })
+  } });
+  const victimPrescription = await prisma.prescription.create({ data: {
+    medicalRecordId: victimRecord.id,
+    patientId: victim.patient.id,
+    doctorId: doctor2.id,
+    status: 'ACTIVE'
+  } });
+  const victimLabOrder = await prisma.labOrder.create({ data: {
+    medicalRecordId: victimRecord.id,
+    patientId: victim.patient.id,
+    doctorId: doctor2.id,
+    status: 'COMPLETED',
+    releasedToPatientAt: new Date(),
+    items: { create: { serviceId: service.id, resultValue: 'victim-only result', resultVersion: 1 } }
+  } });
+  const victimNotification = await prisma.notification.create({ data: {
+    userId: victim.user.id,
+    title: 'Victim notification title',
+    message: 'Victim notification contents'
+  } });
+  const victimInvoice = await prisma.invoice.create({ data: {
+    patientId: victim.patient.id,
+    appointmentId: victimAppointment.id,
+    totalAmountSdg: 100,
+    totalAmountUsd: 0.1,
+    invoiceExchangeRate: 1000,
+    createdBy: 'direct-id-coverage'
+  } });
+  const attackerAuth = { Authorization: `Bearer ${attacker.token}` };
+
+  for (const response of [
+    await api.get(`/api/patient/appointments/${victimAppointment.id}`).set(attackerAuth),
+    await api.post(`/api/patient/appointments/${victimAppointment.id}/cancel`).set(attackerAuth),
+    await api.get(`/api/patient/medical-records/${victimRecord.id}`).set(attackerAuth),
+    await api.patch(`/api/notifications/${victimNotification.id}/read`).set(attackerAuth)
+  ]) {
+    assertSafeAuthorizationDenial(response, 404);
+    assert.doesNotMatch(JSON.stringify(response.body), /victim-only|Victim notification/i);
+  }
+
+  const [appointments, records, prescriptions, labs, notifications] = await Promise.all([
+    api.get('/api/patient/appointments').set(attackerAuth),
+    api.get('/api/patient/medical-records').set(attackerAuth),
+    api.get('/api/patient/prescriptions').set(attackerAuth),
+    api.get('/api/patient/lab-results').set(attackerAuth),
+    api.get('/api/notifications').set(attackerAuth)
+  ]);
+  assert.equal(appointments.body.some((item) => item.id === victimAppointment.id), false);
+  assert.equal(records.body.some((item) => item.id === victimRecord.id), false);
+  assert.equal(prescriptions.body.some((item) => item.id === victimPrescription.id), false);
+  assert.equal(labs.body.some((item) => item.id === victimLabOrder.id), false);
+  assert.equal(notifications.body.notifications.some((item) => item.id === victimNotification.id), false);
+
+  const paymentAttempt = await api.post(`/api/billing/invoice/${victimInvoice.id}/payments`)
+    .set({ ...attackerAuth, 'Idempotency-Key': `patient-idor-${Date.now()}` })
+    .send({ payments: [{ amountSdg: 100, paymentMethod: 'CASH' }] });
+  assertSafeAuthorizationDenial(paymentAttempt, 403);
+  assert.equal(await prisma.payment.count({ where: { invoiceId: victimInvoice.id } }), 0);
+  assert.equal((await prisma.appointment.findUnique({ where: { id: victimAppointment.id } })).status, 'CONFIRMED');
+  assert.equal((await prisma.notification.findUnique({ where: { id: victimNotification.id } })).isRead, false);
+});
+
+test('Doctor A cannot use Doctor B appointment or record IDs for clinical actions', async () => {
+  const appointment = await prisma.appointment.create({ data: {
+    patientId: patient2.id,
+    doctorId: doctor2.id,
+    appointmentDate: '2063-03-03',
+    appointmentTime: '11:00',
+    status: 'IN_CONSULTATION'
+  } });
+  const record = await prisma.medicalRecord.create({ data: {
+    patientId: patient2.id,
+    doctorId: doctor2.id,
+    appointmentId: appointment.id,
+    symptomsEncrypted: encrypt('doctor-b symptoms'),
+    diagnosisEncrypted: encrypt('doctor-b diagnosis'),
+    treatmentEncrypted: encrypt('doctor-b treatment'),
+    clinicalNotesEncrypted: encrypt('doctor-b notes'),
+    vitalSignsJson: '{}'
+  } });
+  const before = await prisma.medicalRecord.findUnique({ where: { id: record.id } });
+  const attempts = [
+    await api.put(`/api/appointments/${appointment.id}/status`).set(auth('doctor')).send({ status: 'COMPLETED' }),
+    await api.put(`/api/records/${record.id}/finalize`).set(auth('doctor')).send({ diagnosis: 'attacker overwrite', treatment: 'attacker plan', vitalSigns: {} }),
+    await api.get(`/api/records/${record.id}/summary`).set(auth('doctor')),
+    await api.post(`/api/records/${record.id}/send-summary`).set(auth('doctor')).send({})
+  ];
+  for (const response of attempts) {
+    assertSafeAuthorizationDenial(response, 403);
+    assert.equal(response.body.error.code, response === attempts[0] ? 'APPOINTMENT_STATUS_FORBIDDEN' : 'RECORD_ACCESS_FORBIDDEN');
+    assert.doesNotMatch(JSON.stringify(response.body), /doctor-b symptoms|doctor-b diagnosis|doctor-b treatment|doctor-b notes/i);
+  }
+  const afterRecord = await prisma.medicalRecord.findUnique({ where: { id: record.id } });
+  assert.equal(afterRecord.diagnosisEncrypted, before.diagnosisEncrypted);
+  assert.equal(afterRecord.treatmentEncrypted, before.treatmentEncrypted);
+  assert.equal((await prisma.appointment.findUnique({ where: { id: appointment.id } })).status, 'IN_CONSULTATION');
+  assert.equal(await prisma.prescription.count({ where: { medicalRecordId: record.id } }), 0);
+});
+
+test('valid direct IDs do not bypass receptionist, lab, or pharmacist role boundaries', async () => {
+  const appointment = await prisma.appointment.create({ data: {
+    patientId: patient1.id, doctorId: doctor1.id,
+    appointmentDate: '2063-04-04', appointmentTime: '12:00', status: 'IN_CONSULTATION'
+  } });
+  const record = await prisma.medicalRecord.create({ data: {
+    patientId: patient1.id, doctorId: doctor1.id, appointmentId: appointment.id,
+    symptomsEncrypted: '', diagnosisEncrypted: encrypt('boundary diagnosis'), treatmentEncrypted: '',
+    clinicalNotesEncrypted: '', vitalSignsJson: '{}'
+  } });
+  const labOrder = await prisma.labOrder.create({ data: {
+    medicalRecordId: record.id, patientId: patient1.id, doctorId: doctor1.id,
+    status: 'SAMPLE_COLLECTED', items: { create: { serviceId: service.id } }
+  }, include: { items: true } });
+  const prescription = await prisma.prescription.create({ data: {
+    medicalRecordId: record.id, patientId: patient1.id, doctorId: doctor1.id, status: 'ACTIVE',
+    prescribedDrugs: { create: {
+      drugId: drug.id,
+      dosage: 'one',
+      duration: 'one day',
+      instructionsAr: '',
+      instructionsEn: '',
+      qtyPrescribed: 1
+    } }
+  }, include: { prescribedDrugs: true } });
+  const staff = await prisma.user.findUnique({ where: { username: 'doctor_cardio@cms.com' } });
+  const originalStaffStatus = staff.status;
+  const originalDiagnosis = (await prisma.medicalRecord.findUnique({ where: { id: record.id } })).diagnosisEncrypted;
+
+  const roleAttempts = {
+    reception: [
+      api.put(`/api/records/${record.id}/finalize`).set(auth('reception')).send({ diagnosis: 'x' }),
+      api.put(`/api/records/lab-orders/items/${labOrder.items[0].id}/results`).set(auth('reception')).send({ expectedVersion: 0, resultValue: 'x' }),
+      api.post(`/api/records/prescriptions/${prescription.id}/dispense`).set(auth('reception')).send({ items: [{ prescribedDrugId: prescription.prescribedDrugs[0].id, qtyToDispense: 1 }] }),
+      api.put(`/api/auth/users/${staff.id}/status`).set(auth('reception')).send({ status: 'INACTIVE' })
+    ],
+    lab: [
+      api.put(`/api/records/${record.id}/finalize`).set(auth('lab')).send({ diagnosis: 'x' }),
+      api.post('/api/records').set(auth('lab')).send({ patientId: patient1.id, appointmentId: appointment.id, diagnosis: 'x' }),
+      api.post(`/api/records/prescriptions/${prescription.id}/dispense`).set(auth('lab')).send({ items: [{ prescribedDrugId: prescription.prescribedDrugs[0].id, qtyToDispense: 1 }] }),
+      api.post(`/api/pharmacy/formulary/${drug.id}/batches`).set(auth('lab')).send({ batchNumber: 'LAB-FORBIDDEN', expiryDate: '2065-01-01', receivedQuantity: 1, minReorderLevel: 0 }),
+      api.put(`/api/auth/users/${staff.id}/status`).set(auth('lab')).send({ status: 'INACTIVE' })
+    ],
+    pharmacy: [
+      api.put(`/api/records/${record.id}/finalize`).set(auth('pharmacy')).send({ diagnosis: 'x' }),
+      api.put(`/api/records/lab-orders/items/${labOrder.items[0].id}/results`).set(auth('pharmacy')).send({ expectedVersion: 0, resultValue: 'x' }),
+      api.put(`/api/appointments/${appointment.id}/status`).set(auth('pharmacy')).send({ status: 'COMPLETED' }),
+      api.put(`/api/auth/users/${staff.id}/status`).set(auth('pharmacy')).send({ status: 'INACTIVE' })
+    ]
+  };
+  for (const attempts of Object.values(roleAttempts)) {
+    for (const pending of attempts) assertSafeAuthorizationDenial(await pending, 403);
+  }
+  assert.equal((await prisma.medicalRecord.findUnique({ where: { id: record.id } })).diagnosisEncrypted, originalDiagnosis);
+  assert.equal((await prisma.labOrderItem.findUnique({ where: { id: labOrder.items[0].id } })).resultValue, null);
+  assert.equal((await prisma.prescribedDrug.findUnique({ where: { id: prescription.prescribedDrugs[0].id } })).qtyDispensed, 0);
+  assert.equal((await prisma.appointment.findUnique({ where: { id: appointment.id } })).status, 'IN_CONSULTATION');
+  assert.equal((await prisma.user.findUnique({ where: { id: staff.id } })).status, originalStaffStatus);
+});
+
+test('staff creation strips account-security fields while MFA strict schema rejects them', async () => {
+  const username = `mass-assignment-staff-${Date.now()}@example.test`;
+  const password = 'MassAssignmentSecure1';
+  const staffAttempt = await api.post('/api/auth/users').set(auth('admin')).send({
+    username,
+    password,
+    role: 'RECEPTIONIST',
+    status: 'INACTIVE',
+    authVersion: 999,
+    mfaEnabled: true,
+    passwordHash: 'attacker-controlled-hash',
+    mfaSecret: 'attacker-controlled-secret',
+    emailVerifiedAt: '2000-01-01T00:00:00.000Z',
+    createdBy: 'attacker-controlled-actor',
+    updatedBy: 'attacker-controlled-actor'
+  });
+  assert.equal(staffAttempt.status, 201);
+  const createdStaff = await prisma.user.findUnique({ where: { username } });
+  assert.ok(createdStaff);
+  assert.equal(createdStaff.role, 'RECEPTIONIST');
+  assert.equal(createdStaff.status, 'ACTIVE');
+  assert.equal(createdStaff.authVersion, 0);
+  assert.equal(createdStaff.mfaEnabled, false);
+  assert.notEqual(createdStaff.passwordHash, 'attacker-controlled-hash');
+  assert.equal(await bcrypt.compare(password, createdStaff.passwordHash), true);
+  assert.equal(createdStaff.emailVerifiedAt, null);
+  assert.equal(await prisma.mfaConfiguration.count({ where: { userId: createdStaff.id } }), 0);
+  const creationAudit = await prisma.tenantAuditLog.findFirst({
+    where: { action: 'USER_CREATION', details: { contains: username } }
+  });
+  const adminUser = await prisma.user.findUnique({ where: { username: 'admin@cms.com' } });
+  assert.ok(creationAudit);
+  assert.equal(creationAudit.userId, adminUser.id);
+  assert.equal(creationAudit.details.includes('attacker-controlled-actor'), false);
+  assert.equal(JSON.stringify(staffAttempt.body).includes('attacker-controlled'), false);
+
+  const statusTarget = await prisma.user.create({ data: {
+    username: `mass-assignment-status-${Date.now()}@example.test`,
+    passwordHash: await bcrypt.hash('MassAssignmentStatus1', 10),
+    role: 'RECEPTIONIST',
+    status: 'ACTIVE'
+  } });
+  assert.equal(statusTarget.authVersion, 0);
+  const statusAttempt = await api.put(`/api/auth/users/${statusTarget.id}/status`).set(auth('admin')).send({
+    status: 'INACTIVE',
+    role: 'ADMIN',
+    authVersion: 999,
+    mfaEnabled: true,
+    passwordHash: 'attacker-controlled-hash',
+    updatedBy: 'attacker-controlled-actor'
+  });
+  assert.equal(statusAttempt.status, 200);
+  const statusPersisted = await prisma.user.findUnique({ where: { id: statusTarget.id } });
+  assert.equal(statusPersisted.status, 'INACTIVE');
+  assert.equal(statusPersisted.role, 'RECEPTIONIST');
+  assert.equal(statusPersisted.authVersion, statusTarget.authVersion + 1);
+  assert.notEqual(statusPersisted.authVersion, 999);
+  assert.equal(statusPersisted.mfaEnabled, false);
+  assert.equal(statusPersisted.passwordHash, statusTarget.passwordHash);
+  const statusAudits = await prisma.tenantAuditLog.findMany({
+    where: { action: 'USER_STATUS_CHANGE', details: { contains: statusTarget.username } }
+  });
+  assert.equal(statusAudits.length, 1);
+  assert.equal(statusAudits[0].userId, adminUser.id);
+  assert.equal(statusAudits[0].details.includes('attacker-controlled-actor'), false);
+
+  const doctorUser = await prisma.user.findUnique({ where: { username: 'doctor@cms.com' } });
+  const before = await prisma.user.findUnique({ where: { id: doctorUser.id } });
+  const mfaSecretMarker = `FAKE-MFA-SECRET-${Date.now()}-${++fixtureCounter}`;
+  const passwordHashMarker = `FAKE-PASSWORD-HASH-${Date.now()}-${++fixtureCounter}`;
+  const actorMarker = `FAKE-ACTOR-${Date.now()}-${++fixtureCounter}`;
+  const recoveryCodeMarker = `FAKE-RECOVERY-${Date.now()}`;
+  const totpMarker = '482731';
+  const currentPasswordMarker = 'Doctor@123';
+  const mfaAttempt = await api.post('/api/auth/mfa/enroll').set(auth('doctor')).send({
+    currentPassword: currentPasswordMarker,
+    role: 'ADMIN',
+    status: 'INACTIVE',
+    authVersion: 999,
+    mfaEnabled: true,
+    mfaSecret: mfaSecretMarker,
+    passwordHash: passwordHashMarker,
+    actorUserId: actorMarker,
+    recoveryCode: recoveryCodeMarker,
+    totpCode: totpMarker
+  });
+  assertSafeValidationError(mfaAttempt, [
+    mfaSecretMarker,
+    passwordHashMarker,
+    actorMarker,
+    recoveryCodeMarker,
+    totpMarker,
+    currentPasswordMarker
+  ]);
+  const after = await prisma.user.findUnique({ where: { id: doctorUser.id } });
+  assert.deepEqual(
+    { role: after.role, status: after.status, authVersion: after.authVersion, mfaEnabled: after.mfaEnabled },
+    { role: before.role, status: before.status, authVersion: before.authVersion, mfaEnabled: before.mfaEnabled }
+  );
+  assert.equal((await prisma.user.findUnique({ where: { id: statusTarget.id } })).authVersion, statusTarget.authVersion + 1);
+  assert.equal(await prisma.mfaConfiguration.count({ where: { userId: doctorUser.id } }), 0);
+});
+
+test('patient booking and rescheduling derive identity and workflow fields on the server', async () => {
+  const actor = await createAppointmentConcurrencyPatient();
+  const victim = await createAppointmentConcurrencyPatient();
+  const patientAuth = { Authorization: `Bearer ${actor.token}` };
+  const firstSlot = await findAvailableAppointmentSlot(doctor1.id);
+  const booked = await api.post('/api/patient/appointments').set(patientAuth).send({
+    ...firstSlot,
+    patientId: victim.patient.id,
+    appointmentId: '00000000-0000-4000-8000-000000000077',
+    status: 'COMPLETED',
+    queuePosition: -999,
+    unitPriceSdg: 1,
+    paymentStatus: 'PAID',
+    actorUserId: victim.user.id
+  });
+  assert.equal(booked.status, 201);
+  const created = await prisma.appointment.findUnique({ where: { id: booked.body.id } });
+  assert.equal(created.patientId, actor.patient.id);
+  assert.equal(created.doctorId, firstSlot.doctorId);
+  assert.equal(created.status, 'PENDING');
+
+  const walkInSlot = await findTodayWalkInSlot(doctor1.id);
+  const beforeWalkIns = await prisma.appointment.count({ where: {
+    patientId: victim.patient.id,
+    appointmentDate: getClinicDateString()
+  } });
+  const walkInAttempt = await api.post('/api/appointments/walk-in').set(auth('reception')).send({
+    mode: 'EXISTING',
+    patientId: victim.patient.id,
+    doctorId: doctor1.id,
+    appointmentDate: getClinicDateString(),
+    appointmentTime: walkInSlot,
+    status: 'COMPLETED',
+    queuePosition: -999,
+    paymentStatus: 'PAID',
+    actorUserId: victim.user.id
+  });
+  assertSafeAuthorizationDenial(walkInAttempt, 422);
+  assert.equal(await prisma.appointment.count({ where: {
+    patientId: victim.patient.id,
+    appointmentDate: getClinicDateString()
+  } }), beforeWalkIns);
+
+  const secondSlot = await findAvailableAppointmentSlot(doctor2.id);
+  const rescheduled = await api.put(`/api/patient/appointments/${created.id}/reschedule`).set(patientAuth).send({
+    ...secondSlot,
+    patientId: victim.patient.id,
+    appointmentId: victim.user.id,
+    status: 'COMPLETED',
+    paymentStatus: 'PAID',
+    updatedBy: victim.user.id
+  });
+  assert.equal(rescheduled.status, 200);
+  const persisted = await prisma.appointment.findUnique({ where: { id: created.id } });
+  assert.equal(persisted.patientId, actor.patient.id);
+  assert.equal(persisted.doctorId, secondSlot.doctorId);
+  assert.equal(persisted.status, 'PENDING');
+});
+
+test('clinical submission and finalization ignore hidden ownership and actor fields', async () => {
+  const appointment = await createAuthorityTestAppointment();
+  const submitted = await api.post('/api/records').set(auth('doctor')).send({
+    patientId: patient1.id,
+    appointmentId: appointment.id,
+    diagnosis: 'Mass-assignment protected diagnosis',
+    doctorId: doctor2.id,
+    status: 'FINALIZED',
+    appointmentStatus: 'CANCELLED',
+    recordOwnerId: doctor2.id,
+    createdBy: doctor2.userId,
+    actorUserId: doctor2.userId,
+    finalizedAt: '2000-01-01T00:00:00.000Z'
+  });
+  assert.equal(submitted.status, 201);
+  const submittedRecord = await prisma.medicalRecord.findUnique({ where: { id: submitted.body.recordId } });
+  assert.equal(submittedRecord.patientId, patient1.id);
+  assert.equal(submittedRecord.doctorId, doctor1.id);
+  assert.equal((await prisma.appointment.findUnique({ where: { id: appointment.id } })).status, 'COMPLETED');
+
+  const finalizeAppointment = await createAuthorityTestAppointment();
+  const record = await prisma.medicalRecord.create({ data: {
+    patientId: patient1.id, doctorId: doctor1.id, appointmentId: finalizeAppointment.id,
+    symptomsEncrypted: '', diagnosisEncrypted: encrypt('before finalize'), treatmentEncrypted: '',
+    clinicalNotesEncrypted: '', vitalSignsJson: '{}'
+  } });
+  const finalized = await api.put(`/api/records/${record.id}/finalize`).set(auth('doctor')).send({
+    diagnosis: 'After legitimate finalize',
+    treatment: 'Server-owned context preserved',
+    vitalSigns: {},
+    doctorId: doctor2.id,
+    patientId: patient2.id,
+    appointmentId: unrelatedAppointment.id,
+    status: 'CANCELLED',
+    actorUserId: doctor2.userId,
+    updatedBy: doctor2.userId
+  });
+  assert.equal(finalized.status, 200);
+  const persisted = await prisma.medicalRecord.findUnique({ where: { id: record.id } });
+  assert.equal(persisted.patientId, patient1.id);
+  assert.equal(persisted.doctorId, doctor1.id);
+  assert.equal(persisted.appointmentId, finalizeAppointment.id);
+  assert.equal((await prisma.appointment.findUnique({ where: { id: finalizeAppointment.id } })).status, 'COMPLETED');
+  assert.equal((await prisma.appointment.findUnique({ where: { id: unrelatedAppointment.id } })).status, 'IN_CONSULTATION');
+});
+
+test('lab result CAS ignores hidden release, workflow, version, and actor fields', async () => {
+  const fixture = await createResultConcurrencyFixture(2);
+  const item = fixture.order.items[0];
+  const response = await api.put(`/api/records/lab-orders/items/${item.id}/results`).set(auth('lab')).send({
+    expectedVersion: 0,
+    resultValue: 'Legitimate laboratory value',
+    resultVersion: 999,
+    status: 'COMPLETED',
+    labOrderStatus: 'COMPLETED',
+    labOrderItemStatus: 'RELEASED',
+    releasedToPatientAt: '2000-01-01T00:00:00.000Z',
+    appointmentStatus: 'COMPLETED',
+    actorUserId: '00000000-0000-4000-8000-000000000088',
+    updatedBy: '00000000-0000-4000-8000-000000000088'
+  });
+  assert.equal(response.status, 200);
+  const [storedItem, storedOrder, storedAppointment] = await Promise.all([
+    prisma.labOrderItem.findUnique({ where: { id: item.id } }),
+    prisma.labOrder.findUnique({ where: { id: fixture.order.id } }),
+    prisma.appointment.findUnique({ where: { id: fixture.appointment.id } })
+  ]);
+  assert.equal(storedItem.resultValue, 'Legitimate laboratory value');
+  assert.equal(storedItem.resultVersion, 1);
+  assert.equal(storedOrder.status, 'SAMPLE_COLLECTED');
+  assert.equal(storedOrder.releasedToPatientAt, null);
+  assert.equal(storedAppointment.status, 'WAITING_LAB');
+});
+
+test('patient profile writes strip identity, verification, role, and financial fields', async () => {
+  const actor = await createAppointmentConcurrencyPatient();
+  const victim = await createAppointmentConcurrencyPatient();
+  const beforeUser = await prisma.user.findUnique({ where: { id: actor.user.id } });
+  const response = await api.patch('/api/patient/me')
+    .set({ Authorization: `Bearer ${actor.token}` })
+    .send({
+      emergencyContact: 'Mass Assignment Test Contact',
+      patientId: victim.patient.id,
+      userId: victim.user.id,
+      doctorId: doctor2.id,
+      role: 'ADMIN',
+      status: 'INACTIVE',
+      emailVerifiedAt: '2000-01-01T00:00:00.000Z',
+      authVersion: 999,
+      mfaEnabled: true,
+      invoiceStatus: 'PAID',
+      paymentStatus: 'PAID'
+    });
+  assert.equal(response.status, 200);
+  const [afterPatient, afterUser, victimPatient] = await Promise.all([
+    prisma.patient.findUnique({ where: { id: actor.patient.id } }),
+    prisma.user.findUnique({ where: { id: actor.user.id } }),
+    prisma.patient.findUnique({ where: { id: victim.patient.id } })
+  ]);
+  assert.equal(afterPatient.emergencyContact, 'Mass Assignment Test Contact');
+  assert.equal(afterPatient.userId, actor.user.id);
+  assert.equal(victimPatient.userId, victim.user.id);
+  assert.deepEqual(
+    { role: afterUser.role, status: afterUser.status, authVersion: afterUser.authVersion, mfaEnabled: afterUser.mfaEnabled, emailVerifiedAt: afterUser.emailVerifiedAt },
+    { role: beforeUser.role, status: beforeUser.status, authVersion: beforeUser.authVersion, mfaEnabled: beforeUser.mfaEnabled, emailVerifiedAt: beforeUser.emailVerifiedAt }
+  );
 });
 
 test('a cancelled appointment alone does not grant patient profile access', async () => {
@@ -4883,6 +5814,213 @@ test('billing is restricted and split payments set partial then paid', async () 
   assert.equal(paid.body.remainingBalanceSdg, 0);
 });
 
+test('invoice and payment direct IDs preserve role and patient-appointment context', async () => {
+  const victimAppointment = await prisma.appointment.create({ data: {
+    patientId: patient2.id, doctorId: doctor2.id,
+    appointmentDate: '2064-05-05', appointmentTime: '13:00', status: 'CHECKED_IN'
+  } });
+  const mismatched = await api.post('/api/billing/invoice').set(auth('reception')).send({
+    patientId: patient1.id,
+    appointmentId: victimAppointment.id,
+    invoiceType: 'CONSULTATION'
+  });
+  assert.equal(mismatched.status, 409);
+  assert.equal(mismatched.body.error.code, 'CONSULTATION_PATIENT_MISMATCH');
+  assertSafeAuthorizationDenial(mismatched, 409);
+  assert.equal(await prisma.invoice.count({ where: { appointmentId: victimAppointment.id } }), 0);
+
+  const created = await api.post('/api/billing/invoice').set(auth('reception')).send({
+    patientId: patient2.id,
+    appointmentId: victimAppointment.id,
+    invoiceType: 'CONSULTATION'
+  });
+  assert.equal(created.status, 201);
+  const invoiceId = created.body.invoice.id;
+  const paymentBody = { payments: [{ amountSdg: 1, paymentMethod: 'CASH' }] };
+  for (const role of ['doctor', 'lab']) {
+    const denied = await api.post(`/api/billing/invoice/${invoiceId}/payments`)
+      .set(paymentAuth(role)).send(paymentBody);
+    assertSafeAuthorizationDenial(denied, 403);
+  }
+  const pharmacistDenied = await api.post(`/api/billing/invoice/${invoiceId}/payments`)
+    .set(paymentAuth('pharmacy')).send(paymentBody);
+  assertSafeAuthorizationDenial(pharmacistDenied, 403);
+  assert.equal(pharmacistDenied.body.error.code, 'INVOICE_PAYMENT_ROLE_FORBIDDEN');
+  for (const role of ['doctor', 'lab', 'pharmacy']) {
+    const denied = await api.post(`/api/billing/invoice/${invoiceId}/refund`).set(auth(role)).send({
+      amountSdg: 1, refundMethod: 'CASH'
+    });
+    assertSafeAuthorizationDenial(denied, 403);
+  }
+  assert.equal(await prisma.payment.count({ where: { invoiceId } }), 0);
+  assert.equal(await prisma.refund.count({ where: { invoiceId } }), 0);
+});
+
+test('billing writes reject or ignore forbidden totals, status, ownership, and actor fields', async () => {
+  const forbiddenInvoice = await api.post('/api/billing/invoice').set(auth('reception')).send({
+    patientId: patient1.id,
+    invoiceType: 'GENERAL',
+    items: [{ serviceId: service.id, quantity: 1 }],
+    totalAmountSdg: 1,
+    paidAmountSdg: 1,
+    amountDue: 1,
+    paymentStatus: 'PAID',
+    invoiceStatus: 'REFUNDED',
+    discount: 100,
+    createdBy: 'attacker-controlled-actor',
+    actorUserId: '00000000-0000-4000-8000-000000000066'
+  });
+  assertSafeAuthorizationDenial(forbiddenInvoice, 422);
+
+  const invoice = await prisma.invoice.create({ data: {
+    patientId: patient1.id,
+    totalAmountSdg: 100,
+    totalAmountUsd: 0.1,
+    invoiceExchangeRate: 1000,
+    createdBy: 'mass-assignment-test'
+  } });
+  const forbiddenPayment = await api.post(`/api/billing/invoice/${invoice.id}/payments`)
+    .set(paymentAuth('reception')).send({
+      payments: [{ amountSdg: 40, paymentMethod: 'CASH', receivedBy: 'attacker-controlled-actor' }],
+      totalAmountSdg: 1,
+      paidAmountSdg: 100,
+      paymentStatus: 'PAID',
+      invoiceStatus: 'PAID',
+      discount: 100,
+      patientId: patient2.id,
+      appointmentId: unrelatedAppointment.id,
+      actorUserId: '00000000-0000-4000-8000-000000000066',
+      idempotencyKey: 'body-controlled-key'
+    });
+  assertSafeAuthorizationDenial(forbiddenPayment, 422);
+  let persisted = await prisma.invoice.findUnique({ where: { id: invoice.id } });
+  assert.equal(persisted.patientId, patient1.id);
+  assert.equal(persisted.totalAmountSdg.toNumber(), 100);
+  assert.equal(persisted.paymentStatus, 'UNPAID');
+  assert.equal(await prisma.payment.count({ where: { invoiceId: invoice.id } }), 0);
+
+  const paid = await api.post(`/api/billing/invoice/${invoice.id}/payments`)
+    .set(paymentAuth('reception')).send({ payments: [{ amountSdg: 100, paymentMethod: 'CASH' }] });
+  assert.equal(paid.status, 200);
+  const refunded = await api.post(`/api/billing/invoice/${invoice.id}/refund`).set(auth('reception')).send({
+    amountSdg: 10,
+    refundMethod: 'CASH',
+    paymentStatus: 'PAID',
+    invoiceStatus: 'PAID',
+    totalAmountSdg: 1,
+    patientId: patient2.id,
+    appointmentId: unrelatedAppointment.id,
+    actorUserId: '00000000-0000-4000-8000-000000000066',
+    createdBy: 'attacker-controlled-actor'
+  });
+  assert.equal(refunded.status, 201);
+  persisted = await prisma.invoice.findUnique({ where: { id: invoice.id } });
+  assert.equal(persisted.patientId, patient1.id);
+  assert.equal(persisted.totalAmountSdg.toNumber(), 100);
+  assert.equal(persisted.paymentStatus, 'PARTIALLY_REFUNDED');
+  assert.equal(await prisma.refund.count({ where: { invoiceId: invoice.id, amountSdg: 10 } }), 1);
+});
+
+test('pharmacy direct-ID mutations require pharmacist authority even with valid IDs', async () => {
+  const medicine = await prisma.drugFormulary.findUnique({ where: { id: drug.id } });
+  const patientActor = await createAppointmentConcurrencyPatient();
+  const patientAuth = { Authorization: `Bearer ${patientActor.token}` };
+  const metadataPayload = { labelEn: medicine.labelEn };
+  const batchPayload = {
+    batchNumber: `DIRECT-ID-${Date.now()}`,
+    expiryDate: '2065-06-06',
+    receivedQuantity: 1,
+    minReorderLevel: 0
+  };
+  for (const credentials of [auth('doctor'), auth('reception'), auth('lab'), patientAuth]) {
+    assertSafeAuthorizationDenial(
+      await api.patch(`/api/pharmacy/formulary/${medicine.id}/metadata`).set(credentials).send(metadataPayload),
+      403
+    );
+    assertSafeAuthorizationDenial(
+      await api.post(`/api/pharmacy/formulary/${medicine.id}/batches`).set(credentials).send(batchPayload),
+      403
+    );
+  }
+
+  const fixture = await createPrescriptionFixture({ paid: true, qtyPrescribed: 1 });
+  for (const credentials of [auth('doctor'), auth('reception'), auth('lab'), patientAuth]) {
+    assertSafeAuthorizationDenial(
+      await api.post(`/api/records/prescriptions/${fixture.rx.id}/dispense`).set(credentials)
+        .send({ items: [{ prescribedDrugId: fixture.item.id, qtyToDispense: 1 }] }),
+      403
+    );
+  }
+  assert.equal((await prisma.prescribedDrug.findUnique({ where: { id: fixture.item.id } })).qtyDispensed, 0);
+  assert.equal(await prisma.inventoryBatch.count({ where: { drugId: medicine.id, batchNumber: batchPayload.batchNumber } }), 0);
+});
+
+test('pharmacy stock writes reject or strip browser-controlled ledger and balance fields', async () => {
+  const fixture = await createPrescriptionFixture({ paid: true, qtyPrescribed: 2, earlyQty: 5, lateQty: 0 });
+  const forgedBatchNumber = `FORGED-STOCK-${Date.now()}`;
+  const batchAttempt = await api.post(`/api/pharmacy/formulary/${fixture.drug.id}/batches`).set(auth('pharmacy')).send({
+    batchNumber: forgedBatchNumber,
+    expiryDate: '2066-07-07',
+    receivedQuantity: 3,
+    minReorderLevel: 0,
+    drugId: drug.id,
+    qtyOnHand: 999999,
+    ledgerVersion: 999,
+    movementType: 'DISPENSE',
+    quantityDelta: -999999,
+    resultingBalance: -999999,
+    actorUserId: '00000000-0000-4000-8000-000000000099'
+  });
+  assertSafeAuthorizationDenial(batchAttempt, 422);
+  assert.equal(await prisma.inventoryBatch.count({ where: {
+    drugId: fixture.drug.id,
+    batchNumber: forgedBatchNumber
+  } }), 0);
+
+  const beforeBatch = await prisma.inventoryBatch.findUnique({ where: { id: fixture.early.id } });
+  const beforeMovementCount = await prisma.stockMovement.count({ where: { inventoryBatchId: fixture.early.id } });
+  const dispensed = await api.post(`/api/records/prescriptions/${fixture.rx.id}/dispense`).set(auth('pharmacy')).send({
+    items: [{
+      prescribedDrugId: fixture.item.id,
+      qtyToDispense: 1,
+      drugId: drug.id,
+      batchId: fixture.late.id,
+      qtyOnHand: 999999,
+      qtyDispensed: 999999,
+      ledgerVersion: 999,
+      movementType: 'RECEIPT',
+      quantityDelta: 999999,
+      resultingBalance: 999999,
+      prescriptionStatus: 'CANCELLED',
+      actorUserId: '00000000-0000-4000-8000-000000000099',
+      idempotencyKey: 'browser-controlled-key'
+    }]
+  });
+  assert.equal(dispensed.status, 200);
+  const [afterBatch, afterItem, afterPrescription, movement, afterMovementCount] = await Promise.all([
+    prisma.inventoryBatch.findUnique({ where: { id: fixture.early.id } }),
+    prisma.prescribedDrug.findUnique({ where: { id: fixture.item.id } }),
+    prisma.prescription.findUnique({ where: { id: fixture.rx.id } }),
+    prisma.stockMovement.findFirst({ where: {
+      inventoryBatchId: fixture.early.id,
+      referenceType: 'PRESCRIBED_DRUG_DISPENSE',
+      referenceId: fixture.item.id
+    } }),
+    prisma.stockMovement.count({ where: { inventoryBatchId: fixture.early.id } })
+  ]);
+  const pharmacist = await prisma.user.findUnique({ where: { username: 'pharma@cms.com' } });
+  assert.equal(afterBatch.qtyOnHand, beforeBatch.qtyOnHand - 1);
+  assert.equal(afterBatch.ledgerVersion, beforeBatch.ledgerVersion + 1);
+  assert.equal(afterItem.qtyDispensed, 1);
+  assert.equal(afterItem.ledgerVersion, fixture.item.ledgerVersion + 1);
+  assert.equal(afterPrescription.status, 'PARTIALLY_FILLED');
+  assert.equal(afterMovementCount, beforeMovementCount + 1);
+  assert.equal(movement.movementType, 'DISPENSE');
+  assert.equal(movement.quantityDelta, -1);
+  assert.equal(movement.resultingBalance, beforeBatch.qtyOnHand - 1);
+  assert.equal(movement.actorUserId, pharmacist.id);
+});
+
 test('GENERAL billing is catalog-authoritative and admin price changes preserve invoice snapshots', async () => {
   const catalogService = await prisma.clinicalService.create({
     data: {
@@ -5087,6 +6225,41 @@ test('refund validation rejects invalid, excessive, duplicate, and unauthorized 
   const exceedsRemainder = await api.post(`/api/billing/invoice/${invoice.id}/refund`).set(auth('reception')).send({ amountSdg: 71, refundMethod: 'CASH' });
   assert.equal(exceedsRemainder.status, 409);
   assert.equal(exceedsRemainder.body.error.code, 'REFUND_EXCEEDS_PAID_AMOUNT');
+});
+
+test('refund broad P2002 mapping exposes no database metadata or constraint details', async () => {
+  const invoice = await paidInvoice(100);
+  const marker = `REFUND-P2002-SECRET-${Date.now()}-${++fixtureCounter}`;
+  const constraintMarker = `refund_fake_constraint_${Date.now()}_${fixtureCounter}`;
+  await prisma.$executeRawUnsafe(`
+    CREATE OR REPLACE FUNCTION reject_test_refund_with_p2002() RETURNS trigger AS $$
+    BEGIN
+      RAISE unique_violation USING
+        MESSAGE = '${marker} SQL INSERT INTO Refund P2002',
+        CONSTRAINT = '${constraintMarker}';
+    END;
+    $$ LANGUAGE plpgsql
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE TRIGGER reject_test_refund_with_p2002_trigger
+    BEFORE INSERT ON "Refund"
+    FOR EACH ROW EXECUTE FUNCTION reject_test_refund_with_p2002()
+  `);
+  try {
+    const response = await api.post(`/api/billing/invoice/${invoice.id}/refund`).set(auth('reception')).send({
+      amountSdg: 10,
+      refundMethod: 'CASH'
+    });
+    assert.equal(response.status, 409);
+    assert.equal(response.body.error.code, 'DUPLICATE_REFUND_REFERENCE');
+    assert.equal(response.body.error.message, 'Refund transaction reference has already been used.');
+    assertNoSensitiveErrorLeak(response.body, [marker, constraintMarker]);
+    assert.equal(await prisma.refund.count({ where: { invoiceId: invoice.id } }), 0);
+    assert.equal((await prisma.invoice.findUnique({ where: { id: invoice.id } })).paymentStatus, 'PAID');
+  } finally {
+    await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS reject_test_refund_with_p2002_trigger ON "Refund"');
+    await prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS reject_test_refund_with_p2002()');
+  }
 });
 
 test('refund cannot be recorded against an invoice with no paid funds', async () => {
@@ -5798,16 +6971,18 @@ test('pharmacy payment audit failure rolls back payment, invoice state, and oper
   const created = await requestPharmacyInvoiceForFixture(fixture);
   assert.equal(created.status, 201);
   const invoice = created.body.invoice;
-  await prisma.$executeRaw`
+  const databaseMarker = `PHARMACY-POSTGRES-SECRET-${Date.now()}-${++fixtureCounter}`;
+  const constraintMarker = `pharmacy_fake_constraint_${Date.now()}_${fixtureCounter}`;
+  await prisma.$executeRawUnsafe(`
     CREATE OR REPLACE FUNCTION reject_pharmacy_payment_audit() RETURNS trigger AS $$
     BEGIN
       IF NEW."action" = 'PHARMACY_INVOICE_PAYMENT_RECORDED' THEN
-        RAISE EXCEPTION 'synthetic audit failure';
+        RAISE EXCEPTION '${databaseMarker} | P2002 | SQL INSERT | ${constraintMarker}';
       END IF;
       RETURN NEW;
     END;
     $$ LANGUAGE plpgsql
-  `;
+  `);
   await prisma.$executeRaw`
     CREATE TRIGGER reject_pharmacy_payment_audit_trigger
     BEFORE INSERT ON "TenantAuditLog"
@@ -5819,6 +6994,8 @@ test('pharmacy payment audit failure rolls back payment, invoice state, and oper
         payments: [{ amountSdg: Number(invoice.totalAmountSdg), paymentMethod: 'CASH' }]
       });
     assert.equal(failed.status, 500);
+    assert.deepEqual(failed.body, { error: 'Failed to record split payment.' });
+    assertNoSensitiveErrorLeak(failed.body, [databaseMarker, constraintMarker]);
     assert.equal(await prisma.payment.count({ where: { invoiceId: invoice.id } }), 0);
     assert.equal(await prisma.paymentOperation.count({ where: { invoiceId: invoice.id } }), 0);
     assert.equal(await prisma.tenantAuditLog.count({

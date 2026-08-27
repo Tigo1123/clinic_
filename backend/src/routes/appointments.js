@@ -11,6 +11,7 @@ import rateLimit from 'express-rate-limit';
 import { rateLimits } from '../config.js';
 import crypto from 'crypto';
 import { emitQueueUpdate } from '../utils/socketEvents.js';
+import { markSensitiveResponse } from '../utils/edgeSecurity.js';
 import { configuredSlots, DATE_PATTERN, TIME_PATTERN, todayString } from '../utils/scheduling.js';
 
 const router = express.Router();
@@ -147,7 +148,7 @@ router.post('/otp/request', otpLimiter, async (req, res) => {
 
   const code = String(crypto.randomInt(100000, 1000000));
   developmentOtps.set(phone, { code, expiresAt: Date.now() + 10 * 60 * 1000 });
-  return res.json({ success: true, message: 'Development verification code generated.', developmentCode: code });
+  return markSensitiveResponse(res).json({ success: true, message: 'Development verification code generated.', developmentCode: code });
 });
 
 /**

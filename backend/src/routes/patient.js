@@ -12,6 +12,7 @@ import { decrypt } from '../utils/encryption.js';
 import { cancellationCutoffReached } from '../utils/clinicTime.js';
 import { normalizeEmail, normalizePhone } from '../utils/identity.js';
 import { sendEmail } from '../utils/notifications.js';
+import { markSensitiveResponse } from '../utils/edgeSecurity.js';
 
 const router = express.Router();
 router.use(authenticate, allowRoles(ROLES.PATIENT), requireOwnedPatient);
@@ -289,7 +290,7 @@ router.post(
         'Patient requested a verified email address change.'
       );
 
-      return res.status(201).json({
+      return markSensitiveResponse(res).status(201).json({
         state: 'VERIFICATION_REQUIRED',
         challengeId: result.challenge.id,
         expiresInMinutes:
@@ -568,7 +569,7 @@ router.post(
         'Patient requested an authorized phone number change.'
       );
 
-      return res.status(201).json({
+      return markSensitiveResponse(res).status(201).json({
         state: 'VERIFICATION_REQUIRED',
         challengeId: result.challenge.id,
         deliveredTo: user.email,

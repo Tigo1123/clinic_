@@ -562,7 +562,6 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang }) {
   const [errorDetails, setErrorDetails] = useState('');
   const [emailing, setEmailing] = useState(false);
   const [emailMsg, setEmailMsg] = useState('');
-  const [customEmail, setCustomEmail] = useState('');
 
   const loadSummary = useCallback(async () => {
     if (!summaryId) return;
@@ -595,7 +594,6 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang }) {
       }
       const data = await res.json();
       setSummary(data);
-      setCustomEmail('');
     } catch (err) {
       console.error('Error fetching summary:', err);
       setErrorDetails(err.message || 'Network connection failed.');
@@ -616,7 +614,7 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang }) {
     try {
       const res = await fetchWithAuth(`/api/records/${idToFetch}/send-summary`, {
         method: 'POST',
-        body: JSON.stringify({ email: customEmail })
+        body: JSON.stringify({})
       });
       const contentType = res.headers.get('content-type') || '';
       if (!res.ok) {
@@ -827,14 +825,6 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang }) {
           {emailMsg && <div className="badge badge-success" style={{ padding: '0.5rem' }}>{emailMsg}</div>}
 
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <input
-              type="email"
-              className="form-input"
-              style={{ flex: 1 }}
-              placeholder="Patient email address..."
-              value={customEmail}
-              onChange={(e) => setCustomEmail(e.target.value)}
-            />
             <button className="btn btn-primary" onClick={handleEmailSummary} disabled={emailing}>
               <Mail size={16} />
               {emailing ? (lang === 'ar' ? 'جاري الإرسال...' : 'Sending...') : (lang === 'ar' ? 'إرسال بالبريد' : 'Email Summary')}

@@ -2,7 +2,6 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
-import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { sendError } from '../utils/apiError.js';
@@ -12,6 +11,7 @@ import { logger } from '../utils/logger.js';
 import { signAccessToken } from '../services/accessTokens.js';
 import { consumeTotp, createMfaChallenge, MfaError } from '../services/mfa.js';
 import { passwordSchema } from '../utils/passwordPolicy.js';
+import { createAdminResetLimiter, createLoginLimiter, markSensitiveResponse } from '../utils/edgeSecurity.js';
 
 const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
 
@@ -57,13 +57,8 @@ const staffPasswordResetSchema = z.object({
   mfaCode: z.string().regex(/^\d{6}$/).optional()
 }).strict();
 
-const loginLimiter = rateLimit({
-  windowMs: rateLimits.windowMs,
-  limit: rateLimits.login,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  handler: (req, res) => sendError(res, 429, 'LOGIN_RATE_LIMITED', 'Too many login attempts. Please try again later.')
-});
+const loginLimiter = createLoginLimiter({ windowMs: rateLimits.windowMs, limit: rateLimits.login });
+const adminResetLimiter = createAdminResetLimiter({ windowMs: rateLimits.windowMs, limit: rateLimits.adminReset });
 
 /**
  * POST /api/auth/login
@@ -181,7 +176,7 @@ router.post('/login', loginLimiter, validate(z.object({
       if (hasActiveMfa) {
         const challenge = await createMfaChallenge(user.id, user.authVersion, 'LOGIN', req.ip || 'unknown');
         logger.security('auth.mfa_challenge_created', { requestId: req.id, userId: user.id, ip: req.ip });
-        return res.json({
+        return markSensitiveResponse(res).json({
           mfaRequired: true,
           challengeToken: challenge.token,
           expiresAt: challenge.expiresAt
@@ -318,7 +313,7 @@ router.post('/login', loginLimiter, validate(z.object({
 
     // 7. Return response
     logger.security('auth.login_succeeded', { requestId: req.id, userId: user.id, role: user.role, ip: req.ip });
-    return res.json({
+    return markSensitiveResponse(res).json({
       token,
       user: {
         id: user.id,
@@ -491,7 +486,7 @@ router.post('/users', authenticate, checkRoles('ADMIN'), validate(staffCreationS
  * Self-reset is deliberately unsupported so the acting ADMIN session is never
  * ambiguously invalidated during an administrative action.
  */
-router.post('/users/:id/reset-password', authenticate, checkRoles('ADMIN'), validate(staffPasswordResetSchema), async (req, res) => {
+router.post('/users/:id/reset-password', authenticate, checkRoles('ADMIN'), adminResetLimiter, validate(staffPasswordResetSchema), async (req, res) => {
   if (req.params.id === req.user.id) {
     return sendError(res, 409, 'ADMIN_SELF_RESET_UNSUPPORTED', 'Use the dedicated administrator recovery process to reset your own password.');
   }
@@ -639,19 +634,29 @@ router.post('/users/:id/reset-password', authenticate, checkRoles('ADMIN'), vali
 router.put('/users/:id/status', authenticate, checkRoles('ADMIN'), validate(z.object({ status: z.enum(['ACTIVE', 'INACTIVE']) })), async (req, res) => {
   const { status } = req.body;
   try {
-    const updated = await prisma.user.update({
-      where: { id: req.params.id },
-      data: { status },
-      select: { id: true, username: true, role: true, status: true, preferredLanguage: true, createdAt: true }
-    });
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${req.params.id} FOR UPDATE`;
+      const current = await tx.user.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, username: true, role: true, status: true, preferredLanguage: true, createdAt: true }
+      });
+      if (!current) throw new Error('STAFF_STATUS_TARGET_NOT_FOUND');
+      if (current.status === status) return current;
 
-    await prisma.tenantAuditLog.create({
-      data: {
-        userId: req.user.id,
-        action: 'USER_STATUS_CHANGE',
-        details: `Changed status of user ${updated.username} to ${status}`,
-        ipAddress: req.ip || '127.0.0.1'
-      }
+      const transitioned = await tx.user.update({
+        where: { id: current.id },
+        data: { status, authVersion: { increment: 1 } },
+        select: { id: true, username: true, role: true, status: true, preferredLanguage: true, createdAt: true }
+      });
+      await tx.tenantAuditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'USER_STATUS_CHANGE',
+          details: `Changed status of user ${transitioned.username} to ${status}`,
+          ipAddress: req.ip || '127.0.0.1'
+        }
+      });
+      return transitioned;
     });
 
     return res.json(updated);

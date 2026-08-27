@@ -1,7 +1,5 @@
 import express from 'express';
-import cors from 'cors';
 import dotenv from 'dotenv';
-import helmet from 'helmet';
 import crypto from 'crypto';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -18,12 +16,13 @@ import patientAuthRoutes from './routes/patientAuth.js';
 import patientSelfRoutes from './routes/patient.js';
 import mfaRoutes from './routes/mfa.js';
 import pharmacyRoutes from './routes/pharmacy.js';
-import { ApiError, errorHandler, notFoundHandler } from './utils/apiError.js';
+import { errorHandler, notFoundHandler } from './utils/apiError.js';
 import { fileURLToPath } from 'url';
 import { validateEnvironment } from './config.js';
 import { logger } from './utils/logger.js';
 import { authenticateSocketAccessToken } from './middleware/auth.js';
 import { SocketRevocationService } from './services/socketRevocation.js';
+import { corsMiddleware, securityHeadersMiddleware } from './utils/edgeSecurity.js';
 
 // Load environment configuration
 dotenv.config();
@@ -32,13 +31,6 @@ const environment = validateEnvironment();
 const app = express();
 const PORT = process.env.PORT || 5000;
 const allowedOrigins = environment.allowedOrigins;
-const corsOptions = {
-  origin(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-    return callback(new ApiError(403, 'CORS_ORIGIN_FORBIDDEN', 'Request origin is not allowed.'));
-  },
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
-};
 
 // Create HTTP Server
 const httpServer = createServer(app);
@@ -77,12 +69,7 @@ io.on('connection', (socket) => {
 
 app.disable('x-powered-by');
 app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : false);
-app.use(helmet({
-  contentSecurityPolicy: false,
-  crossOriginResourcePolicy: { policy: 'same-site' },
-  hsts: environment.production ? { maxAge: 31536000, includeSubDomains: true } : false,
-  referrerPolicy: { policy: 'no-referrer' }
-}));
+app.use(securityHeadersMiddleware(environment.production));
 app.use((req, res, next) => {
   req.id = req.get('x-request-id') || crypto.randomUUID();
   res.setHeader('X-Request-ID', req.id);
@@ -92,7 +79,7 @@ app.use((req, res, next) => {
 });
 
 // Enable CORS for frontend requests after common security and correlation headers.
-app.use(cors(corsOptions));
+app.use(corsMiddleware(allowedOrigins));
 
 // Parse incoming request payloads
 app.use(express.json());

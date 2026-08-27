@@ -2210,9 +2210,8 @@ router.get('/:id/summary', authenticate, allowRoles(ROLES.DOCTOR), async (req, r
  * POST /api/records/:id/send-summary
  * Emails post-visit summary directly to the patient.
  */
-router.post('/:id/send-summary', authenticate, allowRoles(ROLES.DOCTOR), async (req, res) => {
+router.post('/:id/send-summary', authenticate, allowRoles(ROLES.DOCTOR), validate(z.object({}).strict()), async (req, res) => {
   const targetId = req.params.id;
-  const { email } = req.body;
 
   try {
     let record = await prisma.medicalRecord.findUnique({
@@ -2246,14 +2245,27 @@ router.post('/:id/send-summary', authenticate, allowRoles(ROLES.DOCTOR), async (
         }
       });
     }
+    if (!record) {
+      return sendError(res, 404, 'MEDICAL_RECORD_NOT_FOUND', 'Visit medical record not found.');
+    }
     if (record.doctorId !== req.user.doctorId) return sendError(res, 403, 'RECORD_ACCESS_FORBIDDEN', 'This clinical record does not belong to the authenticated doctor.');
 
-    if (!record) {
-      return res.status(404).json({ error: 'Visit medical record not found.' });
+    const patientUser = record.patient.userId
+      ? await prisma.user.findUnique({
+        where: { id: record.patient.userId },
+        select: { email: true, emailVerifiedAt: true, role: true }
+      })
+      : null;
+    if (
+      !patientUser
+      || patientUser.role !== ROLES.PATIENT
+      || !patientUser.emailVerifiedAt
+      || !patientUser.email
+      || !z.string().email().safeParse(patientUser.email).success
+    ) {
+      return sendError(res, 409, 'PATIENT_VERIFIED_EMAIL_REQUIRED', 'A verified patient email address is required to send the visit summary.');
     }
-
-    if (!email || !z.string().email().safeParse(email).success) return sendError(res, 422, 'VALID_EMAIL_REQUIRED', 'A valid patient email address is required.');
-    const recipientEmail = email;
+    const recipientEmail = patientUser.email;
     const diagnosis = decrypt(record.diagnosisEncrypted);
     const treatment = decrypt(record.treatmentEncrypted);
     const vitals = JSON.parse(record.vitalSignsJson || '{}');

@@ -4,6 +4,7 @@ import { fork } from 'node:child_process';
 import { EventEmitter, once } from 'node:events';
 import { Client } from 'pg';
 import { io as connectSocket } from 'socket.io-client';
+import bcrypt from 'bcryptjs';
 import prisma from '../src/db.js';
 import { signAccessToken } from '../src/services/accessTokens.js';
 import { parseRevocationPayload, SOCKET_REVOCATION_CHANNEL, SocketRevocationService } from '../src/services/socketRevocation.js';
@@ -12,6 +13,30 @@ const waitFor = (emitter, event, timeoutMs = 5000) => Promise.race([
   once(emitter, event),
   new Promise((_, reject) => setTimeout(() => reject(new Error(`Timed out waiting for ${event}.`)), timeoutMs))
 ]);
+
+function cancellableWaitFor(emitter, event, timeoutMs = 5000) {
+  let settled = false;
+  let rejectPromise;
+  const handler = (...args) => finish(() => resolvePromise(args));
+  let resolvePromise;
+  const timer = setTimeout(() => finish(() => rejectPromise(new Error(`Timed out waiting for ${event}.`))), timeoutMs);
+  const finish = (complete) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    emitter.off(event, handler);
+    complete();
+  };
+  const promise = new Promise((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+    emitter.on(event, handler);
+  });
+  return {
+    promise,
+    cancel() { finish(() => rejectPromise(new Error(`Cancelled waiting for ${event}.`))); }
+  };
+}
 
 function waitForMessage(child, type, timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
@@ -332,6 +357,74 @@ test('authVersion trigger emits only committed, changed generations with a minim
   } finally {
     await listener.end();
     await prisma.user.delete({ where: { id: user.id } });
+  }
+});
+
+test('real staff status transitions proactively revoke active sockets and stale reconnects permanently', async () => {
+  const username = `socket-status-${Date.now()}@test.local`;
+  const password = 'SocketStatusRevocation1';
+  const user = await prisma.user.create({
+    data: { username, passwordHash: await bcrypt.hash(password, 10), role: 'RECEPTIONIST', status: 'ACTIVE' }
+  });
+  const admin = await prisma.user.findUnique({ where: { username: 'admin@cms.com' } });
+  const adminToken = signAccessToken({
+    id: admin.id, username: admin.username, role: admin.role, authVersion: admin.authVersion
+  });
+  const staleToken = signAccessToken({
+    id: user.id, username: user.username, role: user.role, authVersion: user.authVersion
+  });
+  const node = await startNode({ SOCKET_REVOCATION_RECONCILE_MS: '60000', SOCKET_REVOCATION_UNHEALTHY_GRACE_MS: '200' });
+  const sockets = [];
+  const setStatus = async (status) => {
+    const response = await fetch(`${node.url}/api/auth/users/${user.id}/status`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ status })
+    });
+    assert.equal(response.status, 200);
+  };
+  const expectRejected = async (token) => {
+    const socket = connectSocket(node.url, { auth: { token }, transports: ['websocket'], reconnection: false });
+    const [error] = await waitFor(socket, 'connect_error');
+    assert.equal(error.data?.code, 'SESSION_REVOKED');
+    socket.disconnect();
+  };
+  try {
+    const active = await connect(node.url, staleToken);
+    sockets.push(active);
+    const revoked = cancellableWaitFor(active, 'sessionRevoked');
+    const disconnected = cancellableWaitFor(active, 'disconnect');
+    try {
+      await setStatus('INACTIVE');
+      await Promise.all([revoked.promise, disconnected.promise]);
+    } finally {
+      revoked.cancel();
+      disconnected.cancel();
+      await Promise.allSettled([revoked.promise, disconnected.promise]);
+    }
+    assert.equal(active.connected, false);
+    assert.equal((await prisma.user.findUnique({ where: { id: user.id } })).authVersion, user.authVersion + 1);
+
+    await expectRejected(staleToken);
+    await setStatus('ACTIVE');
+    assert.equal((await prisma.user.findUnique({ where: { id: user.id } })).authVersion, user.authVersion + 2);
+    await expectRejected(staleToken);
+
+    const login = await fetch(`${node.url}/api/auth/login`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, password })
+    });
+    assert.equal(login.status, 200);
+    const current = await connect(node.url, (await login.json()).token);
+    sockets.push(current);
+    assert.equal(current.connected, true);
+  } finally {
+    for (const socket of sockets) socket.disconnect();
+    if (node.child.connected) {
+      const exited = once(node.child, 'exit');
+      node.child.send({ type: 'shutdown' });
+      await exited;
+    }
+    await prisma.user.delete({ where: { id: user.id } }).catch(() => {});
   }
 });
 

@@ -21,6 +21,7 @@ import {
 } from '../services/mfa.js';
 import { signAccessToken } from '../services/accessTokens.js';
 import { logger } from '../utils/logger.js';
+import { markSensitiveResponse } from '../utils/edgeSecurity.js';
 
 const router = express.Router();
 const STAFF_ROLES = [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.DOCTOR, ROLES.LAB_TECH, ROLES.PHARMACIST];
@@ -103,7 +104,7 @@ router.post('/verify', mfaLimiter, validate(loginVerificationSchema), async (req
       doctorId: user.doctor?.id || null
     });
     logger.security('auth.mfa_verification_succeeded', { requestId: req.id, userId: user.id, role: user.role, ip: req.ip });
-    return res.json({
+    return markSensitiveResponse(res).json({
       token,
       user: {
         id: user.id,
@@ -158,7 +159,7 @@ router.post('/recovery/verify', mfaLimiter, validate(recoveryLoginSchema), async
     logger.security('auth.mfa_recovery_login_succeeded', {
       requestId: req.id, userId: user.id, role: user.role, method: 'RECOVERY_CODE', ip: req.ip
     });
-    return res.json({
+    return markSensitiveResponse(res).json({
       token,
       authenticationMethod: 'RECOVERY_CODE',
       user: {
@@ -184,7 +185,7 @@ router.post('/enroll', validate(z.object({ currentPassword: currentPasswordSchem
       return sendError(res, 409, 'MFA_ALREADY_ENABLED', 'MFA is already enabled.');
     }
     const enrollment = await startMfaEnrollment(user, req.ip || 'unknown');
-    return res.status(201).json({
+    return markSensitiveResponse(res).status(201).json({
       state: 'PENDING',
       secret: enrollment.secret,
       otpauthUri: enrollment.otpauthUri,
@@ -199,7 +200,7 @@ router.post('/enroll', validate(z.object({ currentPassword: currentPasswordSchem
 router.post('/enroll/confirm', validate(z.object({ code: codeSchema }).strict()), async (req, res, next) => {
   try {
     const recoveryCodes = await confirmMfaEnrollment(req.user.id, req.body.code, Date.now(), req.ip || 'unknown');
-    return res.json({ state: 'ENABLED', recoveryCodes });
+    return markSensitiveResponse(res).json({ state: 'ENABLED', recoveryCodes });
   } catch (error) {
     if (error instanceof MfaError) {
       await audit(req, 'MFA_ENROLLMENT_FAILED', `Staff MFA enrollment confirmation failed: ${error.code}.`);
@@ -238,7 +239,7 @@ router.post('/recovery/regenerate', validate(proofSchema), async (req, res, next
         data: { userId: user.id, action: 'MFA_RECOVERY_CODES_REGENERATED', details: 'Staff MFA recovery codes regenerated.', ipAddress: req.ip || 'unknown' }
       });
     });
-    return res.json({ recoveryCodes });
+    return markSensitiveResponse(res).json({ recoveryCodes });
   } catch (error) { next(error); }
 });
 
@@ -255,7 +256,10 @@ router.delete('/', validate(proofSchema), async (req, res, next) => {
       await tx.mfaChallenge.deleteMany({ where: { userId: user.id } });
       await tx.mfaRecoveryCode.deleteMany({ where: { userId: user.id } });
       await tx.mfaConfiguration.delete({ where: { userId: user.id } });
-      await tx.user.update({ where: { id: user.id }, data: { mfaEnabled: false } });
+      await tx.user.update({
+        where: { id: user.id },
+        data: { mfaEnabled: false, authVersion: { increment: 1 } }
+      });
       await tx.tenantAuditLog.create({
         data: { userId: user.id, action: 'MFA_DISABLED', details: 'Staff MFA disabled by the account owner.', ipAddress: req.ip || 'unknown' }
       });

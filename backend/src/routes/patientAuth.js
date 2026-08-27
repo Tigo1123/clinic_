@@ -13,6 +13,7 @@ import { ApiError, sendError } from '../utils/apiError.js';
 import { rateLimits } from '../config.js';
 import { getClinicDateString } from '../utils/clinicTime.js';
 import { passwordSchema } from '../utils/passwordPolicy.js';
+import { markSensitiveResponse } from '../utils/edgeSecurity.js';
 
 const router = express.Router();
 const limiter = (limit) => rateLimit({ windowMs: rateLimits.windowMs, limit, standardHeaders: 'draft-7', legacyHeaders: false, handler: (req, res) => sendError(res, 429, 'RATE_LIMITED', 'Too many attempts. Please try again later.') });
@@ -63,7 +64,7 @@ router.post('/register', registrationLimiter, validate(z.object({
     if (!verificationTarget) throw new ApiError(422, 'VERIFICATION_TARGET_MISSING', 'Email is required when email verification is configured.');
     const { challenge, developmentCode } = await createVerificationChallenge(user, verificationType, verificationTarget);
     await audit(user.id, 'PATIENT_ACCOUNT_REGISTRATION', 'Patient online account registration started.', req);
-    return res.status(201).json({ state: 'VERIFICATION_REQUIRED', userId: user.id, challengeId: challenge.id, ...(developmentCode ? { developmentCode } : {}) });
+    return markSensitiveResponse(res).status(201).json({ state: 'VERIFICATION_REQUIRED', userId: user.id, challengeId: challenge.id, ...(developmentCode ? { developmentCode } : {}) });
   } catch (error) {
     if (createdUserId) await prisma.user.delete({ where: { id: createdUserId } }).catch(() => {});
     if (error.code === 'P2002') return sendError(res, 409, 'ACCOUNT_ALREADY_EXISTS', 'An account already exists for this identity.');
@@ -233,7 +234,7 @@ router.post(
         req
       );
 
-      return res.status(201).json({
+      return markSensitiveResponse(res).status(201).json({
         state: 'VERIFICATION_REQUIRED',
         challengeId: challenge.id,
         ...(developmentCode ? { developmentCode } : {})
@@ -350,7 +351,7 @@ router.post(
         req
       );
 
-      return res.status(201).json({
+      return markSensitiveResponse(res).status(201).json({
         state: 'VERIFICATION_REQUIRED',
         challengeId: challenge.id,
         ...(developmentCode ? { developmentCode } : {})
@@ -433,7 +434,7 @@ router.post(
         req
       );
 
-      return res.json({
+      return markSensitiveResponse(res).json({
         ...genericResponse,
         challengeId: challenge.id,
         ...(process.env.VERIFICATION_PROVIDER === 'development' &&
@@ -591,7 +592,7 @@ router.post('/verification/request', verificationLimiter, authenticate, allowRol
     const target = req.body.type === 'PHONE' ? user.phoneNormalized : user.email;
     if (!target) return sendError(res, 422, 'VERIFICATION_TARGET_MISSING', `No ${req.body.type.toLowerCase()} is configured for this account.`);
     const { challenge, developmentCode } = await createVerificationChallenge(user, req.body.type, target);
-    return res.status(201).json({ state: 'VERIFICATION_REQUIRED', challengeId: challenge.id, ...(developmentCode ? { developmentCode } : {}) });
+    return markSensitiveResponse(res).status(201).json({ state: 'VERIFICATION_REQUIRED', challengeId: challenge.id, ...(developmentCode ? { developmentCode } : {}) });
   } catch (error) { next(error); }
 });
 
@@ -845,7 +846,7 @@ router.post('/claims/:patientId/code', authenticate, allowRoles(ROLES.ADMIN, ROL
     const code = crypto.randomBytes(6).toString('base64url').toUpperCase();
     await prisma.patientClaimCode.create({ data: { patientId: patient.id, codeHash: await bcrypt.hash(code, 10), expiresAt: new Date(Date.now() + 30 * 60000), createdById: req.user.id } });
     await audit(req.user.id, 'PATIENT_CLAIM_CODE_ISSUED', `Issued claim code for patient ${patient.id}.`, req);
-    return res.status(201).json({ code, expiresInMinutes: 30 });
+    return markSensitiveResponse(res).status(201).json({ code, expiresInMinutes: 30 });
   } catch (error) { next(error); }
 });
 
