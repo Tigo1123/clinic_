@@ -4,6 +4,7 @@ import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import RoleHero from '../../components/healthcare/RoleHero';
 import { getStaffPasswordChecks, isStaffPasswordValid, STAFF_PASSWORD_MAX_LENGTH } from '../../utils/staffPasswordPolicy';
 import { buildStaffCreationPayload } from '../../utils/staffCreationPayload';
+import { filterStaffUsers, isStaffRole } from '../../utils/staffRoles';
 
 export default function AdminDashboard({ user, lang, t }) {
   const [activeTab, setActiveTab] = useState('profile');
@@ -574,7 +575,7 @@ export default function AdminDashboard({ user, lang, t }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map((u) => (
+                  {filterStaffUsers(users).map((u) => (
                     <tr key={u.id}>
                       <td>{u.username}</td>
                       <td>
@@ -588,6 +589,7 @@ export default function AdminDashboard({ user, lang, t }) {
                         </span>
                       </td>
                       <td>
+                        {isStaffRole(u.role) && <>
                         <button
                           className={`btn ${u.status === 'ACTIVE' ? 'btn-danger' : 'btn-primary'}`}
                           style={{ padding: '4px 8px', fontSize: '0.8rem' }}
@@ -606,6 +608,7 @@ export default function AdminDashboard({ user, lang, t }) {
                         >
                           {lang === 'ar' ? 'إعادة تعيين كلمة المرور' : 'Reset Password'}
                         </button>}
+                        </>}
                       </td>
                     </tr>
                   ))}

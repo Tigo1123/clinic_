@@ -28,6 +28,7 @@ import { buildMedicineIdentityKey, normalizeBatchNumber } from '../src/utils/med
 import { errorHandler } from '../src/utils/apiError.js';
 import { ensurePharmacyInvoiceForPrescription } from '../src/services/pharmacyInvoice.js';
 import { SOCKET_REVOCATION_CHANNEL } from '../src/services/socketRevocation.js';
+import { STAFF_ROLES } from '../src/routes/auth.js';
 import {
   corsMiddleware,
   createAdminResetLimiter,
@@ -1813,8 +1814,20 @@ test('staff login rejects invalid credentials', async () => {
   assert.equal(response.status, 401);
 });
 
-test('admin can list staff and pharmacist cannot', async () => {
-  assert.equal((await api.get('/api/auth/users').set(auth('admin'))).status, 200);
+test('admin staff list includes only intended staff roles and excludes patients', async () => {
+  const patient = await prisma.user.create({
+    data: {
+      username: `staff-list-patient-${Date.now()}@example.test`,
+      passwordHash: 'not-used',
+      role: 'PATIENT',
+      status: 'ACTIVE'
+    }
+  });
+  const response = await api.get('/api/auth/users').set(auth('admin'));
+  assert.equal(response.status, 200);
+  assert.equal(response.body.some((user) => user.id === patient.id), false);
+  assert.equal(response.body.every((user) => STAFF_ROLES.includes(user.role)), true);
+  for (const role of STAFF_ROLES) assert.equal(response.body.some((user) => user.role === role), true);
   assert.equal((await api.get('/api/auth/users').set(auth('pharmacy'))).status, 403);
 });
 
@@ -2588,6 +2601,48 @@ test('staff status response never exposes password hash', async () => {
   const response = await api.put(`/api/auth/users/${tokens.admin ? (await prisma.user.findUnique({ where: { username: 'recep@cms.com' } })).id : ''}/status`).set(auth('admin')).send({ status: 'ACTIVE' });
   assert.equal(response.status, 200);
   assert.equal(Object.hasOwn(response.body, 'passwordHash'), false);
+});
+
+test('staff status endpoint rejects ACTIVE and PENDING_VERIFICATION patient targets without revocation', async () => {
+  const patients = await Promise.all([
+    prisma.user.create({ data: {
+      username: `staff-status-active-patient-${Date.now()}@example.test`,
+      passwordHash: 'not-used', role: 'PATIENT', status: 'ACTIVE'
+    } }),
+    prisma.user.create({ data: {
+      username: `staff-status-pending-patient-${Date.now()}@example.test`,
+      passwordHash: 'not-used', role: 'PATIENT', status: 'PENDING_VERIFICATION'
+    } })
+  ]);
+  const listener = new Client({ connectionString: process.env.SOCKET_REVOCATION_DATABASE_URL || process.env.DATABASE_URL });
+  const events = [];
+  await listener.connect();
+  await listener.query(`LISTEN ${SOCKET_REVOCATION_CHANNEL}`);
+  listener.on('notification', (message) => {
+    try {
+      const payload = JSON.parse(message.payload);
+      if (patients.some((patient) => patient.id === payload.userId)) events.push(payload);
+    } catch {}
+  });
+  try {
+    for (const patient of patients) {
+      const requestedStatus = patient.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+      const response = await api.put(`/api/auth/users/${patient.id}/status`)
+        .set(auth('admin')).send({ status: requestedStatus });
+      assertSafeAuthorizationDenial(response, 422);
+      assert.equal(response.body.error.code, 'STAFF_STATUS_UNSUPPORTED');
+      const unchanged = await prisma.user.findUnique({ where: { id: patient.id } });
+      assert.equal(unchanged.status, patient.status);
+      assert.equal(unchanged.authVersion, patient.authVersion);
+      assert.equal(await prisma.tenantAuditLog.count({
+        where: { action: 'USER_STATUS_CHANGE', details: { contains: patient.username } }
+      }), 0);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(events.length, 0);
+  } finally {
+    await listener.end();
+  }
 });
 
 test('staff status transitions revoke old HTTP sessions once and never resurrect them', async () => {

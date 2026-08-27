@@ -16,7 +16,7 @@ import { createAdminResetLimiter, createLoginLimiter, markSensitiveResponse } fr
 const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
 
 const router = express.Router();
-const STAFF_ROLES = ['ADMIN', 'RECEPTIONIST', 'DOCTOR', 'PHARMACIST', 'LAB_TECH'];
+export const STAFF_ROLES = ['ADMIN', 'RECEPTIONIST', 'DOCTOR', 'PHARMACIST', 'LAB_TECH'];
 const DOCTOR_CREATION_FIELDS = ['fullNameAr', 'fullNameEn', 'specialtyAr', 'specialtyEn', 'consultationFee'];
 
 function isUsernameUniqueViolation(error) {
@@ -370,6 +370,7 @@ router.get('/audit-logs', authenticate, checkRoles('ADMIN'), async (req, res) =>
 router.get('/users', authenticate, checkRoles('ADMIN'), async (req, res) => {
   try {
     const users = await prisma.user.findMany({
+      where: { role: { in: STAFF_ROLES } },
       select: {
         id: true,
         username: true,
@@ -641,6 +642,7 @@ router.put('/users/:id/status', authenticate, checkRoles('ADMIN'), validate(z.ob
         select: { id: true, username: true, role: true, status: true, preferredLanguage: true, createdAt: true }
       });
       if (!current) throw new Error('STAFF_STATUS_TARGET_NOT_FOUND');
+      if (!STAFF_ROLES.includes(current.role)) throw new Error('STAFF_STATUS_UNSUPPORTED');
       if (current.status === status) return current;
 
       const transitioned = await tx.user.update({
@@ -661,6 +663,9 @@ router.put('/users/:id/status', authenticate, checkRoles('ADMIN'), validate(z.ob
 
     return res.json(updated);
   } catch (error) {
+    if (error?.message === 'STAFF_STATUS_UNSUPPORTED') {
+      return sendError(res, 422, 'STAFF_STATUS_UNSUPPORTED', 'Status management through this endpoint is limited to staff accounts.');
+    }
     console.error('Toggle staff status error:', error);
     return res.status(500).json({ error: 'Failed to update staff user status.' });
   }
