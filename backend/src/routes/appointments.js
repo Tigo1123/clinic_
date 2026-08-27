@@ -299,7 +299,7 @@ router.post('/book', validate(z.object({
     });
 
   } catch (error) {
-    if (error.code === 'P2002' || String(error.message).includes('Appointment_active_doctor_slot_key')) {
+    if (isAppointmentSlotConflict(error)) {
       return sendError(res, 409, 'APPOINTMENT_SLOT_UNAVAILABLE', 'This appointment slot was booked in the meantime. Please select another slot.');
     }
     console.error('Booking submission error:', error);

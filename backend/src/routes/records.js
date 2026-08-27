@@ -1533,13 +1533,13 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
       return sendError(res, error.status, error.code, error.message);
     }
 
-    console.error('Dispense prescription error:', error);
     const knownValidation = [
       'positive whole number', 'does not belong', 'exceeds the remaining',
       'not found', 'changed concurrently', 'Unable to allocate'
     ].some((fragment) => error.message?.includes(fragment));
     if (knownValidation) return sendError(res, 422, 'DISPENSING_VALIDATION_FAILED', error.message);
     if (error.message?.includes('Insufficient stock')) return sendError(res, 409, 'INSUFFICIENT_STOCK', error.message);
+    console.error('Dispense prescription error:', error);
     return sendError(res, 500, 'DISPENSING_FAILED', 'Failed to dispense prescription.');
   }
 });

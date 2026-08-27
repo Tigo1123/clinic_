@@ -136,7 +136,7 @@ async function createResultConcurrencyFixture(itemCount = 2) {
     },
     include: { items: true }
   });
-  return { appointment, order };
+  return { appointment, record, order };
 }
 
 async function createCrossDoctorRecordFixture(label) {
@@ -273,6 +273,16 @@ async function findTodayWalkInSlot(doctorId) {
   return response.body[0];
 }
 
+async function createStandaloneTestPatient(label = 'C1') {
+  fixtureCounter += 1;
+  return prisma.patient.create({ data: {
+    fullNameAr: `مريض ${label} ${fixtureCounter}`,
+    fullNameEn: `C1 Patient ${label} ${fixtureCounter}`,
+    gender: 'MALE', dateOfBirth: '1990-01-01', phone: `0944${String(fixtureCounter).padStart(6, '0')}`,
+    addressStateId: 1, emergencyContact: 'Self'
+  } });
+}
+
 async function findTransferAppointmentSlot(sourceDoctorId, targetDoctorId) {
   for (let day = 1; day <= 28; day += 1) {
     const date = `2052-10-${String(day).padStart(2, '0')}`;
@@ -302,6 +312,165 @@ test('queue socket updates target operational staff rooms only', () => {
   assert.deepEqual(rooms, ['role_ADMIN', 'role_RECEPTIONIST', 'doctor_doctor-1']);
   assert.deepEqual(emitted, { event: 'queueUpdated', payload: { type: 'STATUS_UPDATE' } });
   assert.ok(!rooms.some((room) => room.startsWith('user_') || room === 'role_PATIENT'));
+});
+
+test('simultaneous doctor consultation starts claim CHECKED_IN exactly once', async () => {
+  fixtureCounter += 1;
+  const appointment = await prisma.appointment.create({ data: {
+    patientId: patient1.id, doctorId: doctor1.id,
+    appointmentDate: `2060-01-${String((fixtureCounter % 27) + 1).padStart(2, '0')}`,
+    appointmentTime: `${String(8 + (fixtureCounter % 10)).padStart(2, '0')}:10`, status: 'CHECKED_IN'
+  } });
+  const invoice = await api.post('/api/billing/invoice').set(auth('reception')).send({
+    patientId: patient1.id, appointmentId: appointment.id, invoiceType: 'CONSULTATION',
+    items: [{ descriptionAr: 'محاولة سعر', descriptionEn: 'Forged price', qty: 1, unitPriceSdg: 1 }]
+  });
+  assert.equal(invoice.status, 201);
+  assert.equal(invoice.body.invoice.appointmentId, appointment.id);
+  const payment = await api.post(`/api/billing/invoice/${invoice.body.invoice.id}/payments`)
+    .set(paymentAuth('reception'))
+    .send({ payments: [{ amountSdg: Number(invoice.body.invoice.totalAmountSdg), paymentMethod: 'CASH' }] });
+  assert.equal(payment.status, 200);
+  const paidInvoice = await prisma.invoice.findUnique({ where: { id: invoice.body.invoice.id } });
+  assert.equal(paidInvoice.paymentStatus, 'PAID');
+  const beforeAudits = await prisma.tenantAuditLog.count({ where: { action: 'APPOINTMENT_STATUS_UPDATED', details: { contains: appointment.id } } });
+  const [startA, startB] = await Promise.all([
+    api.put(`/api/appointments/${appointment.id}/status`).set(auth('doctor')).send({ status: 'IN_CONSULTATION' }),
+    api.put(`/api/appointments/${appointment.id}/status`).set(auth('doctor')).send({ status: 'IN_CONSULTATION' })
+  ]);
+  assert.deepEqual([startA.status, startB.status].sort((a, b) => a - b), [200, 409]);
+  const loser = startA.status === 409 ? startA : startB;
+  assert.ok([
+    'APPOINTMENT_STATE_CONFLICT',
+    'ILLEGAL_APPOINTMENT_STATUS_TRANSITION'
+  ].includes(loser.body.error.code));
+  assert.doesNotMatch(JSON.stringify(loser.body), /Prisma|P20\d{2}|SQL|constraint|stack|database/i);
+  assert.equal((await prisma.appointment.findUnique({ where: { id: appointment.id } })).status, 'IN_CONSULTATION');
+  assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'APPOINTMENT_STATUS_UPDATED', details: { contains: appointment.id } } }), beforeAudits + 1);
+});
+
+test('doctor start races receptionist cancellation without an impossible rollback', async () => {
+  fixtureCounter += 1;
+  const appointment = await prisma.appointment.create({ data: {
+    patientId: patient1.id, doctorId: doctor1.id,
+    appointmentDate: `2060-02-${String((fixtureCounter % 27) + 1).padStart(2, '0')}`,
+    appointmentTime: `${String(8 + (fixtureCounter % 10)).padStart(2, '0')}:15`, status: 'CHECKED_IN'
+  } });
+  const invoice = await api.post('/api/billing/invoice').set(auth('reception')).send({
+    patientId: patient1.id, appointmentId: appointment.id, invoiceType: 'CONSULTATION',
+    items: [{ descriptionAr: 'كشف', descriptionEn: 'Consultation', qty: 1, unitPriceSdg: 1 }]
+  });
+  assert.equal(invoice.status, 201);
+  assert.equal(invoice.body.invoice.appointmentId, appointment.id);
+  const payment = await api.post(`/api/billing/invoice/${invoice.body.invoice.id}/payments`)
+    .set(paymentAuth('reception'))
+    .send({ payments: [{ amountSdg: Number(invoice.body.invoice.totalAmountSdg), paymentMethod: 'CASH' }] });
+  assert.equal(payment.status, 200);
+  const paidInvoice = await prisma.invoice.findUnique({ where: { id: invoice.body.invoice.id } });
+  assert.equal(paidInvoice.paymentStatus, 'PAID');
+  const [start, cancel] = await Promise.all([
+    api.put(`/api/appointments/${appointment.id}/status`).set(auth('doctor')).send({ status: 'IN_CONSULTATION' }),
+    api.put(`/api/appointments/${appointment.id}/status`).set(auth('reception')).send({ status: 'CANCELLED' })
+  ]);
+  assert.deepEqual([start.status, cancel.status].sort((a, b) => a - b), [200, 409]);
+  const persisted = await prisma.appointment.findUnique({ where: { id: appointment.id } });
+  assert.ok(['IN_CONSULTATION', 'CANCELLED'].includes(persisted.status));
+  const loser = start.status === 409 ? start : cancel;
+  assert.equal(loser.body.error.code, 'APPOINTMENT_STATE_CONFLICT');
+  assert.doesNotMatch(JSON.stringify(loser.body), /Prisma|P20\d{2}|SQL|constraint|stack|database/i);
+});
+
+test('concurrent consultation submissions create one medical record and lab order', async () => {
+  const appointment = await createAuthorityTestAppointment();
+  const payload = authorityPrescriptionPayload(appointment, [], { orderedServices: [service.id], diagnosis: 'Concurrent consultation' });
+  const [first, second] = await Promise.all([
+    api.post('/api/records').set(auth('doctor')).send(payload),
+    api.post('/api/records').set(auth('doctor')).send(payload)
+  ]);
+  assert.equal([first.status, second.status].filter((status) => status === 201).length, 1);
+  assert.equal([first.status, second.status].filter((status) => status !== 201).length, 1);
+  const loser = first.status === 201 ? second : first;
+  assert.doesNotMatch(JSON.stringify(loser.body), /Prisma|P20\d{2}|SQL|constraint|stack|database/i);
+  assert.equal(await prisma.medicalRecord.count({ where: { appointmentId: appointment.id } }), 1);
+  const record = await prisma.medicalRecord.findUnique({ where: { appointmentId: appointment.id }, include: { labOrders: { include: { items: true } } } });
+  assert.equal(record.labOrders.length, 1);
+  assert.equal(record.labOrders[0].items.length, 1);
+  assert.equal((await prisma.appointment.findUnique({ where: { id: appointment.id } })).status, 'WAITING_LAB');
+});
+
+test('simultaneous consultation finalization commits one terminal transition', async () => {
+  const appointment = await createAuthorityTestAppointment();
+  const record = await prisma.medicalRecord.create({ data: {
+    patientId: patient1.id, doctorId: doctor1.id, appointmentId: appointment.id,
+    symptomsEncrypted: '', diagnosisEncrypted: encrypt('initial'), treatmentEncrypted: '',
+    vitalSignsJson: '{}', clinicalNotesEncrypted: ''
+  } });
+  await prisma.labOrder.create({ data: {
+    medicalRecordId: record.id, patientId: patient1.id, doctorId: doctor1.id,
+    status: 'COMPLETED', items: { create: { serviceId: service.id, resultValue: 'ready', resultVersion: 1 } }
+  } });
+  const [first, second] = await Promise.all([
+    api.put(`/api/records/${record.id}/finalize`).set(auth('doctor')).send({ diagnosis: 'final A', treatment: 'plan A', vitalSigns: {} }),
+    api.put(`/api/records/${record.id}/finalize`).set(auth('doctor')).send({ diagnosis: 'final B', treatment: 'plan B', vitalSigns: {} })
+  ]);
+  assert.equal([first.status, second.status].filter((status) => status === 200).length, 1);
+  assert.equal([first.status, second.status].filter((status) => status !== 200).length, 1);
+  const loser = first.status === 200 ? second : first;
+  assert.doesNotMatch(JSON.stringify(loser.body), /Prisma|P20\d{2}|SQL|constraint|stack|database/i);
+  assert.equal((await prisma.appointment.findUnique({ where: { id: appointment.id } })).status, 'COMPLETED');
+  const persisted = await prisma.medicalRecord.findUnique({ where: { id: record.id } });
+  assert.ok(['final A', 'final B'].includes(decrypt(persisted.diagnosisEncrypted)));
+  assert.equal(await prisma.prescription.count({ where: { medicalRecordId: record.id } }), 0);
+});
+
+test('lab completion racing doctor finalization preserves a valid workflow state', async () => {
+  const fixture = await createResultConcurrencyFixture(1);
+  const item = fixture.order.items[0];
+  const resultEndpoint = `/api/records/lab-orders/items/${item.id}/results`;
+  const finalizeEndpoint = `/api/records/${fixture.record.id}/finalize`;
+
+  const [labResult, finalize] = await Promise.all([
+    api.put(resultEndpoint).set(auth('lab')).send({ expectedVersion: 0, resultValue: 'final laboratory result' }),
+    api.put(finalizeEndpoint).set(auth('doctor')).send({ diagnosis: 'Final diagnosis after laboratory review', treatment: 'Final treatment', vitalSigns: {} })
+  ]);
+
+  assert.equal(labResult.status, 200);
+  assert.ok([200, 409].includes(finalize.status));
+  assert.doesNotMatch(JSON.stringify(finalize.body), /Prisma|PrismaClient|P20\d{2}|SQL|constraint|stack|database|transaction/i);
+
+  const persisted = await prisma.labOrder.findUnique({
+    where: { id: fixture.order.id },
+    include: { items: true }
+  });
+  const appointment = await prisma.appointment.findUnique({ where: { id: fixture.appointment.id } });
+  const recordCount = await prisma.medicalRecord.count({ where: { appointmentId: fixture.appointment.id } });
+  assert.equal(recordCount, 1);
+  assert.equal(persisted.status, 'COMPLETED');
+  assert.equal(persisted.items.length, 1);
+  assert.equal(persisted.items[0].resultValue, 'final laboratory result');
+  assert.equal(persisted.items[0].resultVersion, 1);
+  assert.ok(['IN_CONSULTATION', 'COMPLETED'].includes(appointment.status));
+  if (finalize.status === 200) {
+    assert.equal(appointment.status, 'COMPLETED');
+    assert.equal((await prisma.prescription.count({ where: { medicalRecordId: fixture.record.id } })), 0);
+  } else {
+    assert.equal(appointment.status, 'IN_CONSULTATION');
+  }
+  const resultAudits = await prisma.tenantAuditLog.findMany({
+    where: { action: 'LAB_RESULTS_LOGGED', details: { contains: item.id } }
+  });
+  assert.equal(resultAudits.length, 1);
+});
+
+test('cancelled and no-show terminal appointments reject stale active transitions safely', async () => {
+  for (const status of ['CANCELLED', 'NO_SHOW']) {
+    const appointment = await createConcurrencyAppointment(patient1.id, status);
+    const response = await api.put(`/api/appointments/${appointment.id}/status`).set(auth('reception')).send({ status: 'CHECKED_IN' });
+    assert.equal(response.status, 409);
+    assert.doesNotMatch(JSON.stringify(response.body), /Prisma|P20\d{2}|SQL|constraint|stack|database/i);
+    assert.equal((await prisma.appointment.findUnique({ where: { id: appointment.id } })).status, status);
+    assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'APPOINTMENT_STATUS_UPDATED', details: { contains: appointment.id } } }), 0);
+  }
 });
 
 before(async () => {
@@ -712,6 +881,40 @@ test('concurrent walk-in requests claim one slot and one same-patient appointmen
   assert.deepEqual(responses.map((response) => response.status).sort(), [201, 409]);
   assert.equal(responses.find((response) => response.status === 409).body.error.code, 'WALK_IN_ALREADY_EXISTS');
   assert.equal(await prisma.appointment.count({ where: { patientId: concurrentPatient.id, appointmentDate: getClinicDateString(), status: 'CHECKED_IN' } }), 1);
+});
+
+test('concurrent walk-ins from different patients claim one doctor slot', async () => {
+  const slot = await findTodayWalkInSlot(doctor1.id);
+  const firstPatient = await createStandaloneTestPatient('Different A');
+  const secondPatient = await createStandaloneTestPatient('Different B');
+  const request = (patientId) => api.post('/api/appointments/walk-in').set(auth('reception')).send({
+    mode: 'EXISTING', patientId, doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot
+  });
+  const responses = await Promise.all([request(firstPatient.id), request(secondPatient.id)]);
+  assert.deepEqual(responses.map((response) => response.status).sort(), [201, 409]);
+  assert.equal(responses.find((response) => response.status === 409).body.error.code, 'APPOINTMENT_SLOT_UNAVAILABLE');
+  assert.equal(await prisma.appointment.count({ where: { doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot, status: { notIn: ['CANCELLED', 'NO_SHOW'] } } }), 1);
+});
+
+test('concurrent new walk-ins roll back the losing Patient atomically', async () => {
+  const slot = await findTodayWalkInSlot(doctor1.id);
+  const suffix = `${Date.now()}-${++fixtureCounter}`;
+  const makeRequest = (label) => api.post('/api/appointments/walk-in').set(auth('reception')).send({
+    mode: 'NEW', doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot,
+    patient: {
+      fullNameAr: `مريض جديد ${label}`, fullNameEn: `New walk-in ${label}`, gender: 'FEMALE', dateOfBirth: '1991-01-01',
+      nationalId: `C1-${suffix}-${label}`, phone: `0933${String(fixtureCounter).padStart(6, '0')}${label === 'A' ? '1' : '2'}`, addressStateId: 1
+    }
+  });
+  const responses = await Promise.all([makeRequest('A'), makeRequest('B')]);
+  assert.deepEqual(responses.map((response) => response.status).sort(), [201, 409]);
+  const winner = responses.find((response) => response.status === 201);
+  const loser = responses.find((response) => response.status === 409);
+  assert.equal(loser.body.error.code, 'APPOINTMENT_SLOT_UNAVAILABLE');
+  const nationalIds = [`C1-${suffix}-A`, `C1-${suffix}-B`];
+  assert.equal(await prisma.patient.count({ where: { nationalId: { in: nationalIds } } }), 1);
+  assert.equal(await prisma.appointment.count({ where: { doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot, status: { notIn: ['CANCELLED', 'NO_SHOW'] } } }), 1);
+  assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'WALK_IN_APPOINTMENT_CREATED', details: { contains: winner.body.id } } }), 1);
 });
 
 test('walk-in rejects an inactive doctor', async () => {
@@ -3810,9 +4013,15 @@ test('parallel same-item results have one winner while sibling completion remain
   const winner = writerA.status === 200 ? writerA : writerB;
   const loser = writerA.status === 409 ? writerA : writerB;
   assert.equal(loser.body.error.code, 'LAB_RESULT_CONFLICT');
+  assert.doesNotMatch(JSON.stringify(loser.body), /Prisma|PrismaClient|P20\d{2}|SQL|constraint|stack|database|transaction/i);
   const contestedStored = await prisma.labOrderItem.findUnique({ where: { id: contested.id } });
   assert.equal(contestedStored.resultVersion, 1);
   assert.equal(contestedStored.resultValue, winner.body.resultValue);
+  const contestedAudits = await prisma.tenantAuditLog.findMany({
+    where: { action: 'LAB_RESULTS_LOGGED', details: { contains: contested.id } }
+  });
+  assert.equal(contestedAudits.length, 1);
+  assert.equal(JSON.parse(contestedAudits[0].details).resultVersion, 1);
 
   const siblingFixture = await createResultConcurrencyFixture(2);
   const [itemA, itemB] = siblingFixture.order.items;
@@ -3870,6 +4079,55 @@ test('completed and released results reject stale writes and release serializes 
   assert.equal(racedOrder.items[0].resultValue, 'serialized-result');
   assert.equal(racedOrder.items[0].resultVersion, 1);
   if (releaseAttempt.status === 200) assert.ok(racedOrder.releasedToPatientAt);
+});
+
+test('simultaneous laboratory release is idempotent and audited once', async () => {
+  const fixture = await createResultConcurrencyFixture(1);
+  const item = fixture.order.items[0];
+  const result = await api.put(`/api/records/lab-orders/items/${item.id}/results`)
+    .set(auth('lab')).send({ expectedVersion: 0, resultValue: 'release-ready' });
+  assert.equal(result.status, 200);
+
+  const [releaseA, releaseB] = await Promise.all([
+    api.put(`/api/records/lab-orders/${fixture.order.id}/release`).set(auth('lab')),
+    api.put(`/api/records/lab-orders/${fixture.order.id}/release`).set(auth('lab'))
+  ]);
+  assert.ok([200].includes(releaseA.status));
+  assert.ok([200].includes(releaseB.status));
+  const persisted = await prisma.labOrder.findUnique({ where: { id: fixture.order.id } });
+  assert.ok(persisted.releasedToPatientAt);
+  const releaseAudits = await prisma.tenantAuditLog.findMany({
+    where: { action: 'LAB_RESULTS_RELEASED_TO_PATIENT', details: { contains: fixture.order.id } }
+  });
+  assert.equal(releaseAudits.length, 1);
+  const unchanged = await prisma.labOrderItem.findUnique({ where: { id: item.id } });
+  assert.equal(unchanged.resultValue, 'release-ready');
+  assert.equal(unchanged.resultVersion, 1);
+});
+
+test('multi-item laboratory order completes only after every required result commits', async () => {
+  const fixture = await createResultConcurrencyFixture(2);
+  const [itemA, itemB] = fixture.order.items;
+  const first = await api.put(`/api/records/lab-orders/items/${itemA.id}/results`)
+    .set(auth('lab')).send({ expectedVersion: 0, resultValue: 'first-result' });
+  assert.equal(first.status, 200);
+  const interim = await prisma.labOrder.findUnique({ where: { id: fixture.order.id } });
+  assert.equal(interim.status, 'SAMPLE_COLLECTED');
+  assert.equal((await prisma.appointment.findUnique({ where: { id: fixture.appointment.id } })).status, 'WAITING_LAB');
+
+  const second = await api.put(`/api/records/lab-orders/items/${itemB.id}/results`)
+    .set(auth('lab')).send({ expectedVersion: 0, resultValue: 'second-result' });
+  assert.equal(second.status, 200);
+  const [storedA, storedB, completed, appointment] = await Promise.all([
+    prisma.labOrderItem.findUnique({ where: { id: itemA.id } }),
+    prisma.labOrderItem.findUnique({ where: { id: itemB.id } }),
+    prisma.labOrder.findUnique({ where: { id: fixture.order.id } }),
+    prisma.appointment.findUnique({ where: { id: fixture.appointment.id } })
+  ]);
+  assert.deepEqual([storedA.resultValue, storedB.resultValue], ['first-result', 'second-result']);
+  assert.deepEqual([storedA.resultVersion, storedB.resultVersion], [1, 1]);
+  assert.equal(completed.status, 'COMPLETED');
+  assert.equal(appointment.status, 'IN_CONSULTATION');
 });
 
 test('laboratory result conflicts disclose nothing to unauthorized roles', async () => {
@@ -4340,6 +4598,92 @@ test('concurrent dispensing commits once and leaves stock ledger reconciled', as
   assert.equal(movements.filter((movement) => movement.movementType === 'DISPENSE').length, 1);
 });
 
+test('concurrent same-item dispensing never exceeds the prescribed quantity', async () => {
+  const fixture = await createPrescriptionFixture({ earlyQty: 6, lateQty: 0, qtyPrescribed: 6 });
+  const requestDispense = () => api.post(`/api/records/prescriptions/${fixture.rx.id}/dispense`)
+    .set(auth('pharmacy')).send({ items: [{ prescribedDrugId: fixture.item.id, qtyToDispense: 6 }] });
+  const responses = await Promise.all([requestDispense(), requestDispense()]);
+  assert.equal(responses.filter((response) => response.status === 200).length, 1);
+  assert.equal(responses.filter((response) => response.status !== 200).length, 1);
+  const losing = responses.find((response) => response.status !== 200);
+  assert.doesNotMatch(JSON.stringify(losing.body), /Prisma|P2002|constraint|stack|SQL|database/i);
+  const item = await prisma.prescribedDrug.findUnique({ where: { id: fixture.item.id } });
+  const batch = await prisma.inventoryBatch.findUnique({ where: { id: fixture.early.id } });
+  const movements = await prisma.stockMovement.findMany({ where: { referenceId: fixture.item.id, referenceType: 'PRESCRIBED_DRUG_DISPENSE' } });
+  assert.equal(item.qtyDispensed, 6);
+  assert.ok(item.qtyDispensed <= item.qtyPrescribed);
+  assert.equal(batch.qtyOnHand, 0);
+  assert.equal(movements.length, 1);
+  assert.equal(movements[0].quantityDelta, -6);
+  assert.ok(batch.qtyOnHand >= 0);
+});
+
+test('concurrent dispensing against final stock leaves no partial losing transaction', async () => {
+  const fixture = await createPrescriptionFixture({ earlyQty: 5, lateQty: 0, qtyPrescribed: 5 });
+  const responses = await Promise.all([
+    api.post(`/api/records/prescriptions/${fixture.rx.id}/dispense`).set(auth('pharmacy')).send({ items: [{ prescribedDrugId: fixture.item.id, qtyToDispense: 5 }] }),
+    api.post(`/api/records/prescriptions/${fixture.rx.id}/dispense`).set(auth('pharmacy')).send({ items: [{ prescribedDrugId: fixture.item.id, qtyToDispense: 5 }] })
+  ]);
+  assert.equal(responses.filter((response) => response.status === 200).length, 1);
+  assert.equal(responses.filter((response) => response.status !== 200).length, 1);
+  const batch = await prisma.inventoryBatch.findUnique({ where: { id: fixture.early.id } });
+  const item = await prisma.prescribedDrug.findUnique({ where: { id: fixture.item.id } });
+  const movements = await prisma.stockMovement.findMany({ where: { referenceId: fixture.item.id, referenceType: 'PRESCRIBED_DRUG_DISPENSE' } });
+  assert.equal(batch.qtyOnHand, 0);
+  assert.equal(item.qtyDispensed, 5);
+  assert.equal(movements.length, 1);
+  assert.equal(movements.reduce((sum, movement) => sum + movement.quantityDelta, 0), -5);
+  assert.equal(batch.qtyOnHand, 5 + movements.reduce((sum, movement) => sum + movement.quantityDelta, 0));
+});
+
+test('concurrent prescriptions sharing one medicine cannot over-consume stock', async () => {
+  const fixture = await createPrescriptionFixture({ earlyQty: 5, lateQty: 0, qtyPrescribed: 5 });
+  const second = await createAdditionalPaidPrescriptionForDrug({ drugId: fixture.drug.id, qtyPrescribed: 5 });
+  const responses = await Promise.all([
+    api.post(`/api/records/prescriptions/${fixture.rx.id}/dispense`).set(auth('pharmacy')).send({ items: [{ prescribedDrugId: fixture.item.id, qtyToDispense: 5 }] }),
+    api.post(`/api/records/prescriptions/${second.prescription.id}/dispense`).set(auth('pharmacy')).send({ items: [{ prescribedDrugId: second.item.id, qtyToDispense: 5 }] })
+  ]);
+  assert.equal(responses.filter((response) => response.status === 200).length, 1);
+  assert.equal(responses.filter((response) => response.status !== 200).length, 1);
+  const batch = await prisma.inventoryBatch.findUnique({ where: { id: fixture.early.id } });
+  const items = await prisma.prescribedDrug.findMany({ where: { id: { in: [fixture.item.id, second.item.id] } } });
+  const movements = await prisma.stockMovement.findMany({ where: { inventoryBatchId: fixture.early.id, movementType: 'DISPENSE' } });
+  assert.ok(items.every((item) => item.qtyDispensed <= item.qtyPrescribed));
+  assert.equal(items.reduce((sum, item) => sum + item.qtyDispensed, 0), 5);
+  assert.equal(movements.reduce((sum, movement) => sum + movement.quantityDelta, 0), -5);
+  assert.equal(batch.qtyOnHand, 0);
+  assert.ok(batch.qtyOnHand >= 0);
+});
+
+test('concurrent multi-batch FEFO dispensing preserves expiry and ledger ordering', async () => {
+  const fixture = await createPrescriptionFixture({ earlyQty: 3, lateQty: 4, qtyPrescribed: 4 });
+  const expired = await prisma.inventoryBatch.create({ data: {
+    drugId: fixture.drug.id,
+    batchNumber: `EXPIRED-${Date.now()}-${Math.random()}`,
+    normalizedBatchNumber: normalizeBatchNumber(`EXPIRED-${Date.now()}-${Math.random()}`),
+    expiryDate: '2020-01-01',
+    qtyOnHand: 10
+  } });
+  await prisma.stockMovement.create({ data: {
+    drugId: fixture.drug.id, inventoryBatchId: expired.id, movementType: 'OPENING_BALANCE',
+    quantityDelta: 10, resultingBalance: 10, referenceType: 'TEST_FIXTURE_OPENING_BALANCE',
+    referenceId: expired.id, idempotencyKey: `test:opening-balance:${expired.id}`
+  } });
+  const second = await createAdditionalPaidPrescriptionForDrug({ drugId: fixture.drug.id, qtyPrescribed: 4 });
+  const responses = await Promise.all([
+    api.post(`/api/records/prescriptions/${fixture.rx.id}/dispense`).set(auth('pharmacy')).send({ items: [{ prescribedDrugId: fixture.item.id, qtyToDispense: 4 }] }),
+    api.post(`/api/records/prescriptions/${second.prescription.id}/dispense`).set(auth('pharmacy')).send({ items: [{ prescribedDrugId: second.item.id, qtyToDispense: 4 }] })
+  ]);
+  assert.ok(responses.filter((response) => response.status === 200).length <= 2);
+  const batches = await prisma.inventoryBatch.findMany({ where: { drugId: fixture.drug.id }, orderBy: { expiryDate: 'asc' } });
+  assert.equal(batches.find((batch) => batch.id === expired.id).qtyOnHand, 10);
+  assert.ok(batches.every((batch) => batch.qtyOnHand >= 0));
+  const movements = await prisma.stockMovement.findMany({ where: { drugId: fixture.drug.id } });
+  for (const batch of batches) {
+    assert.equal(batch.qtyOnHand, movements.filter((movement) => movement.inventoryBatchId === batch.id).reduce((sum, movement) => sum + movement.quantityDelta, 0));
+  }
+});
+
 test('pharmacy dispensing prevents over-dispensing and deducts valid FEFO stock', async () => {
   const fixture = await createPrescriptionFixture();
 
@@ -4783,6 +5127,67 @@ test('concurrent booking allows exactly one reservation per active doctor slot',
   const payload = await bookingPayload(date, '10:00', '0991000011');
   const responses = await Promise.all([api.post('/api/appointments/book').send(payload), api.post('/api/appointments/book').send(payload)]);
   assert.deepEqual(responses.map((r) => r.status).sort(), [201, 409]);
+  const conflict = responses.find((response) => response.status === 409);
+  assert.equal(conflict.body.error.code, 'APPOINTMENT_SLOT_UNAVAILABLE');
+  assert.doesNotMatch(JSON.stringify(conflict.body), /Prisma|P2002|constraint|stack|SQL|database/i);
+  assert.equal(await prisma.appointment.count({ where: {
+    doctorId: doctor1.id, appointmentDate: date, appointmentTime: '10:00', status: { notIn: ['CANCELLED', 'NO_SHOW'] }
+  } }), 1);
+});
+
+test('cancelled and no-show appointments release their slots for later booking', async () => {
+  const cancelledSlot = await findAvailableAppointmentSlot(doctor1.id);
+  const cancelled = await prisma.appointment.create({ data: {
+    patientId: patient1.id, doctorId: cancelledSlot.doctorId, appointmentDate: cancelledSlot.appointmentDate,
+    appointmentTime: cancelledSlot.appointmentTime, status: 'CANCELLED'
+  } });
+  const cancelledBooking = await api.post('/api/appointments/book').send(await bookingPayload(cancelledSlot.appointmentDate, cancelledSlot.appointmentTime, `0991${Date.now().toString().slice(-6)}`));
+  assert.equal(cancelledBooking.status, 201);
+  assert.equal(await prisma.appointment.count({ where: { doctorId: cancelledSlot.doctorId, appointmentDate: cancelledSlot.appointmentDate, appointmentTime: cancelledSlot.appointmentTime, status: { notIn: ['CANCELLED', 'NO_SHOW'] } } }), 1);
+  const noShowSlot = await findAvailableAppointmentSlot(doctor1.id);
+  await prisma.appointment.create({ data: {
+    patientId: patient1.id, doctorId: noShowSlot.doctorId, appointmentDate: noShowSlot.appointmentDate,
+    appointmentTime: noShowSlot.appointmentTime, status: 'NO_SHOW'
+  } });
+  const noShowBooking = await api.post('/api/appointments/book').send(await bookingPayload(noShowSlot.appointmentDate, noShowSlot.appointmentTime, `0992${Date.now().toString().slice(-6)}`));
+  assert.equal(noShowBooking.status, 201);
+  assert.equal(await prisma.appointment.count({ where: { doctorId: noShowSlot.doctorId, appointmentDate: noShowSlot.appointmentDate, appointmentTime: noShowSlot.appointmentTime, status: { notIn: ['CANCELLED', 'NO_SHOW'] } } }), 1);
+  assert.ok(cancelled.id && noShowSlot.appointmentTime);
+});
+
+test('cancellation racing with a competing booking preserves one active slot', async () => {
+  const slot = await findAvailableAppointmentSlot(doctor1.id);
+  const owner = await createAppointmentConcurrencyPatient();
+  const appointment = await prisma.appointment.create({ data: {
+    patientId: owner.patient.id, doctorId: doctor1.id, appointmentDate: slot.appointmentDate,
+    appointmentTime: slot.appointmentTime, status: 'CONFIRMED'
+  } });
+  const phone = `0922${Date.now().toString().slice(-6)}`;
+  const otp = await api.post('/api/appointments/otp/request').send({ phone });
+  assert.equal(otp.status, 200);
+  const [cancel, booking] = await Promise.all([
+    api.post(`/api/patient/appointments/${appointment.id}/cancel`).set({ Authorization: `Bearer ${owner.token}` }),
+    api.post('/api/appointments/book').send({ doctorId: doctor1.id, appointmentDate: slot.appointmentDate, appointmentTime: slot.appointmentTime, fullNameAr: 'مريض حجز متنافس', fullNameEn: 'Race Booking Patient', gender: 'FEMALE', dateOfBirth: '1991-01-01', phone, addressStateId: 1, otpCode: otp.body.developmentCode })
+  ]);
+  assert.ok([200, 409].includes(cancel.status));
+  assert.ok([201, 409].includes(booking.status));
+  const activeCount = await prisma.appointment.count({ where: { doctorId: doctor1.id, appointmentDate: slot.appointmentDate, appointmentTime: slot.appointmentTime, status: { notIn: ['CANCELLED', 'NO_SHOW'] } } });
+  assert.ok(activeCount <= 1);
+  const persistedOriginal = await prisma.appointment.findUnique({ where: { id: appointment.id }, select: { status: true } });
+  if (cancel.status === 200) assert.equal(persistedOriginal.status, 'CANCELLED');
+  if (cancel.status === 409) {
+    assert.equal(persistedOriginal.status, 'CONFIRMED');
+    assert.equal(booking.status, 409);
+    assert.equal(activeCount, 1);
+  }
+  if (booking.status === 201) {
+    assert.equal(activeCount, 1);
+    assert.notEqual(booking.body.id, appointment.id);
+  }
+  if (booking.status === 409) {
+    assert.ok([0, 1].includes(activeCount));
+    assert.equal(JSON.stringify(booking.body).includes('P2002'), false);
+  }
 });
 
 test('debug notification endpoint is absent', async () => {
@@ -5739,6 +6144,68 @@ async function createPrescriptionFixture({
     invoice,
     unitPriceSdg
   };
+}
+
+async function createAdditionalPaidPrescriptionForDrug({ drugId, patientId = patient2.id, qtyPrescribed = 5, unitPriceSdg = 2500 } = {}) {
+  fixtureCounter += 1;
+  const appointment = await prisma.appointment.create({
+    data: {
+      patientId,
+      doctorId: doctor1.id,
+      appointmentDate: `2032-03-${String(fixtureCounter).padStart(2, '0')}`,
+      appointmentTime: '11:00',
+      status: 'COMPLETED'
+    }
+  });
+  const record = await prisma.medicalRecord.create({
+    data: {
+      patientId,
+      doctorId: doctor1.id,
+      appointmentId: appointment.id,
+      symptomsEncrypted: '', diagnosisEncrypted: '', treatmentEncrypted: '', vitalSignsJson: '{}', clinicalNotesEncrypted: ''
+    }
+  });
+  const prescription = await prisma.prescription.create({
+    data: {
+      medicalRecordId: record.id,
+      patientId,
+      doctorId: doctor1.id,
+      prescribedDrugs: {
+        create: {
+          drugId,
+          dosage: '1 daily',
+          duration: '5 days',
+          instructionsAr: '',
+          instructionsEn: '',
+          qtyPrescribed
+        }
+      }
+    },
+    include: { prescribedDrugs: true }
+  });
+  await prisma.invoice.create({
+    data: {
+      patientId,
+      appointmentId: appointment.id,
+      prescriptionId: prescription.id,
+      invoiceType: 'PHARMACY',
+      totalAmountSdg: unitPriceSdg * qtyPrescribed,
+      totalAmountUsd: (unitPriceSdg * qtyPrescribed) / 1500,
+      invoiceExchangeRate: 1500,
+      paymentStatus: 'PAID',
+      createdBy: 'integration-test-fixture',
+      items: {
+        create: {
+          descriptionAr: 'دواء اختبار',
+          descriptionEn: 'Fixture Drug',
+          qty: qtyPrescribed,
+          unitPriceSdg,
+          unitPriceUsd: unitPriceSdg / 1500
+        }
+      }
+    }
+  });
+  return { appointment, record, prescription, item: prescription.prescribedDrugs[0] };
 }
 
 async function bookingPayload(date, time, phone) {
