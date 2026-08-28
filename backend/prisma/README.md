@@ -44,3 +44,13 @@ default privileges apply.
 After deployment, verify that all application relations and `_prisma_migrations` in `public` are
 owned by `clinic_schema_owner`. Stop the release if the effective-role preflight or ownership
 verification fails; do not start the new application version until the migration is confirmed.
+
+## Patient MRN sequence privilege
+
+The patient file-number migration creates `patient_file_number_seq` and the database default
+uses `nextval()` to generate each `SHF-...` value. PostgreSQL table `INSERT` permission does not
+grant sequence access. Before starting an application version that can create Patients, verify
+that the runtime role has `USAGE` on this sequence. Prefer provisioning this through
+`ALTER DEFAULT PRIVILEGES` for the actual role that creates the sequence; an explicit
+`GRANT USAGE ON SEQUENCE` after migration is an acceptable fallback. Do not grant sequence
+ownership or privileges to `PUBLIC`, and verify the privilege before backend deployment.

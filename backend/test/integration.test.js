@@ -25,7 +25,7 @@ import {
 } from '../src/services/accessTokens.js';
 import { decryptMfaSecret, encryptMfaSecret } from '../src/services/mfaCrypto.js';
 import { buildMedicineIdentityKey, normalizeBatchNumber } from '../src/utils/medicineManagement.js';
-import { normalizeNationalId, normalizePatientPhone } from '../src/utils/patientIdentity.js';
+import { normalizeFileNumber, normalizeNationalId, normalizePatientPhone } from '../src/utils/patientIdentity.js';
 import { errorHandler } from '../src/utils/apiError.js';
 import { ensurePharmacyInvoiceForPrescription } from '../src/services/pharmacyInvoice.js';
 import { SOCKET_REVOCATION_CHANNEL } from '../src/services/socketRevocation.js';
@@ -3037,9 +3037,77 @@ test('operational patient search is exact for national ID, bounded, and safely p
   const exact = await api.get(`/api/patients/search?q=${encodeURIComponent(nationalId)}&limit=1`).set(auth('reception'));
   assert.equal(exact.status, 200);
   assert.equal(exact.body.length, 1);
-  assert.deepEqual(Object.keys(exact.body[0]).sort(), ['dateOfBirth', 'fullNameAr', 'fullNameEn', 'gender', 'id', 'phone', 'status'].sort());
+  assert.deepEqual(Object.keys(exact.body[0]).sort(), ['dateOfBirth', 'fileNumber', 'fullNameAr', 'fullNameEn', 'gender', 'id', 'phone', 'status'].sort());
   assert.equal((await api.get('/api/patients/search?q=a&limit=500').set(auth('reception'))).status, 422);
   for (const role of ['doctor', 'pharmacy', 'lab']) assert.equal((await api.get('/api/patients/search?q=Test').set(auth(role))).status, 403);
+});
+
+test('patient file numbers are server-assigned, searchable, and immutable', async () => {
+  const suffix = String(++fixtureCounter).padStart(7, '0').slice(-7);
+  const response = await api.post('/api/patients').set(auth('reception')).send({
+    fullNameAr: 'مريض رقم الملف', fullNameEn: 'File Number Patient', gender: 'MALE', dateOfBirth: '1971-07-07',
+    phone: `+24998${suffix}`, addressStateId: 1
+  });
+  assert.equal(response.status, 201);
+  assert.match(response.body.fileNumber, /^SHF-\d+$/);
+  const patient = await prisma.patient.findUnique({ where: { id: response.body.id }, select: { id: true, fileNumber: true } });
+  assert.equal(patient.fileNumber, response.body.fileNumber);
+  assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'PATIENT_FILE_CREATED', details: { contains: response.body.fileNumber } } }), 1);
+  const injected = await api.post('/api/patients').set(auth('reception')).send({
+    fullNameAr: 'مريض حقول محظورة', fullNameEn: 'Forbidden Fields Patient', gender: 'FEMALE', dateOfBirth: '1972-08-08',
+    phone: `+24998${String(++fixtureCounter).padStart(7, '0').slice(-7)}`, addressStateId: 1, fileNumber: 'SHF-999999', mrn: 'SHF-999999'
+  });
+  assert.equal(injected.status, 422);
+  assert.equal(await prisma.patient.count({ where: { fileNumber: 'SHF-999999' } }), 0);
+  const search = await api.get(`/api/patients/search?q=%20${response.body.fileNumber.toLowerCase()}%20&limit=1`).set(auth('reception'));
+  assert.equal(search.status, 200);
+  assert.equal(search.body[0].fileNumber, response.body.fileNumber);
+  assert.equal(normalizeFileNumber(' shf-1 '), 'SHF-000001');
+  assert.equal((await api.get('/api/patients/search?q=SHF-abc').set(auth('reception'))).status, 422);
+  await assert.rejects(() => prisma.patient.create({ data: {
+    fileNumber: response.body.fileNumber, fullNameAr: 'مريض رقم مكرر', fullNameEn: 'Duplicate File Number',
+    gender: 'FEMALE', dateOfBirth: '1975-05-05', phone: `+24998${String(++fixtureCounter).padStart(7, '0').slice(-7)}`,
+    addressStateId: 1, emergencyContact: 'Self'
+  } }));
+  await assert.rejects(() => prisma.patient.update({ where: { id: patient.id }, data: { fileNumber: 'SHF-123456' } }));
+  assert.equal((await prisma.patient.findUnique({ where: { id: patient.id }, select: { fileNumber: true } })).fileNumber, response.body.fileNumber);
+});
+
+test('patient self-service cannot update the server-authoritative file number', async () => {
+  const fixture = await createAppointmentConcurrencyPatient();
+  const before = await prisma.patient.findUnique({ where: { id: fixture.patient.id }, select: { fileNumber: true } });
+  const response = await api.patch('/api/patient/me').set({ Authorization: `Bearer ${fixture.token}` }).send({ fileNumber: 'SHF-999999' });
+  assert.equal(response.status, 422);
+  assert.equal((await prisma.patient.findUnique({ where: { id: fixture.patient.id }, select: { fileNumber: true } })).fileNumber, before.fileNumber);
+});
+
+test('concurrent Patient creation receives distinct canonical file numbers', async () => {
+  const suffix = String(++fixtureCounter).padStart(7, '0').slice(-7);
+  const create = (label) => prisma.patient.create({ data: {
+    fullNameAr: `مريض رقم متزامن ${label}`, fullNameEn: `Concurrent File ${label}`, gender: 'MALE',
+    dateOfBirth: label === 'A' ? '1973-03-03' : '1974-04-04', phone: `+24999${suffix}${label === 'A' ? '1' : '2'}`,
+    addressStateId: 1, emergencyContact: 'Self'
+  }, select: { id: true, fileNumber: true } });
+  const patients = await Promise.all([create('A'), create('B'), create('C'), create('D')]);
+  assert.equal(new Set(patients.map((patient) => patient.fileNumber)).size, patients.length);
+  assert.ok(patients.every((patient) => /^SHF-\d+$/.test(patient.fileNumber)));
+});
+
+test('rolled-back Patient creation consumes but never reuses a file-number sequence value', async () => {
+  let rolledBackNumber;
+  await assert.rejects(() => prisma.$transaction(async (tx) => {
+    const created = await tx.patient.create({ data: {
+      fullNameAr: 'مريض تراجع الرقم', fullNameEn: 'Rolled Back File', gender: 'MALE', dateOfBirth: '1976-06-06',
+      phone: `+24999${String(++fixtureCounter).padStart(7, '0').slice(-7)}`, addressStateId: 1, emergencyContact: 'Self'
+    }, select: { fileNumber: true } });
+    rolledBackNumber = created.fileNumber;
+    throw new Error('synthetic rollback');
+  }));
+  const next = await prisma.patient.create({ data: {
+    fullNameAr: 'مريض بعد التراجع', fullNameEn: 'After Rollback File', gender: 'FEMALE', dateOfBirth: '1977-07-07',
+    phone: `+24999${String(++fixtureCounter).padStart(7, '0').slice(-7)}`, addressStateId: 1, emergencyContact: 'Self'
+  }, select: { fileNumber: true } });
+  assert.notEqual(next.fileNumber, rolledBackNumber);
 });
 
 test('receptionist new-patient creation warns without merging and existing selection remains explicit', async () => {
@@ -8310,6 +8378,7 @@ test('login self-heals orphan patient account by creating missing patient record
   });
 
   assert.ok(healedPatient);
+  assert.match(healedPatient.fileNumber, /^SHF-\d+$/);
   assert.equal(healedPatient.fullNameEn, 'Orphan Create Test');
   assert.equal(healedPatient.dateOfBirth, dateOfBirth);
   assert.equal(healedPatient.phone, phone);
@@ -8325,6 +8394,7 @@ test('login self-heals orphan patient account by creating missing patient record
   });
 
   assert.ok(auditLog);
+  assert.ok(await prisma.tenantAuditLog.findFirst({ where: { userId: user.id, action: 'PATIENT_FILE_CREATED', details: { contains: healedPatient.fileNumber } } }));
 });
 
 

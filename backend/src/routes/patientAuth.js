@@ -36,7 +36,7 @@ router.post('/register', registrationLimiter, validate(z.object({
   fullNameEn: z.string().trim().min(2).max(150).optional(), phone: z.string().trim().min(7).max(30),
   email: z.string().trim().email().max(254), dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   gender: z.enum(['MALE', 'FEMALE']), password: passwordSchema, addressStateId: z.coerce.number().int().min(1).max(18).optional()
-})), async (req, res, next) => {
+}).strict()), async (req, res, next) => {
   let createdUserId;
   try {
     const phoneNormalized = normalizePhone(req.body.phone);
@@ -72,7 +72,7 @@ router.post('/register', registrationLimiter, validate(z.object({
   }
 });
 
-router.post('/verify', verificationLimiter, validate(z.object({ challengeId: z.string().uuid(), code: z.string().regex(/^\d{6}$/) })), async (req, res, next) => {
+router.post('/verify', verificationLimiter, validate(z.object({ challengeId: z.string().uuid(), code: z.string().regex(/^\d{6}$/) }).strict()), async (req, res, next) => {
   try {
     const challenge = await consumeVerificationChallenge(req.body.challengeId, req.body.code);
     const registration = await prisma.patientRegistration.findUnique({ where: { userId: challenge.userId } });
@@ -92,6 +92,7 @@ router.post('/verify', verificationLimiter, validate(z.object({ challengeId: z.s
         gender: registration.gender, dateOfBirth: registration.dateOfBirth, phone: challenge.user.phoneNormalized,
         addressStateId: registration.addressStateId, emergencyContact: 'Self'
       } });
+      await audit(challenge.userId, 'PATIENT_FILE_CREATED', JSON.stringify({ patientId: patient.id, fileNumber: patient.fileNumber, context: 'ONLINE_VERIFICATION' }), req);
       await audit(challenge.userId, 'PATIENT_RECORD_CREATED', `Created patient record ${patient.id} for verified account.`, req);
       return res.json({ state: 'CLAIMED' });
     }

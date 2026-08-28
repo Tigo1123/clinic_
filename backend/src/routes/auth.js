@@ -288,7 +288,8 @@ router.post('/login', loginLimiter, validate(z.object({
                   emergencyContact: 'Self'
                 },
                 select: {
-                  id: true
+                  id: true,
+                  fileNumber: true
                 }
               });
 
@@ -299,6 +300,14 @@ router.post('/login', loginLimiter, validate(z.object({
                   userId: user.id,
                   action: 'PATIENT_LOGIN_SELF_HEALED',
                   details: `Created missing patient record ${createdPatient.id} during authenticated login recovery.`,
+                  ipAddress: req.ip || 'unknown'
+                }
+              });
+              await prisma.tenantAuditLog.create({
+                data: {
+                  userId: user.id,
+                  action: 'PATIENT_FILE_CREATED',
+                  details: JSON.stringify({ patientId: createdPatient.id, fileNumber: createdPatient.fileNumber, context: 'PATIENT_LOGIN_SELF_HEAL' }),
                   ipAddress: req.ip || 'unknown'
                 }
               });

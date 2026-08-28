@@ -2,6 +2,14 @@ import { normalizePhone } from './identity.js';
 
 const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/;
 
+export function normalizeFileNumber(value) {
+  if (typeof value !== 'string' || value.length > 30 || CONTROL_CHARACTERS.test(value)) return null;
+  const match = value.trim().toUpperCase().match(/^SHF-(\d+)$/);
+  if (!match) return null;
+  const digits = match[1].replace(/^0+/, '') || '0';
+  return `SHF-${digits.padStart(6, '0')}`;
+}
+
 export function normalizePatientPhone(value) {
   if (typeof value !== 'string' || value.length > 30 || CONTROL_CHARACTERS.test(value)) return null;
   const input = value.trim();

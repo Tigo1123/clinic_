@@ -188,10 +188,15 @@ async function verifyProfileChangeChallenge({
 
 router.get('/me', async (req, res) => {
   const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { email: true, phoneNormalized: true, emailVerifiedAt: true, phoneVerifiedAt: true, preferredLanguage: true } });
-  return res.json({ id: req.patient.id, fullNameAr: req.patient.fullNameAr, fullNameEn: req.patient.fullNameEn, gender: req.patient.gender, dateOfBirth: req.patient.dateOfBirth, phone: user.phoneNormalized, email: user.email, phoneVerified: Boolean(user.phoneVerifiedAt), emailVerified: Boolean(user.emailVerifiedAt), addressStateId: req.patient.addressStateId, addressDetails: req.patient.addressDetails, emergencyContact: req.patient.emergencyContact, bloodType: req.patient.bloodType, preferredLanguage: user.preferredLanguage });
+  return res.json({ id: req.patient.id, fileNumber: req.patient.fileNumber, fullNameAr: req.patient.fullNameAr, fullNameEn: req.patient.fullNameEn, gender: req.patient.gender, dateOfBirth: req.patient.dateOfBirth, phone: user.phoneNormalized, email: user.email, phoneVerified: Boolean(user.phoneVerifiedAt), emailVerified: Boolean(user.emailVerifiedAt), addressStateId: req.patient.addressStateId, addressDetails: req.patient.addressDetails, emergencyContact: req.patient.emergencyContact, bloodType: req.patient.bloodType, preferredLanguage: user.preferredLanguage });
 });
 
-router.patch('/me', validate(z.object({ addressStateId: z.coerce.number().int().min(1).max(18).optional(), addressDetails: z.string().trim().max(300).nullable().optional(), emergencyContact: z.string().trim().min(2).max(150).optional(), bloodType: z.enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']).nullable().optional(), preferredLanguage: z.enum(['ar', 'en']).optional() }).refine((body) => Object.keys(body).length > 0)), async (req, res) => {
+router.patch('/me', (req, res, next) => {
+  if (Object.hasOwn(req.body || {}, 'fileNumber') || Object.hasOwn(req.body || {}, 'mrn')) {
+    return sendError(res, 422, 'PATIENT_IDENTITY_FIELD_FORBIDDEN', 'Patient file identity fields cannot be changed.');
+  }
+  return next();
+}, validate(z.object({ addressStateId: z.coerce.number().int().min(1).max(18).optional(), addressDetails: z.string().trim().max(300).nullable().optional(), emergencyContact: z.string().trim().min(2).max(150).optional(), bloodType: z.enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']).nullable().optional(), preferredLanguage: z.enum(['ar', 'en']).optional() }).refine((body) => Object.keys(body).length > 0)), async (req, res) => {
   await prisma.$transaction([
     prisma.patient.update({ where: { id: req.patient.id }, data: { addressStateId: req.body.addressStateId, addressDetails: req.body.addressDetails, emergencyContact: req.body.emergencyContact, bloodType: req.body.bloodType } }),
     ...(req.body.preferredLanguage ? [prisma.user.update({ where: { id: req.user.id }, data: { preferredLanguage: req.body.preferredLanguage } })] : [])

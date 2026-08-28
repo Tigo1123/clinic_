@@ -64,6 +64,7 @@ model Doctor {
 
 model Patient {
   id                       String             @id @default(uuid())
+  fileNumber               String             @unique @default(dbgenerated("('SHF-'::text || lpad(nextval('patient_file_number_seq'::regclass)::text, 6, '0'::text))"))
   fullNameAr               String
   fullNameEn               String
   gender                   String // MALE, FEMALE

@@ -7,7 +7,7 @@ import { sendError } from '../utils/apiError.js';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { getClinicDateString } from '../utils/clinicTime.js';
-import { findPossiblePatientDuplicates, normalizeNationalId, normalizePatientPhone, safeDuplicateCandidates } from '../utils/patientIdentity.js';
+import { findPossiblePatientDuplicates, normalizeFileNumber, normalizeNationalId, normalizePatientPhone, safeDuplicateCandidates } from '../utils/patientIdentity.js';
 
 const router = express.Router();
 
@@ -20,21 +20,27 @@ router.get('/search', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST),
   if (!parsed.success) return sendError(res, 422, 'PATIENT_SEARCH_INVALID', 'Patient search parameters are invalid.');
   const { q, limit } = parsed.data;
   const exactNationalId = normalizeNationalId(q);
+  const exactFileNumber = normalizeFileNumber(q);
+  if (/^shf-/i.test(q) && !exactFileNumber) return sendError(res, 422, 'PATIENT_SEARCH_INVALID', 'Patient search parameters are invalid.');
 
   try {
+    const select = { id: true, fileNumber: true, fullNameAr: true, fullNameEn: true, phone: true, dateOfBirth: true, gender: true, status: true };
+    const exact = exactFileNumber
+      ? await prisma.patient.findFirst({ where: { fileNumber: exactFileNumber, status: 'ACTIVE' }, select })
+      : null;
     const patients = await prisma.patient.findMany({
-      where: { status: 'ACTIVE', OR: [
+      where: { status: 'ACTIVE', ...(exact?.id ? { id: { not: exact.id } } : {}), OR: [
         { fullNameAr: { contains: q, mode: 'insensitive' } },
         { fullNameEn: { contains: q, mode: 'insensitive' } },
         { phone: { contains: q } },
         ...(exactNationalId ? [{ nationalId: exactNationalId }] : [])
       ] },
-      select: { id: true, fullNameAr: true, fullNameEn: true, phone: true, dateOfBirth: true, gender: true, status: true },
+      select,
       orderBy: [{ fullNameEn: 'asc' }, { fullNameAr: 'asc' }, { id: 'asc' }],
-      take: limit
+      take: Math.max(limit - (exact ? 1 : 0), 0)
     });
 
-    return res.json(patients);
+    return res.json(exact ? [exact, ...patients] : patients);
   } catch (error) {
     console.error('Patient search error:', error);
     return res.status(500).json({ error: 'Failed to search patients.' });
@@ -63,6 +69,7 @@ router.get(
         },
         select: {
           id: true,
+          fileNumber: true,
           fullNameAr: true,
           fullNameEn: true,
           phone: true,
@@ -85,6 +92,7 @@ router.get(
       return res.json(
         patients.map((patient) => ({
           id: patient.id,
+          fileNumber: patient.fileNumber,
           fullNameAr: patient.fullNameAr,
           fullNameEn: patient.fullNameEn,
           phone: patient.phone,
@@ -111,7 +119,12 @@ router.get(
  * POST /api/patients
  * Registers a new patient.
  */
-router.post('/', authenticate, checkRoles('ADMIN', 'RECEPTIONIST'), validate(z.object({
+router.post('/', authenticate, checkRoles('ADMIN', 'RECEPTIONIST'), (req, res, next) => {
+  if (Object.hasOwn(req.body || {}, 'fileNumber') || Object.hasOwn(req.body || {}, 'mrn')) {
+    return sendError(res, 422, 'PATIENT_IDENTITY_FIELD_FORBIDDEN', 'Patient file identity fields cannot be supplied by the client.');
+  }
+  return next();
+}, validate(z.object({
   fullNameAr: z.string().trim().min(2).max(150), fullNameEn: z.string().trim().min(2).max(150),
   gender: z.enum(['MALE', 'FEMALE']), dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   nationalId: z.string().trim().max(30).optional(), phone: z.string().trim().min(7).max(30),
@@ -150,24 +163,24 @@ router.post('/', authenticate, checkRoles('ADMIN', 'RECEPTIONIST'), validate(z.o
     const candidates = await findPossiblePatientDuplicates(prisma, { phone: normalizedPhone, dateOfBirth, nationalId: normalizedNationalId });
     if (candidates.length) return sendError(res, 409, 'POSSIBLE_PATIENT_DUPLICATE', 'A possible existing patient was found. Search and select the existing patient or review the identity before creating a new record.', safeDuplicateCandidates(candidates));
 
-    const patient = await prisma.patient.create({
-      data: {
-        fullNameAr,
-        fullNameEn,
-        gender,
-        dateOfBirth,
-        nationalId: normalizedNationalId,
-        phone: normalizedPhone,
-        addressStateId: parseInt(addressStateId),
-        addressDetails,
-        emergencyContact: finalEmergencyContact,
-        status: 'ACTIVE',
-        nationalIdAttachmentPath: nationalIdAttachmentPath || null,
-        insuranceAttachmentPath: insuranceAttachmentPath || null
-      },
-      include: {
-        addressState: true
-      }
+    const patient = await prisma.$transaction(async (tx) => {
+      const created = await tx.patient.create({
+        data: {
+          fullNameAr, fullNameEn, gender, dateOfBirth, nationalId: normalizedNationalId,
+          phone: normalizedPhone, addressStateId: parseInt(addressStateId), addressDetails,
+          emergencyContact: finalEmergencyContact, status: 'ACTIVE',
+          nationalIdAttachmentPath: nationalIdAttachmentPath || null,
+          insuranceAttachmentPath: insuranceAttachmentPath || null
+        },
+        include: { addressState: true }
+      });
+      await tx.tenantAuditLog.create({ data: {
+        userId: req.user.id,
+        action: 'PATIENT_FILE_CREATED',
+        details: JSON.stringify({ patientId: created.id, fileNumber: created.fileNumber, context: 'RECEPTION_REGISTRATION' }),
+        ipAddress: req.ip || 'unknown'
+      } });
+      return created;
     });
 
     return res.status(201).json(patient);
@@ -262,6 +275,7 @@ router.get('/:id/history', authenticate, allowRoles(ROLES.DOCTOR), async (req, r
 
     return res.json({
       patientId: patient.id,
+      fileNumber: patient.fileNumber,
       fullNameAr: patient.fullNameAr,
       fullNameEn: patient.fullNameEn,
       hasFullAccess: recordAccess.hasCrossDoctorAccess,
@@ -385,6 +399,7 @@ router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTION
 
     const profileData = {
       id: patient.id,
+      fileNumber: patient.fileNumber,
       portalLinked: Boolean(patient.userId),
       fullNameAr: patient.fullNameAr,
       fullNameEn: patient.fullNameEn,

@@ -159,7 +159,7 @@ router.post('/book', validate(z.object({
   fullNameAr: z.string().trim().min(2).max(150), fullNameEn: z.string().trim().min(2).max(150),
   gender: z.enum(['MALE', 'FEMALE']), dateOfBirth: z.string().regex(DATE_PATTERN), nationalId: z.string().trim().max(30).optional(),
   phone: z.string().trim().min(7).max(30), addressStateId: z.coerce.number().int().min(1).max(18), otpCode: z.string().length(6)
-})), async (req, res) => {
+}).strict()), async (req, res) => {
   if (process.env.NODE_ENV === 'production') return sendError(res, 503, 'PUBLIC_BOOKING_VERIFICATION_UNAVAILABLE', 'Public OTP booking is unavailable. Use an authenticated patient account to book.');
   const {
     doctorId,
@@ -236,6 +236,16 @@ router.post('/book', validate(z.object({
           status: 'ACTIVE'
         }
       });
+      try {
+        await prisma.tenantAuditLog.create({ data: {
+          userId: null,
+          action: 'PATIENT_FILE_CREATED',
+          details: JSON.stringify({ patientId: patient.id, fileNumber: patient.fileNumber, context: 'PUBLIC_BOOKING' }),
+          ipAddress: req.ip || 'unknown'
+        } });
+      } catch (auditError) {
+        console.error('Patient file creation audit error:', auditError);
+      }
     }
 
     // 3. Friendly pre-check; the database unique index is the final concurrency guard.
@@ -391,6 +401,12 @@ router.post('/walk-in', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
             status: 'ACTIVE'
           }
         });
+        await tx.tenantAuditLog.create({ data: {
+          userId: req.user.id,
+          action: 'PATIENT_FILE_CREATED',
+          details: JSON.stringify({ patientId: targetPatient.id, fileNumber: targetPatient.fileNumber, context: 'WALK_IN_REGISTRATION' }),
+          ipAddress: req.ip || 'unknown'
+        } });
       }
 
       // Serialize same-patient intake attempts so repeated receptionist
