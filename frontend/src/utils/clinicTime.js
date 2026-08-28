@@ -1,4 +1,4 @@
-export const CLINIC_TIME_ZONE = import.meta.env.VITE_CLINIC_TIME_ZONE || 'Africa/Khartoum';
+export const CLINIC_TIME_ZONE = import.meta.env?.VITE_CLINIC_TIME_ZONE || 'Africa/Khartoum';
 
 export function clinicDateString(instant = new Date()) {
   const parts = new Intl.DateTimeFormat('en', { timeZone: CLINIC_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(instant);

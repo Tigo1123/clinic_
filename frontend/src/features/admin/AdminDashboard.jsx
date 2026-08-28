@@ -5,10 +5,10 @@ import RoleHero from '../../components/healthcare/RoleHero';
 import { getStaffPasswordChecks, isStaffPasswordValid, STAFF_PASSWORD_MAX_LENGTH } from '../../utils/staffPasswordPolicy';
 import { buildStaffCreationPayload } from '../../utils/staffCreationPayload';
 import { filterStaffUsers, isStaffRole } from '../../utils/staffRoles';
+import AuditLogPanel from './AuditLogPanel';
 
 export default function AdminDashboard({ user, lang, t }) {
   const [activeTab, setActiveTab] = useState('profile');
-  const [logs, setLogs] = useState([]);
   const [users, setUsers] = useState([]);
   const [analyticsData, setAnalyticsData] = useState(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
@@ -74,44 +74,8 @@ export default function AdminDashboard({ user, lang, t }) {
       : status?.replaceAll('_', ' ') || '-';
   };
 
-  const getAuditActionLabel = (action) => {
-    if (!action) return '-';
-
-    if (action.startsWith('EMR_BREAK_THE_GLASS_BYPASS')) {
-      return lang === 'ar'
-        ? 'فتح طارئ للملف الطبي'
-        : 'Emergency Medical Record Access';
-    }
-
-    const known = {
-      LAB_RESULTS_LOGGED: {
-        ar: 'تسجيل نتيجة مختبر',
-        en: 'Laboratory Result Recorded'
-      },
-      LAB_RESULTS_RELEASED_TO_PATIENT: {
-        ar: 'إتاحة نتائج المختبر للمريض',
-        en: 'Laboratory Results Released to Patient'
-      }
-    };
-
-    if (known[action]) {
-      return lang === 'ar' ? known[action].ar : known[action].en;
-    }
-
-    return action.replaceAll('_', ' ');
-  };
-
   // Fetch users & logs on tab switch
   useEffect(() => {
-    if (activeTab === 'logs') {
-      fetchWithAuth('/api/auth/audit-logs')
-        .then((res) => res.ok ? res.json() : [])
-        .then((data) => setLogs(Array.isArray(data) ? data : []))
-        .catch((err) => {
-          console.error(err);
-          setLogs([]);
-        });
-    }
     if (activeTab === 'users') {
       fetchWithAuth('/api/auth/users')
         .then((res) => res.ok ? res.json() : [])
@@ -909,40 +873,7 @@ export default function AdminDashboard({ user, lang, t }) {
         )}
 
         {activeTab === 'logs' && (
-          <div className="glass-panel" style={{ padding: '1.5rem' }}>
-            <h4 style={{ marginBottom: '1.5rem' }}>{lang === 'ar' ? 'سجل العمليات والتدقيق الأمني' : 'System Activity Audit Log'}</h4>
-            <table className="staff-table" style={{ fontSize: '0.85rem' }}>
-              <thead>
-                <tr>
-                  <th>{lang === 'ar' ? 'التاريخ والوقت' : 'Timestamp'}</th>
-                  <th>{lang === 'ar' ? 'المستخدم' : 'Actor'}</th>
-                  <th>{lang === 'ar' ? 'الحدث' : 'Event Action'}</th>
-                  <th>{lang === 'ar' ? 'التفاصيل' : 'Details'}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {logs.map((log) => {
-                  const isBypass = log.action.startsWith('EMR_BREAK_THE_GLASS_BYPASS');
-                  return (
-                    <tr key={log.id} style={isBypass ? { background: 'rgba(239, 68, 68, 0.08)' } : {}}>
-                      <td>
-                        {new Date(log.timestamp).toLocaleString(
-                          lang === 'ar' ? 'ar' : 'en'
-                        )}
-                      </td>
-                      <td>{log.userId || (lang === 'ar' ? 'النظام' : 'System')}</td>
-                      <td>
-                        <span className={`badge ${isBypass ? 'badge-danger' : 'badge-success'}`}>
-                          {getAuditActionLabel(log.action)}
-                        </span>
-                      </td>
-                      <td style={{ color: isBypass ? 'var(--danger)' : 'inherit' }}>{log.details}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <AuditLogPanel lang={lang} t={t}/>
         )}
       </div>
     </div>

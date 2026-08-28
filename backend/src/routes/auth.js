@@ -12,6 +12,7 @@ import { signAccessToken } from '../services/accessTokens.js';
 import { consumeTotp, createMfaChallenge, MfaError } from '../services/mfa.js';
 import { passwordSchema } from '../utils/passwordPolicy.js';
 import { createAdminResetLimiter, createLoginLimiter, markSensitiveResponse } from '../utils/edgeSecurity.js';
+import { clinicDayBounds } from '../utils/clinicTime.js';
 
 const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
 
@@ -59,6 +60,46 @@ const staffPasswordResetSchema = z.object({
 
 const loginLimiter = createLoginLimiter({ windowMs: rateLimits.windowMs, limit: rateLimits.login });
 const adminResetLimiter = createAdminResetLimiter({ windowMs: rateLimits.windowMs, limit: rateLimits.adminReset });
+
+const auditLogQuerySchema = z.object({
+  search: z.string().trim().max(120).optional().default(''),
+  action: z.string().trim().regex(/^[A-Z0-9_:.-]+$/).max(100).optional(),
+  role: z.enum([...STAFF_ROLES, 'PATIENT']).optional(),
+  from: z.iso.date().optional(),
+  to: z.iso.date().optional(),
+  page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
+  pageSize: z.coerce.number().int().min(10).max(50).optional().default(25)
+}).strict().refine(({ from, to }) => !from || !to || from <= to, {
+  path: ['to'], message: 'The end date must not be before the start date.'
+});
+
+const AUDIT_TARGET_FIELDS = Object.freeze([
+  ['patientId', 'PATIENT'], ['appointmentId', 'APPOINTMENT'], ['doctorId', 'DOCTOR'],
+  ['labOrderId', 'LAB_ORDER'], ['labOrderItemId', 'LAB_ORDER_ITEM'], ['invoiceId', 'INVOICE'],
+  ['prescriptionId', 'PRESCRIPTION'], ['drugId', 'MEDICINE'], ['batchId', 'INVENTORY_BATCH'],
+  ['userId', 'USER'], ['entityId', 'ENTITY']
+]);
+
+function safeStructuredAuditDetails(details) {
+  try {
+    const value = JSON.parse(details);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return { summary: details, target: null };
+    const targetEntry = AUDIT_TARGET_FIELDS.find(([field]) => typeof value[field] === 'string');
+    const targetFields = new Set(AUDIT_TARGET_FIELDS.map(([field]) => field));
+    const safeValues = Object.fromEntries(Object.entries(value).filter(([key, item]) =>
+      !targetFields.has(key)
+      && !/(password|hash|secret|token|otp|recovery|clinicalNotes|diagnosis|treatment|symptoms)/i.test(key)
+      && ['string', 'number', 'boolean'].includes(typeof item)
+    ));
+    return {
+      summary: JSON.stringify(safeValues),
+      target: targetEntry ? { type: targetEntry[1], id: value[targetEntry[0]] } : null
+    };
+  } catch {
+    const containsSensitiveMaterial = /(password(?:Hash)?|mfaSecret|recoveryCode|accessToken|refreshToken|Bearer\s+[A-Za-z0-9._-]+|eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/i.test(details);
+    return { summary: containsSensitiveMaterial ? '[Sensitive audit detail redacted]' : details, target: null };
+  }
+}
 
 /**
  * POST /api/auth/login
@@ -350,13 +391,82 @@ router.post('/login', loginLimiter, validate(z.object({
  * GET /api/auth/audit-logs
  * Returns system audit logs. Only accessible by ADMIN.
  */
-router.get('/audit-logs', authenticate, checkRoles('ADMIN'), async (req, res) => {
+router.get('/audit-logs', authenticate, checkRoles('ADMIN'), validate(auditLogQuerySchema, 'query'), async (req, res) => {
   try {
-    const logs = await prisma.tenantAuditLog.findMany({
-      orderBy: { timestamp: 'desc' },
-      take: 100
+    const { search, action, role, from, to, page, pageSize } = req.query;
+    const actorWhere = {
+      ...(role && { role }),
+      ...(search && { OR: [
+        { username: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+        { doctor: { is: { OR: [
+          { fullNameAr: { contains: search, mode: 'insensitive' } },
+          { fullNameEn: { contains: search, mode: 'insensitive' } }
+        ] } } },
+        { patient: { is: { OR: [
+          { fullNameAr: { contains: search, mode: 'insensitive' } },
+          { fullNameEn: { contains: search, mode: 'insensitive' } }
+        ] } } }
+      ] })
+    };
+    const filterActors = Boolean(role || search);
+    const actorIds = filterActors
+      ? (await prisma.user.findMany({ where: actorWhere, select: { id: true } })).map(({ id }) => id)
+      : [];
+    const timestamp = {
+      ...(from && { gte: clinicDayBounds(from).start }),
+      ...(to && { lt: clinicDayBounds(to).end })
+    };
+    const where = {
+      ...(action && { action }),
+      ...(filterActors && { userId: { in: actorIds } }),
+      ...((from || to) && { timestamp })
+    };
+    const [total, logs] = await prisma.$transaction([
+      prisma.tenantAuditLog.count({ where }),
+      prisma.tenantAuditLog.findMany({
+        where,
+        select: { id: true, userId: true, action: true, details: true, ipAddress: true, timestamp: true },
+        orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize
+      })
+    ]);
+    const users = logs.length
+      ? await prisma.user.findMany({
+        where: { id: { in: [...new Set(logs.map(({ userId }) => userId).filter(Boolean))] } },
+        select: {
+          id: true, username: true, email: true, role: true,
+          doctor: { select: { fullNameAr: true, fullNameEn: true } },
+          patient: { select: { fullNameAr: true, fullNameEn: true } }
+        }
+      })
+      : [];
+    const usersById = new Map(users.map((user) => [user.id, user]));
+    return res.json({
+      items: logs.map((log) => {
+        const actor = usersById.get(log.userId);
+        const safeDetails = safeStructuredAuditDetails(log.details);
+        return {
+          id: log.id,
+          action: log.action,
+          details: safeDetails.summary,
+          target: safeDetails.target,
+          ipAddress: log.ipAddress,
+          timestamp: log.timestamp,
+          actor: actor ? {
+            id: actor.id,
+            username: actor.username,
+            email: actor.email,
+            role: actor.role,
+            displayNameAr: actor.doctor?.fullNameAr || actor.patient?.fullNameAr || null,
+            displayNameEn: actor.doctor?.fullNameEn || actor.patient?.fullNameEn || null
+          } : null
+        };
+      }),
+      pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+      filters: { actions: await prisma.tenantAuditLog.findMany({ distinct: ['action'], select: { action: true }, orderBy: { action: 'asc' }, take: 200 }) }
     });
-    return res.json(logs);
   } catch (error) {
     console.error('Fetch audit logs error:', error);
     return res.status(500).json({ error: 'Failed to retrieve system audit logs.' });

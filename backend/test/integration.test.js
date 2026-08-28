@@ -522,6 +522,17 @@ before(async () => {
   tokens.pharmacy = await login('pharma@cms.com', 'Pharmacist@123');
   doctor1 = await prisma.doctor.findFirst({ where: { user: { username: 'doctor@cms.com' } } });
   doctor2 = await prisma.doctor.findFirst({ where: { user: { username: 'doctor_cardio@cms.com' } } });
+  const clinicWeekday = new Date(`${getClinicDateString()}T12:00:00.000Z`).toLocaleDateString('en-US', {
+    weekday: 'long', timeZone: 'UTC'
+  });
+  const doctorSchedule = JSON.parse(doctor1.weeklySchedule);
+  if (!doctorSchedule.some(({ day }) => day === clinicWeekday)) {
+    doctorSchedule.push({ day: clinicWeekday, startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 });
+    doctor1 = await prisma.doctor.update({
+      where: { id: doctor1.id },
+      data: { weeklySchedule: JSON.stringify(doctorSchedule) }
+    });
+  }
   service = await prisma.clinicalService.findFirst({ where: { category: 'LABORATORY' } });
   drug = await prisma.drugFormulary.findFirst();
   patient1 = await prisma.patient.create({ data: { fullNameAr: 'مريض اختبار أ', fullNameEn: 'Test Patient A', gender: 'MALE', dateOfBirth: '1990-01-01', phone: '0991000001', addressStateId: 1, emergencyContact: 'Self' } });
@@ -1829,6 +1840,80 @@ test('admin staff list includes only intended staff roles and excludes patients'
   assert.equal(response.body.every((user) => STAFF_ROLES.includes(user.role)), true);
   for (const role of STAFF_ROLES) assert.equal(response.body.some((user) => user.role === role), true);
   assert.equal((await api.get('/api/auth/users').set(auth('pharmacy'))).status, 403);
+});
+
+test('audit log endpoint is ADMIN-only, paginated, filtered, and returns safe actor identity', async () => {
+  const admin = await prisma.user.findUnique({ where: { username: 'admin@cms.com' } });
+  const marker = `AUDIT_PRESENTATION_TEST_${Date.now()}`;
+  const targetId = crypto.randomUUID();
+  const audit = await prisma.tenantAuditLog.create({
+    data: {
+      userId: admin.id,
+      action: marker,
+      details: JSON.stringify({ appointmentId: targetId, previousStatus: 'ACTIVE', status: 'INACTIVE', passwordHash: 'must-not-return' }),
+      ipAddress: '192.0.2.10'
+    }
+  });
+  const unavailableActorAudit = await prisma.tenantAuditLog.create({
+    data: {
+      userId: crypto.randomUUID(),
+      action: `UNKNOWN_AUDIT_EVENT_${Date.now()}`,
+      details: 'Legacy event with an unavailable actor.',
+      ipAddress: '192.0.2.11',
+      timestamp: new Date('2035-03-12T10:15:00.000Z')
+    }
+  });
+  const redactedAudit = await prisma.tenantAuditLog.create({
+    data: {
+      userId: admin.id,
+      action: `LEGACY_REDACTION_TEST_${Date.now()}`,
+      details: 'Unexpected provider failure included Bearer attacker-marker-token-value',
+      ipAddress: '192.0.2.12'
+    }
+  });
+
+  assert.equal((await api.get('/api/auth/audit-logs').set(auth('doctor'))).status, 403);
+  const response = await api.get(`/api/auth/audit-logs?action=${marker}&page=1&pageSize=10`).set(auth('admin'));
+  assert.equal(response.status, 200);
+  assert.equal(response.body.items.length, 1);
+  assert.equal(response.body.items[0].id, audit.id);
+  assert.equal(response.body.items[0].actor.id, admin.id);
+  assert.equal(response.body.items[0].actor.username, admin.username);
+  assert.equal(response.body.items[0].actor.role, 'ADMIN');
+  assert.deepEqual(response.body.items[0].target, { type: 'APPOINTMENT', id: targetId });
+  assert.equal(response.body.pagination.pageSize, 10);
+  assert.equal(response.body.pagination.total, 1);
+  const serialized = JSON.stringify(response.body);
+  for (const field of ['passwordHash', 'mfaSecret', 'mfaEnabled', 'authVersion', 'must-not-return']) {
+    assert.equal(serialized.includes(field), false);
+  }
+
+  const searched = await api.get('/api/auth/audit-logs?search=admin%40cms.com&pageSize=10').set(auth('admin'));
+  assert.equal(searched.status, 200);
+  assert.ok(searched.body.items.every((entry) => entry.actor?.id === admin.id));
+  const roleFiltered = await api.get(`/api/auth/audit-logs?action=${marker}&role=ADMIN&pageSize=10`).set(auth('admin'));
+  assert.equal(roleFiltered.status, 200);
+  assert.deepEqual(roleFiltered.body.items.map(({ id }) => id), [audit.id]);
+
+  const dateFiltered = await api.get(`/api/auth/audit-logs?action=${unavailableActorAudit.action}&from=2035-03-12&to=2035-03-12&pageSize=10`).set(auth('admin'));
+  assert.equal(dateFiltered.status, 200);
+  assert.equal(dateFiltered.body.items.length, 1);
+  assert.equal(dateFiltered.body.items[0].id, unavailableActorAudit.id);
+  assert.equal(dateFiltered.body.items[0].actor, null);
+  assert.equal(dateFiltered.body.items[0].action, unavailableActorAudit.action);
+
+  const outsideDate = await api.get(`/api/auth/audit-logs?action=${unavailableActorAudit.action}&from=2035-03-13&to=2035-03-13&pageSize=10`).set(auth('admin'));
+  assert.equal(outsideDate.status, 200);
+  assert.equal(outsideDate.body.items.length, 0);
+
+  const redacted = await api.get(`/api/auth/audit-logs?action=${redactedAudit.action}&pageSize=10`).set(auth('admin'));
+  assert.equal(redacted.status, 200);
+  assert.equal(redacted.body.items[0].details, '[Sensitive audit detail redacted]');
+  assert.equal(JSON.stringify(redacted.body).includes('attacker-marker-token-value'), false);
+  for (const query of ['pageSize=51', 'role=SUPER_ADMIN', 'from=2026-08-30&to=2026-08-01', 'action=invalid%20event']) {
+    const invalid = await api.get(`/api/auth/audit-logs?${query}`).set(auth('admin'));
+    assertSafeValidationError(invalid);
+  }
 });
 
 test('staff creation rejects a length-compliant password that violates the centralized policy', async () => {
