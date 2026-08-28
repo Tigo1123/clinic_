@@ -7,6 +7,7 @@ import { sendError } from '../utils/apiError.js';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { getClinicDateString } from '../utils/clinicTime.js';
+import { findPossiblePatientDuplicates, normalizeNationalId, normalizePatientPhone, safeDuplicateCandidates } from '../utils/patientIdentity.js';
 
 const router = express.Router();
 
@@ -15,26 +16,22 @@ const router = express.Router();
  * Searches patients by name (Arabic or English), phone, or national ID.
  */
 router.get('/search', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
-  const { q } = req.query;
-
-  if (!q) {
-    return res.json([]);
-  }
+  const parsed = z.object({ q: z.string().trim().min(2).max(120), limit: z.coerce.number().int().min(1).max(50).default(20) }).strict().safeParse(req.query);
+  if (!parsed.success) return sendError(res, 422, 'PATIENT_SEARCH_INVALID', 'Patient search parameters are invalid.');
+  const { q, limit } = parsed.data;
+  const exactNationalId = normalizeNationalId(q);
 
   try {
     const patients = await prisma.patient.findMany({
-      where: {
-        OR: [
-          { fullNameAr: { contains: q } },
-          { fullNameEn: { contains: q } },
-          { phone: { contains: q } },
-          { nationalId: { contains: q } }
-        ]
-      },
-      include: {
-        addressState: true
-      },
-      take: 20
+      where: { status: 'ACTIVE', OR: [
+        { fullNameAr: { contains: q, mode: 'insensitive' } },
+        { fullNameEn: { contains: q, mode: 'insensitive' } },
+        { phone: { contains: q } },
+        ...(exactNationalId ? [{ nationalId: exactNationalId }] : [])
+      ] },
+      select: { id: true, fullNameAr: true, fullNameEn: true, phone: true, dateOfBirth: true, gender: true, status: true },
+      orderBy: [{ fullNameEn: 'asc' }, { fullNameAr: 'asc' }, { id: 'asc' }],
+      take: limit
     });
 
     return res.json(patients);
@@ -117,7 +114,7 @@ router.get(
 router.post('/', authenticate, checkRoles('ADMIN', 'RECEPTIONIST'), validate(z.object({
   fullNameAr: z.string().trim().min(2).max(150), fullNameEn: z.string().trim().min(2).max(150),
   gender: z.enum(['MALE', 'FEMALE']), dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  nationalId: z.string().trim().max(30).optional(), phone: z.string().trim().min(7).max(20),
+  nationalId: z.string().trim().max(30).optional(), phone: z.string().trim().min(7).max(30),
   addressStateId: z.coerce.number().int().min(1).max(18), addressDetails: z.string().trim().max(300).optional(),
   emergencyContact: z.string().trim().max(150).optional(), nationalIdAttachmentPath: z.string().max(300).optional(),
   insuranceAttachmentPath: z.string().max(300).optional()
@@ -146,15 +143,12 @@ router.post('/', authenticate, checkRoles('ADMIN', 'RECEPTIONIST'), validate(z.o
   }
 
   try {
-    // Check if national ID or phone is already registered (deduplication check)
-    if (nationalId) {
-      const existingById = await prisma.patient.findUnique({
-        where: { nationalId }
-      });
-      if (existingById) {
-        return res.status(409).json({ error: 'A patient with this National ID is already registered.' });
-      }
-    }
+    const normalizedPhone = normalizePatientPhone(phone);
+    const normalizedNationalId = normalizeNationalId(nationalId);
+    if (!normalizedPhone) return sendError(res, 422, 'PHONE_INVALID', 'Phone number is invalid.');
+    if (nationalId && !normalizedNationalId) return sendError(res, 422, 'NATIONAL_ID_INVALID', 'National ID is invalid.');
+    const candidates = await findPossiblePatientDuplicates(prisma, { phone: normalizedPhone, dateOfBirth, nationalId: normalizedNationalId });
+    if (candidates.length) return sendError(res, 409, 'POSSIBLE_PATIENT_DUPLICATE', 'A possible existing patient was found. Search and select the existing patient or review the identity before creating a new record.', safeDuplicateCandidates(candidates));
 
     const patient = await prisma.patient.create({
       data: {
@@ -162,8 +156,8 @@ router.post('/', authenticate, checkRoles('ADMIN', 'RECEPTIONIST'), validate(z.o
         fullNameEn,
         gender,
         dateOfBirth,
-        nationalId: nationalId || null,
-        phone,
+        nationalId: normalizedNationalId,
+        phone: normalizedPhone,
         addressStateId: parseInt(addressStateId),
         addressDetails,
         emergencyContact: finalEmergencyContact,
@@ -178,6 +172,7 @@ router.post('/', authenticate, checkRoles('ADMIN', 'RECEPTIONIST'), validate(z.o
 
     return res.status(201).json(patient);
   } catch (error) {
+    if (error?.code === 'P2002') return sendError(res, 409, 'POSSIBLE_PATIENT_DUPLICATE', 'A possible existing patient was found. Search and review the identity before creating a new record.');
     console.error('Patient registration error:', error);
     return res.status(500).json({ error: 'Failed to register patient.' });
   }

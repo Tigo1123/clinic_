@@ -13,6 +13,7 @@ import crypto from 'crypto';
 import { emitQueueUpdate } from '../utils/socketEvents.js';
 import { markSensitiveResponse } from '../utils/edgeSecurity.js';
 import { configuredSlots, DATE_PATTERN, TIME_PATTERN, todayString } from '../utils/scheduling.js';
+import { findPossiblePatientDuplicates, normalizeNationalId, normalizePatientPhone, safeDuplicateCandidates } from '../utils/patientIdentity.js';
 
 const router = express.Router();
 const otpLimiter = rateLimit({ windowMs: rateLimits.windowMs, limit: rateLimits.verification, standardHeaders: 'draft-7', legacyHeaders: false });
@@ -72,7 +73,7 @@ const walkInPatientSchema = z.object({
   gender: z.enum(['MALE', 'FEMALE']),
   dateOfBirth: z.string().regex(DATE_PATTERN),
   nationalId: z.string().trim().max(30).optional(),
-  phone: z.string().trim().min(7).max(20),
+  phone: z.string().trim().min(7).max(30),
   addressStateId: z.coerce.number().int().min(1).max(18),
   addressDetails: z.string().trim().max(300).optional(),
   emergencyContact: z.string().trim().max(150).optional()
@@ -141,10 +142,8 @@ router.get('/slots', validate(z.object({ doctorId: z.string().uuid(), date: z.st
  */
 router.post('/otp/request', otpLimiter, async (req, res) => {
   if (process.env.NODE_ENV === 'production') return sendError(res, 503, 'SMS_PROVIDER_UNAVAILABLE', 'SMS verification is not configured. Use an authenticated patient account to book.');
-  const { phone } = req.body;
-  if (!phone) {
-    return res.status(400).json({ error: 'Phone number is required.' });
-  }
+  const phone = normalizePatientPhone(req.body?.phone);
+  if (!phone) return sendError(res, 422, 'PHONE_INVALID', 'Phone number is invalid.');
 
   const code = String(crypto.randomInt(100000, 1000000));
   developmentOtps.set(phone, { code, expiresAt: Date.now() + 10 * 60 * 1000 });
@@ -159,7 +158,7 @@ router.post('/book', validate(z.object({
   doctorId: z.string().uuid(), appointmentDate: z.string().regex(DATE_PATTERN), appointmentTime: z.string().regex(TIME_PATTERN),
   fullNameAr: z.string().trim().min(2).max(150), fullNameEn: z.string().trim().min(2).max(150),
   gender: z.enum(['MALE', 'FEMALE']), dateOfBirth: z.string().regex(DATE_PATTERN), nationalId: z.string().trim().max(30).optional(),
-  phone: z.string().trim().min(7).max(20), addressStateId: z.coerce.number().int().min(1).max(18), otpCode: z.string().length(6)
+  phone: z.string().trim().min(7).max(30), addressStateId: z.coerce.number().int().min(1).max(18), otpCode: z.string().length(6)
 })), async (req, res) => {
   if (process.env.NODE_ENV === 'production') return sendError(res, 503, 'PUBLIC_BOOKING_VERIFICATION_UNAVAILABLE', 'Public OTP booking is unavailable. Use an authenticated patient account to book.');
   const {
@@ -176,7 +175,11 @@ router.post('/book', validate(z.object({
     otpCode
   } = req.body;
 
-  const issuedOtp = developmentOtps.get(phone);
+  const normalizedPhone = normalizePatientPhone(phone);
+  const normalizedNationalId = normalizeNationalId(nationalId);
+  if (!normalizedPhone) return sendError(res, 422, 'PHONE_INVALID', 'Phone number is invalid.');
+  if (nationalId && !normalizedNationalId) return sendError(res, 422, 'NATIONAL_ID_INVALID', 'National ID is invalid.');
+  const issuedOtp = developmentOtps.get(normalizedPhone);
   if (!issuedOtp || issuedOtp.expiresAt <= Date.now() || otpCode !== issuedOtp.code) {
     return res.status(400).json({ error: 'Incorrect verification code. Please try again.' });
   }
@@ -193,7 +196,7 @@ router.post('/book', validate(z.object({
     const dailyBookingsCount = await prisma.appointment.count({
       where: {
         appointmentDate,
-        patient: { phone }
+        patient: { phone: { in: [...new Set([normalizedPhone, phone.trim()])] } }
       }
     });
 
@@ -201,18 +204,22 @@ router.post('/book', validate(z.object({
       return res.status(429).json({ error: 'Sorry, you have exceeded the maximum allowed bookings for today (max 2 per phone).' });
     }
 
-    // 2. Check if patient already exists, or create new patient record
+    // Phone possession alone never authorizes attachment to an existing
+    // clinical patient. Reuse requires the submitted unique National ID plus
+    // matching verified phone, date of birth, gender, and names.
     let patient = null;
-    if (nationalId) {
+    if (normalizedNationalId) {
       patient = await prisma.patient.findUnique({
-        where: { nationalId }
+        where: { nationalId: normalizedNationalId }
       });
-    }
-
-    if (!patient) {
-      patient = await prisma.patient.findFirst({
-        where: { phone }
-      });
+      if (patient) {
+        const identityMatches = normalizePatientPhone(patient.phone) === normalizedPhone
+          && patient.dateOfBirth === dateOfBirth
+          && patient.gender === gender
+          && patient.fullNameAr.trim() === fullNameAr.trim()
+          && patient.fullNameEn.trim().toLocaleLowerCase('en') === fullNameEn.trim().toLocaleLowerCase('en');
+        if (!identityMatches) return sendError(res, 409, 'PATIENT_IDENTITY_REVIEW_REQUIRED', 'The booking could not be linked automatically. Contact reception for identity review.');
+      }
     }
 
     if (!patient) {
@@ -222,8 +229,8 @@ router.post('/book', validate(z.object({
           fullNameEn,
           gender,
           dateOfBirth,
-          nationalId: nationalId || null,
-          phone,
+          nationalId: normalizedNationalId,
+          phone: normalizedPhone,
           addressStateId: parseInt(addressStateId),
           emergencyContact: 'Self',
           status: 'ACTIVE'
@@ -300,6 +307,7 @@ router.post('/book', validate(z.object({
     });
 
   } catch (error) {
+    if (isPatientNationalIdConflict(error)) return sendError(res, 409, 'PATIENT_IDENTITY_REVIEW_REQUIRED', 'The booking could not be linked automatically. Contact reception for identity review.');
     if (isAppointmentSlotConflict(error)) {
       return sendError(res, 409, 'APPOINTMENT_SLOT_UNAVAILABLE', 'This appointment slot was booked in the meantime. Please select another slot.');
     }
@@ -363,20 +371,20 @@ router.post('/walk-in', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
           throw Object.assign(new Error('Patient not found.'), { status: 404, code: 'PATIENT_NOT_FOUND' });
         }
       } else {
-        if (patient.nationalId) {
-          const existingByNationalId = await tx.patient.findUnique({ where: { nationalId: patient.nationalId } });
-          if (existingByNationalId) {
-            throw Object.assign(new Error('A patient with this National ID is already registered.'), { status: 409, code: 'PATIENT_ALREADY_EXISTS' });
-          }
-        }
+        const normalizedPhone = normalizePatientPhone(patient.phone);
+        const normalizedNationalId = normalizeNationalId(patient.nationalId);
+        if (!normalizedPhone) throw Object.assign(new Error('Phone number is invalid.'), { status: 422, code: 'PHONE_INVALID' });
+        if (patient.nationalId && !normalizedNationalId) throw Object.assign(new Error('National ID is invalid.'), { status: 422, code: 'NATIONAL_ID_INVALID' });
+        const candidates = await findPossiblePatientDuplicates(tx, { phone: normalizedPhone, dateOfBirth: patient.dateOfBirth, nationalId: normalizedNationalId });
+        if (candidates.length) throw Object.assign(new Error('A possible existing patient was found. Search and select the existing patient before creating a new walk-in record.'), { status: 409, code: 'POSSIBLE_PATIENT_DUPLICATE', details: safeDuplicateCandidates(candidates) });
         targetPatient = await tx.patient.create({
           data: {
             fullNameAr: patient.fullNameAr,
             fullNameEn: patient.fullNameEn,
             gender: patient.gender,
             dateOfBirth: patient.dateOfBirth,
-            nationalId: patient.nationalId || null,
-            phone: patient.phone,
+            nationalId: normalizedNationalId,
+            phone: normalizedPhone,
             addressStateId: patient.addressStateId,
             addressDetails: patient.addressDetails || null,
             emergencyContact: patient.emergencyContact || 'Self',
@@ -434,9 +442,9 @@ router.post('/walk-in', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
     emitQueueUpdate(req.app.get('io'), { type: 'STATUS_UPDATE', appointmentId: appointment.id, status: 'CHECKED_IN', doctorId }, [doctorId]);
     return res.status(201).json({ ...appointment, whatsAppLinkAr: notifResult?.whatsAppLinkAr, whatsAppLinkEn: notifResult?.whatsAppLinkEn });
   } catch (error) {
-    if (error.status && error.code) return sendError(res, error.status, error.code, error.message);
+    if (error.status && error.code) return sendError(res, error.status, error.code, error.message, error.details);
     if (isAppointmentSlotConflict(error)) return sendError(res, 409, 'APPOINTMENT_SLOT_UNAVAILABLE', 'This appointment slot is no longer available.');
-    if (isPatientNationalIdConflict(error)) return sendError(res, 409, 'PATIENT_ALREADY_EXISTS', 'A patient with this National ID is already registered.');
+    if (isPatientNationalIdConflict(error)) return sendError(res, 409, 'POSSIBLE_PATIENT_DUPLICATE', 'A possible existing patient was found. Search and select the existing patient before creating a new walk-in record.');
     console.error('Walk-in appointment error:', error);
     return res.status(500).json({ error: 'Failed to register walk-in appointment.' });
   }
