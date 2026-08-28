@@ -54,3 +54,24 @@ that the runtime role has `USAGE` on this sequence. Prefer provisioning this thr
 `ALTER DEFAULT PRIVILEGES` for the actual role that creates the sequence; an explicit
 `GRANT USAGE ON SEQUENCE` after migration is an acceptable fallback. Do not grant sequence
 ownership or privileges to `PUBLIC`, and verify the privilege before backend deployment.
+
+For each environment, provision the default before running migrations, using the actual
+effective object-creator role (the `current_user` after the migration login's role setup):
+
+```sql
+ALTER DEFAULT PRIVILEGES FOR ROLE <migration-object-creator>
+IN SCHEMA public
+GRANT USAGE ON SEQUENCES TO <runtime-application-role>;
+```
+
+This affects only future sequences. If `patient_file_number_seq` already exists, apply the
+one-time equivalent explicitly before the backend rollout:
+
+```sql
+GRANT USAGE ON SEQUENCE public.patient_file_number_seq TO <runtime-application-role>;
+```
+
+Verify with `has_sequence_privilege` and a least-privilege Patient insert before deploying the
+new backend. Apply the provisioning first, then the migration, then the verification; this keeps
+the previous backend able to create Patients throughout the rollout. Never substitute a table
+`INSERT` grant, sequence ownership, `UPDATE`, or a `PUBLIC` grant for this requirement.
