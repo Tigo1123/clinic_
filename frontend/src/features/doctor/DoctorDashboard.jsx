@@ -624,6 +624,7 @@ export default function DoctorDashboard({ user, lang, t }) {
                   <strong>{lang === 'ar' ? 'الاسم:' : 'Name:'}</strong>{' '}
                   {lang === 'ar' ? selectedPatient.fullNameAr : selectedPatient.fullNameEn}
                 </p>
+                <p dir="ltr"><strong>{lang === 'ar' ? 'رقم الملف:' : 'File number:'}</strong> {selectedPatient.fileNumber || '—'}</p>
                 <p><strong>{lang === 'ar' ? 'تاريخ الميلاد:' : 'DOB:'}</strong> {selectedPatient.dateOfBirth}</p>
                 <p><strong>{lang === 'ar' ? 'الهاتف:' : 'Phone:'}</strong> {selectedPatient.phone}</p>
 
@@ -671,6 +672,9 @@ export default function DoctorDashboard({ user, lang, t }) {
                     <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                       {lang === 'ar' ? 'الجنس:' : 'Gender:'} {getGenderLabel(selectedPatient.gender)} | {lang === 'ar' ? 'تاريخ الميلاد:' : 'DOB:'} {selectedPatient.dateOfBirth}
                     </span>
+                    <strong dir="ltr" style={{ display: 'block', marginTop: '.3rem', color: 'var(--primary)' }}>
+                      {lang === 'ar' ? 'رقم الملف: ' : 'File number: '}{selectedPatient.fileNumber || '—'}
+                    </strong>
                   </div>
                   <button
                     type="button"

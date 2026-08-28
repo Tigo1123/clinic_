@@ -3169,11 +3169,27 @@ test('concurrent receptionist registration preserves database-enforced national-
 test('reception profile excludes decrypted clinical fields', async () => {
   const response = await api.get(`/api/patients/${patient1.id}/profile`).set(auth('reception'));
   assert.equal(response.status, 200);
-  assert.equal(Object.hasOwn(response.body.visits[0] || {}, 'diagnosis'), false);
+  assert.deepEqual(response.body.visits, []);
+  assert.deepEqual(response.body.prescriptions, []);
+  assert.deepEqual(response.body.laboratory, []);
+  assert.deepEqual(response.body.availableSections, ['overview', 'appointments', 'billing']);
+  assert.match(response.body.fileNumber, /^SHF-\d+$/);
+});
+
+test('admin patient file is operational and billing-only, never a clinical-note bypass', async () => {
+  const response = await api.get(`/api/patients/${patient1.id}/profile`).set(auth('admin'));
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.visits, []);
+  assert.deepEqual(response.body.prescriptions, []);
+  assert.deepEqual(response.body.laboratory, []);
+  assert.equal(JSON.stringify(response.body).includes('diagnosisEncrypted'), false);
+  assert.equal(JSON.stringify(response.body).includes('clinicalNotesEncrypted'), false);
+  assert.deepEqual(response.body.availableSections, ['overview', 'appointments', 'billing']);
 });
 
 test('pharmacist cannot retrieve complete patient profile', async () => {
   assert.equal((await api.get(`/api/patients/${patient1.id}/profile`).set(auth('pharmacy'))).status, 403);
+  assert.equal((await api.get(`/api/patients/${patient1.id}/profile`).set(auth('lab'))).status, 403);
 });
 
 test('doctor cannot access an unrelated patient', async () => {

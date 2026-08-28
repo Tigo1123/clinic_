@@ -1534,6 +1534,10 @@ export default function ReceptionDashboard({ lang, t }) {
                                 patient.fullNameAr}
                           </strong>
 
+                          <span dir="ltr" style={{ fontWeight: 700, color: 'var(--primary)' }}>
+                            {lang === 'ar' ? 'رقم الملف: ' : 'File number: '}{patient.fileNumber || '—'}
+                          </span>
+
                           {patient.phone && (
                             <span
                               style={{

@@ -1248,6 +1248,10 @@ export function Profile() {
                 : data.fullNameEn || data.fullNameAr}
             </h2>
 
+            <p dir="ltr" style={{ color: 'var(--color-primary)', fontWeight: 800, letterSpacing: '.08em' }}>
+              {lang === 'ar' ? 'رقم الملف: ' : 'File number: '}{data.fileNumber || '—'}
+            </p>
+
             <div
               style={{
                 display: 'grid',

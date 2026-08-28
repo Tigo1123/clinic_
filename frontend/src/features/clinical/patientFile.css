@@ -1,0 +1,36 @@
+.patient-file-card { padding: 1.25rem; margin-bottom: 1.25rem; border: 1px solid var(--border-color); border-radius: 20px; background: linear-gradient(135deg, rgba(14, 116, 144, .12), rgba(255,255,255,.04)); }
+.patient-file-number { display: flex; align-items: center; gap: .65rem; flex-wrap: wrap; margin-bottom: 1rem; padding: .75rem .9rem; border: 1px solid rgba(14,116,144,.25); border-radius: 12px; background: rgba(255,255,255,.06); }
+.patient-file-number span { color: var(--text-secondary, #64748b); font-size: .8rem; }
+.patient-file-number strong { color: var(--primary, #0f5b78); font-size: 1.15rem; letter-spacing: .08em; }
+.patient-file-copy { display: inline-flex; align-items: center; gap: .3rem; border: 1px solid rgba(14,116,144,.3); border-radius: 8px; padding: .35rem .55rem; background: transparent; color: var(--primary, #0f5b78); cursor: pointer; }
+.patient-file-copy:focus-visible, .patient-file-tabs button:focus-visible { outline: 3px solid rgba(14,116,144,.35); outline-offset: 2px; }
+.patient-file-tabs { display: flex; gap: .4rem; overflow-x: auto; padding: .2rem 0 .8rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border-color); }
+.patient-file-tabs button { flex: 0 0 auto; border: 0; border-bottom: 2px solid transparent; padding: .55rem .8rem; background: transparent; color: var(--text-secondary, #64748b); cursor: pointer; white-space: nowrap; }
+.patient-file-tabs button.active { color: var(--primary, #0f5b78); border-bottom-color: var(--primary, #0f5b78); font-weight: 700; }
+.patient-file-section h4 { display: flex; align-items: center; gap: .45rem; margin: 0 0 .8rem; color: var(--primary, #0f5b78); }
+.patient-file-list { display: grid; gap: .55rem; }
+.patient-file-list-item { display: grid; grid-template-columns: 1.25fr 1.5fr auto; align-items: center; gap: .75rem; padding: .75rem .85rem; border: 1px solid var(--border-color); border-radius: 10px; background: rgba(255,255,255,.04); }
+.patient-file-list-item div { display: flex; flex-direction: column; gap: .2rem; }
+.patient-file-list-item span { font-size: .8rem; opacity: .75; }
+.patient-file-status { justify-self: end; padding: .25rem .5rem; border-radius: 999px; background: rgba(14,116,144,.12); font-size: .75rem !important; }
+.patient-file-empty { padding: 1.5rem; text-align: center; opacity: .7; }
+.patient-file-demographics { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .85rem; font-size: .9rem; }
+.patient-file-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: .65rem; margin-top: 1rem; }
+.patient-file-summary > div { display: flex; flex-direction: column; gap: .15rem; padding: .7rem; border: 1px solid rgba(14,116,144,.18); border-radius: 14px; background: rgba(255,255,255,.08); }
+.patient-file-summary strong { color: var(--primary, #0f5b78); font-size: 1.2rem; }
+.patient-file-summary span { color: var(--text-secondary, #64748b); font-size: .75rem; }
+.patient-file-detail-card { padding: .9rem; border: 1px solid var(--border-color); border-radius: 16px; background: rgba(255,255,255,.04); }
+.patient-file-detail-card header { display: flex; justify-content: space-between; align-items: center; gap: .75rem; margin-bottom: .65rem; }
+.patient-file-medicine, .patient-file-lab { display: grid; grid-template-columns: minmax(120px, 1.2fr) minmax(140px, 1fr); gap: .25rem .75rem; padding: .65rem 0; border-top: 1px solid var(--border-color); }
+.patient-file-medicine small { grid-column: 1 / -1; color: var(--text-secondary, #64748b); }
+@media (max-width: 560px) {
+  .patient-file-card { padding: .9rem; border-radius: 18px; }
+  .patient-file-number { align-items: flex-start; }
+  .patient-file-number strong { width: 100%; overflow-wrap: anywhere; }
+  .patient-file-tabs { margin-inline: -.25rem; padding-inline: .25rem; scrollbar-width: thin; }
+  .patient-file-list-item { grid-template-columns: 1fr auto; }
+  .patient-file-list-item > :nth-child(2) { grid-column: 1 / -1; }
+  .patient-file-status { justify-self: start; }
+  .patient-file-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .patient-file-medicine, .patient-file-lab { grid-template-columns: 1fr; }
+}

@@ -298,10 +298,10 @@ function safeDecryptField(encryptedVal) {
     if (result && !result.startsWith('[Decryption Error')) {
       return result;
     }
-  } catch (e) {
-    // Ignore and fallback to raw text
+  } catch {
+    // Never return ciphertext when a permitted field cannot be decrypted.
   }
-  return encryptedVal;
+  return '';
 }
 
 /**
@@ -318,6 +318,7 @@ router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTION
 
   try {
     const isDoctor = req.user.role === ROLES.DOCTOR;
+    const canViewBilling = req.user.role === ROLES.ADMIN || req.user.role === ROLES.RECEPTIONIST;
     const canViewPatientProfile = isDoctor && await doctorHasPatientAccess(req.user, patientId);
     if (isDoctor && !canViewPatientProfile) {
       return sendError(res, 403, 'PATIENT_ACCESS_FORBIDDEN', 'This patient is not assigned to the authenticated doctor.');
@@ -327,34 +328,79 @@ router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTION
       : null;
     const patient = await prisma.patient.findUnique({
       where: { id: patientId },
-      include: {
-        addressState: true,
-        insuranceClaims: {
-          include: {
-            insuranceCompany: true
+      select: {
+        id: true,
+        fileNumber: true,
+        fullNameAr: true,
+        fullNameEn: true,
+        gender: true,
+        dateOfBirth: true,
+        phone: true,
+        emergencyContact: true,
+        status: true,
+        userId: true,
+        addressState: { select: { labelAr: true, labelEn: true } },
+        appointments: {
+          where: isDoctor ? { doctorId: req.user.doctorId } : undefined,
+          orderBy: [{ appointmentDate: 'desc' }, { appointmentTime: 'desc' }],
+          take: 50,
+          select: {
+            id: true,
+            appointmentDate: true,
+            appointmentTime: true,
+            status: true,
+            doctor: { select: { fullNameAr: true, fullNameEn: true, specialtyAr: true, specialtyEn: true } }
           }
         },
-        medicalRecords: {
+        ...(canViewBilling ? { invoices: {
+          orderBy: { invoiceDate: 'desc' },
+          take: 50,
+          select: {
+            id: true, invoiceDate: true, totalAmountSdg: true, totalAmountUsd: true,
+            paymentStatus: true, invoiceType: true
+          }
+        } } : {}),
+        ...(canViewBilling ? { insuranceClaims: {
+          take: 1,
+          orderBy: [{ submissionDate: 'desc' }, { paymentDate: 'desc' }],
+          select: {
+            claimStatus: true,
+            insuranceCompany: { select: { labelAr: true, labelEn: true, copayPercentage: true } }
+          }
+        } } : {}),
+        ...(isDoctor ? { medicalRecords: {
           where: recordAccess?.where,
           orderBy: { visitDate: 'desc' },
+          take: 50,
           include: {
-            doctor: true,
+            doctor: { select: { fullNameAr: true, fullNameEn: true, specialtyAr: true, specialtyEn: true } },
             prescriptions: {
+              orderBy: { prescriptionDate: 'desc' },
               include: {
                 prescribedDrugs: {
-                  include: { drug: true }
+                  select: {
+                    customDrugName: true, dosage: true, duration: true,
+                    instructionsAr: true, instructionsEn: true,
+                    qtyPrescribed: true, qtyDispensed: true,
+                    drug: { select: { labelAr: true, labelEn: true, genericName: true, strength: true, dosageForm: true } }
+                  }
                 }
               }
             },
             labOrders: {
+              orderBy: { orderDate: 'desc' },
               include: {
                 items: {
-                  include: { service: true }
+                  select: {
+                    customTestName: true, resultValue: true, referenceRangeMin: true,
+                    referenceRangeMax: true, isOutOfRange: true,
+                    service: { select: { labelAr: true, labelEn: true } }
+                  }
                 }
               }
             }
           }
-        }
+        } } : {})
       }
     });
 
@@ -363,7 +409,8 @@ router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTION
     }
 
     // Format past visits chronologically (newest first)
-    const visits = (patient.medicalRecords || []).map((rec) => {
+    const permittedRecords = patient.medicalRecords || [];
+    const visits = permittedRecords.map((rec) => {
       let vitals = {};
       if (rec.vitalSignsJson) {
         try {
@@ -379,7 +426,6 @@ router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTION
         appointmentId: rec.appointmentId,
         visitDate: rec.visitDate,
         doctor: {
-          id: rec.doctor?.id || '',
           fullNameAr: rec.doctor?.fullNameAr || '',
           fullNameEn: rec.doctor?.fullNameEn || '',
           specialtyAr: rec.doctor?.specialtyAr || '',
@@ -395,6 +441,45 @@ router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTION
       };
     });
 
+    const prescriptions = permittedRecords.flatMap((record) =>
+      (record.prescriptions || []).map((prescription) => ({
+        id: prescription.id,
+        prescriptionDate: prescription.prescriptionDate,
+        status: prescription.status,
+        doctor: record.doctor,
+        medicines: prescription.prescribedDrugs.map((item) => ({
+          nameAr: item.drug?.labelAr || item.customDrugName || '',
+          nameEn: item.drug?.labelEn || item.customDrugName || '',
+          genericName: item.drug?.genericName || item.customDrugName || '',
+          strength: item.drug?.strength || '',
+          dosageForm: item.drug?.dosageForm || '',
+          dosage: item.dosage,
+          duration: item.duration,
+          instructionsAr: item.instructionsAr,
+          instructionsEn: item.instructionsEn,
+          qtyPrescribed: item.qtyPrescribed,
+          qtyDispensed: item.qtyDispensed
+        }))
+      }))
+    ).sort((a, b) => new Date(b.prescriptionDate) - new Date(a.prescriptionDate)).slice(0, 50);
+
+    const laboratory = permittedRecords.flatMap((record) =>
+      (record.labOrders || []).map((order) => ({
+        id: order.id,
+        orderDate: order.orderDate,
+        status: order.status,
+        doctor: record.doctor,
+        tests: order.items.map((item) => ({
+          nameAr: item.service?.labelAr || item.customTestName || '',
+          nameEn: item.service?.labelEn || item.customTestName || '',
+          resultValue: item.resultValue,
+          referenceRangeMin: item.referenceRangeMin == null ? null : Number(item.referenceRangeMin),
+          referenceRangeMax: item.referenceRangeMax == null ? null : Number(item.referenceRangeMax),
+          isOutOfRange: item.isOutOfRange
+        }))
+      }))
+    ).sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate)).slice(0, 50);
+
     const activeClaim = patient.insuranceClaims?.[0];
 
     const profileData = {
@@ -406,10 +491,7 @@ router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTION
       gender: patient.gender,
       dateOfBirth: patient.dateOfBirth,
       phone: patient.phone,
-      nationalId: patient.nationalId || '',
-      bloodType: 'N/A',
-      allergies: '',
-      chronicConditions: '',
+      status: patient.status,
       emergencyContact: patient.emergencyContact || '',
       addressState: patient.addressState ? {
         id: patient.addressState.id,
@@ -422,7 +504,39 @@ router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTION
         coverageRate: activeClaim.insuranceCompany?.copayPercentage ? Number(activeClaim.insuranceCompany.copayPercentage) : 0
       } : null,
       visitsCount: visits.length,
-      visits
+      visits,
+      prescriptions,
+      laboratory,
+      summaryCounts: {
+        appointments: patient.appointments.length,
+        visits: visits.length,
+        prescriptions: prescriptions.length,
+        labOrders: laboratory.length,
+        invoices: canViewBilling ? (patient.invoices || []).length : undefined
+      },
+      availableSections: isDoctor
+        ? ['overview', 'appointments', 'visits', 'prescriptions', 'laboratory']
+        : ['overview', 'appointments', 'billing'],
+      appointments: (patient.appointments || []).map((appointment) => ({
+        id: appointment.id,
+        appointmentDate: appointment.appointmentDate,
+        appointmentTime: appointment.appointmentTime,
+        status: appointment.status,
+        doctor: appointment.doctor ? {
+          fullNameAr: appointment.doctor.fullNameAr,
+          fullNameEn: appointment.doctor.fullNameEn,
+          specialtyAr: appointment.doctor.specialtyAr,
+          specialtyEn: appointment.doctor.specialtyEn
+        } : null
+      })),
+      invoices: canViewBilling ? (patient.invoices || []).map((invoice) => ({
+        id: invoice.id,
+        invoiceDate: invoice.invoiceDate,
+        totalAmountSdg: Number(invoice.totalAmountSdg),
+        totalAmountUsd: Number(invoice.totalAmountUsd),
+        paymentStatus: invoice.paymentStatus,
+        invoiceType: invoice.invoiceType
+      })) : []
     };
 
     return res.json(profileData);
