@@ -7,6 +7,7 @@ import { buildStaffCreationPayload } from '../../utils/staffCreationPayload';
 import { filterStaffUsers, isStaffRole } from '../../utils/staffRoles';
 import AuditLogPanel from './AuditLogPanel';
 import AnalyticsPanel from './AnalyticsPanel';
+import ClinicProfilePanel from './ClinicProfilePanel';
 
 export default function AdminDashboard({ user, lang, t }) {
   const [activeTab, setActiveTab] = useState('profile');
@@ -17,14 +18,6 @@ export default function AdminDashboard({ user, lang, t }) {
   const [pricing, setPricing] = useState(null);
   const [pricingDrafts, setPricingDrafts] = useState({});
   const [pricingLoading, setPricingLoading] = useState(false);
-
-  const [config, setConfig] = useState({
-    clinicNameAr: 'نظام الشفاء الطبي',
-    clinicNameEn: 'Al-Shifa Medical CMS',
-    vatPercent: 15,
-    stampDutySdg: 500,
-    exchangeRate: 1500
-  });
 
   // User form states
   const [newUsername, setNewUsername] = useState('');
@@ -347,68 +340,7 @@ export default function AdminDashboard({ user, lang, t }) {
       <div className="workspace-panel">
         <RoleHero role="admin" lang={lang}/>
         {activeTab === 'profile' && (
-          <div className="glass-panel" style={{ padding: '2rem' }}>
-            <h3 style={{ marginBottom: '1.5rem' }}>{lang === 'ar' ? 'إعدادات العيادة العامة' : 'Clinic Global Settings'}</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-              <div className="form-group">
-                <label className="form-label">{lang === 'ar' ? 'اسم العيادة (عربي)' : 'Clinic Name (Arabic)'}</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  value={config.clinicNameAr}
-                  readOnly
-                  onChange={(e) => setConfig({ ...config, clinicNameAr: e.target.value })}
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">{lang === 'ar' ? 'اسم العيادة (إنجليزي)' : 'Clinic Name (English)'}</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  value={config.clinicNameEn}
-                  readOnly
-                  onChange={(e) => setConfig({ ...config, clinicNameEn: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1.5rem', marginTop: '1.5rem' }}>
-              <div className="form-group">
-                <label className="form-label">{lang === 'ar' ? 'نسبة ضريبة القيمة المضافة (%)' : 'VAT Percentage (%)'}</label>
-                <input
-                  type="number"
-                  className="form-input"
-                  value={config.vatPercent}
-                  readOnly
-                  onChange={(e) => setConfig({ ...config, vatPercent: parseFloat(e.target.value) })}
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">{lang === 'ar' ? 'قيمة دمغة الشهادة (SDG)' : 'Stamp Duty (SDG)'}</label>
-                <input
-                  type="number"
-                  className="form-input"
-                  value={config.stampDutySdg}
-                  readOnly
-                  onChange={(e) => setConfig({ ...config, stampDutySdg: parseFloat(e.target.value) })}
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">{lang === 'ar' ? 'سعر صرف الدولار (1 USD = X SDG)' : 'Exchange Rate (1 USD = X SDG)'}</label>
-                <input
-                  type="number"
-                  className="form-input"
-                  value={config.exchangeRate}
-                  readOnly
-                  onChange={(e) => setConfig({ ...config, exchangeRate: parseFloat(e.target.value) })}
-                />
-              </div>
-            </div>
-
-            <div className="badge badge-info" style={{ marginTop: '2rem', padding: '.75rem' }}>
-              {lang === 'ar' ? 'الإعدادات للعرض فقط حتى يتم تفعيل الحفظ الآمن.' : 'Settings are read-only until secure persistence is configured.'}
-            </div>
-          </div>
+          <ClinicProfilePanel lang={lang} t={t}/>
         )}
 
         {activeTab === 'users' && (
