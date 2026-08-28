@@ -6418,6 +6418,22 @@ test('billing analytics never fabricates empty operational metrics', async () =>
   assert.ok(response.body.monthlyRevenueTrend.every((item) => Number.isFinite(item.amount) && item.amount >= 0));
 });
 
+test('ADMIN analytics returns authoritative complete appointment status aggregates', async () => {
+  const response = await api.get('/api/admin/analytics').set(auth('admin'));
+  assert.equal(response.status, 200);
+  assert.ok(Array.isArray(response.body.appointmentStatuses));
+  assert.equal(
+    response.body.appointmentStatuses.reduce((sum, item) => sum + item.count, 0),
+    response.body.totalAppointments
+  );
+  assert.ok(response.body.appointmentStatuses.every((item) =>
+    typeof item.status === 'string' && Number.isInteger(item.count) && item.count >= 0
+  ));
+  assert.equal((await api.get('/api/admin/analytics').set(auth('doctor'))).status, 403);
+  const serialized = JSON.stringify(response.body);
+  assert.doesNotMatch(serialized, /passwordHash|mfaSecret|authVersion|diagnosis|clinicalNotes|token/i);
+});
+
 test('appointments reject past dates and invalid slots', async () => {
   assert.equal((await api.get(`/api/appointments/slots?doctorId=${doctor1.id}&date=2020-01-01`)).status, 422);
   const response = await api.post('/api/appointments/book').send(await bookingPayload('2030-01-06', '03:00', '0991000010'));

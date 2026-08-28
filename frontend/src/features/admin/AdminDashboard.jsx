@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Activity, AlertCircle, Building, Calendar, CheckCircle, DollarSign, Sliders, Stethoscope, Users } from 'lucide-react';
+import { Activity, Building, DollarSign, Sliders, Users } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import RoleHero from '../../components/healthcare/RoleHero';
 import { getStaffPasswordChecks, isStaffPasswordValid, STAFF_PASSWORD_MAX_LENGTH } from '../../utils/staffPasswordPolicy';
 import { buildStaffCreationPayload } from '../../utils/staffCreationPayload';
 import { filterStaffUsers, isStaffRole } from '../../utils/staffRoles';
 import AuditLogPanel from './AuditLogPanel';
+import AnalyticsPanel from './AnalyticsPanel';
 
 export default function AdminDashboard({ user, lang, t }) {
   const [activeTab, setActiveTab] = useState('profile');
@@ -642,234 +643,25 @@ export default function AdminDashboard({ user, lang, t }) {
         )}
 
         {activeTab === 'analytics' && (
-          <div className="glass-panel" style={{ padding: '2rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-              <div>
-                <h3 style={{ margin: 0, color: 'var(--primary)' }}>
-                  {lang === 'ar' ? 'لوحة تحليلات وإحصائيات العيادة' : 'Clinic Operational & Analytics Dashboard'}
-                </h3>
-                <p style={{ margin: 0, fontSize: '0.85rem', opacity: 0.75 }}>
-                  {lang === 'ar' ? 'مؤشرات الأداء الرئيسية والتحليلات التشغيلية' : 'Real-time Key Performance Indicators & Clinical Overview'}
-                </p>
-              </div>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                style={{ fontSize: '0.8rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                onClick={() => {
-                  setLoadingAnalytics(true);
-                  fetchWithAuth('/api/admin/analytics')
-                    .then((r) => r.json())
-                    .then((d) => {
-                      setAnalyticsData(d);
-                      setLoadingAnalytics(false);
-                    })
-                    .catch(() => setLoadingAnalytics(false));
-                }}
-              >
-                <Activity size={14} />
-                {lang === 'ar' ? 'تحديث البيانات' : 'Refresh Metrics'}
-              </button>
-            </div>
-
-            {loadingAnalytics ? (
-              <div style={{ textAlign: 'center', padding: '3rem' }}>
-                <div className="spinner" style={{ margin: '0 auto 1rem' }}></div>
-                <p>{lang === 'ar' ? 'جاري حساب ومعالجة إحصائيات النظام...' : 'Computing system operational metrics...'}</p>
-              </div>
-            ) : analyticsError ? (
-              <div className="alert alert-error" style={{ textAlign: 'center', padding: '2rem' }}>
-                <AlertCircle size={36} style={{ marginBottom: '0.5rem', color: '#ef4444' }} />
-                <p>{analyticsError}</p>
-              </div>
-            ) : analyticsData ? (
-              <div>
-                {/* 1. KPI Summaries Grid */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
-                  {/* Card 1: Total Registered Patients */}
-                  <div className="glass-card" style={{ padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.04)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.85rem', opacity: 0.75 }}>{lang === 'ar' ? 'إجمالي المرضى المسجلين' : 'Total Patients'}</span>
-                      <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'rgba(2, 132, 199, 0.15)', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Users size={20} />
-                      </div>
-                    </div>
-                    <h2 style={{ fontSize: '1.8rem', fontWeight: 'bold', margin: '0.5rem 0 0', color: '#0284c7' }}>
-                      {analyticsData.totalPatients || 0}
-                    </h2>
-                  </div>
-
-                  {/* Card 2: Monthly Visits */}
-                  <div className="glass-card" style={{ padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.04)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.85rem', opacity: 0.75 }}>{lang === 'ar' ? 'زيارات هذا الشهر' : 'Monthly Visits'}</span>
-                      <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'rgba(13, 148, 136, 0.15)', color: '#0d9488', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Calendar size={20} />
-                      </div>
-                    </div>
-                    <h2 style={{ fontSize: '1.8rem', fontWeight: 'bold', margin: '0.5rem 0 0', color: '#0d9488' }}>
-                      {analyticsData.monthlyVisits || 0}
-                    </h2>
-                  </div>
-
-                  {/* Card 3: Completion Rate */}
-                  <div className="glass-card" style={{ padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.04)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.85rem', opacity: 0.75 }}>{lang === 'ar' ? 'نسبة الإنجاز الطبية' : 'Completion Rate'}</span>
-                      <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <CheckCircle size={20} />
-                      </div>
-                    </div>
-                    <h2 style={{ fontSize: '1.8rem', fontWeight: 'bold', margin: '0.5rem 0 0', color: '#10b981' }}>
-                      {analyticsData.completionRate || 0}%
-                    </h2>
-                  </div>
-
-                  {/* Card 4: Financial Revenues */}
-                  <div className="glass-card" style={{ padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.04)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.85rem', opacity: 0.75 }}>{lang === 'ar' ? 'إجمالي المحصل المالي' : 'Total Revenue'}</span>
-                      <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <DollarSign size={20} />
-                      </div>
-                    </div>
-                    <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', margin: '0.5rem 0 0', color: '#f59e0b' }}>
-                      {(analyticsData.financials?.totalRevenueSdg || 0).toLocaleString(
-                        lang === 'ar' ? 'ar' : 'en'
-                      )}{' '}
-                      <span style={{ fontSize: '0.8rem' }}>
-                        {lang === 'ar' ? 'ج.س' : 'SDG'}
-                      </span>
-                    </h2>
-                  </div>
-                </div>
-
-                <AppointmentTrendChart data={analyticsData.appointmentTrend || []} lang={lang}/>
-
-                {/* 2. Visual Charts & Breakdowns Section */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '2rem' }}>
-                  {/* Left Column: Doctor Clinical Volume Breakdown */}
-                  <div className="glass-card" style={{ padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.03)' }}>
-                    <h4 style={{ margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <Stethoscope size={18} color="var(--primary)" />
-                      {lang === 'ar' ? 'عدد الزيارات لكل طبيب' : 'Visits Breakdown per Doctor'}
-                    </h4>
-
-                    {!analyticsData.doctorVisits || analyticsData.doctorVisits.length === 0 ? (
-                      <p style={{ opacity: 0.6, fontSize: '0.9rem' }}>{lang === 'ar' ? 'لا يوجد سجلات زيارات للأطباء بعد.' : 'No doctor visit logs recorded yet.'}</p>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                        {analyticsData.doctorVisits.map((doc) => {
-                          const maxVisits = Math.max(...analyticsData.doctorVisits.map((d) => d.visitsCount), 1);
-                          const pct = Math.round((doc.visitsCount / maxVisits) * 100);
-                          return (
-                            <div key={doc.doctorId || doc.fullNameEn}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '0.3rem' }}>
-                                <strong>
-                                  {lang === 'ar' ? doc.fullNameAr : doc.fullNameEn}{' '}
-                                  <span style={{ fontWeight: 'normal', opacity: 0.7 }}>({lang === 'ar' ? doc.specialtyAr : doc.specialtyEn})</span>
-                                </strong>
-                                <span className="badge badge-info">
-                                  {doc.visitsCount} {lang === 'ar' ? 'زيارة' : 'visits'}
-                                </span>
-                              </div>
-                              <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.08)', borderRadius: '4px', overflow: 'hidden' }}>
-                                <div style={{ width: `${pct}%`, height: '100%', background: 'linear-gradient(90deg, #0284c7, #0d9488)', borderRadius: '4px', transition: 'width 0.3s ease' }}></div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Right Column: Appointment Status Distribution */}
-                  <div className="glass-card" style={{ padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.03)' }}>
-                    <h4 style={{ margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <Activity size={18} color="var(--success)" />
-                      {lang === 'ar' ? 'توزيع حالات الحجوزات والمواعيد' : 'Appointment Status Distribution'}
-                    </h4>
-
-                    {analyticsData.statusBreakdown && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', fontSize: '0.85rem' }}>
-                        {/* Completed */}
-                        <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
-                            <span>{lang === 'ar' ? 'المواعيد المكتملة' : 'Completed'}</span>
-                            <span style={{ fontWeight: 'bold', color: '#10b981' }}>{analyticsData.statusBreakdown.completed}</span>
-                          </div>
-                          <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px' }}>
-                            <div
-                              style={{
-                                width: `${analyticsData.totalAppointments > 0 ? Math.round((analyticsData.statusBreakdown.completed / analyticsData.totalAppointments) * 100) : 0}%`,
-                                height: '100%',
-                                background: '#10b981',
-                                borderRadius: '3px'
-                              }}
-                            ></div>
-                          </div>
-                        </div>
-
-                        {/* In Consultation */}
-                        <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
-                            <span>{lang === 'ar' ? 'قيد الكشف الطبي' : 'In Consultation'}</span>
-                            <span style={{ fontWeight: 'bold', color: '#0284c7' }}>{analyticsData.statusBreakdown.inConsultation}</span>
-                          </div>
-                          <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px' }}>
-                            <div
-                              style={{
-                                width: `${analyticsData.totalAppointments > 0 ? Math.round((analyticsData.statusBreakdown.inConsultation / analyticsData.totalAppointments) * 100) : 0}%`,
-                                height: '100%',
-                                background: '#0284c7',
-                                borderRadius: '3px'
-                              }}
-                            ></div>
-                          </div>
-                        </div>
-
-                        {/* Waiting Room */}
-                        <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
-                            <span>{lang === 'ar' ? 'بانتظار الطبيب' : 'Waiting for Doctor'}</span>
-                            <span style={{ fontWeight: 'bold', color: '#f59e0b' }}>{analyticsData.statusBreakdown.waiting}</span>
-                          </div>
-                          <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px' }}>
-                            <div
-                              style={{
-                                width: `${analyticsData.totalAppointments > 0 ? Math.round((analyticsData.statusBreakdown.waiting / analyticsData.totalAppointments) * 100) : 0}%`,
-                                height: '100%',
-                                background: '#f59e0b',
-                                borderRadius: '3px'
-                              }}
-                            ></div>
-                          </div>
-                        </div>
-
-                        {/* Pending Approval */}
-                        <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
-                            <span>{lang === 'ar' ? 'طلبات المواعيد قيد المراجعة' : 'Pending Appointment Requests'}</span>
-                            <span style={{ fontWeight: 'bold', color: '#8b5cf6' }}>{analyticsData.statusBreakdown.pending}</span>
-                          </div>
-                          <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px' }}>
-                            <div
-                              style={{
-                                width: `${analyticsData.totalAppointments > 0 ? Math.round((analyticsData.statusBreakdown.pending / analyticsData.totalAppointments) * 100) : 0}%`,
-                                height: '100%',
-                                background: '#8b5cf6',
-                                borderRadius: '3px'
-                              }}
-                            ></div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </div>
+          <AnalyticsPanel
+            data={analyticsData}
+            loading={loadingAnalytics}
+            error={analyticsError}
+            lang={lang}
+            t={t}
+            onRefresh={() => {
+              setLoadingAnalytics(true);
+              setAnalyticsError('');
+              fetchWithAuth('/api/admin/analytics')
+                .then((response) => {
+                  if (!response.ok) throw new Error('ANALYTICS_LOAD_FAILED');
+                  return response.json();
+                })
+                .then(setAnalyticsData)
+                .catch(() => setAnalyticsError(t('analyticsLoadError')))
+                .finally(() => setLoadingAnalytics(false));
+            }}
+          />
         )}
 
         {activeTab === 'logs' && (
@@ -901,12 +693,6 @@ function PricingTable({ title, kind, items, lang, drafts, setDrafts, onSave }) {
       })}</tbody>
     </table>
   </section>;
-}
-
-function AppointmentTrendChart({data,lang}){
-  const width=720,height=190,padding=28,max=Math.max(...data.map(item=>item.count),1);
-  const points=data.map((item,index)=>`${padding+(index*(width-padding*2))/Math.max(data.length-1,1)},${height-padding-(item.count/max)*(height-padding*2)}`).join(' ');
-  return <section className="glass-card analytics-trend" aria-label={lang==='ar'?'اتجاه المواعيد خلال سبعة أيام':'Seven-day appointment trend'}><div className="section-heading-row"><h4><Calendar size={18}/>{lang==='ar'?'اتجاه المواعيد — 7 أيام':'Appointments trend — 7 days'}</h4></div>{data.length?<><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={lang==='ar'?'مخطط خطي لعدد المواعيد الحقيقي يومياً':'Line chart of real daily appointment counts'} preserveAspectRatio="none"><defs><linearGradient id="trend-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#1479ee" stopOpacity=".25"/><stop offset="1" stopColor="#1479ee" stopOpacity="0"/></linearGradient></defs><polyline points={`${padding},${height-padding} ${points} ${width-padding},${height-padding}`} fill="url(#trend-fill)" stroke="none"/><polyline points={points} fill="none" stroke="#1479ee" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/></svg><div className="analytics-trend__labels">{data.map(item=><span key={item.date}><b>{item.count}</b><small>{new Date(`${item.date}T00:00:00`).toLocaleDateString(lang==='ar'?'ar':undefined,{weekday:'short'})}</small></span>)}</div></>:<p>{lang==='ar'?'لا تتوفر بيانات مواعيد.':'No appointment trend data is available.'}</p>}</section>;
 }
 
 /* ==========================================

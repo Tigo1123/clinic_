@@ -226,11 +226,13 @@ router.get('/analytics', authenticate, checkRoles('ADMIN'), async (req, res) => 
     const doctorVolumeRaw = await prisma.medicalRecord.groupBy({
       by: ['doctorId'],
       _count: { id: true },
-      orderBy: { _count: { id: 'desc' } }
+      orderBy: { _count: { id: 'desc' } },
+      take: 50
     });
 
     // Fetch Doctor details for top doctors
     const doctors = await prisma.doctor.findMany({
+      where: { id: { in: doctorVolumeRaw.map(({ doctorId }) => doctorId) } },
       select: {
         id: true,
         fullNameAr: true,
@@ -290,6 +292,10 @@ router.get('/analytics', authenticate, checkRoles('ADMIN'), async (req, res) => 
         cancelled: statusMap.CANCELLED,
         totalActiveQueue: waitingVisits
       },
+      appointmentStatuses: statusCountsRaw.map((item) => ({
+        status: item.status,
+        count: item._count.status
+      })),
       doctorVisits,
       appointmentTrend,
       financials: {
