@@ -71,7 +71,28 @@ one-time equivalent explicitly before the backend rollout:
 GRANT USAGE ON SEQUENCE public.patient_file_number_seq TO <runtime-application-role>;
 ```
 
-Verify with `has_sequence_privilege` and a least-privilege Patient insert before deploying the
-new backend. Apply the provisioning first, then the migration, then the verification; this keeps
-the previous backend able to create Patients throughout the rollout. Never substitute a table
-`INSERT` grant, sequence ownership, `UPDATE`, or a `PUBLIC` grant for this requirement.
+The deployment sequence is: (1) apply the Prisma migration with the migration role, (2) grant
+sequence `USAGE` to the runtime privilege-bearing role when default privileges did not already
+provide it, (3) verify privileges and database readiness, (4) deploy the backend, and (5) run an
+authorized Patient-creation smoke test. Previous-backend compatibility begins after step 2;
+table `SELECT`/`INSERT`/`UPDATE`/`DELETE` alone is insufficient.
+
+Use safe, non-destructive verification queries with environment-specific role placeholders:
+
+```sql
+SELECT has_sequence_privilege(
+  '<runtime-application-role>',
+  'public.patient_file_number_seq',
+  'USAGE'
+) AS can_generate_mrn,
+has_sequence_privilege(
+  '<runtime-application-role>',
+  'public.patient_file_number_seq',
+  'UPDATE'
+) AS can_update_sequence;
+```
+
+Expected results are `can_generate_mrn = true` and `can_update_sequence = false`.
+Confirm the runtime role is not the sequence owner separately through the catalog before
+starting application traffic. Never substitute a table grant, sequence ownership, `UPDATE`, or
+a `PUBLIC` grant for this requirement.
