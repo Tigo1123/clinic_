@@ -5,6 +5,16 @@ export function searchDoctorMedicines(medicines, query) {
   return medicines.filter((medicine) => fields.some((field) => String(medicine?.[field] || '').toLocaleLowerCase().includes(normalized)));
 }
 
+export function validateDoctorPrescriptionEntry({ selectedDrug, customDrugName, dosage, duration, quantity }) {
+  const customName = String(customDrugName || '').trim();
+  if ((!selectedDrug && !customName) || (selectedDrug && customName)) return 'medicine';
+  if (!String(dosage || '').trim()) return 'dosage';
+  if (!String(duration || '').trim()) return 'duration';
+  const parsedQuantity = Number(quantity);
+  if (!Number.isInteger(parsedQuantity) || parsedQuantity <= 0) return 'quantity';
+  return null;
+}
+
 export function doctorPrescriptionItem(drug, form) {
   const common = {
     dosage: form.dosage.trim(),

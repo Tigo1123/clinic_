@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { doctorPrescriptionItem, duplicatePrescriptionItem, searchDoctorMedicines } from '../src/utils/doctorPrescription.js';
+import { doctorPrescriptionItem, duplicatePrescriptionItem, searchDoctorMedicines, validateDoctorPrescriptionEntry } from '../src/utils/doctorPrescription.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (relative) => readFileSync(path.join(root, relative), 'utf8');
@@ -39,6 +39,32 @@ test('duplicate official and custom entries are detected while edit can exclude 
   assert.equal(duplicatePrescriptionItem([official], official), true);
   assert.equal(duplicatePrescriptionItem([official], official, 0), false);
   assert.equal(duplicatePrescriptionItem([custom], { ...custom, customDrugName: ' rest ' }), true);
+});
+
+test('medicine-entry validation is isolated and identifies the exact missing prescription field', () => {
+  const valid = { selectedDrug: 'panadol', customDrugName: '', dosage: '1x2 daily', duration: '5 Days', quantity: '10' };
+  assert.equal(validateDoctorPrescriptionEntry(valid), null);
+  assert.equal(validateDoctorPrescriptionEntry({ ...valid, selectedDrug: '' }), 'medicine');
+  assert.equal(validateDoctorPrescriptionEntry({ ...valid, dosage: '' }), 'dosage');
+  assert.equal(validateDoctorPrescriptionEntry({ ...valid, duration: '' }), 'duration');
+  assert.equal(validateDoctorPrescriptionEntry({ ...valid, quantity: '0' }), 'quantity');
+  assert.equal(validateDoctorPrescriptionEntry({ ...valid, quantity: '1.5' }), 'quantity');
+  assert.equal(validateDoctorPrescriptionEntry({ ...valid, selectedDrug: '', customDrugName: 'Manual medicine' }), null);
+  assert.equal('diagnosis' in valid, false);
+  assert.equal('symptoms' in valid, false);
+  assert.equal('treatment' in valid, false);
+});
+
+test('lab-return finalization and prescription controls have separate validation boundaries', () => {
+  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
+  assert.match(dashboard, /const handleAddDrugToRx = \(event\) => \{\s*event\?\.preventDefault\(\)/);
+  assert.match(dashboard, /type="button" className="btn btn-secondary doctor-add-prescription" onClick=\{handleAddDrugToRx\}/);
+  assert.match(dashboard, /const handleSaveConsultation = async \(event\) => \{\s*event\?\.preventDefault\(\)/);
+  assert.match(dashboard, /يرجى إدخال التشخيص قبل إنهاء الزيارة/);
+  assert.match(dashboard, /Please enter the diagnosis before completing the visit/);
+  assert.doesNotMatch(dashboard, /setErrorMsg\(t\('requiredField'\)\)/);
+  assert.match(dashboard, /prescribedDrugs: prescribedItems/);
+  assert.match(dashboard, /`\/api\/records\/\$\{currentRecordId\}\/finalize`/);
 });
 
 test('doctor prescription UI uses accessible combobox without formulary chip cloud', () => {

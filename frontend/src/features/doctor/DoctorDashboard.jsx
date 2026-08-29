@@ -8,7 +8,7 @@ import RoleHero from '../../components/healthcare/RoleHero';
 import { clinicDateString } from '../../utils/clinicTime';
 import { staffApiRequest as apiRequest } from '../../services/apiClient';
 import MedicineCombobox from './MedicineCombobox';
-import { doctorPrescriptionItem, duplicatePrescriptionItem } from '../../utils/doctorPrescription';
+import { doctorPrescriptionItem, duplicatePrescriptionItem, validateDoctorPrescriptionEntry } from '../../utils/doctorPrescription';
 import './doctorDashboard.css';
 
 export default function DoctorDashboard({ user, lang, t }) {
@@ -51,6 +51,8 @@ export default function DoctorDashboard({ user, lang, t }) {
   const [medicineMode, setMedicineMode] = useState('official');
   const [editingPrescriptionIndex, setEditingPrescriptionIndex] = useState(-1);
   const [prescriptionMessage, setPrescriptionMessage] = useState('');
+  const [prescriptionInvalidField, setPrescriptionInvalidField] = useState('');
+  const [consultationInvalidField, setConsultationInvalidField] = useState('');
 
   // Lab services selectors
   const [clinicalServices, setClinicalServices] = useState([]);
@@ -348,19 +350,26 @@ export default function DoctorDashboard({ user, lang, t }) {
 
 
 
-  const handleAddDrugToRx = () => {
+  const focusClinicalField = (fieldId) => {
+    requestAnimationFrame(() => document.getElementById(fieldId)?.focus());
+  };
+
+  const handleAddDrugToRx = (event) => {
+    event?.preventDefault();
     const parsedQuantity = Number(quantity);
     const customName = customDrugName.trim();
 
-    if (
-      (!selectedDrug && !customName) ||
-      (selectedDrug && customName) ||
-      !dosage ||
-      !duration ||
-      !Number.isInteger(parsedQuantity) ||
-      parsedQuantity <= 0
-    ) {
-      setPrescriptionMessage(lang === 'ar' ? 'اختر دواءً وأكمل الجرعة والمدة والكمية.' : 'Choose a medicine and complete dosage, duration, and quantity.');
+    const invalidField = validateDoctorPrescriptionEntry({ selectedDrug, customDrugName: customName, dosage, duration, quantity });
+    if (invalidField) {
+      const validation = {
+        medicine: { id: medicineMode === 'custom' ? 'doctor-custom-medicine' : 'doctor-medicine-search', ar: 'يرجى اختيار الدواء أو إدخال اسم الدواء المكتوب يدويًا.', en: 'Please select a medicine or enter the custom medicine name.' },
+        dosage: { id: 'doctor-rx-dosage', ar: 'يرجى إدخال الجرعة والتكرار.', en: 'Please enter the dosage and frequency.' },
+        duration: { id: 'doctor-rx-duration', ar: 'يرجى تحديد مدة العلاج.', en: 'Please specify the treatment duration.' },
+        quantity: { id: 'doctor-rx-quantity', ar: 'يرجى تحديد كمية صحيحة أكبر من صفر.', en: 'Please enter a valid quantity greater than zero.' }
+      }[invalidField];
+      setPrescriptionInvalidField(invalidField);
+      setPrescriptionMessage(lang === 'ar' ? validation.ar : validation.en);
+      focusClinicalField(validation.id);
       return;
     }
 
@@ -381,6 +390,7 @@ export default function DoctorDashboard({ user, lang, t }) {
     setInstrAr('');
     setInstrEn('');
     setEditingPrescriptionIndex(-1);
+    setPrescriptionInvalidField('');
     setPrescriptionMessage('');
   };
 
@@ -426,7 +436,8 @@ export default function DoctorDashboard({ user, lang, t }) {
     setCustomTests(customTests.filter((item) => item !== testName));
   };
 
-  const handleSaveConsultation = async () => {
+  const handleSaveConsultation = async (event) => {
+    event?.preventDefault();
     if (isReadOnlyVisit) {
       setErrorMsg(lang === 'ar' ? 'هذه الزيارة مكتملة ولا يمكن تعديلها.' : 'This visit is completed and cannot be edited.');
       return;
@@ -437,6 +448,7 @@ export default function DoctorDashboard({ user, lang, t }) {
 
     setErrorMsg('');
     setSuccessMsg('');
+    setConsultationInvalidField('');
 
     const isFinalize = isFinalizingVisit && currentRecordId;
     const hasLabOrders =
@@ -444,12 +456,16 @@ export default function DoctorDashboard({ user, lang, t }) {
       customTests.length > 0;
 
     if (!isFinalize && !hasLabOrders && !diagnosis.trim()) {
-      setErrorMsg(t('requiredField'));
+      setConsultationInvalidField('diagnosis');
+      setErrorMsg(lang === 'ar' ? 'يرجى إدخال التشخيص قبل إنهاء الزيارة.' : 'Please enter the diagnosis before completing the visit.');
+      focusClinicalField('doctor-diagnosis');
       return;
     }
 
     if (isFinalize && !diagnosis.trim()) {
-      setErrorMsg(t('requiredField'));
+      setConsultationInvalidField('diagnosis');
+      setErrorMsg(lang === 'ar' ? 'يرجى إدخال التشخيص قبل إنهاء الزيارة.' : 'Please enter the diagnosis before completing the visit.');
+      focusClinicalField('doctor-diagnosis');
       return;
     }
 
@@ -1037,7 +1053,7 @@ export default function DoctorDashboard({ user, lang, t }) {
                               type="button"
                               className="btn btn-secondary"
                               style={{ padding: '2px 6px', fontSize: '0.7rem', textTransform: 'none', background: 'rgba(255,255,255,0.05)' }}
-                              onClick={() => setDiagnosis(cd.val)}
+                              onClick={() => { setDiagnosis(cd.val); setConsultationInvalidField(''); }}
                             >
                               {lang === 'ar' ? cd.labelAr : cd.labelEn}
                             </button>
@@ -1054,9 +1070,12 @@ export default function DoctorDashboard({ user, lang, t }) {
 }
                           className="form-input"
                           required
+                          aria-invalid={consultationInvalidField === 'diagnosis'}
+                          aria-describedby={consultationInvalidField === 'diagnosis' ? 'doctor-diagnosis-error' : undefined}
                           value={diagnosis}
-                          onChange={(e) => setDiagnosis(e.target.value)}
+                          onChange={(e) => { setDiagnosis(e.target.value); setConsultationInvalidField(''); }}
                         />
+                        {consultationInvalidField === 'diagnosis' && <small id="doctor-diagnosis-error" className="doctor-field-error">{lang === 'ar' ? 'يرجى إدخال التشخيص قبل إنهاء الزيارة.' : 'Please enter the diagnosis before completing the visit.'}</small>}
                       </div>
 
                       <div className="form-group" style={{ marginBottom: 0 }}>
@@ -1082,14 +1101,14 @@ export default function DoctorDashboard({ user, lang, t }) {
                         {lang === 'ar' ? 'الوصفة الطبية السريعة' : 'Rapid Prescription Builder'}
                       </h3>
                       <div className="doctor-medicine-mode" role="group" aria-label={lang === 'ar' ? 'نوع الدواء' : 'Medicine type'}>
-                        <button type="button" className={medicineMode === 'official' ? 'is-selected' : ''} aria-pressed={medicineMode === 'official'} onClick={() => { setMedicineMode('official'); setCustomDrugName(''); }}>{lang === 'ar' ? 'دواء من القائمة الرسمية' : 'Official formulary medicine'}</button>
-                        <button type="button" className={medicineMode === 'custom' ? 'is-selected' : ''} aria-pressed={medicineMode === 'custom'} onClick={() => { setMedicineMode('custom'); setSelectedDrug(''); }}>{lang === 'ar' ? 'دواء غير موجود / كتابة يدوية' : 'Medicine not found / custom'}</button>
+                        <button type="button" className={medicineMode === 'official' ? 'is-selected' : ''} aria-pressed={medicineMode === 'official'} onClick={() => { setMedicineMode('official'); setCustomDrugName(''); setPrescriptionInvalidField(''); setPrescriptionMessage(''); }}>{lang === 'ar' ? 'دواء من القائمة الرسمية' : 'Official formulary medicine'}</button>
+                        <button type="button" className={medicineMode === 'custom' ? 'is-selected' : ''} aria-pressed={medicineMode === 'custom'} onClick={() => { setMedicineMode('custom'); setSelectedDrug(''); setPrescriptionInvalidField(''); setPrescriptionMessage(''); }}>{lang === 'ar' ? 'دواء غير موجود / كتابة يدوية' : 'Medicine not found / custom'}</button>
                       </div>
-                      {medicineMode === 'official' ? <MedicineCombobox medicines={drugs} selectedId={selectedDrug} lang={lang} onSelect={(id) => { setSelectedDrug(id); setCustomDrugName(''); setPrescriptionMessage(''); }} /> : <div className="form-group doctor-custom-medicine"><label className="form-label" htmlFor="doctor-custom-medicine">{lang === 'ar' ? 'اسم الدواء المكتوب يدويًا' : 'Custom medicine name'}</label><input id="doctor-custom-medicine" type="text" className="form-input" dir={lang === 'ar' ? 'rtl' : 'ltr'} value={customDrugName} onChange={(event) => { setCustomDrugName(event.target.value); setSelectedDrug(''); setPrescriptionMessage(''); }} /><small>{lang === 'ar' ? 'سيُرسل هذا الدواء إلى الصيدلي للمراجعة ولن يتحول تلقائيًا إلى دواء رسمي.' : 'This medicine will require pharmacist review and will not become a formulary entry automatically.'}</small></div>}
+                      {medicineMode === 'official' ? <MedicineCombobox medicines={drugs} selectedId={selectedDrug} lang={lang} invalid={prescriptionInvalidField === 'medicine'} onSelect={(id) => { setSelectedDrug(id); setCustomDrugName(''); setPrescriptionInvalidField(''); setPrescriptionMessage(''); }} /> : <div className="form-group doctor-custom-medicine"><label className="form-label" htmlFor="doctor-custom-medicine">{lang === 'ar' ? 'اسم الدواء المكتوب يدويًا' : 'Custom medicine name'}</label><input id="doctor-custom-medicine" type="text" className="form-input" dir={lang === 'ar' ? 'rtl' : 'ltr'} aria-invalid={prescriptionInvalidField === 'medicine'} value={customDrugName} onChange={(event) => { setCustomDrugName(event.target.value); setSelectedDrug(''); setPrescriptionInvalidField(''); setPrescriptionMessage(''); }} /><small>{lang === 'ar' ? 'سيُرسل هذا الدواء إلى الصيدلي للمراجعة ولن يتحول تلقائيًا إلى دواء رسمي.' : 'This medicine will require pharmacist review and will not become a formulary entry automatically.'}</small></div>}
                       <div className="doctor-prescription-fields">
-                        <div className="form-group"><label className="form-label" htmlFor="doctor-rx-dosage">{lang === 'ar' ? 'الجرعة والتكرار' : 'Dosage and frequency'}</label><input id="doctor-rx-dosage" type="text" className="form-input" dir="ltr" value={dosage} onChange={(event) => setDosage(event.target.value)} /><div className="doctor-rx-helpers">{quickDosagePresets.map((preset) => <button key={preset} type="button" onClick={() => setDosage(preset)}>{preset}</button>)}</div></div>
-                        <div className="form-group"><label className="form-label" htmlFor="doctor-rx-duration">{lang === 'ar' ? 'مدة العلاج' : 'Duration'}</label><input id="doctor-rx-duration" type="text" className="form-input" value={duration} onChange={(event) => setDuration(event.target.value)} /><div className="doctor-rx-helpers">{quickDurationPresets.map((preset) => <button key={preset.value} type="button" onClick={() => setDuration(preset.value)}>{lang === 'ar' ? preset.ar : preset.en}</button>)}</div></div>
-                        <div className="form-group"><label className="form-label" htmlFor="doctor-rx-quantity">{lang === 'ar' ? 'الكمية الموصوفة' : 'Prescribed quantity'}</label><input id="doctor-rx-quantity" type="number" min="1" step="1" className="form-input" dir="ltr" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></div>
+                        <div className="form-group"><label className="form-label" htmlFor="doctor-rx-dosage">{lang === 'ar' ? 'الجرعة والتكرار' : 'Dosage and frequency'}</label><input id="doctor-rx-dosage" type="text" className="form-input" dir="ltr" aria-invalid={prescriptionInvalidField === 'dosage'} value={dosage} onChange={(event) => { setDosage(event.target.value); setPrescriptionInvalidField(''); setPrescriptionMessage(''); }} /><div className="doctor-rx-helpers">{quickDosagePresets.map((preset) => <button key={preset} type="button" onClick={() => { setDosage(preset); setPrescriptionInvalidField(''); setPrescriptionMessage(''); }}>{preset}</button>)}</div></div>
+                        <div className="form-group"><label className="form-label" htmlFor="doctor-rx-duration">{lang === 'ar' ? 'مدة العلاج' : 'Duration'}</label><input id="doctor-rx-duration" type="text" className="form-input" aria-invalid={prescriptionInvalidField === 'duration'} value={duration} onChange={(event) => { setDuration(event.target.value); setPrescriptionInvalidField(''); setPrescriptionMessage(''); }} /><div className="doctor-rx-helpers">{quickDurationPresets.map((preset) => <button key={preset.value} type="button" onClick={() => { setDuration(preset.value); setPrescriptionInvalidField(''); setPrescriptionMessage(''); }}>{lang === 'ar' ? preset.ar : preset.en}</button>)}</div></div>
+                        <div className="form-group"><label className="form-label" htmlFor="doctor-rx-quantity">{lang === 'ar' ? 'الكمية الموصوفة' : 'Prescribed quantity'}</label><input id="doctor-rx-quantity" type="number" min="1" step="1" className="form-input" dir="ltr" aria-invalid={prescriptionInvalidField === 'quantity'} value={quantity} onChange={(event) => { setQuantity(event.target.value); setPrescriptionInvalidField(''); setPrescriptionMessage(''); }} /></div>
                         <div className="form-group"><label className="form-label" htmlFor="doctor-rx-instructions-ar">تعليمات الدواء بالعربية</label><input id="doctor-rx-instructions-ar" type="text" className="form-input" dir="rtl" value={instrAr} onChange={(event) => setInstrAr(event.target.value)} /></div>
                         <div className="form-group"><label className="form-label" htmlFor="doctor-rx-instructions-en">Medication instructions in English</label><input id="doctor-rx-instructions-en" type="text" className="form-input" dir="ltr" value={instrEn} onChange={(event) => setInstrEn(event.target.value)} /></div>
                       </div>

@@ -82,6 +82,8 @@
 .doctor-consultation-actions > div { display: grid; gap: .15rem; }
 .doctor-consultation-actions strong { color: var(--doctor-ink); font-size: .78rem; }
 .doctor-consultation-actions span { color: var(--doctor-muted); font-size: .66rem; }
+.doctor-field-error { display: block; margin-top: 6px; color: var(--danger); font-size: .78rem; font-weight: 600; }
+.doctor-dashboard [aria-invalid="true"] { border-color: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 14%, transparent); }
 .doctor-consultation-actions .btn { min-height: 42px; flex: 0 0 auto; padding-inline: 1rem; font-size: .78rem; font-weight: 750; }
 .doctor-workspace-empty { display: grid; max-width: 760px; min-height: 380px; place-items: center; align-content: center; gap: .6rem; margin: auto; padding: 1.5rem; color: var(--doctor-muted); text-align: center; }
 .doctor-workspace-empty__icon { display: grid; width: 66px; height: 66px; place-items: center; border-radius: 18px; color: var(--primary); background: color-mix(in srgb, var(--primary) 9%, transparent); }
