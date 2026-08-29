@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Calendar, Check, Clock, Copy, FileText, Mail, MessageCircle, MessageSquare, Pill, Printer, Receipt, Shield, TestTube, User, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AlertCircle, Calendar, Check, Clock, Copy, FileText, Mail, MessageCircle, Pill, Printer, Receipt, Shield, TestTube, User, X } from 'lucide-react';
 import { fetchWithAuth } from '../../services/staffApi';
 import { useAuth } from '../../app/auth/auth-context';
 import './patientFile.css';
@@ -32,7 +32,8 @@ function localizedStatus(status, lang) {
 
 function patientAge(dateOfBirth) {
   if (!dateOfBirth) return null;
-  const birth = new Date(`${dateOfBirth}T00:00:00`);
+  const dateOnly = String(dateOfBirth).slice(0, 10);
+  const birth = new Date(/^\d{4}-\d{2}-\d{2}$/.test(dateOnly) ? `${dateOnly}T00:00:00` : dateOfBirth);
   if (Number.isNaN(birth.getTime())) return null;
   const today = new Date();
   let age = today.getFullYear() - birth.getFullYear();
@@ -42,6 +43,8 @@ function patientAge(dateOfBirth) {
 
 export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary }) {
   const { user } = useAuth();
+  const dialogRef = useRef(null);
+  const closeButtonRef = useRef(null);
 
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -87,6 +90,40 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
   useEffect(() => {
     loadProfile();
   }, [loadProfile]);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    closeButtonRef.current?.focus();
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialogRef.current) return;
+      const focusable = [...dialogRef.current.querySelectorAll('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus?.();
+    };
+  }, [onClose]);
 
   const handleGenerateClaimCode = async () => {
     if (!patientId || !canManagePortalLink || profile?.portalLinked) {
@@ -190,81 +227,122 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
 
   if (!patientId) return null;
 
+  const displayName = profile
+    ? (lang === 'ar' ? profile.fullNameAr || profile.fullNameEn : profile.fullNameEn || profile.fullNameAr)
+    : (lang === 'ar' ? 'ملف المريض' : 'Patient File');
+  const age = patientAge(profile?.dateOfBirth);
+  const formattedDateOfBirth = profile?.dateOfBirth
+    ? new Date(`${String(profile.dateOfBirth).slice(0, 10)}T00:00:00`).toLocaleDateString(lang === 'ar' ? 'ar' : 'en', {
+        day: 'numeric', month: 'short', year: 'numeric'
+      })
+    : '—';
+  const visibleSections = profile ? (profile.availableSections || ['overview']) : ['overview'];
+  const handleSectionKeyDown = (event, index) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    let nextIndex = index;
+    if (event.key === 'Home') nextIndex = 0;
+    else if (event.key === 'End') nextIndex = visibleSections.length - 1;
+    else {
+      const visualStep = event.key === 'ArrowRight' ? 1 : -1;
+      const step = lang === 'ar' ? -visualStep : visualStep;
+      nextIndex = (index + step + visibleSections.length) % visibleSections.length;
+    }
+    const nextSection = visibleSections[nextIndex];
+    setActiveSection(nextSection);
+    window.requestAnimationFrame(() => document.getElementById(`patient-file-tab-${nextSection}`)?.focus());
+  };
+
   return (
-    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1050 }}>
+    <div className="modal-overlay patient-file-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} style={{ zIndex: 1050 }}>
       <div
-        className="modal-content glass-panel no-print-modal"
-        onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: '850px', width: '95%', maxHeight: '90vh', overflowY: 'auto' }}
+        ref={dialogRef}
+        className="modal-content no-print-modal patient-file-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="patient-file-title"
+        aria-describedby="patient-file-subtitle"
+        dir={lang === 'ar' ? 'rtl' : 'ltr'}
       >
-        <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'linear-gradient(135deg, #0284c7, #0d9488)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 'bold', fontSize: '1.2rem' }}>
-              <User size={24} />
+        <header className="patient-file-header">
+          <div className="patient-file-identity">
+            <div className="patient-file-avatar" aria-hidden="true">
+              <User size={25} />
             </div>
-            <div>
-              <h3 style={{ margin: 0, fontSize: '1.25rem' }}>
-                {lang === 'ar' ? profile?.fullNameAr || profile?.fullNameEn : profile?.fullNameEn || profile?.fullNameAr || (lang === 'ar' ? 'ملف المريض' : 'Patient Profile')}
-              </h3>
-              <p style={{ margin: 0, fontSize: '0.85rem', opacity: 0.75 }}>
+            <div className="patient-file-identity-copy">
+              <div className="patient-file-name-row">
+                <h2 id="patient-file-title">{displayName}</h2>
+                {profile?.status && <span className="patient-file-status">{localizedStatus(profile.status, lang)}</span>}
+              </div>
+              <p id="patient-file-subtitle">
                 {lang === 'ar' ? 'ملف المريض' : 'Patient File'}
               </p>
             </div>
           </div>
-          <button type="button" className="btn-close" onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem' }}>
+          <button ref={closeButtonRef} type="button" className="patient-file-close" onClick={onClose} aria-label={lang === 'ar' ? 'إغلاق ملف المريض' : 'Close patient file'}>
             <X size={20} />
           </button>
-        </div>
+        </header>
 
-        <div className="modal-body" style={{ paddingTop: '1rem' }}>
+        <div className="modal-body patient-file-body">
           {loading ? (
-            <div style={{ textAlign: 'center', padding: '2rem' }}>
+            <div className="patient-file-state" role="status">
               <div className="spinner" style={{ margin: '0 auto 1rem' }}></div>
               <p>{lang === 'ar' ? 'جاري تحميل ملف المريض...' : 'Loading patient profile...'}</p>
             </div>
           ) : error ? (
-            <div className="alert alert-error" style={{ textAlign: 'center', padding: '1.5rem' }}>
-              <AlertCircle size={32} style={{ marginBottom: '0.5rem', color: '#ef4444' }} />
+            <div className="alert alert-error patient-file-state" role="alert">
+              <AlertCircle size={32} />
               <p style={{ margin: 0 }}>{error}</p>
-              <button className="btn btn-secondary" onClick={loadProfile} style={{ marginTop: '1rem' }}>
+              <button type="button" className="btn btn-secondary" onClick={loadProfile}>
                 {lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}
               </button>
             </div>
           ) : profile ? (
-            <div>
+            <div className="patient-file-content">
               {/* Demographics Summary Card */}
-              <div className="patient-file-card glass-card">
-                <div className="patient-file-number" dir="ltr">
-                  <span>{lang === 'ar' ? 'رقم الملف' : 'File number'}</span>
-                  <strong>{profile.fileNumber || '—'}</strong>
+              <div className="patient-file-card">
+                <section className="patient-file-number" aria-labelledby="patient-file-number-label">
+                  <div className="patient-file-number-copy">
+                    <span id="patient-file-number-label">{lang === 'ar' ? 'رقم الملف' : 'File number'}</span>
+                    <strong dir="ltr">{profile.fileNumber || '—'}</strong>
+                  </div>
                   <button type="button" className="patient-file-copy" onClick={handleCopyFileNumber} aria-label={lang === 'ar' ? 'نسخ رقم الملف' : 'Copy file number'} disabled={!profile.fileNumber}>
-                    {fileCopied ? <Check size={15} /> : <Copy size={15} />}
+                    {fileCopied ? <Check size={16} /> : <Copy size={16} />}
                     <span>{fileCopied ? (lang === 'ar' ? 'تم النسخ' : 'Copied') : (lang === 'ar' ? 'نسخ' : 'Copy')}</span>
                   </button>
-                </div>
-                <div className="patient-file-demographics">
-                  <div>
-                    <span style={{ opacity: 0.75 }}>{lang === 'ar' ? 'رقم الهاتف:' : 'Phone:'}</span>{' '}
-                    <strong dir="ltr">{profile.phone || '—'}</strong>
+                </section>
+
+                <section className="patient-file-details" aria-labelledby="patient-details-title">
+                  <h3 id="patient-details-title">{lang === 'ar' ? 'بيانات المريض' : 'Patient details'}</h3>
+                  <div className="patient-file-demographics">
+                    <div className="patient-file-field">
+                      <span>{lang === 'ar' ? 'رقم الهاتف' : 'Phone'}</span>
+                      <strong dir="ltr">{profile.phone || '—'}</strong>
+                    </div>
+                    <div className="patient-file-field">
+                      <span>{lang === 'ar' ? 'الجنس' : 'Gender'}</span>
+                      <strong>{profile.gender === 'MALE' ? (lang === 'ar' ? 'ذكر' : 'Male') : profile.gender === 'FEMALE' ? (lang === 'ar' ? 'أنثى' : 'Female') : '—'}</strong>
+                    </div>
+                    <div className="patient-file-field">
+                      <span>{lang === 'ar' ? 'تاريخ الميلاد' : 'Date of birth'}</span>
+                      <strong>{formattedDateOfBirth}</strong>
+                    </div>
+                    <div className="patient-file-field">
+                      <span>{lang === 'ar' ? 'العمر' : 'Age'}</span>
+                      <strong>{age == null ? '—' : `${age} ${lang === 'ar' ? 'سنة' : 'years'}`}</strong>
+                    </div>
+                    <div className="patient-file-field">
+                      <span>{lang === 'ar' ? 'الحالة' : 'Status'}</span>
+                      <strong>{localizedStatus(profile.status, lang)}</strong>
+                    </div>
+                    <div className="patient-file-field patient-file-field--insurance">
+                      <span className="patient-file-field-label"><Shield size={14} aria-hidden="true" />{lang === 'ar' ? 'التأمين' : 'Insurance'}</span>
+                      <strong>{profile.insurance?.providerName || (lang === 'ar' ? 'غير متوفر' : 'Not available')}</strong>
+                      {profile.insurance && <small>{lang === 'ar' ? 'نسبة التغطية' : 'Coverage'}: <bdi>{profile.insurance.coverageRate}%</bdi></small>}
+                    </div>
                   </div>
-                  <div>
-                    <span style={{ opacity: 0.75 }}>{lang === 'ar' ? 'الجنس / تاريخ الميلاد:' : 'Gender / DOB:'}</span>{' '}
-                    <strong>
-      {profile.gender === 'MALE' ? (lang === 'ar' ? 'ذكر' : 'Male') : profile.gender === 'FEMALE' ? (lang === 'ar' ? 'أنثى' : 'Female') : '—'}{' '}
-      (
-      {profile.dateOfBirth
-        ? new Date(profile.dateOfBirth).toLocaleDateString(
-            lang === 'ar' ? 'ar' : 'en'
-          )
-        : (lang === 'ar' ? 'غير متوفر' : 'N/A')}
-      ){patientAge(profile.dateOfBirth) != null ? ` · ${patientAge(profile.dateOfBirth)} ${lang === 'ar' ? 'سنة' : 'years'}` : ''}
-    </strong>
-                  </div>
-                  <div>
-                    <span style={{ opacity: 0.75 }}>{lang === 'ar' ? 'الحالة:' : 'Status:'}</span>{' '}
-                    <span className="patient-file-status">{localizedStatus(profile.status, lang)}</span>
-                  </div>
-                </div>
+                </section>
 
                 <div className="patient-file-summary" aria-label={lang === 'ar' ? 'ملخص الملف' : 'File summary'}>
                   {[
@@ -274,22 +352,12 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
                       ['prescriptions', lang === 'ar' ? 'الوصفات' : 'Prescriptions'],
                       ['labOrders', lang === 'ar' ? 'طلبات المختبر' : 'Lab orders']
                     ] : [['invoices', lang === 'ar' ? 'الفواتير' : 'Invoices']])
-                  ].map(([key, label]) => <div key={key}><strong>{profile.summaryCounts?.[key] ?? 0}</strong><span>{label}</span></div>)}
+                  ].map(([key, label]) => <div key={key} className="patient-file-metric"><strong>{profile.summaryCounts?.[key] ?? 0}</strong><span>{label}</span></div>)}
                 </div>
 
                 {/* Patient Portal Link Management */}
                 {canManagePortalLink && (
-                  <div
-                    style={{
-                      marginTop: '1rem',
-                      padding: '1rem',
-                      borderRadius: '10px',
-                      border: '1px solid var(--border-color)',
-                      background: profile.portalLinked
-                        ? 'rgba(16, 185, 129, 0.08)'
-                        : 'rgba(2, 132, 199, 0.08)'
-                    }}
-                  >
+                  <div className={`patient-file-portal ${profile.portalLinked ? 'is-linked' : ''}`}>
                     <div
                       style={{
                         display: 'flex',
@@ -476,31 +544,24 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
                   </div>
                 )}
 
-                {/* Operational insurance context only; no fabricated health summary. */}
-                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
-                  {profile.insurance && (
-                    <span style={{ background: '#10b98122', border: '1px solid #10b981', color: '#10b981', padding: '3px 8px', borderRadius: '8px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <Shield size={12} />
-                      <strong>{profile.insurance.providerName}</strong> ({profile.insurance.coverageRate}%)
-                    </span>
-                  )}
+                {/* Operational communication action; no fabricated health summary. */}
+                <div className="patient-file-actions">
                   {profile.phone && (
                     <a
                       href={getWhatsAppLink(profile.phone, lang === 'ar' ? `مرحباً ${profile.fullNameAr}، نرحب بك في مركز الشفاء الطبي.` : `Hello ${profile.fullNameEn}, welcome to Al-Shifa Medical Center.`)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="btn btn-whatsapp"
-                      style={{ padding: '2px 8px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'none' }}
+                      className="patient-file-whatsapp"
                     >
-                      <MessageSquare size={12} />
+                      <MessageCircle size={17} />
                       {lang === 'ar' ? 'واتساب' : 'WhatsApp'}
                     </a>
                   )}
                 </div>
               </div>
 
-              <nav className="patient-file-tabs" aria-label={lang === 'ar' ? 'أقسام ملف المريض' : 'Patient file sections'}>
-                {(profile.availableSections || ['overview']).map((section) => {
+              <nav className="patient-file-tabs" role="tablist" aria-label={lang === 'ar' ? 'أقسام ملف المريض' : 'Patient file sections'}>
+                {visibleSections.map((section, index) => {
                   const labels = {
                     overview: lang === 'ar' ? 'نظرة عامة' : 'Overview',
                     appointments: lang === 'ar' ? 'المواعيد' : 'Appointments',
@@ -509,12 +570,23 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
                     laboratory: lang === 'ar' ? 'المختبر' : 'Laboratory',
                     billing: lang === 'ar' ? 'الفوترة' : 'Billing'
                   };
-                  return <button key={section} type="button" className={activeSection === section ? 'active' : ''} onClick={() => setActiveSection(section)}>{labels[section]}</button>;
+                  return <button key={section} id={`patient-file-tab-${section}`} type="button" role="tab" aria-selected={activeSection === section} aria-controls={`patient-file-panel-${section}`} tabIndex={activeSection === section ? 0 : -1} className={activeSection === section ? 'active' : ''} onClick={() => setActiveSection(section)} onKeyDown={(event) => handleSectionKeyDown(event, index)}>{labels[section]}</button>;
                 })}
               </nav>
 
+              {activeSection === 'overview' && (
+                <section id="patient-file-panel-overview" role="tabpanel" aria-labelledby="patient-file-tab-overview" className="patient-file-section patient-file-overview">
+                  <h4><FileText size={18} />{lang === 'ar' ? 'نظرة عامة' : 'Overview'}</h4>
+                  <div className="patient-file-overview-grid">
+                    <div><span>{lang === 'ar' ? 'الحالة الحالية' : 'Current status'}</span><strong>{localizedStatus(profile.status, lang)}</strong></div>
+                    <div><span>{lang === 'ar' ? 'آخر موعد مسجل' : 'Latest appointment'}</span><strong>{profile.appointments?.[0]?.appointmentDate || '—'}</strong></div>
+                    <div><span>{lang === 'ar' ? 'التغطية التأمينية' : 'Insurance coverage'}</span><strong>{profile.insurance ? `${profile.insurance.coverageRate}%` : '—'}</strong></div>
+                  </div>
+                </section>
+              )}
+
               {activeSection === 'appointments' && (
-                <section className="patient-file-section">
+                <section id="patient-file-panel-appointments" role="tabpanel" aria-labelledby="patient-file-tab-appointments" className="patient-file-section">
                   <h4><Calendar size={18} />{lang === 'ar' ? 'المواعيد' : 'Appointments'}</h4>
                   {!(profile.appointments || []).length ? <p className="patient-file-empty">{lang === 'ar' ? 'لا توجد مواعيد مسجلة.' : 'No appointments recorded.'}</p> : (
                     <div className="patient-file-list">{profile.appointments.map((appointment) => <article key={appointment.id} className="patient-file-list-item"><div><strong>{appointment.appointmentDate}</strong><span dir="ltr">{appointment.appointmentTime}</span></div><div>{appointment.doctor ? (lang === 'ar' ? appointment.doctor.fullNameAr : appointment.doctor.fullNameEn) : '—'}</div><span className="patient-file-status">{localizedStatus(appointment.status, lang)}</span></article>)}</div>
@@ -523,28 +595,29 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
               )}
 
               {activeSection === 'billing' && (
-                <section className="patient-file-section">
+                <section id="patient-file-panel-billing" role="tabpanel" aria-labelledby="patient-file-tab-billing" className="patient-file-section">
                   <h4><Receipt size={18} />{lang === 'ar' ? 'الفوترة' : 'Billing'}</h4>
                   {!(profile.invoices || []).length ? <p className="patient-file-empty">{lang === 'ar' ? 'لا توجد فواتير مسجلة.' : 'No invoices recorded.'}</p> : <div className="patient-file-list">{profile.invoices.map((invoice) => <article key={invoice.id} className="patient-file-list-item"><div><strong>{new Date(invoice.invoiceDate).toLocaleDateString(lang === 'ar' ? 'ar' : 'en')}</strong><span>{invoice.invoiceType}</span></div><strong>{invoice.totalAmountSdg.toLocaleString(lang === 'ar' ? 'ar' : 'en')} {lang === 'ar' ? 'ج.س' : 'SDG'}</strong><span className="patient-file-status">{localizedStatus(invoice.paymentStatus, lang)}</span></article>)}</div>}
                 </section>
               )}
 
               {activeSection === 'prescriptions' && (
-                <section className="patient-file-section">
+                <section id="patient-file-panel-prescriptions" role="tabpanel" aria-labelledby="patient-file-tab-prescriptions" className="patient-file-section">
                   <h4><Pill size={18} />{lang === 'ar' ? 'الوصفات' : 'Prescriptions'}</h4>
                   {!(profile.prescriptions || []).length ? <p className="patient-file-empty">{lang === 'ar' ? 'لا توجد وصفات ضمن السجل المصرح به.' : 'No prescriptions in the authorized record.'}</p> : <div className="patient-file-list">{profile.prescriptions.map((prescription) => <article key={prescription.id} className="patient-file-detail-card"><header><strong>{new Date(prescription.prescriptionDate).toLocaleDateString(lang === 'ar' ? 'ar' : 'en')}</strong><span className="patient-file-status">{localizedStatus(prescription.status, lang)}</span></header>{prescription.medicines.map((medicine, index) => <div className="patient-file-medicine" key={`${prescription.id}-${index}`}><strong>{lang === 'ar' ? medicine.nameAr || medicine.nameEn : medicine.nameEn || medicine.nameAr}</strong><span>{[medicine.strength, medicine.dosage, medicine.duration].filter(Boolean).join(' · ')}</span><small>{lang === 'ar' ? medicine.instructionsAr || medicine.instructionsEn : medicine.instructionsEn || medicine.instructionsAr}</small></div>)}</article>)}</div>}
                 </section>
               )}
 
               {activeSection === 'laboratory' && (
-                <section className="patient-file-section">
+                <section id="patient-file-panel-laboratory" role="tabpanel" aria-labelledby="patient-file-tab-laboratory" className="patient-file-section">
                   <h4><TestTube size={18} />{lang === 'ar' ? 'المختبر' : 'Laboratory'}</h4>
                   {!(profile.laboratory || []).length ? <p className="patient-file-empty">{lang === 'ar' ? 'لا توجد طلبات مختبر ضمن السجل المصرح به.' : 'No laboratory orders in the authorized record.'}</p> : <div className="patient-file-list">{profile.laboratory.map((order) => <article key={order.id} className="patient-file-detail-card"><header><strong>{new Date(order.orderDate).toLocaleDateString(lang === 'ar' ? 'ar' : 'en')}</strong><span className="patient-file-status">{localizedStatus(order.status, lang)}</span></header>{order.tests.map((test, index) => <div className="patient-file-lab" key={`${order.id}-${index}`}><strong>{lang === 'ar' ? test.nameAr || test.nameEn : test.nameEn || test.nameAr}</strong><span>{test.resultValue || (lang === 'ar' ? 'لا توجد نتيجة بعد' : 'No result yet')}</span></div>)}</article>)}</div>}
                 </section>
               )}
 
               {/* Visits History Timeline Header */}
-              {user?.role === 'DOCTOR' && (activeSection === 'overview' || activeSection === 'visits') && <>
+              {user?.role === 'DOCTOR' && activeSection === 'visits' && (
+              <section id="patient-file-panel-visits" role="tabpanel" aria-labelledby="patient-file-tab-visits" className="patient-file-section patient-file-visits">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                 <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <Clock size={18} />
@@ -635,7 +708,8 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
                   ))}
                 </div>
               )}
-              </>}
+              </section>
+              )}
             </div>
           ) : null}
         </div>

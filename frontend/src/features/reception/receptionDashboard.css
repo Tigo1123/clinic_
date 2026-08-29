@@ -1,0 +1,181 @@
+.reception-dashboard {
+  --reception-surface: var(--color-surface, var(--bg-card, #fff));
+  --reception-canvas: var(--color-bg, var(--bg-base, #f6f8fa));
+  --reception-border: var(--border-color, #dfe7eb);
+  --reception-ink: var(--text-primary, #172b3a);
+  --reception-muted: var(--text-secondary, #667985);
+  background: var(--reception-canvas);
+  color: var(--reception-ink);
+  overflow-x: clip;
+}
+
+.reception-workspace {
+  padding: 1rem;
+  display: grid;
+  gap: 0;
+}
+
+.reception-toolbar,
+.reception-doctors,
+.reception-metrics article,
+.reception-queue-panel,
+.reception-utility-panel {
+  background: var(--reception-surface);
+  border: 1px solid var(--reception-border);
+  box-shadow: 0 2px 8px rgb(19 52 66 / 4%);
+}
+
+.reception-eyebrow { color: var(--primary, #168a88); font-size: 11px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+.reception-toolbar,
+.reception-doctors,
+.reception-metrics { margin-bottom: 16px; }
+
+.reception-toolbar { padding: 10px; border-radius: 16px; display: flex; gap: 10px; align-items: center; }
+.reception-global-search { position: relative; flex: 1; min-width: 0; }
+.reception-global-search > svg { position: absolute; inset-inline-start: 14px; top: 50%; translate: 0 -50%; color: var(--reception-muted); pointer-events: none; }
+.reception-global-search input { width: 100%; min-height: 44px; padding: 10px 42px; border: 1px solid var(--reception-border); border-radius: 12px; background: var(--color-surface-muted, #fbfcfd); color: var(--reception-ink); font: inherit; unicode-bidi: plaintext; text-align: start; }
+.reception-global-search input:focus { outline: 3px solid color-mix(in srgb, var(--primary, #168a88) 18%, transparent); border-color: var(--primary, #168a88); }
+.reception-search-loading { position: absolute; inset-inline-end: 12px; top: 50%; translate: 0 -50%; color: var(--reception-muted); font-size: 11px; }
+.reception-search-results { position: absolute; z-index: 30; inset-inline: 0; top: calc(100% + 6px); max-height: 320px; overflow-y: auto; padding: 6px; background: var(--reception-surface); border: 1px solid var(--reception-border); border-radius: 14px; box-shadow: 0 12px 28px rgb(30 55 65 / 14%); }
+.reception-search-results button { width: 100%; min-height: 52px; padding: 8px 10px; border: 0; border-radius: 9px; background: transparent; display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--reception-ink); text-align: start; cursor: pointer; }
+.reception-search-results button:hover { background: #f4f8f8; }
+.reception-search-results button > span:first-child { display: grid; gap: 2px; }
+.reception-search-results small { color: var(--reception-muted); font-size: 11px; unicode-bidi: isolate; }
+.reception-search-results button > span:last-child { color: var(--primary, #168a88); font-size: 11px; white-space: nowrap; }
+.reception-search-message { padding: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--reception-muted); font-size: 12px; }
+.reception-search-message button { width: auto; min-height: 32px; padding: 5px 10px; color: var(--primary, #168a88); font-weight: 700; white-space: nowrap; }
+.reception-register-action { min-height: 44px; padding: 0 16px; border: 1px solid var(--primary, #168a88); border-radius: 12px; background: var(--primary, #168a88); color: white; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font: inherit; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.reception-register-action:hover { filter: brightness(.94); }
+
+.reception-doctors { padding: 14px 16px; border-radius: 16px; min-width: 0; }
+.reception-doctors > header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.reception-doctors > header > div { display: flex; align-items: center; gap: 8px; }
+.reception-doctors h2, .reception-section-heading h2, .reception-utility-heading h2 { margin: 0; font-size: 15px; }
+.reception-doctors > header > span { color: var(--reception-muted); font-size: 11px; }
+.reception-doctor-strip { display: flex; gap: 10px; overflow-x: auto; padding-block: 2px 5px; scrollbar-width: thin; }
+.reception-doctor-card { flex: 0 0 min(210px, 72vw); min-height: 58px; padding: 8px 10px; border: 1px solid var(--reception-border); border-radius: 13px; background: var(--reception-surface); display: grid; grid-template-columns: 38px minmax(0, 1fr) 8px; gap: 9px; align-items: center; color: var(--reception-ink); text-align: start; cursor: pointer; }
+.reception-doctor-card:hover, .reception-doctor-card.selected { border-color: color-mix(in srgb, var(--primary, #168a88) 65%, white); background: color-mix(in srgb, var(--primary, #168a88) 5%, white); }
+.reception-doctor-avatar { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--primary, #168a88) 12%, white); color: var(--primary, #168a88); font-weight: 800; }
+.reception-doctor-card > span:nth-child(2) { min-width: 0; display: grid; gap: 2px; }
+.reception-doctor-card strong, .reception-doctor-card small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reception-doctor-card strong { font-size: 12px; }.reception-doctor-card small { color: var(--reception-muted); font-size: 10px; }
+.reception-doctor-card i { width: 7px; height: 7px; border-radius: 50%; background: var(--success, #16a36a); box-shadow: 0 0 0 3px rgb(22 163 106 / 12%); }
+.reception-strip-empty { margin: 6px 2px; color: var(--reception-muted); font-size: 12px; }
+
+.reception-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.reception-metrics article { min-height: 76px; padding: 12px; border-radius: 14px; display: flex; align-items: center; gap: 10px; }
+.reception-metrics article > span { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 10px; background: color-mix(in srgb, var(--primary, #168a88) 8%, white); color: var(--primary, #168a88); }
+.reception-metrics article > div { min-width: 0; display: grid; gap: 1px; }
+.reception-metrics strong { font-size: 21px; line-height: 1; font-variant-numeric: tabular-nums; }
+.reception-metrics small { color: var(--reception-muted); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.reception-main-grid { display: grid !important; grid-template-columns: minmax(0, 1.9fr) minmax(300px, .82fr); gap: 16px; align-items: start; }
+.reception-queue-panel, .reception-utility-panel { min-width: 0; border-radius: 16px; overflow: hidden; }
+.reception-queue-header { padding: 14px 16px 10px; border-bottom: 1px solid var(--reception-border); }
+.reception-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.reception-section-heading > div { display: flex; align-items: center; gap: 8px; }
+.reception-section-heading > span { color: var(--reception-muted); font-size: 11px; }
+.reception-queue-tools { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.reception-queue-tabs { display: inline-flex; padding: 3px; border: 1px solid var(--reception-border); border-radius: 11px; background: #f6f8f9; }
+.reception-queue-tabs button { min-height: 34px; padding: 6px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--reception-muted); display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 11px; cursor: pointer; }
+.reception-queue-tabs button.active { background: var(--reception-surface); color: var(--primary, #168a88); box-shadow: 0 1px 4px rgb(30 55 65 / 9%); font-weight: 700; }
+.reception-tab-count { min-width: 18px; height: 18px; padding-inline: 4px; display: grid; place-items: center; border-radius: 9px; background: color-mix(in srgb, var(--warning, #d99412) 15%, white); color: #8a5a00; font-size: 10px; }
+.reception-date-control { direction: ltr; display: flex; align-items: center; gap: 4px; }
+.reception-date-control button, .reception-date-control input { min-height: 34px; border: 1px solid var(--reception-border); border-radius: 9px; background: var(--reception-surface); color: var(--reception-ink); }
+.reception-date-control button { width: 34px; display: grid; place-items: center; cursor: pointer; }
+.reception-date-control .reception-today-button { width: auto; padding-inline: 9px; font: inherit; font-size: 11px; }
+.reception-date-control input { padding-inline: 7px; font: inherit; font-size: 11px; }
+
+.reception-queue-list, .reception-request-list { display: grid; }
+.reception-queue-row { min-height: 64px; padding: 10px 12px; display: grid; grid-template-columns: minmax(160px, 1.45fr) minmax(120px, 1fr) 58px minmax(105px, .8fr) minmax(92px, auto); gap: 12px; align-items: center; border: 0; border-inline-start: 4px solid var(--queue-accent, var(--reception-border)); border-bottom: 1px solid var(--reception-border); }
+.reception-queue-row:last-child { border-bottom: 0; }
+.reception-queue-patient, .reception-queue-doctor, .reception-queue-status { min-width: 0; display: grid; gap: 2px; }
+.reception-patient-link { width: fit-content; max-width: 100%; padding: 0; border: 0; background: transparent; color: var(--reception-ink); font: inherit; font-size: 13px; font-weight: 750; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; text-align: start; }
+.reception-patient-link:hover { color: var(--primary, #168a88); text-decoration: underline; text-underline-offset: 3px; }
+.reception-queue-patient small, .reception-queue-doctor small { color: var(--reception-muted); font-size: 10px; unicode-bidi: isolate; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reception-queue-doctor strong { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reception-queue-time { font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; unicode-bidi: isolate; }
+.reception-queue-status .badge { justify-self: start; font-size: 9px; white-space: nowrap; }
+.reception-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
+.reception-row-actions .btn { white-space: nowrap; }
+.reception-row-actions .btn-whatsapp { min-width: 34px; display: grid; place-items: center; }
+.reception-request-row { padding: 12px 16px; display: grid; grid-template-columns: minmax(150px, .8fr) minmax(230px, 1.3fr) auto; gap: 14px; align-items: center; border-bottom: 1px solid var(--reception-border); }
+.reception-request-row:last-child { border-bottom: 0; }
+.reception-request-title, .reception-request-meta { min-width: 0; display: grid; gap: 4px; }
+.reception-request-title .badge { justify-self: start; }
+.reception-request-meta { color: var(--reception-muted); font-size: 11px; }
+.reception-request-meta > span { unicode-bidi: isolate; }
+.reception-empty-state { min-height: 190px; padding: 28px 16px; display: grid; place-items: center; align-content: center; text-align: center; color: var(--reception-muted); }
+.reception-empty-state p { margin: 8px 0 0 !important; font-size: 13px; }
+
+.reception-utility-heading { padding: 14px 16px 8px; }
+.reception-utility-heading h2 { margin-top: 3px; }
+.reception-utility-tabs { margin: 0 12px 14px; padding: 3px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; overflow: visible; border: 1px solid var(--reception-border); border-radius: 11px; background: #f6f8f9; }
+.reception-utility-tabs .tab-select-btn { min-width: 0; min-height: 34px; padding: 6px 7px; border: 0; border-radius: 8px; background: transparent; color: var(--reception-muted); font-size: 10px; white-space: normal; line-height: 1.35; }
+.reception-utility-tabs .tab-select-btn.active { background: var(--reception-surface); color: var(--primary, #168a88); box-shadow: 0 1px 4px rgb(30 55 65 / 9%); }
+.reception-utility-panel > form, .reception-utility-panel > .badge, .reception-utility-panel > div:not(.reception-utility-heading):not(.reception-utility-tabs) { margin-inline: 14px; margin-bottom: 16px; }
+.reception-utility-panel .form-group { margin-bottom: 0; }
+.reception-utility-panel .form-label { font-size: 11px; }
+.reception-utility-panel .form-input { min-height: 40px; border-radius: 10px; font-size: 12px; }
+.reception-utility-panel .btn { border-radius: 10px; }
+.reception-utility-panel .glass-panel { box-shadow: none; border-color: var(--reception-border); }
+.reception-dashboard .search-input-field { unicode-bidi: plaintext; text-align: start; }
+
+[data-theme='dark'] .reception-doctor-avatar,
+[data-theme='dark'] .reception-metrics article > span,
+[data-theme='dark'] .reception-doctor-card:hover,
+[data-theme='dark'] .reception-doctor-card.selected {
+  background: var(--color-surface-muted);
+}
+
+[data-theme='dark'] .reception-search-results button:hover,
+[data-theme='dark'] .reception-queue-tabs,
+[data-theme='dark'] .reception-utility-tabs {
+  background: var(--color-surface-muted);
+}
+
+.reception-dashboard button:focus-visible,
+.reception-dashboard a:focus-visible,
+.reception-dashboard input:focus-visible,
+.reception-dashboard select:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--primary, #168a88) 22%, transparent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1120px) {
+  .reception-main-grid { grid-template-columns: 1fr; }
+  .reception-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .reception-utility-panel { order: 2; }
+}
+
+@media (max-width: 760px) {
+  .reception-workspace { padding: 12px; }
+  .reception-toolbar, .reception-doctors, .reception-metrics { margin-bottom: 12px; }
+  .reception-toolbar { align-items: stretch; flex-direction: column; }
+  .reception-register-action { width: 100%; }
+  .reception-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .reception-metrics article { min-height: 68px; padding: 10px; }
+  .reception-queue-tools { align-items: stretch; flex-direction: column; }
+  .reception-queue-tabs { width: 100%; overflow-x: auto; }
+  .reception-queue-tabs button { flex: 1 0 auto; justify-content: center; }
+  .reception-date-control { width: 100%; }
+  .reception-date-control input { min-width: 0; flex: 1; }
+  .reception-queue-row { margin: 10px; min-height: 0; padding: 12px; border: 1px solid var(--reception-border); border-inline-start: 4px solid var(--queue-accent, var(--reception-border)); border-radius: 12px; grid-template-columns: 1fr auto; gap: 10px; }
+  .reception-queue-patient { grid-column: 1 / 2; }
+  .reception-queue-time { grid-column: 2; grid-row: 1; }
+  .reception-queue-doctor, .reception-queue-status { grid-column: span 1; }
+  .reception-row-actions { grid-column: 1 / -1; justify-content: stretch; flex-wrap: wrap; }
+  .reception-row-actions .btn { flex: 1 1 auto !important; }
+  .reception-request-row { margin: 10px; padding: 12px; border: 1px solid var(--reception-border); border-radius: 12px; grid-template-columns: 1fr; }
+}
+
+@media (max-width: 430px) {
+  .reception-metrics article > span { display: none; }
+  .reception-doctor-card { flex-basis: 190px; }
+  .reception-section-heading { align-items: flex-start; flex-direction: column; }
+  .reception-date-control .reception-today-button { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reception-dashboard *, .reception-dashboard *::before, .reception-dashboard *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+}

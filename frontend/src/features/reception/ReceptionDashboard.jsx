@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Check, CheckCircle, Clock, DollarSign, HelpCircle, MessageCircle, Search, Trash2, Users } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AlertCircle, CalendarDays, Check, CheckCircle, ChevronLeft, ChevronRight, Clock, DollarSign, HelpCircle, MessageCircle, Search, Stethoscope, Trash2, UserPlus, Users } from 'lucide-react';
 import { PatientProfileModal } from '../clinical/ClinicalModals';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import { getWhatsAppLink, SUDANESE_STATES } from './clinicData';
@@ -7,6 +7,8 @@ import { staffSocket as socket } from '../../services/staffSocket';
 import RoleHero from '../../components/healthcare/RoleHero';
 import { clinicDateString } from '../../utils/clinicTime';
 import { staffApiRequest as apiRequest } from '../../services/apiClient';
+import { createLatestSearchScheduler, visiblePatientDirectory } from './debouncedSearch';
+import './receptionDashboard.css';
 
 export default function ReceptionDashboard({ lang, t }) {
   const [doctors, setDoctors] = useState([]);
@@ -21,8 +23,11 @@ export default function ReceptionDashboard({ lang, t }) {
   // Dedicated patient-directory search states
   const [patientDirectoryQuery, setPatientDirectoryQuery] = useState('');
   const [patientDirectoryResults, setPatientDirectoryResults] = useState([]);
+  const [patientDirectorySearchResults, setPatientDirectorySearchResults] = useState([]);
   const [patientDirectoryLoading, setPatientDirectoryLoading] = useState(false);
+  const [patientDirectorySearchLoading, setPatientDirectorySearchLoading] = useState(false);
   const [patientDirectoryError, setPatientDirectoryError] = useState('');
+  const [patientDirectoryLoadError, setPatientDirectoryLoadError] = useState('');
   const [patientDirectoryLoaded, setPatientDirectoryLoaded] = useState(false);
 
   // Registration Form States
@@ -75,6 +80,13 @@ export default function ReceptionDashboard({ lang, t }) {
   const [labBillingOrders, setLabBillingOrders] = useState([]);
   const [selectedLabBillingOrder, setSelectedLabBillingOrder] = useState(null);
   const [labBillingLoading, setLabBillingLoading] = useState(false);
+  const billingSearchSchedulerRef = useRef(null);
+  const directorySearchSchedulerRef = useRef(null);
+  const walkInSearchSchedulerRef = useRef(null);
+  const directoryLoadRequestRef = useRef(0);
+  if (!billingSearchSchedulerRef.current) billingSearchSchedulerRef.current = createLatestSearchScheduler();
+  if (!directorySearchSchedulerRef.current) directorySearchSchedulerRef.current = createLatestSearchScheduler();
+  if (!walkInSearchSchedulerRef.current) walkInSearchSchedulerRef.current = createLatestSearchScheduler();
 
   const appointmentStatusLabels = {
     PENDING: {
@@ -358,6 +370,12 @@ export default function ReceptionDashboard({ lang, t }) {
   }, [refreshDoctorQueue]);
 
   useEffect(() => {
+    if (!selectedDoctor && doctors.length) {
+      setSelectedDoctor(doctors.find((doctor) => doctor.status === 'ACTIVE') || doctors[0]);
+    }
+  }, [doctors, selectedDoctor]);
+
+  useEffect(() => {
     const handleQueueUpdate = () => {
       refreshDoctorQueue();
       fetchPendingAppointments();
@@ -369,21 +387,35 @@ export default function ReceptionDashboard({ lang, t }) {
     };
   }, [refreshDoctorQueue]);
 
-  const handlePatientSearch = async (val) => {
+  const handlePatientSearch = (val) => {
     setSearchQuery(val);
-    if (val.length > 2) {
-      const res = await fetchWithAuth(`/api/patients/search?q=${encodeURIComponent(val)}`);
-      const data = await res.json();
-      setSearchResults(data);
-    } else {
+    const query = val.trim();
+
+    if (query.length <= 2) {
+      billingSearchSchedulerRef.current.cancel();
       setSearchResults([]);
+      return;
     }
+
+    setSearchResults([]);
+    billingSearchSchedulerRef.current.schedule(
+      async () => {
+        const res = await fetchWithAuth(`/api/patients/search?q=${encodeURIComponent(query)}`);
+        const data = await res.json().catch(() => []);
+        return res.ok && Array.isArray(data) ? data : [];
+      },
+      {
+        onSuccess: setSearchResults,
+        onError: () => setSearchResults([])
+      }
+    );
   };
 
 
   const loadPatientDirectory = useCallback(async () => {
+    const requestId = ++directoryLoadRequestRef.current;
     setPatientDirectoryLoading(true);
-    setPatientDirectoryError('');
+    setPatientDirectoryLoadError('');
 
     try {
       const res = await fetchWithAuth('/api/patients?limit=50');
@@ -400,16 +432,16 @@ export default function ReceptionDashboard({ lang, t }) {
         );
       }
 
-      setPatientDirectoryResults(
-        Array.isArray(data) ? data : []
-      );
-
-      setPatientDirectoryLoaded(true);
+      if (requestId === directoryLoadRequestRef.current) {
+        setPatientDirectoryResults(Array.isArray(data) ? data : []);
+        setPatientDirectoryLoaded(true);
+      }
     } catch (err) {
+      if (requestId !== directoryLoadRequestRef.current) return;
       console.error('Patient directory load error:', err);
 
       setPatientDirectoryResults([]);
-      setPatientDirectoryError(
+      setPatientDirectoryLoadError(
         err?.message ||
           (
             lang === 'ar'
@@ -418,7 +450,7 @@ export default function ReceptionDashboard({ lang, t }) {
           )
       );
     } finally {
-      setPatientDirectoryLoading(false);
+      if (requestId === directoryLoadRequestRef.current) setPatientDirectoryLoading(false);
     }
   }, [lang]);
 
@@ -437,59 +469,39 @@ export default function ReceptionDashboard({ lang, t }) {
     loadPatientDirectory
   ]);
 
-  const handlePatientDirectorySearch = async (val) => {
+  const handlePatientDirectorySearch = (val) => {
     setPatientDirectoryQuery(val);
     setPatientDirectoryError('');
+    const query = val.trim();
 
-    if (val.trim().length <= 2) {
-      if (patientDirectoryLoaded) {
-        await loadPatientDirectory();
-      } else {
-        setPatientDirectoryResults([]);
-      }
-
-      setPatientDirectoryLoading(false);
+    if (query.length <= 2) {
+      directorySearchSchedulerRef.current.cancel();
+      setPatientDirectorySearchResults([]);
+      setPatientDirectorySearchLoading(false);
       return;
     }
 
-    setPatientDirectoryLoading(true);
-
-    try {
-      const res = await fetchWithAuth(
-        `/api/patients/search?q=${encodeURIComponent(val.trim())}`
-      );
-
-      const data = await res.json().catch(() => []);
-
-      if (!res.ok) {
-        throw new Error(
-          apiErrorMessage(
-            data,
-            lang === 'ar'
-              ? 'تعذر البحث عن المرضى.'
-              : 'Failed to search patients.'
-          )
-        );
+    setPatientDirectorySearchResults([]);
+    setPatientDirectorySearchLoading(true);
+    directorySearchSchedulerRef.current.schedule(
+      async () => {
+        const res = await fetchWithAuth(`/api/patients/search?q=${encodeURIComponent(query)}`);
+        const data = await res.json().catch(() => []);
+        if (!res.ok) {
+          throw new Error(apiErrorMessage(data, lang === 'ar' ? 'تعذر البحث عن المرضى.' : 'Failed to search patients.'));
+        }
+        return Array.isArray(data) ? data : [];
+      },
+      {
+        onSuccess: setPatientDirectorySearchResults,
+        onError: (err) => {
+          console.error('Patient directory search error:', err);
+          setPatientDirectorySearchResults([]);
+          setPatientDirectoryError(err?.message || (lang === 'ar' ? 'تعذر البحث عن المرضى. حاول مرة أخرى.' : 'Unable to search patients. Please try again.'));
+        },
+        onSettled: () => setPatientDirectorySearchLoading(false)
       }
-
-      setPatientDirectoryResults(
-        Array.isArray(data) ? data : []
-      );
-    } catch (err) {
-      console.error('Patient directory search error:', err);
-
-      setPatientDirectoryResults([]);
-      setPatientDirectoryError(
-        err?.message ||
-          (
-            lang === 'ar'
-              ? 'تعذر البحث عن المرضى. حاول مرة أخرى.'
-              : 'Unable to search patients. Please try again.'
-          )
-      );
-    } finally {
-      setPatientDirectoryLoading(false);
-    }
+    );
   };
 
   const handleRegisterPatient = async (e) => {
@@ -544,21 +556,35 @@ export default function ReceptionDashboard({ lang, t }) {
     }
   };
 
-  const searchWalkInPatients = async (value) => {
+  const searchWalkInPatients = (value) => {
     setWalkInPatientQuery(value);
     setWalkInPatient(null);
-    if (value.trim().length < 2) {
+    const query = value.trim();
+    if (query.length < 2) {
+      walkInSearchSchedulerRef.current.cancel();
       setWalkInPatientResults([]);
       return;
     }
-    try {
-      const res = await fetchWithAuth(`/api/patients/search?q=${encodeURIComponent(value.trim())}`);
-      const data = await res.json().catch(() => []);
-      setWalkInPatientResults(res.ok && Array.isArray(data) ? data : []);
-    } catch {
-      setWalkInPatientResults([]);
-    }
+    setWalkInPatientResults([]);
+    walkInSearchSchedulerRef.current.schedule(
+      async () => {
+        const res = await fetchWithAuth(`/api/patients/search?q=${encodeURIComponent(query)}`);
+        const data = await res.json().catch(() => []);
+        return res.ok && Array.isArray(data) ? data : [];
+      },
+      {
+        onSuccess: setWalkInPatientResults,
+        onError: () => setWalkInPatientResults([])
+      }
+    );
   };
+
+  useEffect(() => () => {
+    billingSearchSchedulerRef.current.cancel();
+    directorySearchSchedulerRef.current.cancel();
+    walkInSearchSchedulerRef.current.cancel();
+    directoryLoadRequestRef.current += 1;
+  }, []);
 
   const handleWalkInDoctorChange = async (doctorId) => {
     setWalkInDoctorId(doctorId);
@@ -987,42 +1013,107 @@ export default function ReceptionDashboard({ lang, t }) {
     }
   };
 
-  return (
-    <div className="dashboard-wrapper">
-      {/* 3 COLUMN GRID WORKSPACE */}
-      <div className="workspace-panel" style={{ padding: '1rem' }}>
-        <RoleHero role="reception" lang={lang}/>
-        <div className="panel-grid">
-          {/* COLUMN 1: DOCTORS ROSTER */}
-          <div className="panel-column glass-panel" style={{ padding: '1rem' }}>
-            <div className="panel-header">
-              <span className="panel-title">
-                <Users size={18} />
-                {lang === 'ar' ? 'الأطباء المناوبين' : 'On-Duty Doctors'}
-              </span>
-            </div>
-            {doctors.map((doc) => (
-              <div
-                key={doc.id}
-                className={`queue-card-item glass-panel ${selectedDoctor?.id === doc.id ? 'selected' : ''}`}
-                onClick={() => setSelectedDoctor(doc)}
-              >
-                <h4>{lang === 'ar' ? doc.fullNameAr : doc.fullNameEn}</h4>
-                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                  {lang === 'ar' ? doc.specialtyAr : doc.specialtyEn}
-                </p>
-              </div>
-            ))}
-          </div>
+  const changeQueueDate = (days) => {
+    const nextDate = new Date(`${filterDate}T12:00:00`);
+    if (Number.isNaN(nextDate.getTime())) return;
+    nextDate.setDate(nextDate.getDate() + days);
+    setFilterDate(nextDate.toISOString().slice(0, 10));
+  };
 
-          {/* COLUMN 2: DAILY QUEUE MANAGER & PENDING APPROVALS */}
-          <div className="panel-column glass-panel" style={{ padding: '1rem' }}>
-            <div className="panel-header" style={{ flexDirection: 'column', gap: '0.5rem', alignItems: 'stretch' }}>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
+  const queueMetrics = [
+    { key: 'doctors', icon: Stethoscope, value: doctors.filter((doctor) => doctor.status === 'ACTIVE').length, ar: 'الأطباء المناوبون', en: 'On-duty doctors' },
+    { key: 'appointments', icon: CalendarDays, value: appointments.length, ar: 'مواعيد الطبيب', en: 'Doctor appointments' },
+    { key: 'waiting', icon: Clock, value: appointments.filter((appointment) => appointment.status === 'CHECKED_IN').length, ar: 'بانتظار الطبيب', en: 'Waiting' },
+    { key: 'pending', icon: AlertCircle, value: pendingAppointments.length, ar: 'بانتظار التأكيد', en: 'Pending approval' },
+    { key: 'completed', icon: CheckCircle, value: appointments.filter((appointment) => appointment.status === 'COMPLETED').length, ar: 'مكتمل', en: 'Completed' }
+  ];
+  const patientDirectorySearchActive = patientDirectoryQuery.trim().length > 2;
+  const visiblePatientDirectoryResults = visiblePatientDirectory(
+    patientDirectoryQuery,
+    patientDirectoryResults,
+    patientDirectorySearchResults
+  );
+  const patientDirectoryBusy = patientDirectoryLoading || patientDirectorySearchLoading;
+  const visiblePatientDirectoryError = patientDirectorySearchActive
+    ? patientDirectoryError
+    : patientDirectoryLoadError;
+
+  return (
+    <div className="dashboard-wrapper reception-dashboard" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+      <div className="workspace-panel reception-workspace">
+        <RoleHero role="reception" lang={lang} />
+
+        <section className="reception-toolbar" aria-label={lang === 'ar' ? 'الوصول السريع للمرضى' : 'Quick patient access'}>
+          <div className="reception-global-search">
+            <Search size={18} aria-hidden="true" />
+            <input
+              type="search"
+              value={patientDirectoryQuery}
+              onChange={(event) => handlePatientDirectorySearch(event.target.value)}
+              placeholder={lang === 'ar' ? 'البحث عن مريض بالاسم / الهاتف / SHF-000001' : 'Search by patient name / phone / SHF-000001'}
+              aria-label={lang === 'ar' ? 'البحث عن مريض' : 'Search patients'}
+              dir="auto"
+            />
+            {patientDirectorySearchLoading && <span className="reception-search-loading" role="status">{lang === 'ar' ? 'جارٍ البحث…' : 'Searching…'}</span>}
+            {patientDirectorySearchActive && patientDirectorySearchResults.length > 0 && (
+              <div className="reception-search-results">
+                {patientDirectorySearchResults.slice(0, 8).map((patient) => (
+                  <button key={patient.id} type="button" onClick={() => { setViewingProfilePatientId(patient.id); handlePatientDirectorySearch(''); }}>
+                    <span><strong>{lang === 'ar' ? patient.fullNameAr || patient.fullNameEn : patient.fullNameEn || patient.fullNameAr}</strong><small dir="ltr">{patient.fileNumber || '—'} · {patient.phone || '—'}</small></span>
+                    <span>{lang === 'ar' ? 'فتح الملف' : 'Open file'}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {patientDirectorySearchActive && !patientDirectorySearchLoading && patientDirectorySearchResults.length === 0 && (
+              <div className="reception-search-results reception-search-message" role={patientDirectoryError ? 'alert' : 'status'}>
+                <span>{patientDirectoryError || (lang === 'ar' ? 'لم يتم العثور على مريض مطابق.' : 'No matching patient found.')}</span>
+                {patientDirectoryError && <button type="button" onClick={() => handlePatientDirectorySearch(patientDirectoryQuery)}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button>}
+              </div>
+            )}
+          </div>
+          <button type="button" className="reception-register-action" onClick={() => setActiveTab('register')}>
+            <UserPlus size={18} aria-hidden="true" />
+            {lang === 'ar' ? 'تسجيل مريض' : 'Register patient'}
+          </button>
+        </section>
+
+        <section className="reception-doctors" aria-labelledby="reception-doctors-title">
+          <header>
+            <div><Stethoscope size={18} aria-hidden="true" /><h2 id="reception-doctors-title">{lang === 'ar' ? 'الأطباء المناوبون' : 'On-duty doctors'}</h2></div>
+            <span>{lang === 'ar' ? `${doctors.length} أطباء` : `${doctors.length} doctors`}</span>
+          </header>
+          <div className="reception-doctor-strip">
+            {doctors.map((doc) => (
+              <button key={doc.id} type="button" className={`reception-doctor-card ${selectedDoctor?.id === doc.id ? 'selected' : ''}`} onClick={() => setSelectedDoctor(doc)} aria-pressed={selectedDoctor?.id === doc.id}>
+                <span className="reception-doctor-avatar" aria-hidden="true">{(lang === 'ar' ? doc.fullNameAr : doc.fullNameEn)?.trim()?.charAt(0) || 'D'}</span>
+                <span><strong>{lang === 'ar' ? doc.fullNameAr : doc.fullNameEn}</strong><small>{lang === 'ar' ? doc.specialtyAr : doc.specialtyEn}</small></span>
+                {doc.status === 'ACTIVE' && <i role="status" aria-label={lang === 'ar' ? 'متاح' : 'Available'} />}
+              </button>
+            ))}
+            {doctors.length === 0 && <p className="reception-strip-empty">{lang === 'ar' ? 'لا يوجد أطباء مناوبون حاليًا.' : 'No on-duty doctors are available.'}</p>}
+          </div>
+        </section>
+
+        <section className="reception-metrics" aria-label={lang === 'ar' ? 'ملخص عمليات اليوم' : 'Today’s operations summary'}>
+          {queueMetrics.map(({ key, icon: Icon, value, ar, en }) => <article key={key}><span><Icon size={17} aria-hidden="true" /></span><div><strong>{value}</strong><small>{lang === 'ar' ? ar : en}</small></div></article>)}
+        </section>
+
+        <div className="panel-grid reception-main-grid">
+          {/* DAILY QUEUE MANAGER & PENDING APPROVALS */}
+          <section className="panel-column reception-queue-panel" aria-labelledby="reception-queue-title">
+            <header className="reception-queue-header">
+              <div className="reception-section-heading">
+                <div><CalendarDays size={18} aria-hidden="true" /><h2 id="reception-queue-title">{lang === 'ar' ? 'مواعيد اليوم' : 'Today’s appointments'}</h2></div>
+                <span>{selectedDoctor ? (lang === 'ar' ? selectedDoctor.fullNameAr : selectedDoctor.fullNameEn) : (lang === 'ar' ? 'اختر طبيباً' : 'Select a doctor')}</span>
+              </div>
+              <div className="reception-queue-tools">
+                <div className="reception-queue-tabs" role="tablist" aria-label={lang === 'ar' ? 'طريقة عرض المواعيد' : 'Appointment view'}>
                 <button
                   type="button"
-                  className={`btn ${queueTab === 'queue' ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ flex: 1, padding: '4px 8px', fontSize: '0.8rem', minHeight: '36px' }}
+                  role="tab"
+                  aria-selected={queueTab === 'queue'}
+                  className={queueTab === 'queue' ? 'active' : ''}
                   onClick={() => setQueueTab('queue')}
                 >
                   <Clock size={14} />
@@ -1030,8 +1121,9 @@ export default function ReceptionDashboard({ lang, t }) {
                 </button>
                 <button
                   type="button"
-                  className={`btn ${queueTab === 'pending' ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ flex: 1, padding: '4px 8px', fontSize: '0.8rem', minHeight: '36px', position: 'relative' }}
+                  role="tab"
+                  aria-selected={queueTab === 'pending'}
+                  className={queueTab === 'pending' ? 'active' : ''}
                   onClick={() => setQueueTab('pending')}
                 >
                   <AlertCircle size={14} />
@@ -1039,7 +1131,7 @@ export default function ReceptionDashboard({ lang, t }) {
                     ? 'طلبات بانتظار التأكيد'
                     : 'Pending Appointment Requests'}
                   {pendingAppointments.length > 0 && (
-                    <span className="badge badge-danger" style={{ marginLeft: '4px', fontSize: '0.7rem', padding: '1px 5px' }}>
+                    <span className="reception-tab-count">
                       {pendingAppointments.length}
                     </span>
                   )}
@@ -1047,36 +1139,36 @@ export default function ReceptionDashboard({ lang, t }) {
               </div>
 
               {queueTab === 'queue' && (
-                <input
-                  type="date"
-                  className="form-input"
-                  style={{ padding: '4px 8px', fontSize: '0.85rem' }}
-                  value={filterDate}
-                  onChange={(e) => setFilterDate(e.target.value)}
-                />
+                <div className="reception-date-control">
+                  <button type="button" onClick={() => changeQueueDate(-1)} aria-label={lang === 'ar' ? 'اليوم السابق' : 'Previous day'}><ChevronLeft size={17} /></button>
+                  <button type="button" className="reception-today-button" onClick={() => setFilterDate(clinicDateString())}>{lang === 'ar' ? 'اليوم' : 'Today'}</button>
+                  <input type="date" value={filterDate} onChange={(event) => setFilterDate(event.target.value)} aria-label={lang === 'ar' ? 'تاريخ الطابور' : 'Queue date'} />
+                  <button type="button" onClick={() => changeQueueDate(1)} aria-label={lang === 'ar' ? 'اليوم التالي' : 'Next day'}><ChevronRight size={17} /></button>
+                </div>
               )}
-            </div>
+              </div>
+            </header>
 
             {queueTab === 'pending' ? (
               pendingAppointments.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
+                <div className="reception-empty-state">
                   <CheckCircle size={36} color="var(--primary)" />
                   <p style={{ marginTop: '0.5rem' }}>{lang === 'ar' ? 'لا توجد طلبات مواعيد معلقة حالياً.' : 'No pending appointment requests.'}</p>
                 </div>
               ) : (
-                pendingAppointments.map((app) => (
-                  <div
+                <div className="reception-request-list">{pendingAppointments.map((app) => (
+                  <article
                     key={app.id}
-                    className="queue-card-item glass-panel"
-                    style={{ borderLeft: '4px solid var(--warning)', padding: '0.75rem', marginBottom: '0.75rem' }}
+                    className="reception-request-row"
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <strong>{lang === 'ar' ? app.patient.fullNameAr : app.patient.fullNameEn}</strong>
+                    <div className="reception-request-title">
+                      <button type="button" className="reception-patient-link" onClick={() => setViewingProfilePatientId(app.patient.id)}>{lang === 'ar' ? app.patient.fullNameAr : app.patient.fullNameEn}</button>
                       <span className="badge badge-warning">
                         {getAppointmentStatusLabel('PENDING')}
                       </span>
                     </div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.4rem' }}>
+                    <div className="reception-request-meta">
+                      <span dir="ltr">{app.patient?.fileNumber || '—'} · {app.patient?.phone || '—'}</span>
                       <div><strong>{lang === 'ar' ? 'الطبيب:' : 'Doctor:'}</strong> {lang === 'ar' ? app.doctor?.fullNameAr : app.doctor?.fullNameEn}</div>
                       <div>
                         <strong>
@@ -1086,10 +1178,9 @@ export default function ReceptionDashboard({ lang, t }) {
                         {lang === 'ar' ? 'الساعة' : 'at'}{' '}
                         {app.appointmentTime}
                       </div>
-                      <div><strong>{lang === 'ar' ? 'الهاتف:' : 'Phone:'}</strong> {app.patient?.phone}</div>
                     </div>
 
-                    <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
+                    <div className="reception-row-actions">
                       <button
                         type="button"
                         className="btn btn-primary"
@@ -1125,42 +1216,50 @@ export default function ReceptionDashboard({ lang, t }) {
                         {lang === 'ar' ? 'رفض الطلب' : 'Reject Request'}
                       </button>
                     </div>
-                  </div>
-                ))
+                  </article>
+                ))}</div>
               )
             ) : selectedDoctor ? (
               appointments.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
+                <div className="reception-empty-state">
                   <HelpCircle size={36} />
                   <p style={{ marginTop: '0.5rem' }}>{lang === 'ar' ? 'لا توجد مواعيد مسجلة لهذا الطبيب اليوم.' : 'No appointments scheduled for this doctor today.'}</p>
                 </div>
               ) : (
-                appointments.map((app) => {
+                <div className="reception-queue-list">{appointments.map((app) => {
                   const isEmergency = app.emergencyOverride;
                   const statusStyles = (() => {
                     switch (app.status) {
                       case 'SCHEDULED':
                       case 'CONFIRMED':
-                        return { borderLeft: '4px solid #9ca3af', background: 'rgba(156, 163, 175, 0.05)' };
+                        return { '--queue-accent': '#9ca3af', background: 'rgba(156, 163, 175, 0.05)' };
                       case 'CHECKED_IN':
-                        return { borderLeft: '4px solid var(--warning)', background: 'rgba(245, 158, 11, 0.08)' };
+                        return { '--queue-accent': 'var(--warning)', background: 'rgba(245, 158, 11, 0.08)' };
                       case 'IN_CONSULTATION':
-                        return { borderLeft: '4px solid var(--primary)', background: 'rgba(20, 184, 166, 0.08)' };
+                        return { '--queue-accent': 'var(--primary)', background: 'rgba(20, 184, 166, 0.08)' };
                       case 'COMPLETED':
-                        return { borderLeft: '4px solid var(--success)', background: 'rgba(16, 185, 129, 0.08)' };
+                        return { '--queue-accent': 'var(--success)', background: 'rgba(16, 185, 129, 0.08)' };
                       default:
-                        return { borderLeft: '4px solid var(--border-color)' };
+                        return { '--queue-accent': 'var(--border-color)' };
                     }
                   })();
 
                   return (
-                    <div
+                    <article
                       key={app.id}
-                      className={`queue-card-item glass-panel ${isEmergency ? 'emergency-border' : ''}`}
-                      style={{ ...statusStyles, padding: '0.75rem', marginBottom: '0.5rem' }}
+                      className={`reception-queue-row ${isEmergency ? 'emergency-border' : ''}`}
+                      style={statusStyles}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <strong>{lang === 'ar' ? app.patient.fullNameAr : app.patient.fullNameEn}</strong>
+                      <div className="reception-queue-patient">
+                        <button type="button" className="reception-patient-link" onClick={() => setViewingProfilePatientId(app.patient.id)}>{lang === 'ar' ? app.patient.fullNameAr : app.patient.fullNameEn}</button>
+                        <small dir="ltr">{app.patient.fileNumber || '—'} · {app.patient.phone || '—'}</small>
+                      </div>
+                      <div className="reception-queue-doctor">
+                        <small>{lang === 'ar' ? 'الطبيب' : 'Doctor'}</small>
+                        <strong>{lang === 'ar' ? selectedDoctor.fullNameAr : selectedDoctor.fullNameEn}</strong>
+                      </div>
+                      <time className="reception-queue-time" dateTime={`${app.appointmentDate}T${app.appointmentTime}`} dir="ltr">{app.appointmentTime}</time>
+                      <div className="reception-queue-status">
                         <span className={`badge ${app.status === 'COMPLETED' ? 'badge-success' :
                           app.status === 'IN_CONSULTATION' ? 'badge-primary' :
                             app.status === 'CHECKED_IN'
@@ -1179,15 +1278,13 @@ export default function ReceptionDashboard({ lang, t }) {
                             )
                             : getAppointmentStatusLabel(app.status)}
                         </span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.4rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                        <span>{app.appointmentTime}</span>
                         {isEmergency && <span className="emergency-tag">{lang === 'ar' ? 'طوارئ مستعجلة' : 'Emergency Priority'}</span>}
                       </div>
 
-                      <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.6rem', flexWrap: 'wrap' }}>
+                      <div className="reception-row-actions">
                         {(app.status === 'SCHEDULED' || app.status === 'CONFIRMED') && (
                           <button
+                            type="button"
                             className="btn btn-primary"
                             style={{ flex: 1, padding: '4px 8px', fontSize: '0.75rem', margin: 0, minHeight: '32px' }}
                             onClick={() => handleCheckIn(app.id)}
@@ -1197,6 +1294,7 @@ export default function ReceptionDashboard({ lang, t }) {
                         )}
                         {app.status === 'CHECKED_IN' && !app.consultationReady && (
                           <button
+                            type="button"
                             className="btn btn-secondary"
                             style={{ flex: 1, padding: '4px 8px', fontSize: '0.75rem', margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', minHeight: '32px' }}
                             onClick={() => handleQuickBill(app)}
@@ -1222,34 +1320,48 @@ export default function ReceptionDashboard({ lang, t }) {
                           <MessageCircle size={12} />
                         </a>
                       </div>
-                    </div>
+                    </article>
                   );
-                })
+                })}</div>
               )
             ) : (
-              <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
+              <div className="reception-empty-state">
                 <Users size={36} />
                 <p style={{ marginTop: '0.5rem' }}>{lang === 'ar' ? 'يرجى اختيار طبيب من القائمة لعرض طابور الانتظار.' : 'Please select a doctor from the list to view the live queue.'}</p>
               </div>
             )}
-          </div>
+          </section>
 
-          {/* COLUMN 3: BILLING & REGISTRATION */}
-          <div className="panel-column glass-panel" style={{ padding: '1rem' }}>
-            <div className="tabs-header">
+          <aside className="panel-column reception-utility-panel" aria-labelledby="reception-utility-title">
+            <div className="reception-utility-heading">
+              <div>
+                <span className="reception-eyebrow">{lang === 'ar' ? 'وصول سريع' : 'Quick access'}</span>
+                <h2 id="reception-utility-title">{lang === 'ar' ? 'عمليات الاستقبال' : 'Reception operations'}</h2>
+              </div>
+            </div>
+            <div className="tabs-header reception-utility-tabs" role="tablist" aria-label={lang === 'ar' ? 'عمليات الاستقبال' : 'Reception operations'}>
               <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'register'}
                 className={`tab-select-btn ${activeTab === 'register' ? 'active' : ''}`}
                 onClick={() => setActiveTab('register')}
               >
                 {lang === 'ar' ? 'تسجيل مريض' : 'Register Patient'}
               </button>
               <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'walkin'}
                 className={`tab-select-btn ${activeTab === 'walkin' ? 'active' : ''}`}
                 onClick={() => setActiveTab('walkin')}
               >
                 {lang === 'ar' ? 'إدخال مريض مباشر' : 'Walk-in Patient'}
               </button>
               <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'patients'}
                 className={`tab-select-btn ${activeTab === 'patients' ? 'active' : ''}`}
                 onClick={() => setActiveTab('patients')}
               >
@@ -1257,12 +1369,18 @@ export default function ReceptionDashboard({ lang, t }) {
               </button>
 
               <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'billing'}
                 className={`tab-select-btn ${activeTab === 'billing' ? 'active' : ''}`}
                 onClick={() => setActiveTab('billing')}
               >
                 {lang === 'ar' ? 'الفوترة والدفع' : 'Billing & Payment'}
               </button>
               <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'reconcile'}
                 className={`tab-select-btn ${activeTab === 'reconcile' ? 'active' : ''}`}
                 onClick={() => setActiveTab('reconcile')}
               >
@@ -1352,12 +1470,12 @@ export default function ReceptionDashboard({ lang, t }) {
                 {walkInMode === 'EXISTING' ? (
                   <div className="form-group" style={{ position: 'relative' }}>
                     <label className="form-label">{lang === 'ar' ? 'ابحث عن المريض' : 'Search patient'} *</label>
-                    <input className="form-input" value={walkInPatientQuery} onChange={(e) => searchWalkInPatients(e.target.value)} placeholder={lang === 'ar' ? 'الاسم أو الهاتف أو الرقم الوطني' : 'Name, phone or National ID'} />
+                    <input className="form-input" value={walkInPatientQuery} onChange={(e) => searchWalkInPatients(e.target.value)} placeholder={lang === 'ar' ? 'الاسم أو الهاتف أو SHF-000001' : 'Name, phone or SHF-000001'} />
                     {walkInPatientResults.length > 0 && (
                       <div className="patient-search-dropdown">
                         {walkInPatientResults.map((item) => (
                           <button key={item.id} type="button" className="dropdown-item-patient" onClick={() => { setWalkInPatient(item); setWalkInPatientQuery(item.fullNameAr || item.fullNameEn || item.phone); setWalkInPatientResults([]); }}>
-                            <strong>{lang === 'ar' ? item.fullNameAr : item.fullNameEn}</strong><small>{item.phone}</small>
+                            <strong>{lang === 'ar' ? item.fullNameAr : item.fullNameEn}</strong><small dir="ltr">{item.fileNumber || '—'} · {item.phone || '—'}</small>
                           </button>
                         ))}
                       </div>
@@ -1419,8 +1537,8 @@ export default function ReceptionDashboard({ lang, t }) {
                 >
                   <small style={{ color: 'var(--text-secondary)' }}>
                     {lang === 'ar'
-                      ? `المرضى الظاهرون: ${patientDirectoryResults.length}`
-                      : `Visible patients: ${patientDirectoryResults.length}`}
+                      ? `المرضى الظاهرون: ${visiblePatientDirectoryResults.length}`
+                      : `Visible patients: ${visiblePatientDirectoryResults.length}`}
                   </small>
 
                   <button
@@ -1443,17 +1561,18 @@ export default function ReceptionDashboard({ lang, t }) {
                     className="search-input-field"
                     placeholder={
                       lang === 'ar'
-                        ? 'ابحث بالاسم أو رقم الهاتف...'
-                        : 'Search by patient name or phone...'
+                        ? 'ابحث بالاسم أو رقم الهاتف أو SHF-000001...'
+                        : 'Search by patient name, phone or SHF-000001...'
                     }
                     value={patientDirectoryQuery}
+                    dir="auto"
                     onChange={(e) =>
                       handlePatientDirectorySearch(e.target.value)
                     }
                   />
                 </div>
 
-                {patientDirectoryLoading && (
+                {patientDirectoryBusy && (
                   <div
                     className="glass-panel"
                     style={{
@@ -1468,7 +1587,7 @@ export default function ReceptionDashboard({ lang, t }) {
                   </div>
                 )}
 
-                {patientDirectoryError && (
+                {visiblePatientDirectoryError && (
                   <div
                     className="badge badge-danger"
                     style={{
@@ -1476,14 +1595,14 @@ export default function ReceptionDashboard({ lang, t }) {
                       whiteSpace: 'normal'
                     }}
                   >
-                    {patientDirectoryError}
+                    {visiblePatientDirectoryError}
                   </div>
                 )}
 
-                {!patientDirectoryLoading &&
-                  !patientDirectoryError &&
+                {!patientDirectoryBusy &&
+                  !visiblePatientDirectoryError &&
                   patientDirectoryLoaded &&
-                  patientDirectoryResults.length === 0 && (
+                  visiblePatientDirectoryResults.length === 0 && (
                     <div
                       className="glass-panel"
                       style={{
@@ -1498,7 +1617,7 @@ export default function ReceptionDashboard({ lang, t }) {
                     </div>
                   )}
 
-                {patientDirectoryResults.length > 0 && (
+                {visiblePatientDirectoryResults.length > 0 && (
                   <div
                     style={{
                       display: 'flex',
@@ -1506,7 +1625,7 @@ export default function ReceptionDashboard({ lang, t }) {
                       gap: '0.75rem'
                     }}
                   >
-                    {patientDirectoryResults.map((patient) => (
+                    {visiblePatientDirectoryResults.map((patient) => (
                       <article
                         key={patient.id}
                         className="glass-panel"
@@ -1534,8 +1653,8 @@ export default function ReceptionDashboard({ lang, t }) {
                                 patient.fullNameAr}
                           </strong>
 
-                          <span dir="ltr" style={{ fontWeight: 700, color: 'var(--primary)' }}>
-                            {lang === 'ar' ? 'رقم الملف: ' : 'File number: '}{patient.fileNumber || '—'}
+                          <span style={{ fontWeight: 700, color: 'var(--primary)' }}>
+                            {lang === 'ar' ? 'رقم الملف: ' : 'File number: '}<bdi dir="ltr">{patient.fileNumber || '—'}</bdi>
                           </span>
 
                           {patient.phone && (
@@ -1787,8 +1906,8 @@ export default function ReceptionDashboard({ lang, t }) {
                     type="text"
                     placeholder={
                       lang === 'ar'
-                        ? 'ابحث عن مريض بالاسم أو رقم الهاتف...'
-                        : 'Search patient by name or phone...'
+                        ? 'ابحث عن مريض بالاسم أو الهاتف أو SHF-000001...'
+                        : 'Search patient by name, phone or SHF-000001...'
                     }
                     className="search-input-field"
                     value={searchQuery}
@@ -1810,7 +1929,7 @@ export default function ReceptionDashboard({ lang, t }) {
                           }}
                         >
                           <strong>{lang === 'ar' ? p.fullNameAr : p.fullNameEn}</strong>
-                          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{p.phone}</span>
+                          <span dir="ltr" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{p.fileNumber || '—'} · {p.phone || '—'}</span>
                         </li>
                       ))}
                     </ul>
@@ -1831,6 +1950,7 @@ export default function ReceptionDashboard({ lang, t }) {
                       <div>
                         <strong>{lang === 'ar' ? 'المريض المختار:' : 'Selected Patient:'}</strong>{' '}
                         {lang === 'ar' ? billingPatient.fullNameAr : billingPatient.fullNameEn}
+                        <div dir="ltr" style={{ marginTop: '0.2rem', color: 'var(--primary)', fontWeight: 700 }}>{billingPatient.fileNumber || '—'}</div>
                       </div>
 
                       <button
@@ -2094,7 +2214,7 @@ export default function ReceptionDashboard({ lang, t }) {
                 )}
               </form>
             )}
-          </div>
+          </aside>
         </div>
       </div>
       {viewingProfilePatientId && (
