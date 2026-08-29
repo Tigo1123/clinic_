@@ -66,3 +66,13 @@ test('medical record discovery does not bypass backend clinical authorization', 
   assert.match(panel, /السجلات الطبية متاحة فقط للممارسين المصرح لهم/);
   assert.match(panel, /Medical records are available only to authorized clinical practitioners/);
 });
+
+test('authorized patient file renders recorded and missing blood type safely', () => {
+  assert.match(panel, /فصيلة الدم/);
+  assert.match(panel, /Blood Type/);
+  assert.match(panel, /profile\.bloodType \|\| \(lang === 'ar' \? 'غير مسجلة' : 'Not recorded'\)/);
+  assert.match(panel, /Object\.prototype\.hasOwnProperty\.call\(profile, 'bloodType'\)/);
+  assert.match(panel, /<strong dir="ltr">/);
+  assert.match(styles, /patient-file-field--blood-type/);
+  assert.doesNotMatch(panel, /profile\.bloodType \|\| ['"](?:A|B|AB|O)[+-]['"]/);
+});

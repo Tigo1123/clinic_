@@ -19,6 +19,11 @@ test('non-clinical roles do not receive clinical patient-file sections', () => {
   assert.match(routeSource, /symptoms: isDoctor \? safeDecryptField/);
 });
 
+test('blood type follows the existing doctor-only clinical projection', () => {
+  assert.match(routeSource, /\.\.\.\(isDoctor \? \{ bloodType: true \} : \{\}\)/);
+  assert.match(routeSource, /\.\.\.\(isDoctor \? \{ bloodType: patient\.bloodType \|\| null \} : \{\}\)/);
+});
+
 test('patient-file histories are deterministic and exact MRN lookup stays bounded', () => {
   assert.match(routeSource, /fileNumber: exactFileNumber/);
   assert.match(routeSource, /orderBy: \[\{ appointmentDate: 'desc' \}, \{ appointmentTime: 'desc' \}\]/);

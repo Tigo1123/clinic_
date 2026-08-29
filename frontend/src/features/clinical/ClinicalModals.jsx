@@ -341,6 +341,14 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
                       <span>{lang === 'ar' ? 'العمر' : 'Age'}</span>
                       <strong>{age == null ? '—' : `${age} ${lang === 'ar' ? 'سنة' : 'years'}`}</strong>
                     </div>
+                    {Object.prototype.hasOwnProperty.call(profile, 'bloodType') && (
+                      <div className="patient-file-field patient-file-field--blood-type">
+                        <span>{lang === 'ar' ? 'فصيلة الدم' : 'Blood Type'}</span>
+                        <strong dir="ltr">
+                          {profile.bloodType || (lang === 'ar' ? 'غير مسجلة' : 'Not recorded')}
+                        </strong>
+                      </div>
+                    )}
                     <div className="patient-file-field">
                       <span>{lang === 'ar' ? 'الحالة' : 'Status'}</span>
                       <strong>{localizedStatus(profile.status, lang)}</strong>
