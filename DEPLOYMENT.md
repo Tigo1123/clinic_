@@ -65,8 +65,21 @@ MFA enforcement is not implemented and must not be represented as active.
    upgrade, health endpoints, backups, and restore drill.
 3. Back up the production database and uploads before applying migrations.
 4. Run `npx prisma migrate deploy`; never use `migrate reset` or `db push` in production.
-5. Start the backend and frontend immutable images; do not run the seed script in production.
-6. Execute `PRODUCTION_CHECKLIST.md` and the non-destructive smoke tests.
+5. For a deployment containing the Patient MRN migration, immediately grant
+   sequence `USAGE` to that environment's runtime role:
+
+   ```sh
+   MIGRATION_DATABASE_URL='<migration connection>' \
+   RUNTIME_DATABASE_ROLE='<environment runtime role>' \
+   npm run db:grant:patient-mrn-sequence
+   ```
+
+   Verify an existing-backend Patient insert through the runtime connection
+   before deploying the new backend. If migration and grant cannot run
+   adjacently, temporarily prevent Patient-creation traffic during that brief
+   interval.
+6. Start the backend and frontend immutable images; do not run the seed script in production.
+7. Execute `PRODUCTION_CHECKLIST.md` and the non-destructive smoke tests.
 
 Production and normal staging startup run migrations and start the server only. They never seed:
 `npm run start:container` or `npm run start:staging`. If a brand-new non-production staging

@@ -10,6 +10,7 @@
     "dev": "nodemon src/server.js",
     "db:init": "prisma migrate dev --name init",
     "db:migrate:deploy": "prisma migrate deploy",
+    "db:grant:patient-mrn-sequence": "sh scripts/provision-patient-mrn-sequence.sh",
     "db:seed": "node prisma/seed.js",
     "admin:reset-password": "node scripts/reset-admin-password.js",
     "seed:staging": "node scripts/seed-staging.js",

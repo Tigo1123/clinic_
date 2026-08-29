@@ -71,6 +71,23 @@ one-time equivalent explicitly before the backend rollout:
 GRANT USAGE ON SEQUENCE public.patient_file_number_seq TO <runtime-application-role>;
 ```
 
+The repository provides a parameterized operational command for this exact
+one-time grant. Run it with migration credentials after `prisma migrate
+deploy`; never substitute the runtime connection for
+`MIGRATION_DATABASE_URL`:
+
+```sh
+MIGRATION_DATABASE_URL='<migration connection>' \
+RUNTIME_DATABASE_ROLE='<environment runtime role>' \
+npm run db:grant:patient-mrn-sequence
+```
+
+Set `DATABASE_SCHEMA` only when the deployment does not use `public`. The
+script quotes both identifiers, grants only `USAGE`, and fails if the runtime
+role can update or owns the sequence. It deliberately does not install default
+privileges: those must be configured separately for the actual effective
+object-creator role before migrations, as described above.
+
 The deployment sequence is: (1) apply the Prisma migration with the migration role, (2) grant
 sequence `USAGE` to the runtime privilege-bearing role when default privileges did not already
 provide it, (3) verify privileges and database readiness, (4) deploy the backend, and (5) run an
