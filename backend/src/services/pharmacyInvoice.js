@@ -31,7 +31,7 @@ export async function ensurePharmacyInvoiceInTransaction(tx, {
     where: {
       prescriptionId,
       invoiceType: 'PHARMACY',
-      paymentStatus: { not: 'REFUNDED' }
+      paymentStatus: { notIn: ['REFUNDED', 'VOIDED'] }
     },
     include: { items: true },
     orderBy: [{ invoiceDate: 'desc' }, { id: 'desc' }],
@@ -75,6 +75,16 @@ export async function ensurePharmacyInvoiceInTransaction(tx, {
   }
 
   if (!['ACTIVE', 'PARTIALLY_FILLED'].includes(prescription.status)) {
+    if (
+      prescription.status === 'RESOLVED'
+      && prescription.prescribedDrugs.every((item) => item.pharmacyReviewStatus === 'EXTERNAL')
+    ) {
+      return pending(
+        'PHARMACY_NO_BILLABLE_ITEMS',
+        'The prescription contains no clinic-billable pharmacy items.',
+        prescriptionId
+      );
+    }
     return pending(
       'PHARMACY_BILLING_INVALID_STATE',
       'This prescription is not eligible for pharmacy billing.',

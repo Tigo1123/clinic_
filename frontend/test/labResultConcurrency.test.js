@@ -11,7 +11,7 @@ const laboratory = readFileSync(path.join(root, 'src/features/laboratory/Laborat
 test('laboratory result save carries and adopts the authoritative result version', () => {
   assert.match(laboratory, /expectedVersion:\s*item\.resultVersion/);
   assert.match(laboratory, /\{\s*\.\.\.currentItem,\s*\.\.\.savedItem\s*\}/);
-  assert.match(laboratory, /const selectedOrder = orders\.find/);
+  assert.match(laboratory, /const selectedOrder = \[\.\.\.orders, \.\.\.historyOrders\]\.find/);
   assert.doesNotMatch(laboratory, /setSelectedOrder\(/);
 });
 

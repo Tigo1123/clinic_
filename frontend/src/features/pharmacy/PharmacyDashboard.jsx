@@ -10,6 +10,8 @@ import { authoritativeStockSummary, buildMedicationReviewPayload, customMedicine
 
 export default function PharmacyDashboard({ lang, t: _t }) {
   const [prescriptions, setPrescriptions] = useState([]);
+  const [prescriptionHistory, setPrescriptionHistory] = useState([]);
+  const [queueView, setQueueView] = useState('active');
   const [selectedRx, setSelectedRx] = useState(null);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -34,6 +36,10 @@ export default function PharmacyDashboard({ lang, t: _t }) {
   const [reviewSuccessMsg, setReviewSuccessMsg] = useState('');
   const [reviewErrorMsg, setReviewErrorMsg] = useState('');
   const [reviewDialogItem, setReviewDialogItem] = useState(null);
+  const [unavailableItem, setUnavailableItem] = useState(null);
+  const [unavailableReason, setUnavailableReason] = useState('OUT_OF_STOCK');
+  const [unavailableNote, setUnavailableNote] = useState('');
+  const [unavailableSaving, setUnavailableSaving] = useState(false);
   const reviewSectionRef = useRef(null);
   const alertRequestRef = useRef(0);
 
@@ -63,7 +69,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
     }
   }, [lang]);
 
-  const fetchMedicationReviews = () => {
+  const fetchMedicationReviews = useCallback(() => {
     fetchWithAuth('/api/records/medication-reviews/pending')
       .then(async (res) => {
         if (!res.ok) {
@@ -91,9 +97,9 @@ export default function PharmacyDashboard({ lang, t: _t }) {
             : 'Unable to load medication review requests.'
         );
       });
-  };
+  }, [lang]);
 
-  const fetchPendingRx = () => {
+  const fetchPendingRx = useCallback(() => {
     fetchWithAuth('/api/records/prescriptions/pending')
       .then((res) => res.ok ? res.json() : [])
       .then((data) => {
@@ -112,10 +118,18 @@ export default function PharmacyDashboard({ lang, t: _t }) {
       .catch(() => {
         setPrescriptions([]);
       });
-  };
+  }, []);
+
+  const fetchPrescriptionHistory = useCallback(() => {
+    fetchWithAuth('/api/records/prescriptions/history')
+      .then((res) => res.ok ? res.json() : [])
+      .then((data) => setPrescriptionHistory(Array.isArray(data) ? data : []))
+      .catch(() => setPrescriptionHistory([]));
+  }, []);
 
   useEffect(() => {
     fetchPendingRx();
+    fetchPrescriptionHistory();
     fetchMedicationReviews();
 
     fetchWithAuth('/api/records/drugs')
@@ -130,7 +144,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
       .catch(() => {
         setDrugCatalog([]);
       });
-  }, []);
+  }, [fetchMedicationReviews, fetchPendingRx, fetchPrescriptionHistory]);
 
   useEffect(() => {
     loadAlertInventory();
@@ -466,6 +480,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
         setPaymentState(null);
         setManagementRefresh((value) => value + 1);
         fetchPendingRx();
+        fetchPrescriptionHistory();
       } else {
         const err = await res.json();
         setErrorMsg(apiErrorMessage(err, 'Dispense failed.'));
@@ -474,6 +489,40 @@ export default function PharmacyDashboard({ lang, t: _t }) {
       setErrorMsg('Dispensing transaction failed.');
     } finally {
       setDispensing(false);
+    }
+  };
+
+  const openUnavailableResolution = (item, defaultReason = 'OUT_OF_STOCK') => {
+    setUnavailableItem(item);
+    setUnavailableReason(defaultReason);
+    setUnavailableNote('');
+    setErrorMsg('');
+  };
+
+  const resolveUnavailable = async () => {
+    if (!unavailableItem) return;
+    try {
+      setUnavailableSaving(true);
+      const response = await fetchWithAuth(`/api/records/prescribed-drugs/${unavailableItem.id}/unavailable`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: unavailableReason, note: unavailableNote.trim() || null })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setErrorMsg(apiErrorMessage(payload, lang === 'ar' ? 'تعذر تسجيل تعذر الصرف.' : 'Unable to resolve the medication.'));
+        return;
+      }
+      setUnavailableItem(null);
+      setSelectedRx(null);
+      setPaymentState(null);
+      setPaymentRefresh((value) => value + 1);
+      setSuccessMsg(lang === 'ar' ? 'تم توثيق تعذر صرف الدواء دون خصم مخزون أو تحصيل قيمته.' : 'The medicine was recorded as unavailable without stock deduction or patient charge.');
+      fetchPendingRx();
+      fetchPrescriptionHistory();
+    } catch {
+      setErrorMsg(lang === 'ar' ? 'تعذر إكمال الإجراء.' : 'Unable to complete the action.');
+    } finally {
+      setUnavailableSaving(false);
     }
   };
 
@@ -517,6 +566,34 @@ export default function PharmacyDashboard({ lang, t: _t }) {
             <button type="button" className="btn" onClick={() => setReviewDialogItem(null)}>
               {lang === 'ar' ? 'إلغاء' : 'Cancel'}
             </button>
+          </div>
+        </Dialog>
+
+        <Dialog
+          open={Boolean(unavailableItem)}
+          title={lang === 'ar' ? 'تعذر الصرف' : 'Unable to Dispense'}
+          description={unavailableItem ? (unavailableItem.drug ? (lang === 'ar' ? unavailableItem.drug.labelAr : unavailableItem.drug.labelEn) : unavailableItem.customDrugName) : ''}
+          onClose={() => !unavailableSaving && setUnavailableItem(null)}
+        >
+          <div className="pharmacy-unavailable-form">
+            <label className="form-group">
+              <span className="form-label">{lang === 'ar' ? 'السبب' : 'Reason'}</span>
+              <select className="form-input" value={unavailableReason} onChange={(event) => setUnavailableReason(event.target.value)}>
+                <option value="OUT_OF_STOCK">{lang === 'ar' ? 'غير متوفر بالمخزون' : 'Out of stock'}</option>
+                <option value="NOT_IN_FORMULARY">{lang === 'ar' ? 'الدواء غير معتمد في قائمة العيادة' : 'Not in the clinic formulary'}</option>
+                <option value="DOCTOR_REVIEW_REQUIRED">{lang === 'ar' ? 'دواء يدوي يحتاج مراجعة الطبيب' : 'Manual medicine requires doctor review'}</option>
+                <option value="OTHER">{lang === 'ar' ? 'سبب آخر' : 'Other'}</option>
+              </select>
+            </label>
+            <label className="form-group">
+              <span className="form-label">{lang === 'ar' ? 'ملاحظة اختيارية' : 'Optional note'}</span>
+              <textarea className="form-input" maxLength="500" value={unavailableNote} onChange={(event) => setUnavailableNote(event.target.value)} />
+            </label>
+            <p className="form-help">{lang === 'ar' ? 'لن يُسجل الدواء كمصروف، ولن يُخصم من المخزون أو تُحصّل قيمته.' : 'The item will not be marked dispensed, deducted from stock, or charged.'}</p>
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-danger" disabled={unavailableSaving} onClick={resolveUnavailable}>{unavailableSaving ? (lang === 'ar' ? 'جارٍ الحفظ…' : 'Saving…') : (lang === 'ar' ? 'تأكيد تعذر الصرف' : 'Confirm Unable to Dispense')}</button>
+              <button type="button" className="btn" disabled={unavailableSaving} onClick={() => setUnavailableItem(null)}>{lang === 'ar' ? 'إلغاء' : 'Cancel'}</button>
+            </div>
           </div>
         </Dialog>
 
@@ -1345,18 +1422,22 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                   padding: '4px 10px',
                   fontSize: '0.75rem'
                 }}
-                onClick={fetchPendingRx}
+                onClick={queueView === 'active' ? fetchPendingRx : fetchPrescriptionHistory}
               >
                 {lang === 'ar' ? 'تحديث' : 'Refresh'}
               </button>
             </div>
-            {prescriptions.length === 0 ? (
+            <div className="pharmacy-queue-tabs" role="tablist" aria-label={lang === 'ar' ? 'عرض الوصفات' : 'Prescription view'}>
+              <button type="button" role="tab" aria-selected={queueView === 'active'} className={queueView === 'active' ? 'is-active' : ''} onClick={() => setQueueView('active')}>{lang === 'ar' ? 'بانتظار الصرف' : 'Awaiting Dispensing'} <span>{prescriptions.length}</span></button>
+              <button type="button" role="tab" aria-selected={queueView === 'history'} className={queueView === 'history' ? 'is-active' : ''} onClick={() => { setQueueView('history'); fetchPrescriptionHistory(); }}>{lang === 'ar' ? 'السجل' : 'History'} <span>{prescriptionHistory.length}</span></button>
+            </div>
+            {(queueView === 'active' ? prescriptions : prescriptionHistory).length === 0 ? (
               <div className="pharmacy-compact-empty">
                 <HelpCircle size={24} />
-                <p>{lang === 'ar' ? 'لا توجد وصفات بانتظار الصرف.' : 'No prescriptions are awaiting dispensing.'}</p>
+                <p>{queueView === 'active' ? (lang === 'ar' ? 'لا توجد وصفات بانتظار الصرف.' : 'No prescriptions are awaiting dispensing.') : (lang === 'ar' ? 'لا توجد وصفات محفوظة في السجل.' : 'No prescription history is available.')}</p>
               </div>
             ) : (
-              prescriptions.map((rx) => (
+              (queueView === 'active' ? prescriptions : prescriptionHistory).map((rx) => (
                 <div
                   key={rx.id}
                   className={`queue-card-item glass-panel ${selectedRx?.id === rx.id ? 'selected' : ''}`}
@@ -1393,7 +1474,9 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                           ? (lang === 'ar' ? 'مدفوع جزئياً' : 'PARTIAL')
                           : rx.billingStatus === 'UNPAID'
                             ? (lang === 'ar' ? 'غير مدفوع' : 'UNPAID')
-                            : (lang === 'ar' ? 'غير مفوتر' : 'UNBILLED')}
+                            : queueView === 'history'
+                              ? rx.status
+                              : (lang === 'ar' ? 'غير مفوتر' : 'UNBILLED')}
                     </span>
                   </div>
 
@@ -1444,8 +1527,9 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                               color: 'var(--primary)'
                             }}
                           >
-                            {lang === 'ar' ? 'المتبقي:' : 'Remaining:'}{' '}
-                            {remainingQty}
+                            {item.pharmacyReviewStatus === 'EXTERNAL'
+                              ? (lang === 'ar' ? 'تعذر الصرف' : 'Unavailable')
+                              : `${lang === 'ar' ? 'المتبقي:' : 'Remaining:'} ${remainingQty}`}
                           </span>
                         </div>
                       );
@@ -1493,11 +1577,12 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                   {lang === 'ar' ? 'الطبيب المعالج:' : 'Doctor:'} {lang === 'ar' ? selectedRx.doctor.fullNameAr : selectedRx.doctor.fullNameEn}
                 </p>
 
-                <PharmacyPayment key={`${selectedRx.id}:${paymentRefresh}`} prescriptionId={selectedRx.id} lang={lang} onStateChange={setPaymentState} />
+                {queueView === 'active' && <PharmacyPayment key={`${selectedRx.id}:${paymentRefresh}`} prescriptionId={selectedRx.id} lang={lang} onStateChange={setPaymentState} />}
 
                 {selectedRx.prescribedDrugs.map((item) => {
                   const isCustom = !item.drug;
                   const requiresReview = customMedicineRequiresReview(item);
+                  const isUnavailable = item.pharmacyReviewStatus === 'EXTERNAL';
 
                   if (isCustom) {
                     return (
@@ -1533,8 +1618,8 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                             Dosage: {item.dosage} | Duration: {item.duration}
                           </span>
 
-                          <span className="badge badge-warning" style={{ fontSize: '0.7rem' }}>
-                            {lang === 'ar' ? 'غير مرتبط بالمخزون' : 'Not linked to inventory'}
+                          <span className={`badge badge-${isUnavailable ? 'danger' : 'warning'}`} style={{ fontSize: '0.7rem' }}>
+                            {isUnavailable ? (lang === 'ar' ? 'تعذر الصرف' : 'Unable to Dispense') : (lang === 'ar' ? 'دواء يدوي · غير مرتبط بالمخزون' : 'Manual medicine · Not linked to inventory')}
                           </span>
                         </div>
 
@@ -1544,15 +1629,15 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                             : 'This medication was entered manually by the doctor and will not be deducted automatically from clinic inventory.'}
                         </div>
                         {requiresReview && (
-                          <button
-                            type="button"
-                            className="btn btn-primary"
-                            style={{ marginTop: '0.75rem', width: '100%' }}
-                            onClick={() => openCustomMedicineReview(item)}
-                          >
-                            {lang === 'ar' ? 'مراجعة الدواء' : 'Review Medication'}
-                          </button>
+                          <div className="pharmacy-item-actions">
+                            <button type="button" className="btn btn-primary" onClick={() => openCustomMedicineReview(item)}>{lang === 'ar' ? 'مراجعة / ربط الدواء' : 'Review / Link Medication'}</button>
+                            <button type="button" className="btn" onClick={() => openUnavailableResolution(item, 'DOCTOR_REVIEW_REQUIRED')}>{lang === 'ar' ? 'تعذر الصرف' : 'Unable to Dispense'}</button>
+                          </div>
                         )}
+                        {isUnavailable && queueView === 'active' && (
+                          <div className="pharmacy-item-actions"><button type="button" className="btn" onClick={() => openUnavailableResolution(item, 'OTHER')}>{lang === 'ar' ? 'إكمال معالجة الوصفة' : 'Finalize Prescription Resolution'}</button></div>
+                        )}
+                        {isUnavailable && item.pharmacyReviewNote && <div className="pharmacy-resolution-note">{item.pharmacyReviewNote}</div>}
                       </div>
                     );
                   }
@@ -1614,11 +1699,14 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                       >
                         {lang === 'ar' ? 'أقرب صلاحية سارية: ' : 'Nearest unexpired expiry: '}{stock.nearestUnexpiredExpiry || '—'}
                       </div>
+                      {!isUnavailable && authoritativeMedicine && (isInsufficient || ['OUT_OF_STOCK', 'EXPIRED'].includes(stockState)) && (
+                        <div className="pharmacy-item-actions"><button type="button" className="btn" onClick={() => openUnavailableResolution(item, 'OUT_OF_STOCK')}>{lang === 'ar' ? 'تعذر الصرف' : 'Unable to Dispense'}</button></div>
+                      )}
                     </div>
                   );
                 })}
 
-                <button
+                {queueView === 'active' && <button
                   className="btn btn-primary"
                   style={{
                     width: '100%',
@@ -1634,7 +1722,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                     : (lang === 'ar'
                         ? '🔒 الدفع الكامل مطلوب قبل الصرف'
                         : '🔒 Full Payment Required Before Dispensing')}
-                </button>
+                </button>}
               </div>
             ) : (
               <div className="pharmacy-compact-empty pharmacy-select-prescription">

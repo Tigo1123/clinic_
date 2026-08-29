@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, FileSpreadsheet, HelpCircle, Sliders, Stethoscope } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ClipboardCheck, FileSpreadsheet, FlaskConical, HelpCircle, History, Sliders, Stethoscope } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import RoleHero from '../../components/healthcare/RoleHero';
 import { createLatestRequestGate, mergeLabOrdersMonotonically } from '../../utils/labOrderVersions';
+import './laboratoryDashboard.css';
 
 export default function LaboratoryDashboard({ lang }) {
   const [orders, setOrders] = useState([]);
+  const [historyOrders, setHistoryOrders] = useState([]);
+  const [orderView, setOrderView] = useState('work');
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [resultForms, setResultForms] = useState({});
   const [successMsg, setSuccessMsg] = useState('');
@@ -16,7 +20,8 @@ export default function LaboratoryDashboard({ lang }) {
   const [reviewingId, setReviewingId] = useState(null);
   const queueRequestGateRef = useRef(null);
   if (queueRequestGateRef.current === null) queueRequestGateRef.current = createLatestRequestGate();
-  const selectedOrder = orders.find((order) => order.id === selectedOrderId) || null;
+  const visibleOrders = orderView === 'work' ? orders : historyOrders;
+  const selectedOrder = [...orders, ...historyOrders].find((order) => order.id === selectedOrderId) || null;
 
   const fetchPendingLabOrders = async (preferredOrderId = null) => {
     const gate = queueRequestGateRef.current;
@@ -50,6 +55,7 @@ export default function LaboratoryDashboard({ lang }) {
     const gate = createLatestRequestGate();
     queueRequestGateRef.current = gate;
     fetchPendingLabOrders();
+    fetchLabHistory();
     fetchReviewRequests();
     fetchWithAuth('/api/billing/services')
       .then((res) => res.ok ? res.json() : [])
@@ -65,6 +71,23 @@ export default function LaboratoryDashboard({ lang }) {
       setReviewRequests(res.ok && Array.isArray(data) ? data : []);
     } catch {
       setReviewRequests([]);
+    }
+  };
+
+  const fetchLabHistory = async (preferredOrderId = null) => {
+    setHistoryLoading(true);
+    try {
+      const res = await fetchWithAuth('/api/records/lab-orders/history');
+      const data = await res.json().catch(() => []);
+      const nextHistory = res.ok && Array.isArray(data) ? data : [];
+      setHistoryOrders(nextHistory);
+      if (preferredOrderId && nextHistory.some((order) => order.id === preferredOrderId)) {
+        setSelectedOrderId(preferredOrderId);
+      }
+    } catch {
+      setHistoryOrders([]);
+    } finally {
+      setHistoryLoading(false);
     }
   };
 
@@ -261,41 +284,58 @@ export default function LaboratoryDashboard({ lang }) {
         return;
       }
       setSuccessMsg(lang === 'ar' ? 'تم الإفراج عن النتائج للمريض.' : 'Results released to the patient.');
-      await fetchPendingLabOrders(selectedOrder.id);
+      await Promise.all([fetchPendingLabOrders(), fetchLabHistory(selectedOrder.id)]);
+      setOrderView('history');
     } catch {
       setErrorMsg(lang === 'ar' ? 'تعذر الإفراج عن النتائج للمريض.' : 'Failed to release results to the patient.');
     }
   };
 
+  const workflowSteps = [
+    { ar: 'الدفع', en: 'Payment' },
+    { ar: 'جمع العينة', en: 'Sample collection' },
+    { ar: 'إدخال النتائج', en: 'Result entry' },
+    { ar: 'الاكتمال', en: 'Completion' },
+    { ar: 'الإفراج', en: 'Release' }
+  ];
+  const selectedWorkflowPosition = selectedOrder?.releasedToPatientAt
+    ? workflowSteps.length
+    : ({ PENDING_BILLING: 0, PAID: 1, SAMPLE_COLLECTED: 2, COMPLETED: 4 }[selectedOrder?.status] ?? 0);
+
   return (
-    <div className="dashboard-wrapper">
-      <div className="workspace-panel" style={{ padding: '1rem' }}>
+    <div className="dashboard-wrapper laboratory-dashboard" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+      <div className="workspace-panel laboratory-workspace">
         <RoleHero role="laboratory" lang={lang}/>
-        <section className="glass-panel" style={{ padding: '1rem', marginBottom: '1rem' }}>
-          <div className="panel-header">
-            <span className="panel-title">
-              <AlertTriangle size={18} />
-              {lang === 'ar' ? 'طلبات فحوصات مختبرية جديدة' : 'New Lab Test Requests'}
-            </span>
+        <section className={`laboratory-review-section ${reviewRequests.length === 0 ? 'is-empty' : ''}`} aria-labelledby="laboratory-review-title">
+          <div className="laboratory-review-heading">
+            <span className="laboratory-review-icon"><AlertTriangle size={17} aria-hidden="true" /></span>
+            <div>
+              <h2 id="laboratory-review-title">
+              {lang === 'ar' ? 'مراجعة الفحوصات المخصصة' : 'Custom Test Review'}
+              </h2>
+              <p>{lang === 'ar' ? 'فحوصات كتبها الطبيب يدوياً وتحتاج إلى مطابقة أو اعتماد قبل التنفيذ.' : 'Tests entered manually by a doctor that require review before processing.'}</p>
+            </div>
+            <span className="laboratory-review-count">{reviewRequests.length}</span>
           </div>
           {reviewRequests.length === 0 ? (
-            <p style={{ color: 'var(--text-secondary)' }}>
+            <p className="laboratory-review-empty" role="status">
               {lang === 'ar' ? 'لا توجد فحوصات مخصصة بانتظار المراجعة.' : 'No custom tests are awaiting review.'}
             </p>
           ) : reviewRequests.map((request) => {
             const form = reviewForms[request.id] || {};
             const mode = form.mode || '';
             return (
-              <div key={request.id} className="glass-panel" style={{ padding: '1rem', marginTop: '0.75rem' }}>
-                <strong>{request.customTestName}</strong>
-                <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', margin: '0.35rem 0 0.75rem' }}>
-                  {lang === 'ar' ? request.labOrder.patient.fullNameAr : request.labOrder.patient.fullNameEn}
-                  {' • '}
-                  {lang === 'ar' ? request.labOrder.doctor.fullNameAr : request.labOrder.doctor.fullNameEn}
-                  {' • '}
-                  {new Date(request.labOrder.orderDate).toLocaleDateString(lang === 'ar' ? 'ar' : 'en')}
+              <article key={request.id} className="laboratory-review-card">
+                <div className="laboratory-review-card__header">
+                  <div><span>{lang === 'ar' ? 'الفحص المطلوب' : 'Requested test'}</span><strong>{request.customTestName}</strong></div>
+                  <span className="badge badge-warning">{lang === 'ar' ? 'بانتظار المراجعة' : 'Pending review'}</span>
                 </div>
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <dl className="laboratory-review-meta">
+                  <div><dt>{lang === 'ar' ? 'المريض' : 'Patient'}</dt><dd>{lang === 'ar' ? request.labOrder.patient.fullNameAr : request.labOrder.patient.fullNameEn}</dd></div>
+                  <div><dt>{lang === 'ar' ? 'الطبيب' : 'Doctor'}</dt><dd>{lang === 'ar' ? request.labOrder.doctor.fullNameAr : request.labOrder.doctor.fullNameEn}</dd></div>
+                  <div><dt>{lang === 'ar' ? 'تاريخ الطلب' : 'Requested'}</dt><dd>{new Date(request.labOrder.orderDate).toLocaleDateString(lang === 'ar' ? 'ar' : 'en')}</dd></div>
+                </dl>
+                <div className="laboratory-review-actions">
                   <button className="btn btn-secondary" type="button" onClick={() => updateReviewForm(request.id, { mode: 'LINK_EXISTING' })}>{lang === 'ar' ? 'ربط بخدمة موجودة' : 'Link Existing'}</button>
                   <button className="btn btn-secondary" type="button" onClick={() => updateReviewForm(request.id, { mode: 'CREATE_SERVICE', labelEn: form.labelEn || request.customTestName, labelAr: form.labelAr || request.customTestName })}>{lang === 'ar' ? 'إنشاء للمراجعة الإدارية' : 'Create for Admin Pricing'}</button>
                   <button className="btn btn-secondary" type="button" disabled={reviewingId === request.id} onClick={() => handleReview(request, 'EXTERNAL')}>{lang === 'ar' ? 'خارجي / غير متوفر' : 'External / Not Available'}</button>
@@ -321,43 +361,47 @@ export default function LaboratoryDashboard({ lang }) {
                     <button className="btn btn-primary" type="button" disabled={!form.labelAr?.trim() || !form.labelEn?.trim() || reviewingId === request.id} onClick={() => handleReview(request, 'CREATE_SERVICE')}>{lang === 'ar' ? 'إنشاء وربط الخدمة المعلقة' : 'Create and Link Pending Service'}</button>
                   </div>
                 )}
-              </div>
+              </article>
             );
           })}
         </section>
-        <div className="panel-grid-2">
+        <div className="laboratory-operational-grid">
           {/* COLUMN 1: PENDING ORDERS QUEUE */}
-          <div className="panel-column glass-panel" style={{ padding: '1rem' }}>
-            <div className="panel-header">
-              <span className="panel-title">
+          <aside className="laboratory-orders-panel" aria-labelledby="laboratory-orders-title">
+            <div className="laboratory-orders-header">
+              <span className="panel-title" id="laboratory-orders-title">
                 <FileSpreadsheet size={18} />
                 {lang === 'ar'
-                  ? 'طلبات الفحوصات المخبرية'
-                  : 'Pending Laboratory Orders'}
+                  ? 'طلبات المختبر'
+                  : 'Laboratory Orders'}
               </span>
+              <div className="laboratory-order-tabs" role="tablist" aria-label={lang === 'ar' ? 'عرض طلبات المختبر' : 'Laboratory order view'}>
+                <button type="button" role="tab" aria-selected={orderView === 'work'} className={orderView === 'work' ? 'is-active' : ''} onClick={() => { setOrderView('work'); setSelectedOrderId(null); }}><FlaskConical size={15} />{lang === 'ar' ? 'قائمة العمل' : 'Work Queue'}<span>{orders.length}</span></button>
+                <button type="button" role="tab" aria-selected={orderView === 'history'} className={orderView === 'history' ? 'is-active' : ''} onClick={() => { setOrderView('history'); setSelectedOrderId(null); }}><History size={15} />{lang === 'ar' ? 'السجل المختبري' : 'Lab History'}<span>{historyOrders.length}</span></button>
+              </div>
             </div>
-            {orders.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
+            {historyLoading && orderView === 'history' ? <div className="laboratory-orders-empty" role="status">{lang === 'ar' ? 'جارٍ تحميل السجل المختبري...' : 'Loading laboratory history...'}</div> : visibleOrders.length === 0 ? (
+              <div className="laboratory-orders-empty" role="status">
                 <HelpCircle size={36} />
-                <p style={{ marginTop: '0.5rem' }}>{lang === 'ar'
-                    ? 'لا توجد طلبات فحوصات مخبرية بانتظار الإجراء حالياً.'
-                    : 'There are no pending laboratory orders at this time.'}</p>
+                <p>{orderView === 'work'
+                  ? (lang === 'ar' ? 'لا توجد طلبات فحوصات مخبرية بانتظار الإجراء حالياً.' : 'There are no laboratory orders requiring action.')
+                  : (lang === 'ar' ? 'لا توجد طلبات مختبرية مكتملة في السجل.' : 'There are no completed laboratory orders in history.')}</p>
               </div>
             ) : (
-              orders.map((ord) => (
-                <div
+              <div className="laboratory-order-list">{visibleOrders.map((ord) => (
+                <button
+                  type="button"
                   key={ord.id}
-                  className={`queue-card-item glass-panel ${selectedOrder?.id === ord.id ? 'selected' : ''}`}
+                  className={`laboratory-order-card ${selectedOrder?.id === ord.id ? 'selected' : ''}`}
                   onClick={() => setSelectedOrderId(ord.id)}
+                  aria-pressed={selectedOrder?.id === ord.id}
                 >
-                  <strong>{lang === 'ar' ? ord.patient.fullNameAr : ord.patient.fullNameEn}</strong>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-                    <span>
+                  <span className="laboratory-order-card__header"><strong>{lang === 'ar' ? ord.patient.fullNameAr : ord.patient.fullNameEn}</strong><bdi dir="ltr">{ord.patient.fileNumber || ''}</bdi></span>
+                  <span className="laboratory-order-card__date">
                       {new Date(ord.orderDate).toLocaleDateString(
                         lang === 'ar' ? 'ar' : 'en'
                       )}
-                    </span>
-                  </div>
+                  </span>
 
                   <span
                     className={`badge ${
@@ -372,7 +416,9 @@ export default function LaboratoryDashboard({ lang }) {
                       display: 'inline-flex'
                     }}
                   >
-                    {ord.items.some((item) => item.labReviewStatus === 'PENDING_REVIEW')
+                    {ord.releasedToPatientAt
+                      ? (lang === 'ar' ? 'تم الإفراج عن النتائج' : 'Results Released')
+                      : ord.items.some((item) => item.labReviewStatus === 'PENDING_REVIEW')
                       ? (lang === 'ar'
                           ? '⚠ بانتظار مراجعة فحص مخصص'
                           : '⚠ Custom Test Review Required')
@@ -392,13 +438,13 @@ export default function LaboratoryDashboard({ lang }) {
                             ? '🧪 تم جمع العينة'
                             : '🧪 Sample Collected')}
                   </span>
-                </div>
-              ))
+                </button>
+              ))}</div>
             )}
-          </div>
+          </aside>
 
           {/* COLUMN 2: RESULTS ENTRY FORM */}
-          <div className="panel-column glass-panel" style={{ padding: '1rem' }}>
+          <main className="laboratory-results-panel">
             <div className="panel-header">
               <span className="panel-title">
                 <Sliders size={18} />
@@ -419,6 +465,13 @@ export default function LaboratoryDashboard({ lang }) {
                 <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
                   {lang === 'ar' ? 'الطبيب طالب الفحص:' : 'Ordering Doctor:'} {lang === 'ar' ? selectedOrder.doctor.fullNameAr : selectedOrder.doctor.fullNameEn}
                 </p>
+
+                <ol className="laboratory-workflow" aria-label={lang === 'ar' ? 'مراحل سير طلب المختبر' : 'Laboratory order workflow'}>
+                  {workflowSteps.map((step, index) => <li className={index < selectedWorkflowPosition ? 'is-done' : index === selectedWorkflowPosition ? 'is-current' : ''} key={step.en}>
+                    <span>{index < selectedWorkflowPosition ? <CheckCircle2 size={15} aria-hidden="true" /> : index + 1}</span>
+                    <small>{lang === 'ar' ? step.ar : step.en}</small>
+                  </li>)}
+                </ol>
 
                 {selectedOrder.items.some((item) => item.labReviewStatus === 'PENDING_REVIEW') ? (
                   <div className="badge badge-warning" style={{ display: 'block', padding: '0.85rem', marginBottom: '1rem' }}>
@@ -489,7 +542,7 @@ export default function LaboratoryDashboard({ lang }) {
                   </div>
                 )}
 
-                {selectedOrder.status === 'COMPLETED' && (
+                {selectedOrder.status === 'COMPLETED' && !selectedOrder.releasedToPatientAt && (
                   <div className="glass-panel" style={{ padding: '1rem', marginBottom: '1rem' }}>
                     <div className="badge badge-success" style={{ marginBottom: '0.75rem', padding: '0.6rem' }}>
                       {lang === 'ar' ? 'اكتملت جميع النتائج' : 'All Results Completed'}
@@ -504,6 +557,12 @@ export default function LaboratoryDashboard({ lang }) {
                     </button>
                   </div>
                 )}
+
+                {selectedOrder.releasedToPatientAt && <div className="laboratory-released-banner" role="status">
+                  <ClipboardCheck size={18} aria-hidden="true" />
+                  <div><strong>{lang === 'ar' ? 'تم الإفراج عن النتائج' : 'Results released'}</strong><span>{lang === 'ar' ? 'هذا الطلب محفوظ في السجل المختبري للقراءة والتدقيق.' : 'This order is retained in laboratory history for review and audit.'}</span></div>
+                  <time dateTime={selectedOrder.releasedToPatientAt}>{new Date(selectedOrder.releasedToPatientAt).toLocaleString(lang === 'ar' ? 'ar' : 'en')}</time>
+                </div>}
 
                 {selectedOrder.items.filter((item) => item.labReviewStatus !== 'EXTERNAL').map((item) => {
                   const isCompleted =
@@ -644,7 +703,7 @@ export default function LaboratoryDashboard({ lang }) {
                   : 'Select a laboratory order from the list to view details and enter results.'}</p>
               </div>
             )}
-          </div>
+          </main>
         </div>
       </div>
     </div>

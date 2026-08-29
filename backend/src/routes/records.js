@@ -22,6 +22,31 @@ import { ensurePharmacyInvoiceInTransaction } from '../services/pharmacyInvoice.
 
 const router = express.Router();
 
+const ACTIVE_PRESCRIPTION_STATUSES = ['ACTIVE', 'PARTIALLY_FILLED'];
+const TERMINAL_PRESCRIPTION_STATUSES = ['FILLED', 'RESOLVED', 'CANCELLED'];
+
+async function refreshPrescriptionResolution(tx, prescriptionId) {
+  const items = await tx.prescribedDrug.findMany({
+    where: { prescriptionId },
+    select: {
+      qtyPrescribed: true,
+      qtyDispensed: true,
+      pharmacyReviewStatus: true
+    }
+  });
+  const hasUnavailable = items.some((item) => item.pharmacyReviewStatus === 'EXTERNAL');
+  const allResolved = items.length > 0 && items.every((item) =>
+    item.pharmacyReviewStatus === 'EXTERNAL'
+    || Number(item.qtyDispensed) >= Number(item.qtyPrescribed)
+  );
+  const anyDispensed = items.some((item) => Number(item.qtyDispensed) > 0);
+  const status = allResolved
+    ? (hasUnavailable ? 'RESOLVED' : 'FILLED')
+    : (anyDispensed ? 'PARTIALLY_FILLED' : 'ACTIVE');
+  await tx.prescription.update({ where: { id: prescriptionId }, data: { status } });
+  return status;
+}
+
 function authorityError(status, code, message) {
   return Object.assign(new Error(message), { status, code });
 }
@@ -878,6 +903,11 @@ router.post(
               }
             });
 
+            await refreshPrescriptionResolution(
+              tx,
+              prescribedDrug.prescriptionId
+            );
+
             await ensurePharmacyInvoiceInTransaction(tx, {
               prescriptionId: prescribedDrug.prescriptionId,
               actorUserId: req.user.id,
@@ -1336,7 +1366,7 @@ router.get('/prescriptions/pending', authenticate, allowRoles(ROLES.PHARMACIST),
           where: {
             invoiceType: 'PHARMACY',
             paymentStatus: {
-              not: 'REFUNDED'
+              notIn: ['REFUNDED', 'VOIDED']
             }
           },
           select: {
@@ -1360,6 +1390,136 @@ router.get('/prescriptions/pending', authenticate, allowRoles(ROLES.PHARMACIST),
   } catch (error) {
     console.error('Fetch pending prescriptions error:', error);
     return res.status(500).json({ error: 'Failed to retrieve pending prescriptions.' });
+  }
+});
+
+/**
+ * GET /api/records/prescriptions/history
+ * Bounded, read-only pharmacy audit history.
+ */
+router.get('/prescriptions/history', authenticate, allowRoles(ROLES.PHARMACIST), async (req, res) => {
+  try {
+    const prescriptions = await prisma.prescription.findMany({
+      where: { status: { in: TERMINAL_PRESCRIPTION_STATUSES } },
+      select: {
+        id: true,
+        prescriptionDate: true,
+        status: true,
+        patient: { select: { fullNameAr: true, fullNameEn: true, fileNumber: true } },
+        doctor: { select: { fullNameAr: true, fullNameEn: true } },
+        prescribedDrugs: {
+          select: {
+            id: true,
+            customDrugName: true,
+            dosage: true,
+            duration: true,
+            qtyPrescribed: true,
+            qtyDispensed: true,
+            pharmacyReviewStatus: true,
+            pharmacyReviewNote: true,
+            drug: { select: { labelAr: true, labelEn: true } }
+          }
+        }
+      },
+      orderBy: [{ prescriptionDate: 'desc' }, { id: 'desc' }],
+      take: 100
+    });
+    return res.json(prescriptions);
+  } catch (error) {
+    console.error('Fetch prescription history error:', error);
+    return sendError(res, 500, 'PRESCRIPTION_HISTORY_FAILED', 'Failed to retrieve prescription history.');
+  }
+});
+
+/**
+ * POST /api/records/prescribed-drugs/:id/unavailable
+ * Resolves, but never deletes or dispenses, an item the clinic cannot supply.
+ */
+router.post('/prescribed-drugs/:id/unavailable', authenticate, allowRoles(ROLES.PHARMACIST), validate(z.object({
+  reason: z.enum(['OUT_OF_STOCK', 'NOT_IN_FORMULARY', 'DOCTOR_REVIEW_REQUIRED', 'OTHER']),
+  note: z.string().trim().max(500).optional().nullable()
+})), async (req, res) => {
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const item = await tx.prescribedDrug.findUnique({
+        where: { id: req.params.id },
+        include: { prescription: { select: { id: true, status: true } } }
+      });
+      if (!item) throw authorityError(404, 'PRESCRIBED_DRUG_NOT_FOUND', 'Prescribed medication was not found.');
+      if (!ACTIVE_PRESCRIPTION_STATUSES.includes(item.prescription.status)) {
+        throw authorityError(409, 'PRESCRIPTION_NOT_ACTIVE', 'This prescription is no longer active.');
+      }
+      if (item.pharmacyReviewStatus === 'EXTERNAL') {
+        const prescriptionStatus = await refreshPrescriptionResolution(tx, item.prescriptionId);
+        await tx.tenantAuditLog.create({
+          data: {
+            userId: req.user.id,
+            action: `PHARMACY_MEDICATION_RESOLUTION_RECONCILED:${item.id}`,
+            details: JSON.stringify({ prescribedDrugId: item.id, prescriptionId: item.prescriptionId, prescriptionStatus }),
+            ipAddress: req.ip || 'unknown'
+          }
+        });
+        return { prescribedDrugId: item.id, prescriptionId: item.prescriptionId, prescriptionStatus, billing: null, reconciled: true };
+      }
+      if (item.qtyDispensed >= item.qtyPrescribed) {
+        throw authorityError(409, 'MEDICATION_ALREADY_RESOLVED', 'This medication is already resolved.');
+      }
+
+      const invoices = await tx.invoice.findMany({
+        where: {
+          prescriptionId: item.prescriptionId,
+          invoiceType: 'PHARMACY',
+          paymentStatus: { notIn: ['REFUNDED', 'VOIDED'] }
+        },
+        select: { id: true, paymentStatus: true, payments: { select: { id: true }, take: 1 } },
+        take: 2
+      });
+      if (invoices.length > 1) {
+        throw authorityError(409, 'PHARMACY_INVOICE_INVARIANT_VIOLATION', 'Pharmacy billing requires administrative review.');
+      }
+      const invoice = invoices[0];
+      if (invoice && (invoice.paymentStatus !== 'UNPAID' || invoice.payments.length > 0)) {
+        throw authorityError(409, 'PHARMACY_UNAVAILABLE_PAID_REVIEW_REQUIRED', 'Paid medication cannot be marked unavailable without financial review.');
+      }
+      if (invoice) {
+        await tx.invoice.update({ where: { id: invoice.id }, data: { paymentStatus: 'VOIDED' } });
+      }
+
+      const note = req.body.note?.trim() || null;
+      await tx.prescribedDrug.update({
+        where: { id: item.id },
+        data: {
+          pharmacyReviewStatus: 'EXTERNAL',
+          pharmacyReviewedAt: new Date(),
+          pharmacyReviewNote: note ? `${req.body.reason}: ${note}` : req.body.reason
+        }
+      });
+      const prescriptionStatus = await refreshPrescriptionResolution(tx, item.prescriptionId);
+      await tx.tenantAuditLog.create({
+        data: {
+          userId: req.user.id,
+          action: `PHARMACY_MEDICATION_UNAVAILABLE:${item.id}`,
+          details: JSON.stringify({ prescribedDrugId: item.id, prescriptionId: item.prescriptionId, reason: req.body.reason, note, voidedInvoiceId: invoice?.id || null }),
+          ipAddress: req.ip || 'unknown'
+        }
+      });
+
+      let billing = null;
+      if (ACTIVE_PRESCRIPTION_STATUSES.includes(prescriptionStatus)) {
+        billing = await ensurePharmacyInvoiceInTransaction(tx, {
+          prescriptionId: item.prescriptionId,
+          actorUserId: req.user.id,
+          ipAddress: req.ip || 'unknown',
+          trigger: 'MEDICATION_UNAVAILABLE'
+        });
+      }
+      return { prescribedDrugId: item.id, prescriptionId: item.prescriptionId, prescriptionStatus, billing };
+    });
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    if (error.status && error.code) return sendError(res, error.status, error.code, error.message);
+    console.error('Resolve unavailable medication error:', error);
+    return sendError(res, 500, 'PHARMACY_UNAVAILABLE_FAILED', 'Failed to resolve unavailable medication.');
   }
 });
 
@@ -1405,8 +1565,6 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
         );
       }
 
-      let allFilled = true;
-
       for (const item of items) {
         const { prescribedDrugId } = item;
         const qtyToDispense = Number(item.qtyToDispense);
@@ -1424,6 +1582,9 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
           // Custom/free-text medications are not linked to clinic inventory.
           // They are excluded from automatic pharmacy stock dispensing.
           continue;
+        }
+        if (prescribedDrug.pharmacyReviewStatus === 'EXTERNAL') {
+          throw new Error('Unavailable medication cannot be dispensed.');
         }
 
         const remaining = prescribedDrug.qtyPrescribed - prescribedDrug.qtyDispensed;
@@ -1515,15 +1676,8 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
         });
         if (prescriptionClaim.count !== 1) throw new Error('Prescription changed concurrently. Reload and retry dispensing.');
 
-        if (newQtyDispensed < prescribedDrug.qtyPrescribed) {
-          allFilled = false;
-        }
       }
-
-      await tx.prescription.update({
-        where: { id: prescriptionId },
-        data: { status: allFilled ? 'FILLED' : 'PARTIALLY_FILLED' }
-      });
+      await refreshPrescriptionResolution(tx, prescriptionId);
     });
 
     return res.json({ success: true, message: 'Prescription dispensed successfully.' });
@@ -1535,7 +1689,7 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
 
     const knownValidation = [
       'positive whole number', 'does not belong', 'exceeds the remaining',
-      'not found', 'changed concurrently', 'Unable to allocate'
+      'not found', 'changed concurrently', 'Unable to allocate', 'cannot be dispensed'
     ].some((fragment) => error.message?.includes(fragment));
     if (knownValidation) return sendError(res, 422, 'DISPENSING_VALIDATION_FAILED', error.message);
     if (error.message?.includes('Insufficient stock')) return sendError(res, 409, 'INSUFFICIENT_STOCK', error.message);
@@ -1726,6 +1880,50 @@ router.get('/lab-orders/pending', authenticate, allowRoles(ROLES.LAB_TECH), asyn
   } catch (error) {
     console.error('Fetch pending lab orders error:', error);
     return res.status(500).json({ error: 'Failed to retrieve pending lab orders.' });
+  }
+});
+
+/**
+ * GET /api/records/lab-orders/history
+ * Returns a bounded, newest-first laboratory audit view for technicians.
+ * Released orders are immutable clinical history and are never part of the
+ * operational pending queue.
+ */
+router.get('/lab-orders/history', authenticate, allowRoles(ROLES.LAB_TECH), async (req, res) => {
+  try {
+    const orders = await prisma.labOrder.findMany({
+      where: {
+        status: 'COMPLETED',
+        releasedToPatientAt: { not: null }
+      },
+      select: {
+        id: true,
+        orderDate: true,
+        status: true,
+        releasedToPatientAt: true,
+        patient: { select: { fullNameAr: true, fullNameEn: true, fileNumber: true } },
+        doctor: { select: { fullNameAr: true, fullNameEn: true } },
+        items: {
+          select: {
+            id: true,
+            customTestName: true,
+            labReviewStatus: true,
+            resultValue: true,
+            referenceRangeMin: true,
+            referenceRangeMax: true,
+            isOutOfRange: true,
+            resultVersion: true,
+            service: { select: { labelAr: true, labelEn: true } }
+          }
+        }
+      },
+      orderBy: [{ releasedToPatientAt: 'desc' }, { orderDate: 'desc' }],
+      take: 100
+    });
+    return res.json(orders);
+  } catch (error) {
+    console.error('Fetch laboratory history error:', error);
+    return sendError(res, 500, 'LAB_HISTORY_FAILED', 'Failed to retrieve laboratory history.');
   }
 });
 

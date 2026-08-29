@@ -4751,6 +4751,27 @@ test('lab queue is lab-only', async () => {
   assert.equal((await api.get('/api/records/lab-orders/pending').set(auth('pharmacy'))).status, 403);
 });
 
+test('laboratory history is lab-only, bounded to released completed orders, and does not delete records', async () => {
+  const releasedFixture = await createResultConcurrencyFixture(1);
+  const releasedAt = new Date();
+  await prisma.labOrder.update({
+    where: { id: releasedFixture.order.id },
+    data: { status: 'COMPLETED', releasedToPatientAt: releasedAt }
+  });
+
+  const history = await api.get('/api/records/lab-orders/history').set(auth('lab'));
+  assert.equal(history.status, 200);
+  assert.ok(history.body.length <= 100);
+  assert.ok(history.body.some((order) => order.id === releasedFixture.order.id));
+  assert.ok(history.body.every((order) => order.status === 'COMPLETED' && order.releasedToPatientAt));
+  assert.deepEqual(Object.keys(history.body.find((order) => order.id === releasedFixture.order.id).patient).sort(), ['fileNumber', 'fullNameAr', 'fullNameEn']);
+
+  assert.equal((await api.get('/api/records/lab-orders/history').set(auth('pharmacy'))).status, 403);
+  const persisted = await prisma.labOrder.findUnique({ where: { id: releasedFixture.order.id } });
+  assert.ok(persisted);
+  assert.ok(persisted.releasedToPatientAt);
+});
+
 test('doctor free-text laboratory requests are created pending review without a price', async () => {
   fixtureCounter += 1;
   const appointment = await prisma.appointment.create({
@@ -7032,6 +7053,104 @@ test('mixed prescription bills remaining clinic quantity, omits external and ful
   assert.equal(result.invoice.items.length, 1);
   assert.equal(result.invoice.items[0].qty, 3);
   assert.equal(Number(result.invoice.totalAmountSdg), Number(fixture.unitPriceSdg) * 3);
+});
+
+test('pharmacist resolves an unavailable item without dispensing stock or charging the patient', async () => {
+  const fixture = await createPrescriptionFixture({ paid: false, qtyPrescribed: 2 });
+  const invoiceResult = await requestPharmacyInvoiceForFixture(fixture);
+  assert.equal(invoiceResult.status, 201);
+  const beforeStock = await prisma.inventoryBatch.aggregate({ where: { drugId: fixture.drug.id }, _sum: { qtyOnHand: true } });
+
+  const response = await api
+    .post(`/api/records/prescribed-drugs/${fixture.item.id}/unavailable`)
+    .set(auth('pharmacy'))
+    .send({ reason: 'OUT_OF_STOCK', note: 'Unavailable from clinic stock' });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.prescriptionStatus, 'RESOLVED');
+
+  const item = await prisma.prescribedDrug.findUnique({ where: { id: fixture.item.id } });
+  assert.equal(item.qtyDispensed, 0);
+  assert.equal(item.pharmacyReviewStatus, 'EXTERNAL');
+  assert.equal(item.customDrugName, fixture.item.customDrugName);
+  assert.match(item.pharmacyReviewNote, /OUT_OF_STOCK/);
+  assert.equal((await prisma.invoice.findUnique({ where: { id: invoiceResult.body.invoice.id } })).paymentStatus, 'VOIDED');
+  assert.equal(await prisma.payment.count({ where: { invoiceId: invoiceResult.body.invoice.id } }), 0);
+  assert.equal(Number((await prisma.inventoryBatch.aggregate({ where: { drugId: fixture.drug.id }, _sum: { qtyOnHand: true } }))._sum.qtyOnHand), Number(beforeStock._sum.qtyOnHand));
+  assert.ok(await prisma.tenantAuditLog.findFirst({ where: { action: `PHARMACY_MEDICATION_UNAVAILABLE:${fixture.item.id}` } }));
+
+  const active = await api.get('/api/records/prescriptions/pending').set(auth('pharmacy'));
+  assert.equal(active.body.some((rx) => rx.id === fixture.rx.id), false);
+  const history = await api.get('/api/records/prescriptions/history').set(auth('pharmacy'));
+  assert.ok(history.body.some((rx) => rx.id === fixture.rx.id));
+
+  const payment = await api
+    .post(`/api/billing/invoice/${invoiceResult.body.invoice.id}/payments`)
+    .set(paymentAuth('pharmacy'))
+    .set('Idempotency-Key', `voided-${Date.now()}-${fixtureCounter}`)
+    .send({ payments: [{ amountSdg: 1, paymentMethod: 'CASH' }] });
+  assert.equal(payment.status, 409);
+  assert.equal(payment.body.error.code, 'VOIDED_INVOICE_LOCKED');
+
+  // Existing deployments may contain an EXTERNAL item whose parent remained
+  // ACTIVE before parent-resolution reconciliation was introduced.
+  await prisma.prescription.update({ where: { id: fixture.rx.id }, data: { status: 'ACTIVE' } });
+  const reconciled = await api
+    .post(`/api/records/prescribed-drugs/${fixture.item.id}/unavailable`)
+    .set(auth('pharmacy'))
+    .send({ reason: 'OTHER', note: 'Reconcile prior external resolution' });
+  assert.equal(reconciled.status, 200);
+  assert.equal(reconciled.body.reconciled, true);
+  assert.equal(reconciled.body.prescriptionStatus, 'RESOLVED');
+});
+
+test('mixed prescription completes after clinic item is dispensed and custom item is unavailable', async () => {
+  const fixture = await createPrescriptionFixture({ paid: false, qtyPrescribed: 1 });
+  const custom = await prisma.prescribedDrug.create({
+    data: {
+      prescriptionId: fixture.rx.id,
+      customDrugName: 'Original doctor free-text medicine',
+      dosage: 'once daily',
+      duration: '3 days',
+      instructionsAr: '',
+      instructionsEn: '',
+      qtyPrescribed: 1,
+      pharmacyReviewStatus: 'PENDING_REVIEW'
+    }
+  });
+  const external = await api
+    .post(`/api/records/prescribed-drugs/${custom.id}/pharmacy-review`)
+    .set(auth('pharmacy'))
+    .send({ decision: 'EXTERNAL', note: 'Doctor-entered medicine unavailable locally' });
+  assert.equal(external.status, 200);
+
+  const invoice = await prisma.invoice.findFirst({ where: { prescriptionId: fixture.rx.id, invoiceType: 'PHARMACY', paymentStatus: 'UNPAID' } });
+  assert.ok(invoice);
+  await prisma.invoice.update({ where: { id: invoice.id }, data: { paymentStatus: 'PAID' } });
+  const dispense = await api
+    .post(`/api/records/prescriptions/${fixture.rx.id}/dispense`)
+    .set(auth('pharmacy'))
+    .send({ items: [{ prescribedDrugId: fixture.item.id, qtyToDispense: 1 }] });
+  assert.equal(dispense.status, 200);
+
+  const resolved = await prisma.prescription.findUnique({ where: { id: fixture.rx.id }, include: { prescribedDrugs: true } });
+  assert.equal(resolved.status, 'RESOLVED');
+  assert.equal(resolved.prescribedDrugs.find((item) => item.id === fixture.item.id).qtyDispensed, 1);
+  const preservedCustom = resolved.prescribedDrugs.find((item) => item.id === custom.id);
+  assert.equal(preservedCustom.qtyDispensed, 0);
+  assert.equal(preservedCustom.pharmacyReviewStatus, 'EXTERNAL');
+  assert.equal(preservedCustom.customDrugName, 'Original doctor free-text medicine');
+});
+
+test('paid pharmacy invoices cannot be changed by unavailable-item resolution', async () => {
+  const fixture = await createPrescriptionFixture({ paid: true, qtyPrescribed: 1 });
+  const response = await api
+    .post(`/api/records/prescribed-drugs/${fixture.item.id}/unavailable`)
+    .set(auth('pharmacy'))
+    .send({ reason: 'OUT_OF_STOCK' });
+  assert.equal(response.status, 409);
+  assert.equal(response.body.error.code, 'PHARMACY_UNAVAILABLE_PAID_REVIEW_REQUIRED');
+  assert.equal((await prisma.prescribedDrug.findUnique({ where: { id: fixture.item.id } })).pharmacyReviewStatus, 'NOT_REQUIRED');
+  assert.equal((await prisma.invoice.findUnique({ where: { id: fixture.invoice.id } })).paymentStatus, 'PAID');
 });
 
 test('automatic ensure never rewrites an existing paid invoice', async () => {

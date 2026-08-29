@@ -140,7 +140,7 @@ router.patch('/pricing/medicines/:id', authenticate, checkRoles('ADMIN'), valida
             prescription: {
               status: { in: ['ACTIVE', 'PARTIALLY_FILLED'] },
               invoices: {
-                none: { invoiceType: 'PHARMACY', paymentStatus: { not: 'REFUNDED' } }
+                none: { invoiceType: 'PHARMACY', paymentStatus: { notIn: ['REFUNDED', 'VOIDED'] } }
               }
             }
           },

@@ -362,6 +362,20 @@ test('successful custom review refreshes review, prescription, management when n
   assert.match(dashboard, /disabled=\{!paymentState\?\.dispensingAllowed \|\| dispensing\}/);
 });
 
+test('pharmacy unavailable resolution is explicit, auditable, and separated from dispensing', () => {
+  const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
+  assert.match(dashboard, /بانتظار الصرف/);
+  assert.match(dashboard, /History/);
+  assert.match(dashboard, /prescriptions\/history/);
+  assert.match(dashboard, /Unable to Dispense/);
+  assert.match(dashboard, /prescribed-drugs\/\$\{unavailableItem\.id\}\/unavailable/);
+  assert.match(dashboard, /OUT_OF_STOCK/);
+  assert.match(dashboard, /DOCTOR_REVIEW_REQUIRED/);
+  assert.match(dashboard, /will not be marked dispensed, deducted from stock, or charged/);
+  assert.doesNotMatch(dashboard, /method:\s*['"]DELETE['"]/);
+  assert.doesNotMatch(dashboard, /substitut/i);
+});
+
 test('pharmacist price and status remain display-only', () => {
   const management = source('src/features/pharmacy/PharmacyManagement.jsx');
   assert.match(management, /Official price/);

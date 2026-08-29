@@ -1,0 +1,81 @@
+.laboratory-dashboard {
+  --lab-border: var(--border-color, #dbe5ee);
+  --lab-surface: var(--card-bg, #fff);
+  --lab-muted: var(--text-secondary, #64748b);
+  --lab-ink: var(--text-primary, #17324d);
+  background: color-mix(in srgb, var(--primary, #1769e0) 2.5%, var(--bg-color, #f7f9fc));
+}
+.laboratory-workspace { padding: 1rem; overflow-x: clip; }
+.laboratory-review-section { margin: 1rem 0; padding: 1rem; border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--lab-border)); border-radius: 15px; background: var(--lab-surface); }
+.laboratory-review-section.is-empty { padding-block: .75rem; }
+.laboratory-review-heading { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .7rem; }
+.laboratory-review-icon { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 10px; color: var(--warning); background: color-mix(in srgb, var(--warning) 10%, transparent); }
+.laboratory-review-heading h2 { margin: 0; color: var(--lab-ink); font-size: .9rem; }
+.laboratory-review-heading p { margin: .15rem 0 0; color: var(--lab-muted); font-size: .68rem; }
+.laboratory-review-count { min-width: 28px; padding: .18rem .45rem; border-radius: 999px; color: var(--warning); background: color-mix(in srgb, var(--warning) 10%, transparent); font-size: .72rem; font-weight: 800; text-align: center; }
+.laboratory-review-empty { margin: .55rem 2.9rem 0 0; color: var(--lab-muted); font-size: .72rem; }
+[dir='ltr'] .laboratory-review-empty { margin: .55rem 0 0 2.9rem; }
+.laboratory-review-card { margin-top: .8rem; padding: .85rem; border: 1px solid var(--lab-border); border-radius: 12px; background: color-mix(in srgb, var(--warning) 2.5%, var(--lab-surface)); }
+.laboratory-review-card__header { display: flex; align-items: start; justify-content: space-between; gap: .75rem; }
+.laboratory-review-card__header > div { display: grid; gap: .15rem; }
+.laboratory-review-card__header > div span, .laboratory-review-meta dt { color: var(--lab-muted); font-size: .63rem; }
+.laboratory-review-card__header strong { color: var(--lab-ink); font-size: .82rem; }
+.laboratory-review-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .55rem; margin: .7rem 0; }
+.laboratory-review-meta div { min-width: 0; padding: .5rem; border-radius: 9px; background: color-mix(in srgb, var(--primary) 3%, transparent); }
+.laboratory-review-meta dd { margin: .15rem 0 0; overflow: hidden; color: var(--lab-ink); font-size: .72rem; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.laboratory-review-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+
+.laboratory-operational-grid { display: grid; grid-template-columns: minmax(270px, .38fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
+.laboratory-orders-panel, .laboratory-results-panel { min-width: 0; border: 1px solid var(--lab-border); border-radius: 16px; background: var(--lab-surface); box-shadow: 0 3px 12px rgb(15 45 75 / 4%); }
+.laboratory-orders-panel { position: sticky; top: 1rem; overflow: hidden; }
+.laboratory-results-panel { min-height: 460px; padding: 1rem; }
+.laboratory-orders-header { display: grid; gap: .75rem; padding: .9rem; border-bottom: 1px solid var(--lab-border); }
+.laboratory-orders-header .panel-title { font-size: .92rem; }
+.laboratory-order-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: .3rem; padding: .25rem; border-radius: 11px; background: color-mix(in srgb, var(--primary) 5%, transparent); }
+.laboratory-order-tabs button { display: flex; min-width: 0; min-height: 36px; align-items: center; justify-content: center; gap: .3rem; padding: .4rem; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--lab-muted); font: inherit; font-size: .67rem; cursor: pointer; }
+.laboratory-order-tabs button span { min-width: 20px; padding: .08rem .3rem; border-radius: 99px; background: color-mix(in srgb, var(--primary) 8%, transparent); font-size: .6rem; font-weight: 800; }
+.laboratory-order-tabs button.is-active { border-color: var(--lab-border); color: var(--primary); background: var(--lab-surface); box-shadow: 0 2px 7px rgb(15 45 75 / 6%); font-weight: 750; }
+.laboratory-order-tabs button:focus-visible, .laboratory-order-card:focus-visible { outline: 3px solid color-mix(in srgb, var(--primary) 22%, transparent); outline-offset: 2px; }
+.laboratory-order-list { display: grid; gap: .5rem; max-height: min(650px, 68vh); overflow-y: auto; padding: .7rem; scrollbar-width: thin; }
+.laboratory-order-card { width: 100%; display: grid; gap: .4rem; padding: .75rem; border: 1px solid var(--lab-border); border-radius: 11px; background: transparent; color: var(--lab-ink); font: inherit; text-align: start; cursor: pointer; transition: border-color .16s ease, background .16s ease; }
+.laboratory-order-card:hover, .laboratory-order-card.selected { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 5%, transparent); }
+.laboratory-order-card__header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.laboratory-order-card__header strong { min-width: 0; overflow: hidden; font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+.laboratory-order-card__header bdi { color: var(--primary); font-size: .62rem; font-weight: 800; unicode-bidi: isolate; }
+.laboratory-order-card__date { color: var(--lab-muted); font-size: .66rem; }
+.laboratory-order-card > .badge { justify-self: start; margin-top: .1rem !important; font-size: .61rem; }
+.laboratory-orders-empty { display: grid; min-height: 190px; place-items: center; align-content: center; gap: .5rem; padding: 1rem; color: var(--lab-muted); font-size: .72rem; text-align: center; }
+.laboratory-orders-empty p { max-width: 230px; margin: 0; }
+
+.laboratory-workflow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 0 0 1rem; padding: .7rem; border: 1px solid var(--lab-border); border-radius: 12px; background: color-mix(in srgb, var(--primary) 2%, var(--lab-surface)); list-style: none; }
+.laboratory-workflow li { position: relative; display: grid; justify-items: center; gap: .3rem; color: var(--lab-muted); text-align: center; }
+.laboratory-workflow li:not(:last-child)::after { position: absolute; top: 12px; inset-inline-start: calc(50% + 15px); width: calc(100% - 30px); height: 1px; content: ''; background: var(--lab-border); }
+.laboratory-workflow li > span { z-index: 1; display: grid; width: 25px; height: 25px; place-items: center; border: 1px solid var(--lab-border); border-radius: 50%; background: var(--lab-surface); font-size: .63rem; font-weight: 800; }
+.laboratory-workflow li small { font-size: .6rem; }
+.laboratory-workflow li.is-done { color: var(--success); }
+.laboratory-workflow li.is-done > span { border-color: var(--success); color: white; background: var(--success); }
+.laboratory-workflow li.is-done::after { background: color-mix(in srgb, var(--success) 55%, var(--lab-border)); }
+.laboratory-workflow li.is-current { color: var(--primary); font-weight: 750; }
+.laboratory-workflow li.is-current > span { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 10%, transparent); }
+.laboratory-released-banner { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .65rem; margin-bottom: 1rem; padding: .75rem; border: 1px solid color-mix(in srgb, var(--success) 30%, var(--lab-border)); border-radius: 11px; color: var(--success); background: color-mix(in srgb, var(--success) 5%, transparent); }
+.laboratory-released-banner > div { display: grid; gap: .1rem; }
+.laboratory-released-banner strong { font-size: .75rem; }
+.laboratory-released-banner span, .laboratory-released-banner time { color: var(--lab-muted); font-size: .63rem; }
+
+@media (max-width: 900px) {
+  .laboratory-operational-grid { grid-template-columns: 1fr; }
+  .laboratory-orders-panel { position: static; }
+  .laboratory-order-list { max-height: 380px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 620px) {
+  .laboratory-workspace { padding: .65rem; }
+  .laboratory-review-meta, .laboratory-order-list { grid-template-columns: 1fr; }
+  .laboratory-review-actions .btn { width: 100%; }
+  .laboratory-workflow { grid-template-columns: repeat(5, minmax(0, 1fr)); padding-inline: .3rem; }
+  .laboratory-workflow li small { font-size: .52rem; }
+  .laboratory-released-banner { grid-template-columns: auto minmax(0, 1fr); }
+  .laboratory-released-banner time { grid-column: 2; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .laboratory-dashboard *, .laboratory-dashboard *::before, .laboratory-dashboard *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+}

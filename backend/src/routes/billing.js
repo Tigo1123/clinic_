@@ -662,6 +662,9 @@ router.post('/invoice/:id/payments', authenticate,
         }
       });
       if (!invoice) throw Object.assign(new Error('Invoice not found.'), { status: 404, code: 'INVOICE_NOT_FOUND' });
+      if (invoice.paymentStatus === 'VOIDED') {
+        throw Object.assign(new Error('Payments cannot be added to a voided invoice.'), { status: 409, code: 'VOIDED_INVOICE_LOCKED' });
+      }
       if (!paymentRoleAllowed(actor.role, invoice.invoiceType)) {
         throw Object.assign(
           new Error(invoice.invoiceType === 'PHARMACY'
@@ -1313,7 +1316,7 @@ router.get(
             where: {
               invoiceType: 'PHARMACY',
               paymentStatus: {
-                not: 'REFUNDED'
+                notIn: ['REFUNDED', 'VOIDED']
               }
             },
             include: {

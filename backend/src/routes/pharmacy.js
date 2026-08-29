@@ -453,7 +453,7 @@ router.get('/prescriptions/:id/payment-state', authenticate, readRoles,
         where: {
           prescriptionId: prescription.id,
           invoiceType: 'PHARMACY',
-          paymentStatus: { not: 'REFUNDED' }
+          paymentStatus: { notIn: ['REFUNDED', 'VOIDED'] }
         },
         orderBy: [{ invoiceDate: 'desc' }, { id: 'desc' }],
         take: 2,
