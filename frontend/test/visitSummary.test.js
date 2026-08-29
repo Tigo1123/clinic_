@@ -46,3 +46,34 @@ test('prescription rows are rendered once per API item without client-side dupli
   assert.match(recordsRoute, /record\.prescriptions \|\| \[\]\)\.flatMap\(p => \(p\.prescribedDrugs \|\| \[\]\)\.map/);
   assert.doesNotMatch(modal, /new Set\(|dedup|uniqueBy/);
 });
+
+test('visit-history summary action remains enabled for a completed read-only visit', () => {
+  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
+  const historyStart = dashboard.indexOf('className="doctor-clinical-section doctor-history-panel"');
+  const historyAction = dashboard.indexOf('setActiveSummaryId(targetId)', historyStart);
+  const editableFieldset = dashboard.indexOf('className="doctor-consultation-form" disabled={isReadOnlyVisit}', historyStart);
+  assert.ok(historyStart >= 0);
+  assert.ok(historyAction > historyStart);
+  assert.ok(editableFieldset > historyAction, 'read-only fieldset must not disable the history summary action');
+  assert.match(dashboard, /const targetId = rec\.id \|\| rec\.recordId \|\| rec\.appointmentId/);
+  const historyButton = dashboard.slice(dashboard.lastIndexOf('<button', historyAction), historyAction + 40);
+  assert.match(historyButton, /type="button"/);
+  assert.match(historyButton, /setActiveSummaryId\(targetId\)/);
+  assert.match(dashboard, /activeSummaryId && <PostVisitSummaryModal summaryId=\{activeSummaryId\}/);
+});
+
+test('empty instructions do not gate summary content or modal actions', () => {
+  const modal = source('src/features/clinical/ClinicalModals.jsx');
+  assert.match(modal, /if \(!summary\)/);
+  assert.doesNotMatch(modal, /if \(!summary\.instructions|if \(summary\.instructions\.length === 0\)/);
+  assert.match(modal, /summary\.diagnosis/);
+  assert.match(modal, /summary\.treatment/);
+  assert.match(modal, /summary\.labOrders\.map/);
+  assert.match(modal, /summary\.prescriptions\.map/);
+  assert.match(modal, /onClick=\{onClose\}/);
+  assert.match(modal, /onClick=\{\(\) => window\.print\(\)\}/);
+  assert.match(modal, /handleEmailSummary/);
+  assert.match(modal, /getWhatsAppLink/);
+  assert.match(modal, /تعذر تحميل ملخص الزيارة\. حاول مرة أخرى\./);
+  assert.match(modal, /Unable to load the visit summary\. Please try again\./);
+});

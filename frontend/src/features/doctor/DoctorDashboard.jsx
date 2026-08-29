@@ -786,7 +786,6 @@ export default function DoctorDashboard({ user, lang, t }) {
                   </div>
                 )}
 
-                <fieldset disabled={isReadOnlyVisit} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
                 <div className="doctor-consultation-layout">
                   {/* Left Column: Full Patient History at a glance */}
                   <section className="doctor-clinical-section doctor-history-panel" aria-labelledby="doctor-history-title">
@@ -880,7 +879,7 @@ export default function DoctorDashboard({ user, lang, t }) {
                   </section>
 
                   {/* Right Column: Active Consultation & Prescription Builder */}
-                  <div className="doctor-consultation-form">
+                  <fieldset className="doctor-consultation-form" disabled={isReadOnlyVisit} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
                     {/* Completed laboratory results returned to the doctor */}
                     {isFinalizingVisit && (
                       <div
@@ -1188,9 +1187,8 @@ export default function DoctorDashboard({ user, lang, t }) {
                               ? 'إنهاء الزيارة'
                               : 'Complete Visit')}
                     </button></div>
-                  </div>
+                  </fieldset>
                 </div>
-                </fieldset>
               </div>
             ) : (
               <section className="doctor-workspace-empty" aria-labelledby="doctor-workspace-empty-title">

@@ -811,7 +811,7 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang }) {
       <div className="modal-overlay no-print-section">
         <div className="modal-content-panel glass-panel" style={{ textAlign: 'center', padding: '2rem' }}>
           <p style={{ color: 'var(--danger)', fontWeight: 'bold' }}>
-            {lang === 'ar' ? 'تعذر العثور على ملخص الزيارة.' : 'Visit Summary not found.'}
+            {lang === 'ar' ? 'تعذر تحميل ملخص الزيارة. حاول مرة أخرى.' : 'Unable to load the visit summary. Please try again.'}
           </p>
           {errorDetails && <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>{errorDetails}</p>}
           <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginTop: '1.25rem' }}>
