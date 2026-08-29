@@ -179,3 +179,39 @@
 @media (prefers-reduced-motion: reduce) {
   .reception-dashboard *, .reception-dashboard *::before, .reception-dashboard *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+.reception-billing-summary {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color, var(--border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--primary) 3%, var(--card-bg, #fff));
+}
+
+.reception-billing-summary > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--text-secondary);
+  font-size: .84rem;
+}
+
+.reception-billing-summary strong {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.reception-billing-summary .is-due {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color, var(--border));
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.reception-billing-summary .is-due strong { color: var(--primary); }
+.reception-billing-summary > p { margin: 0; color: var(--text-secondary); font-size: .84rem; }
+.reception-billing-summary .reception-billing-summary-error { color: var(--danger); }

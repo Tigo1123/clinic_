@@ -55,6 +55,8 @@ export default function ReceptionDashboard({ lang, t }) {
   const [billingPatient, setBillingPatient] = useState(null);
   const [insuranceCompanyId, setInsuranceCompanyId] = useState('');
   const [insuranceCompanies, setInsuranceCompanies] = useState([]);
+  const [insurancePreview, setInsurancePreview] = useState({ status: 'idle', data: null, error: '' });
+  const [issuedBillingInvoice, setIssuedBillingInvoice] = useState(null);
   const [clinicalServices, setClinicalServices] = useState([]);
   const [addedServices, setAddedServices] = useState([]);
 
@@ -84,6 +86,7 @@ export default function ReceptionDashboard({ lang, t }) {
   const directorySearchSchedulerRef = useRef(null);
   const walkInSearchSchedulerRef = useRef(null);
   const directoryLoadRequestRef = useRef(0);
+  const insurancePreviewRequestRef = useRef(0);
   if (!billingSearchSchedulerRef.current) billingSearchSchedulerRef.current = createLatestSearchScheduler();
   if (!directorySearchSchedulerRef.current) directorySearchSchedulerRef.current = createLatestSearchScheduler();
   if (!walkInSearchSchedulerRef.current) walkInSearchSchedulerRef.current = createLatestSearchScheduler();
@@ -209,6 +212,7 @@ export default function ReceptionDashboard({ lang, t }) {
     setSuccessMsg('');
 
     setSelectedLabBillingOrder(order);
+    setIssuedBillingInvoice(null);
     setBillingPatient(order.patient);
     setBillingAppointment(null);
     setInsuranceCompanyId('');
@@ -344,6 +348,57 @@ export default function ReceptionDashboard({ lang, t }) {
         setInsuranceCompanies([]);
       });
   }, []);
+
+  useEffect(() => {
+    const requestId = ++insurancePreviewRequestRef.current;
+    if (issuedBillingInvoice) {
+      setInsurancePreview({ status: 'ready', data: issuedBillingInvoice, error: '' });
+      return;
+    }
+    if (!billingPatient || selectedLabBillingOrder || addedServices.length === 0) {
+      setInsurancePreview({ status: 'idle', data: null, error: '' });
+      return;
+    }
+
+    const timer = window.setTimeout(async () => {
+      setInsurancePreview({ status: 'loading', data: null, error: '' });
+      const invoiceType = billingAppointment ? 'CONSULTATION' : 'GENERAL';
+      const payload = {
+        patientId: billingPatient.id,
+        insuranceCompanyId: insuranceCompanyId || null,
+        invoiceType,
+        appointmentId: billingAppointment?.id || null,
+        ...(invoiceType === 'GENERAL' ? {
+          items: addedServices.map((service) => ({ serviceId: service.id, quantity: service.qty }))
+        } : {})
+      };
+      try {
+        const response = await fetchWithAuth('/api/billing/insurance-preview', {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+        const data = await response.json().catch(() => ({}));
+        if (requestId !== insurancePreviewRequestRef.current) return;
+        if (!response.ok) {
+          setInsurancePreview({
+            status: 'error',
+            data: null,
+            error: apiErrorMessage(data, lang === 'ar' ? 'تعذر احتساب مسؤولية التأمين.' : 'Unable to calculate insurance responsibility.')
+          });
+          setPaymentRows([{ amountSdg: '', paymentMethod: 'CASH', transactionReference: '' }]);
+          return;
+        }
+        setInsurancePreview({ status: 'ready', data, error: '' });
+        setPaymentRows([{ amountSdg: String(data.patientShareSdg), paymentMethod: 'CASH', transactionReference: '' }]);
+      } catch {
+        if (requestId !== insurancePreviewRequestRef.current) return;
+        setInsurancePreview({ status: 'error', data: null, error: lang === 'ar' ? 'تعذر الاتصال بخدمة احتساب التأمين.' : 'Unable to reach the insurance calculation service.' });
+        setPaymentRows([{ amountSdg: '', paymentMethod: 'CASH', transactionReference: '' }]);
+      }
+    }, 150);
+
+    return () => window.clearTimeout(timer);
+  }, [addedServices, billingAppointment, billingPatient, insuranceCompanyId, issuedBillingInvoice, lang, selectedLabBillingOrder]);
 
   // Fetch queue when doctor or date changes
   const refreshDoctorQueue = useCallback(() => {
@@ -701,6 +756,7 @@ export default function ReceptionDashboard({ lang, t }) {
     if (!app.patient || app.status !== 'CHECKED_IN') return;
 
     setSelectedLabBillingOrder(null);
+    setIssuedBillingInvoice(null);
     setBillingPatient(app.patient);
     setBillingAppointment(app);
     setActiveTab('billing');
@@ -776,6 +832,15 @@ export default function ReceptionDashboard({ lang, t }) {
         lang === 'ar'
           ? 'أضف خدمة طبية واحدة على الأقل.'
           : 'Add at least one clinical service.'
+      );
+      return;
+    }
+
+    if (!isLaboratoryBilling && insurancePreview.status !== 'ready') {
+      setErrorMsg(
+        insurancePreview.error || (lang === 'ar'
+          ? 'انتظر اكتمال احتساب الفاتورة والتأمين قبل الإصدار.'
+          : 'Wait for invoice and insurance calculation before issuing the invoice.')
       );
       return;
     }
@@ -860,22 +925,46 @@ export default function ReceptionDashboard({ lang, t }) {
         }));
       }
 
-      const res = await fetchWithAuth('/api/billing/invoice', {
-        method: 'POST',
-        body: JSON.stringify(invoicePayload)
-      });
+      let data = issuedBillingInvoice;
+      if (!data) {
+        const res = await fetchWithAuth('/api/billing/invoice', {
+          method: 'POST',
+          body: JSON.stringify(invoicePayload)
+        });
 
-      const data = await res.json().catch(() => ({}));
+        data = await res.json().catch(() => ({}));
 
-      if (!res.ok) {
-        setErrorMsg(
-          apiErrorMessage(
-            data,
-            lang === 'ar'
-              ? 'تعذر إنشاء الفاتورة.'
-              : 'Failed to create the invoice.'
-          )
-        );
+        if (!res.ok) {
+          setErrorMsg(
+            apiErrorMessage(
+              data,
+              lang === 'ar'
+                ? 'تعذر إنشاء الفاتورة.'
+                : 'Failed to create the invoice.'
+            )
+          );
+          return;
+        }
+        setIssuedBillingInvoice(data);
+      }
+
+      const authoritativePatientShare = Number(data.patientShareSdg);
+      const requestedPaymentTotal = validPayments.reduce((sum, payment) => sum + payment.amountSdg, 0);
+      if (!Number.isSafeInteger(authoritativePatientShare) || requestedPaymentTotal > authoritativePatientShare) {
+        setPaymentRows([{ amountSdg: Number.isSafeInteger(authoritativePatientShare) ? String(authoritativePatientShare) : '', paymentMethod: 'CASH', transactionReference: '' }]);
+        setInsurancePreview({
+          status: Number.isSafeInteger(authoritativePatientShare) ? 'ready' : 'error',
+          data: Number.isSafeInteger(authoritativePatientShare) ? {
+            grossTotalSdg: Number(data.grossTotalSdg),
+            insuranceCoverageSdg: Number(data.insuranceCoverageSdg),
+            patientShareSdg: authoritativePatientShare,
+            copayPercentage: data.copayPercentage
+          } : null,
+          error: Number.isSafeInteger(authoritativePatientShare) ? '' : (lang === 'ar' ? 'تعذر التحقق من مسؤولية المريض.' : 'Unable to verify patient responsibility.')
+        });
+        setErrorMsg(lang === 'ar'
+          ? 'تغير المبلغ المعتمد على الخادم. راجع مسؤولية المريض قبل تسجيل الدفع.'
+          : 'The server-authoritative amount changed. Review the patient responsibility before recording payment.');
         return;
       }
 
@@ -933,6 +1022,7 @@ export default function ReceptionDashboard({ lang, t }) {
         }
 
         setAddedServices([]);
+        setIssuedBillingInvoice(null);
         setBillingPatient(null);
         setBillingAppointment(null);
 
@@ -944,6 +1034,7 @@ export default function ReceptionDashboard({ lang, t }) {
           }
         ]);
       } else {
+        setIssuedBillingInvoice(data);
         setSuccessMsg(
           lang === 'ar'
             ? `تم تسجيل دفعة جزئية. المتبقي ${paymentData.remainingBalanceSdg ?? 0} ج.س.`
@@ -1923,7 +2014,10 @@ export default function ReceptionDashboard({ lang, t }) {
                             setSelectedLabBillingOrder(null);
                             setBillingAppointment(null);
                             setAddedServices([]);
+                            setIssuedBillingInvoice(null);
                             setBillingPatient(p);
+                            setInsuranceCompanyId('');
+                            setInsurancePreview({ status: 'idle', data: null, error: '' });
                             setSearchResults([]);
                             setSearchQuery('');
                           }}
@@ -1975,7 +2069,7 @@ export default function ReceptionDashboard({ lang, t }) {
                         className="btn btn-secondary"
                         style={{ padding: '4px 8px', fontSize: '0.75rem' }}
                         onClick={() => handleAddBillingService(svc)}
-                        disabled={Boolean(selectedLabBillingOrder)}
+                        disabled={Boolean(selectedLabBillingOrder || issuedBillingInvoice)}
                       >
                         {lang === 'ar' ? svc.labelAr : svc.labelEn}
                       </button>
@@ -1999,7 +2093,7 @@ export default function ReceptionDashboard({ lang, t }) {
                               type="button"
                               style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}
                               onClick={() => handleRemoveBillingService(idx)}
-                              disabled={Boolean(selectedLabBillingOrder)}
+                              disabled={Boolean(selectedLabBillingOrder || issuedBillingInvoice)}
                             >
                               <Trash2 size={14} />
                             </button>
@@ -2015,7 +2109,7 @@ export default function ReceptionDashboard({ lang, t }) {
                         className="form-input"
                         value={insuranceCompanyId}
                         onChange={(e) => setInsuranceCompanyId(e.target.value)}
-                        disabled={Boolean(selectedLabBillingOrder)}
+                        disabled={Boolean(selectedLabBillingOrder || issuedBillingInvoice)}
                       >
                         <option value="">
                           {lang === 'ar'
@@ -2035,15 +2129,22 @@ export default function ReceptionDashboard({ lang, t }) {
                       </select>
                     </div>
 
-                    {/* Totals */}
-                    <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.5rem', marginTop: '0.5rem', display: 'flex', justifyContent: 'space-between', fontSize: '1rem', fontWeight: 'bold' }}>
-                      <span>{t('invoiceTotal')}:</span>
-                      <span style={{ color: 'var(--primary)' }}>
-                        {calculateInvoiceTotals().totalSdg.toLocaleString(
-                          lang === 'ar' ? 'ar' : 'en'
-                        )}{' '}
-                        {lang === 'ar' ? 'ج.س' : 'SDG'}
-                      </span>
+                    {/* Server-authoritative insurance preview */}
+                    <div className="reception-billing-summary" aria-live="polite">
+                      {insurancePreview.status === 'loading' && <p>{lang === 'ar' ? 'جارٍ احتساب مسؤولية التأمين…' : 'Calculating insurance responsibility…'}</p>}
+                      {insurancePreview.status === 'error' && <p role="alert" className="reception-billing-summary-error">{insurancePreview.error}</p>}
+                      {insurancePreview.status === 'ready' && [
+                        [lang === 'ar' ? 'إجمالي الخدمات' : 'Services total', insurancePreview.data.grossTotalSdg],
+                        [lang === 'ar' ? 'تغطية التأمين' : 'Insurance coverage', insurancePreview.data.insuranceCoverageSdg],
+                        [lang === 'ar' ? 'مساهمة المريض' : 'Patient contribution', insurancePreview.data.patientShareSdg],
+                        [lang === 'ar' ? 'المطلوب من المريض' : 'Patient amount due', insurancePreview.data.patientShareSdg]
+                      ].map(([label, amount], index) => (
+                        <div key={label} className={index === 3 ? 'is-due' : ''}>
+                          <span>{label}</span>
+                          <strong>{Number(amount).toLocaleString(lang === 'ar' ? 'ar' : 'en')} {lang === 'ar' ? 'ج.س' : 'SDG'}</strong>
+                        </div>
+                      ))}
+                      {insurancePreview.status === 'idle' && <div className="is-due"><span>{t('invoiceTotal')}</span><strong>{calculateInvoiceTotals().totalSdg.toLocaleString(lang === 'ar' ? 'ar' : 'en')} {lang === 'ar' ? 'ج.س' : 'SDG'}</strong></div>}
                     </div>
 
                     {/* Split Payments row configuration for receptionist-authorized invoice types */}
@@ -2127,6 +2228,7 @@ export default function ReceptionDashboard({ lang, t }) {
                       onClick={handleCreateInvoice}
                       disabled={
                         billingSubmitting ||
+                        (!selectedLabBillingOrder && insurancePreview.status !== 'ready') ||
                         selectedLabBillingOrder?.status === 'PAID' ||
                         selectedLabBillingOrder?.pricingRequired
                       }

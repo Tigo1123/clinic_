@@ -42,3 +42,19 @@ test('patient searches are debounced and ignore stale responses', () => {
   assert.match(source, /walkInSearchSchedulerRef/);
   assert.match(source, /visiblePatientDirectory/);
 });
+
+test('insurance billing preview is server-authoritative and exposes patient responsibility', () => {
+  assert.match(source, /\/api\/billing\/insurance-preview/);
+  assert.match(source, /insuranceCompanyId:\s*insuranceCompanyId \|\| null/);
+  assert.match(source, /insurancePreview\.data\.grossTotalSdg/);
+  assert.match(source, /insurancePreview\.data\.insuranceCoverageSdg/);
+  assert.match(source, /insurancePreview\.data\.patientShareSdg/);
+  assert.match(source, /تغطية التأمين/);
+  assert.match(source, /Insurance coverage/);
+  assert.match(source, /المطلوب من المريض/);
+  assert.match(source, /Patient amount due/);
+  assert.match(source, /requestedPaymentTotal > authoritativePatientShare/);
+  assert.match(source, /issuedBillingInvoice/);
+  assert.match(source, /selectedLabBillingOrder \|\| issuedBillingInvoice/);
+  assert.match(styles, /\.reception-billing-summary/);
+});

@@ -24,6 +24,16 @@ const paymentRequestSchema = z.object({
   }).strict()).min(1).max(100)
 }).strict();
 const paymentInvoiceParamsSchema = z.object({ id: z.string().uuid() }).strict();
+const insurancePreviewSchema = z.object({
+  patientId: z.string().uuid(),
+  insuranceCompanyId: z.string().uuid().nullable().optional(),
+  invoiceType: z.enum(['GENERAL', 'CONSULTATION']),
+  appointmentId: z.string().uuid().nullable().optional(),
+  items: z.array(z.object({
+    serviceId: z.string().uuid(),
+    quantity: z.number().int().positive().max(MAX_GENERAL_QUANTITY)
+  }).strict()).max(MAX_GENERAL_INVOICE_ITEMS).optional()
+}).strict();
 const INVOICE_REQUEST_FIELDS = new Set([
   'patientId', 'appointmentId', 'labOrderId', 'prescriptionId',
   'insuranceCompanyId', 'items', 'invoiceType'
@@ -38,6 +48,55 @@ function configuredPriceOrNull(value) {
   if (value == null) return null;
   const amount = Number(value);
   return isConfiguredPrice(amount) ? amount : null;
+}
+
+function percentageBasisPoints(value) {
+  const normalized = String(value).trim();
+  if (!/^\d{1,3}(?:\.\d{1,2})?$/.test(normalized)) return null;
+  const [whole, fraction = ''] = normalized.split('.');
+  const basisPoints = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+  return Number.isSafeInteger(basisPoints) && basisPoints >= 0 && basisPoints <= 10_000
+    ? basisPoints
+    : null;
+}
+
+function calculateInsuranceAmounts(totalSdg, company) {
+  if (!company) {
+    return {
+      grossTotalSdg: totalSdg,
+      insuranceCoverageSdg: 0,
+      patientShareSdg: totalSdg,
+      copayPercentage: null
+    };
+  }
+  const basisPoints = percentageBasisPoints(company.copayPercentage);
+  if (basisPoints == null) {
+    throw Object.assign(new Error('The selected insurance company has an invalid patient contribution configuration.'), {
+      status: 409,
+      code: 'INSURANCE_CONFIGURATION_INVALID'
+    });
+  }
+  const patientShareSdg = Number(
+    (BigInt(totalSdg) * BigInt(basisPoints) + 5_000n) / 10_000n
+  );
+  return {
+    grossTotalSdg: totalSdg,
+    insuranceCoverageSdg: totalSdg - patientShareSdg,
+    patientShareSdg,
+    copayPercentage: Number(company.copayPercentage)
+  };
+}
+
+function invoicePatientLiability(invoice) {
+  const grossTotalSdg = Number(invoice.totalAmountSdg);
+  const insuranceCoverageSdg = invoice.insuranceClaim
+    ? Number(invoice.insuranceClaim.claimAmountSdg)
+    : 0;
+  return {
+    grossTotalSdg,
+    insuranceCoverageSdg,
+    patientShareSdg: Math.max(0, grossTotalSdg - insuranceCoverageSdg)
+  };
 }
 
 function paymentRoleAllowed(role, invoiceType) {
@@ -59,6 +118,70 @@ function isUniqueViolationFor(error, fieldName, constraintName) {
     || normalized === normalizedConstraint
     || normalized.endsWith(`.${normalizedConstraint}`);
 }
+
+/**
+ * POST /api/billing/insurance-preview
+ * Server-authoritative pre-issuance preview. The persisted invoice repeats
+ * the calculation inside its own transaction and never trusts these values.
+ */
+router.post('/insurance-preview', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), validate(insurancePreviewSchema), async (req, res) => {
+  try {
+    const { patientId, insuranceCompanyId, invoiceType, appointmentId, items = [] } = req.body;
+    const patient = await prisma.patient.findUnique({ where: { id: patientId }, select: { id: true, status: true } });
+    if (!patient) return sendError(res, 404, 'PATIENT_NOT_FOUND', 'Patient was not found.');
+    if (patient.status !== 'ACTIVE') return sendError(res, 409, 'PATIENT_NOT_ACTIVE', 'Billing requires an active patient record.');
+
+    let grossTotalSdg = 0;
+    if (invoiceType === 'CONSULTATION') {
+      if (!appointmentId) return sendError(res, 422, 'CONSULTATION_APPOINTMENT_REQUIRED', 'Consultation billing requires an appointment.');
+      const appointment = await prisma.appointment.findUnique({
+        where: { id: appointmentId },
+        include: { doctor: { select: { consultationFee: true, status: true } } }
+      });
+      if (!appointment) return sendError(res, 404, 'APPOINTMENT_NOT_FOUND', 'Appointment not found.');
+      if (appointment.patientId !== patientId) return sendError(res, 409, 'CONSULTATION_PATIENT_MISMATCH', 'The invoice patient does not match the appointment patient.');
+      const fee = Number(appointment.doctor?.consultationFee);
+      if (appointment.doctor?.status !== 'ACTIVE' || !isConfiguredPrice(fee)) {
+        return sendError(res, 409, 'CONSULTATION_FEE_NOT_CONFIGURED', 'The doctor consultation fee is not configured correctly.');
+      }
+      grossTotalSdg = fee;
+    } else {
+      if (!items.length) return sendError(res, 422, 'INVOICE_ITEMS_REQUIRED', 'At least one invoice item is required.');
+      const serviceIds = [...new Set(items.map((item) => item.serviceId))];
+      const services = await prisma.clinicalService.findMany({
+        where: { id: { in: serviceIds } },
+        select: { id: true, baseFeeSdg: true, status: true }
+      });
+      const byId = new Map(services.map((service) => [service.id, service]));
+      for (const item of items) {
+        const service = byId.get(item.serviceId);
+        if (!service || service.status !== 'ACTIVE') return sendError(res, 404, 'SERVICE_NOT_AVAILABLE', 'The selected active clinical service was not found.');
+        const price = Number(service.baseFeeSdg);
+        if (!isConfiguredPrice(price)) return sendError(res, 409, 'SERVICE_PRICE_NOT_CONFIGURED', 'The selected service does not have a valid configured price.');
+        const lineTotal = price * item.quantity;
+        if (!Number.isSafeInteger(lineTotal) || !Number.isSafeInteger(grossTotalSdg + lineTotal)) {
+          return sendError(res, 422, 'INVOICE_TOTAL_INVALID', 'Invoice total exceeds the supported financial range.');
+        }
+        grossTotalSdg += lineTotal;
+      }
+    }
+
+    let company = null;
+    if (insuranceCompanyId) {
+      company = await prisma.insuranceCompany.findUnique({ where: { id: insuranceCompanyId } });
+      if (!company) return sendError(res, 422, 'INSURANCE_COMPANY_INVALID', 'The selected insurance company is not available.');
+    }
+    return res.json({
+      ...calculateInsuranceAmounts(grossTotalSdg, company),
+      insuranceCompany: company ? { id: company.id, labelAr: company.labelAr, labelEn: company.labelEn } : null,
+      eligibilityModel: 'COMPANY_LEVEL_ONLY'
+    });
+  } catch (error) {
+    if (error.status && error.code) return sendError(res, error.status, error.code, error.message);
+    console.error('Insurance preview error:', error);
+    return sendError(res, 500, 'INSURANCE_PREVIEW_FAILED', 'Unable to calculate insurance responsibility.');
+  }
+});
 
 /**
  * POST /api/billing/invoice
@@ -455,14 +578,14 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
             const claimAmount = existingInvoice.insuranceClaim
               ? Number(existingInvoice.insuranceClaim.claimAmountSdg)
               : 0;
+            const grossTotalSdg = Number(existingInvoice.totalAmountSdg);
 
             return {
               invoice: existingInvoice,
               insuranceClaim: existingInvoice.insuranceClaim || null,
-              patientShareSdg: Math.max(
-                0,
-                Number(existingInvoice.totalAmountSdg) - claimAmount
-              ),
+              grossTotalSdg,
+              insuranceCoverageSdg: claimAmount,
+              patientShareSdg: Math.max(0, grossTotalSdg - claimAmount),
               existing: true
             };
           }
@@ -492,21 +615,31 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
             const claimAmount = existingInvoice.insuranceClaim
               ? Number(existingInvoice.insuranceClaim.claimAmountSdg)
               : 0;
+            const grossTotalSdg = Number(existingInvoice.totalAmountSdg);
 
             return {
               invoice: existingInvoice,
               insuranceClaim: existingInvoice.insuranceClaim || null,
-              patientShareSdg: Math.max(
-                0,
-                Number(existingInvoice.totalAmountSdg) - claimAmount
-              ),
+              grossTotalSdg,
+              insuranceCoverageSdg: claimAmount,
+              patientShareSdg: Math.max(0, grossTotalSdg - claimAmount),
               existing: true
             };
           }
         }
 
+        const patient = await tx.patient.findUnique({ where: { id: patientId }, select: { id: true, status: true } });
+        if (!patient) throw Object.assign(new Error('Patient was not found.'), { status: 404, code: 'PATIENT_NOT_FOUND' });
+        if (patient.status !== 'ACTIVE') throw Object.assign(new Error('Billing requires an active patient record.'), { status: 409, code: 'PATIENT_NOT_ACTIVE' });
+
+        let company = null;
+        if (insuranceCompanyId) {
+          company = await tx.insuranceCompany.findUnique({ where: { id: insuranceCompanyId } });
+          if (!company) throw Object.assign(new Error('The selected insurance company is not available.'), { status: 422, code: 'INSURANCE_COMPANY_INVALID' });
+        }
+        const insuranceAmounts = calculateInsuranceAmounts(totalSdg, company);
         let insuranceClaim = null;
-        let patientShareSdg = totalSdg;
+        const patientShareSdg = insuranceAmounts.patientShareSdg;
 
         const invoice = await tx.invoice.create({
           data: {
@@ -529,37 +662,30 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
           }
         });
 
-        if (insuranceCompanyId) {
-          const company = await tx.insuranceCompany.findUnique({
-            where: { id: insuranceCompanyId }
+        if (company) {
+          insuranceClaim = await tx.insuranceClaim.create({
+            data: {
+              insuranceCompanyId: company.id,
+              patientId,
+              invoiceId: invoice.id,
+              claimAmountSdg: insuranceAmounts.insuranceCoverageSdg,
+              claimStatus: 'DRAFT'
+            }
           });
 
-          if (company) {
-            const copayFactor = Number(company.copayPercentage) / 100;
-            patientShareSdg = totalSdg * copayFactor;
-            const claimAmountSdg = totalSdg - patientShareSdg;
-
-            insuranceClaim = await tx.insuranceClaim.create({
-              data: {
-                insuranceCompanyId,
-                patientId,
-                invoiceId: invoice.id,
-                claimAmountSdg,
-                claimStatus: 'DRAFT'
-              }
-            });
-
-            await tx.invoice.update({
-              where: { id: invoice.id },
-              data: { insuranceClaimId: insuranceClaim.id }
-            });
-          }
+          await tx.invoice.update({
+            where: { id: invoice.id },
+            data: { insuranceClaimId: insuranceClaim.id }
+          });
         }
 
         return {
           invoice,
           insuranceClaim,
           patientShareSdg,
+          grossTotalSdg: insuranceAmounts.grossTotalSdg,
+          insuranceCoverageSdg: insuranceAmounts.insuranceCoverageSdg,
+          copayPercentage: insuranceAmounts.copayPercentage,
           existing: false
         };
       }, {
@@ -658,6 +784,7 @@ router.post('/invoice/:id/payments', authenticate,
         include: {
           payments: true,
           refunds: true,
+          insuranceClaim: true,
           prescription: { select: { id: true, patientId: true, status: true } }
         }
       });
@@ -690,9 +817,10 @@ router.post('/invoice/:id/payments', authenticate,
         if (priorOperation.invoiceId !== invoiceId || priorOperation.requestHash !== requestHash) {
           throw Object.assign(new Error('Idempotency key was already used for a different payment request.'), { status: 409, code: 'IDEMPOTENCY_KEY_REUSED' });
         }
-        const replayInvoice = await tx.invoice.findUnique({ where: { id: invoiceId }, include: { payments: true } });
+        const replayInvoice = await tx.invoice.findUnique({ where: { id: invoiceId }, include: { payments: true, insuranceClaim: true } });
         const replayPaid = replayInvoice.payments.reduce((sum, payment) => sum + Number(payment.amountSdg), 0);
-        return { ...replayInvoice, totalPaidSdg: replayPaid, remainingBalanceSdg: Math.max(0, Number(replayInvoice.totalAmountSdg) - replayPaid), idempotentReplay: true };
+        const replayLiability = invoicePatientLiability(replayInvoice);
+        return { ...replayInvoice, ...replayLiability, totalPaidSdg: replayPaid, remainingBalanceSdg: Math.max(0, replayLiability.patientShareSdg - replayPaid), idempotentReplay: true };
       }
 
       if (invoice.refunds.length) throw Object.assign(new Error('Payments cannot be added after a refund has been recorded.'), { status: 409, code: 'REFUNDED_INVOICE_LOCKED' });
@@ -707,17 +835,18 @@ router.post('/invoice/:id/payments', authenticate,
       const priorPaidSdg = invoice.payments.reduce((sum, payment) => sum + Number(payment.amountSdg), 0);
       const newPaidSdg = normalizedPayments.reduce((sum, payment) => sum + payment.amountSdg, 0);
       const resultingPaidSdg = priorPaidSdg + newPaidSdg;
-      const invoiceTotal = Number(invoice.totalAmountSdg);
-      if (![priorPaidSdg, newPaidSdg, resultingPaidSdg, invoiceTotal].every(Number.isSafeInteger)) {
+      const liability = invoicePatientLiability(invoice);
+      const patientShareSdg = liability.patientShareSdg;
+      if (![priorPaidSdg, newPaidSdg, resultingPaidSdg, patientShareSdg].every(Number.isSafeInteger)) {
         throw Object.assign(new Error('Invoice payment values exceed the supported financial range.'), {
           status: 422,
           code: 'PAYMENT_AMOUNT_INVALID'
         });
       }
-      if (priorPaidSdg >= invoiceTotal) {
+      if (priorPaidSdg >= patientShareSdg) {
         throw Object.assign(new Error('The invoice is already fully paid.'), { status: 409, code: 'INVOICE_ALREADY_PAID' });
       }
-      if (resultingPaidSdg > invoiceTotal + 0.001) {
+      if (resultingPaidSdg > patientShareSdg) {
         throw Object.assign(new Error('Payment exceeds the remaining invoice balance.'), { status: 409, code: 'PAYMENT_EXCEEDS_BALANCE' });
       }
 
@@ -742,7 +871,7 @@ router.post('/invoice/:id/payments', authenticate,
         } }));
       }
 
-      const invoiceStatus = resultingPaidSdg >= invoiceTotal ? 'PAID' : 'PARTIALLY_PAID';
+      const invoiceStatus = resultingPaidSdg >= patientShareSdg ? 'PAID' : 'PARTIALLY_PAID';
       const updatedInvoice = await tx.invoice.update({
         where: { id: invoiceId },
         data: { paymentStatus: invoiceStatus },
@@ -763,7 +892,10 @@ router.post('/invoice/:id/payments', authenticate,
           paymentMethods: [...new Set(normalizedPayments.map((payment) => payment.paymentMethod))],
           resultingPaymentStatus: invoiceStatus,
           totalPaidSdg: resultingPaidSdg,
-          remainingBalanceSdg: Math.max(0, invoiceTotal - resultingPaidSdg)
+          patientShareSdg,
+          insuranceCoverageSdg: liability.insuranceCoverageSdg,
+          grossTotalSdg: liability.grossTotalSdg,
+          remainingBalanceSdg: Math.max(0, patientShareSdg - resultingPaidSdg)
         }),
         ipAddress: req.ip || 'unknown'
       } });
@@ -811,10 +943,11 @@ router.post('/invoice/:id/payments', authenticate,
 
       return {
         ...updatedInvoice,
+        ...liability,
         totalPaidSdg: resultingPaidSdg,
         remainingBalanceSdg: Math.max(
           0,
-          invoiceTotal - resultingPaidSdg
+          patientShareSdg - resultingPaidSdg
         )
       };
     }, { maxWait: 5000, timeout: 10000 });
@@ -861,7 +994,7 @@ router.post('/invoice/:id/payments', authenticate,
       const priorOperation = await prisma.paymentOperation.findUnique({ where: { idempotencyKey } });
       if (priorOperation?.invoiceId === invoiceId && priorOperation.requestHash === requestHash) {
         const [replayInvoice, replayActor] = await Promise.all([
-          prisma.invoice.findUnique({ where: { id: invoiceId }, include: { payments: true } }),
+          prisma.invoice.findUnique({ where: { id: invoiceId }, include: { payments: true, insuranceClaim: true } }),
           prisma.user.findUnique({ where: { id: req.user.id }, select: { role: true, status: true, authVersion: true } })
         ]);
         if (
@@ -875,7 +1008,8 @@ router.post('/invoice/:id/payments', authenticate,
           return sendError(res, 403, 'INVOICE_PAYMENT_ROLE_FORBIDDEN', 'You do not have permission to record this invoice payment.');
         }
         const replayPaid = replayInvoice.payments.reduce((sum, payment) => sum + Number(payment.amountSdg), 0);
-        return res.json({ ...replayInvoice, totalPaidSdg: replayPaid, remainingBalanceSdg: Math.max(0, Number(replayInvoice.totalAmountSdg) - replayPaid), idempotentReplay: true });
+        const replayLiability = invoicePatientLiability(replayInvoice);
+        return res.json({ ...replayInvoice, ...replayLiability, totalPaidSdg: replayPaid, remainingBalanceSdg: Math.max(0, replayLiability.patientShareSdg - replayPaid), idempotentReplay: true });
       }
       return sendError(res, 409, 'IDEMPOTENCY_KEY_REUSED', 'Idempotency key was already used for a different payment request.');
     }
@@ -933,7 +1067,8 @@ router.post('/invoice/:id/refund', authenticate, allowRoles(ROLES.ADMIN, ROLES.R
         include: {
           payments: true,
           refunds: true,
-          labOrder: true
+          labOrder: true,
+          insuranceClaim: true
         }
       });
 
@@ -1072,7 +1207,7 @@ router.post('/invoice/:id/refund', authenticate, allowRoles(ROLES.ADMIN, ROLES.R
         refundedSdg: totalRefundedSdg,
         netCollectedSdg: paidSdg - totalRefundedSdg,
         refundableSdg: Math.max(0, paidSdg - totalRefundedSdg),
-        remainingBalanceSdg: Math.max(0, Number(financial.totalAmountSdg) - (paidSdg - totalRefundedSdg))
+        remainingBalanceSdg: Math.max(0, invoicePatientLiability(financial).patientShareSdg - (paidSdg - totalRefundedSdg))
       };
     });
     return res.status(201).json(result);
