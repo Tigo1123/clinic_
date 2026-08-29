@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
-import { Activity, FlaskConical, Lock, MessageCircle, Printer, Search, Sliders, Stethoscope, User } from 'lucide-react';
+import { Activity, CalendarDays, CheckCircle2, Clock3, FlaskConical, Lock, MessageCircle, Printer, RefreshCw, Search, Sliders, Stethoscope, User, Users } from 'lucide-react';
 import { PatientProfileModal, PostVisitSummaryModal } from '../clinical/ClinicalModals';
 import { getWhatsAppLink } from '../reception/clinicData';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
@@ -9,6 +9,7 @@ import { clinicDateString } from '../../utils/clinicTime';
 import { staffApiRequest as apiRequest } from '../../services/apiClient';
 import MedicineCombobox from './MedicineCombobox';
 import { doctorPrescriptionItem, duplicatePrescriptionItem } from '../../utils/doctorPrescription';
+import './doctorDashboard.css';
 
 export default function DoctorDashboard({ user, lang, t }) {
   const [queue, setQueue] = useState([]);
@@ -122,6 +123,24 @@ export default function DoctorDashboard({ user, lang, t }) {
 
   const handlePopulateNormalVitals = () => {
     setVitals({ blood_pressure: '120/80', heart_rate: '72', temperature: '36.8', weight: '70' });
+  };
+
+  const changeFilterDate = (offset) => {
+    const nextDate = new Date(`${filterDate}T12:00:00`);
+    nextDate.setDate(nextDate.getDate() + offset);
+    setFilterDate(nextDate.toISOString().slice(0, 10));
+  };
+
+  const getPatientAge = (dateOfBirth) => {
+    if (!dateOfBirth) return null;
+    const birthDate = new Date(dateOfBirth);
+    if (Number.isNaN(birthDate.getTime())) return null;
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const beforeBirthday = today.getMonth() < birthDate.getMonth()
+      || (today.getMonth() === birthDate.getMonth() && today.getDate() < birthDate.getDate());
+    if (beforeBirthday) age -= 1;
+    return age >= 0 ? age : null;
   };
 
   const fetchDoctorQueue = useCallback(() => {
@@ -559,39 +578,81 @@ export default function DoctorDashboard({ user, lang, t }) {
     }
   };
 
+  const dailyMetrics = [
+    { key: 'waiting', icon: Users, value: queue.filter((item) => item.status === 'CHECKED_IN' && item.consultationReady).length, ar: 'المرضى المنتظرون', en: 'Waiting patients' },
+    { key: 'consulting', icon: Stethoscope, value: queue.filter((item) => item.status === 'IN_CONSULTATION').length, ar: 'قيد الكشف', en: 'In consultation' },
+    { key: 'completed', icon: CheckCircle2, value: queue.filter((item) => item.status === 'COMPLETED').length, ar: 'مكتمل اليوم', en: 'Completed today' },
+    { key: 'laboratory', icon: FlaskConical, value: queue.filter((item) => item.status === 'WAITING_LAB').length, ar: 'بانتظار المختبر', en: 'Waiting for lab' },
+    { key: 'total', icon: CalendarDays, value: queue.length, ar: 'إجمالي مواعيد اليوم', en: "Today's appointments" }
+  ];
+  const selectedAppointment = queue.find((item) => item.id === selectedAppointmentId);
+  const selectedPatientAge = getPatientAge(selectedPatient?.dateOfBirth);
+
   return (
-    <div className="dashboard-wrapper">
-      <div className="workspace-panel" style={{ padding: '1rem' }}>
+    <div className="dashboard-wrapper doctor-dashboard" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+      <div className="workspace-panel doctor-dashboard__workspace">
         <RoleHero role="doctor" lang={lang}/>
-        <div className="panel-grid-2">
+        <section className="doctor-daily-summary" aria-labelledby="doctor-daily-summary-title">
+          <div className="doctor-section-heading">
+            <div>
+              <span>{lang === 'ar' ? 'نظرة سريرية سريعة' : 'Clinical snapshot'}</span>
+              <h2 id="doctor-daily-summary-title">{lang === 'ar' ? 'ملخص اليوم' : "Today's summary"}</h2>
+            </div>
+            <time dateTime={filterDate} dir="ltr">{new Date(`${filterDate}T12:00:00`).toLocaleDateString(lang === 'ar' ? 'ar' : 'en', { weekday: 'long', day: 'numeric', month: 'long' })}</time>
+          </div>
+          <div className="doctor-metrics-grid">
+            {dailyMetrics.map((metric) => {
+              const MetricIcon = metric.icon;
+              return <article className={`doctor-metric doctor-metric--${metric.key}`} key={metric.key}>
+                <span className="doctor-metric__icon"><MetricIcon size={18} aria-hidden="true" /></span>
+                <div><strong>{metric.value}</strong><span>{lang === 'ar' ? metric.ar : metric.en}</span></div>
+              </article>;
+            })}
+          </div>
+        </section>
+
+        <div className="doctor-operational-grid">
           {/* COLUMN 1: LIVE QUEUE & PATIENT INFO */}
-          <div className="panel-column glass-panel" style={{ padding: '1.25rem' }}>
-            <div className="panel-header" style={{ flexDirection: 'column', gap: '0.5rem', alignItems: 'stretch' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="panel-title">
+          <aside className="doctor-queue-panel" aria-labelledby="doctor-queue-title">
+            <div className="doctor-queue-header">
+              <div className="doctor-queue-title-row">
+                <span className="panel-title" id="doctor-queue-title">
                   <Activity size={18} />
-                  {lang === 'ar' ? 'طابور الطبيب' : 'Doctor Patient Waitlist'}
+                  {lang === 'ar' ? 'طابور الطبيب' : 'Doctor Queue'}
                 </span>
+                <span className="doctor-queue-count">{queue.length}</span>
               </div>
-              <input
-                type="date"
-                className="form-input"
-                style={{ padding: '4px 8px', fontSize: '0.85rem' }}
-                value={filterDate}
-                onChange={(e) => setFilterDate(e.target.value)}
-              />
+              <div className="doctor-date-controls">
+                <button type="button" onClick={() => changeFilterDate(-1)} aria-label={lang === 'ar' ? 'اليوم السابق' : 'Previous day'}>‹</button>
+                <button type="button" className="doctor-date-today" onClick={() => setFilterDate(clinicDateString())}>{lang === 'ar' ? 'اليوم' : 'Today'}</button>
+                <button type="button" onClick={() => changeFilterDate(1)} aria-label={lang === 'ar' ? 'اليوم التالي' : 'Next day'}>›</button>
+                <button type="button" onClick={fetchDoctorQueue} aria-label={lang === 'ar' ? 'تحديث الطابور' : 'Refresh queue'}><RefreshCw size={15} /></button>
+              </div>
+              <label className="doctor-date-picker">
+                <CalendarDays size={15} aria-hidden="true" />
+                <span className="sr-only">{lang === 'ar' ? 'تاريخ الطابور' : 'Queue date'}</span>
+                <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} />
+              </label>
             </div>
 
+            <div className="doctor-queue-list">
+            {queue.length === 0 && <div className="doctor-queue-empty" role="status">
+              <Stethoscope size={30} aria-hidden="true" />
+              <strong>{lang === 'ar' ? 'لا يوجد مرضى في طابورك لهذا اليوم.' : 'There are no patients in your queue for this day.'}</strong>
+              <span>{lang === 'ar' ? 'يمكنك اختيار تاريخ آخر من الأعلى.' : 'You can choose another date above.'}</span>
+            </div>}
             {queue.map((appt) => {
               const isEmergency = appt.emergencyOverride;
               return (
-                <div
+                <button
+                  type="button"
                   key={appt.id}
-                  className={`queue-card-item glass-panel ${isEmergency ? 'emergency-border' : ''} ${selectedAppointmentId === appt.id ? 'selected' : ''}`}
+                  className={`doctor-queue-card ${isEmergency ? 'emergency-border' : ''} ${selectedAppointmentId === appt.id ? 'selected' : ''}`}
                   onClick={() => handlePatientSelect(appt)}
+                  aria-pressed={selectedAppointmentId === appt.id}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <strong>{lang === 'ar' ? appt.patient.fullNameAr : appt.patient.fullNameEn}</strong>
+                  <span className="doctor-queue-card__top">
+                    <strong>{(lang === 'ar' ? appt.patient.fullNameAr : appt.patient.fullNameEn) || appt.patient.fullNameAr || appt.patient.fullNameEn}</strong>
                     <span
                       className={
                         appt.status === 'WAITING_LAB' ||
@@ -606,34 +667,25 @@ export default function DoctorDashboard({ user, lang, t }) {
                             ? (lang === 'ar' ? 'جاهز للكشف' : 'Ready')
                             : (lang === 'ar' ? 'بانتظار الدفع' : 'Payment Pending')
                         )
-                        : getAppointmentStatusLabel(appt.status)}
+                      : getAppointmentStatusLabel(appt.status)}
                     </span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem', fontSize: '0.8rem' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>{appt.appointmentTime}</span>
+                  </span>
+                  <span className="doctor-queue-card__identity">
+                    <bdi dir="ltr">{appt.patient.fileNumber || '—'}</bdi>
+                    {appt.patient.phone && <bdi dir="ltr">{appt.patient.phone}</bdi>}
+                  </span>
+                  <span className="doctor-queue-card__meta">
+                    <span><Clock3 size={14} aria-hidden="true" /><bdi dir="ltr">{appt.appointmentTime || '—'}</bdi></span>
                     {isEmergency && <span className="emergency-tag">{lang === 'ar' ? 'طوارئ' : 'Emergency'}</span>}
-                  </div>
-                </div>
+                  </span>
+                </button>
               );
             })}
-
-            {selectedPatient && (
-              <div className="glass-panel" style={{ padding: '1rem', marginTop: '1.5rem', fontSize: '0.85rem' }}>
-                <h4 style={{ marginBottom: '0.75rem' }}>{lang === 'ar' ? 'ملف المريض الحالي' : 'Patient Summary'}</h4>
-                <p>
-                  <strong>{lang === 'ar' ? 'الاسم:' : 'Name:'}</strong>{' '}
-                  {lang === 'ar' ? selectedPatient.fullNameAr : selectedPatient.fullNameEn}
-                </p>
-                <p dir="ltr"><strong>{lang === 'ar' ? 'رقم الملف:' : 'File number:'}</strong> {selectedPatient.fileNumber || '—'}</p>
-                <p><strong>{lang === 'ar' ? 'تاريخ الميلاد:' : 'DOB:'}</strong> {selectedPatient.dateOfBirth}</p>
-                <p><strong>{lang === 'ar' ? 'الهاتف:' : 'Phone:'}</strong> {selectedPatient.phone}</p>
-
-              </div>
-            )}
-          </div>
+            </div>
+          </aside>
 
           {/* COLUMN 2: CLINICAL WORKSPACE */}
-          <div className="panel-column glass-panel" style={{ padding: '1.25rem' }}>
+          <main className="doctor-clinical-workspace" aria-label={lang === 'ar' ? 'مساحة الكشف الطبي' : 'Clinical workspace'}>
             {errorMsg && (
               <div
                 className="badge badge-danger"
@@ -662,30 +714,31 @@ export default function DoctorDashboard({ user, lang, t }) {
             )}
 
             {selectedPatient ? (
-              <div>
-                <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem', marginBottom: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-                  <div>
-                    <h3 style={{ color: 'var(--primary)', margin: 0 }}>
-                      {lang === 'ar' ? 'ملف الكشف الطبي الموحد:' : 'Unified Clinical Workspace:'}{' '}
-                      {lang === 'ar' ? selectedPatient.fullNameAr : selectedPatient.fullNameEn}
-                    </h3>
-                    <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                      {lang === 'ar' ? 'الجنس:' : 'Gender:'} {getGenderLabel(selectedPatient.gender)} | {lang === 'ar' ? 'تاريخ الميلاد:' : 'DOB:'} {selectedPatient.dateOfBirth}
-                    </span>
-                    <strong dir="ltr" style={{ display: 'block', marginTop: '.3rem', color: 'var(--primary)' }}>
-                      {lang === 'ar' ? 'رقم الملف: ' : 'File number: '}{selectedPatient.fileNumber || '—'}
-                    </strong>
+              <div className="doctor-selected-workspace">
+                <header className="doctor-patient-context">
+                  <span className="doctor-patient-avatar" aria-hidden="true"><User size={22} /></span>
+                  <div className="doctor-patient-context__identity">
+                    <span>{lang === 'ar' ? 'المريض الحالي' : 'Current patient'}</span>
+                    <h2>{(lang === 'ar' ? selectedPatient.fullNameAr : selectedPatient.fullNameEn) || selectedPatient.fullNameAr || selectedPatient.fullNameEn}</h2>
+                    <div>
+                      <bdi className="doctor-mrn" dir="ltr">{selectedPatient.fileNumber || '—'}</bdi>
+                      <span>{selectedPatientAge === null ? '—' : (lang === 'ar' ? `${selectedPatientAge} سنة` : `${selectedPatientAge} years`)}</span>
+                      <span>{getGenderLabel(selectedPatient.gender)}</span>
+                    </div>
+                  </div>
+                  <div className="doctor-patient-context__visit">
+                    <span><Clock3 size={14} aria-hidden="true" />{lang === 'ar' ? 'موعد' : 'Appointment'} <bdi dir="ltr">{selectedAppointment?.appointmentTime || '—'}</bdi></span>
+                    <span className="badge badge-info">{getAppointmentStatusLabel(selectedAppointmentStatus)}</span>
                   </div>
                   <button
                     type="button"
-                    className="btn btn-primary"
-                    style={{ fontSize: '0.8rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    className="btn btn-primary doctor-open-patient-file"
                     onClick={() => setViewingProfilePatientId(selectedPatient.id)}
                   >
                     <User size={14} />
-                    {lang === 'ar' ? 'عرض الملف الشامل' : 'View Full Profile'}
+                    {lang === 'ar' ? 'فتح ملف المريض' : 'Open Patient File'}
                   </button>
-                </div>
+                </header>
 
                 {isReadOnlyVisit && (
                   <div className="badge badge-info" role="status" style={{ width: '100%', marginBottom: '1rem', padding: '0.75rem' }}>
@@ -718,13 +771,13 @@ export default function DoctorDashboard({ user, lang, t }) {
                 )}
 
                 <fieldset disabled={isReadOnlyVisit} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '1.5rem', alignItems: 'start' }}>
+                <div className="doctor-consultation-layout">
                   {/* Left Column: Full Patient History at a glance */}
-                  <div className="glass-panel" style={{ padding: '1rem', maxHeight: '70vh', overflowY: 'auto' }}>
-                    <h4 style={{ marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <section className="doctor-clinical-section doctor-history-panel" aria-labelledby="doctor-history-title">
+                    <h3 className="doctor-clinical-section__title" id="doctor-history-title">
                       <Activity size={18} color="var(--primary)" />
                       {lang === 'ar' ? 'سجل الزيارات السابقة' : 'Patient EMR History'}
-                    </h4>
+                    </h3>
                     <div className="emr-timeline">
                       {historyData.length === 0 ? (
                         <p style={{ opacity: 0.6 }}>{lang === 'ar' ? 'لا يوجد زيارات سابقة مسجلة.' : 'No historical visits logged.'}</p>
@@ -808,10 +861,10 @@ export default function DoctorDashboard({ user, lang, t }) {
                         ))
                       )}
                     </div>
-                  </div>
+                  </section>
 
                   {/* Right Column: Active Consultation & Prescription Builder */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  <div className="doctor-consultation-form">
                     {/* Completed laboratory results returned to the doctor */}
                     {isFinalizingVisit && (
                       <div
@@ -889,9 +942,9 @@ export default function DoctorDashboard({ user, lang, t }) {
                     )}
 
                     {/* Vitals Section */}
-                    <div className="glass-panel" style={{ padding: '1rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                        <h4 style={{ margin: 0 }}>{lang === 'ar' ? 'العلامات الحيوية الحالية' : 'Current Vitals'}</h4>
+                    <section className="doctor-clinical-section doctor-vitals-section" aria-labelledby="doctor-vitals-title">
+                      <div className="doctor-clinical-section__heading">
+                        <h3 id="doctor-vitals-title">{lang === 'ar' ? 'العلامات الحيوية الحالية' : 'Current Vitals'}</h3>
                         <button
                           type="button"
                           className="btn btn-secondary"
@@ -901,12 +954,13 @@ export default function DoctorDashboard({ user, lang, t }) {
                           {lang === 'ar' ? 'علامات حيوية طبيعية' : 'Normal Vitals Preset'}
                         </button>
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0.5rem' }}>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-label" style={{ fontSize: '0.75rem' }}>
+                      <div className="doctor-vitals-grid">
+                        <div className="form-group">
+                          <label className="form-label" htmlFor="doctor-vital-bp">
   {lang === 'ar' ? 'ضغط الدم' : 'Blood Pressure'}
 </label>
                           <input
+                            id="doctor-vital-bp"
                             type="text"
                             className="form-input"
                             style={{ padding: '6px' }}
@@ -914,11 +968,12 @@ export default function DoctorDashboard({ user, lang, t }) {
                             onChange={(e) => setVitals({ ...vitals, blood_pressure: e.target.value })}
                           />
                         </div>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-label" style={{ fontSize: '0.75rem' }}>
+                        <div className="form-group">
+                          <label className="form-label" htmlFor="doctor-vital-heart-rate">
   {lang === 'ar' ? 'معدل النبض (نبضة/دقيقة)' : 'Heart Rate (bpm)'}
 </label>
                           <input
+                            id="doctor-vital-heart-rate"
                             type="text"
                             className="form-input"
                             style={{ padding: '6px' }}
@@ -926,11 +981,12 @@ export default function DoctorDashboard({ user, lang, t }) {
                             onChange={(e) => setVitals({ ...vitals, heart_rate: e.target.value })}
                           />
                         </div>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-label" style={{ fontSize: '0.75rem' }}>
+                        <div className="form-group">
+                          <label className="form-label" htmlFor="doctor-vital-temperature">
   {lang === 'ar' ? 'درجة الحرارة (°م)' : 'Temperature (°C)'}
 </label>
                           <input
+                            id="doctor-vital-temperature"
                             type="text"
                             className="form-input"
                             style={{ padding: '6px' }}
@@ -938,11 +994,12 @@ export default function DoctorDashboard({ user, lang, t }) {
                             onChange={(e) => setVitals({ ...vitals, temperature: e.target.value })}
                           />
                         </div>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-label" style={{ fontSize: '0.75rem' }}>
+                        <div className="form-group">
+                          <label className="form-label" htmlFor="doctor-vital-weight">
   {lang === 'ar' ? 'الوزن (كجم)' : 'Weight (kg)'}
 </label>
                           <input
+                            id="doctor-vital-weight"
                             type="text"
                             className="form-input"
                             style={{ padding: '6px' }}
@@ -951,13 +1008,15 @@ export default function DoctorDashboard({ user, lang, t }) {
                           />
                         </div>
                       </div>
-                    </div>
+                    </section>
 
                     {/* Symptoms & Diagnosis */}
-                    <div className="glass-panel" style={{ padding: '1rem' }}>
+                    <section className="doctor-clinical-section doctor-assessment-section" aria-labelledby="doctor-assessment-title">
+                      <h3 className="doctor-clinical-section__title" id="doctor-assessment-title">{lang === 'ar' ? 'التقييم السريري وخطة العلاج' : 'Clinical assessment and treatment plan'}</h3>
                       <div className="form-group" style={{ marginBottom: '0.75rem' }}>
-                        <label className="form-label">{t('symptoms')}</label>
+                        <label className="form-label" htmlFor="doctor-symptoms">{t('symptoms')}</label>
                         <textarea
+                          id="doctor-symptoms"
                           rows={2}
                           className="form-input"
                           value={symptoms}
@@ -967,7 +1026,7 @@ export default function DoctorDashboard({ user, lang, t }) {
 
                       <div className="form-group" style={{ marginBottom: '0.75rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                          <label className="form-label" style={{ margin: 0 }}>{t('diagnosis')} *</label>
+                          <label className="form-label" htmlFor="doctor-diagnosis" style={{ margin: 0 }}>{t('diagnosis')} *</label>
                           <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>{lang === 'ar' ? 'نماذج تشخيص سريعة:' : 'Quick Diagnoses:'}</span>
                         </div>
 
@@ -986,6 +1045,7 @@ export default function DoctorDashboard({ user, lang, t }) {
                         </div>
 
                         <input
+                          id="doctor-diagnosis"
                           type="text"
                           placeholder={
   lang === 'ar'
@@ -1000,22 +1060,27 @@ export default function DoctorDashboard({ user, lang, t }) {
                       </div>
 
                       <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label className="form-label">{t('treatment')}</label>
+                        <label className="form-label" htmlFor="doctor-treatment">{t('treatment')}</label>
                         <textarea
+                          id="doctor-treatment"
                           rows={2}
                           className="form-input"
                           value={treatment}
                           onChange={(e) => setTreatment(e.target.value)}
                         />
                       </div>
-                    </div>
+                      <div className="form-group doctor-clinical-notes">
+                        <label className="form-label" htmlFor="doctor-clinical-notes">{lang === 'ar' ? 'الملاحظات السريرية' : 'Clinical notes'}</label>
+                        <textarea id="doctor-clinical-notes" rows={3} className="form-input" value={clinicalNotes} onChange={(e) => setClinicalNotes(e.target.value)} />
+                      </div>
+                    </section>
 
                     {/* Prescription Builder */}
-                    <div className="glass-panel" style={{ padding: '1rem' }}>
-                      <h4 style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <section className="doctor-clinical-section doctor-prescription-section" aria-labelledby="doctor-prescription-title">
+                      <h3 className="doctor-clinical-section__title" id="doctor-prescription-title">
                         <Sliders size={16} color="var(--primary)" />
                         {lang === 'ar' ? 'الوصفة الطبية السريعة' : 'Rapid Prescription Builder'}
-                      </h4>
+                      </h3>
                       <div className="doctor-medicine-mode" role="group" aria-label={lang === 'ar' ? 'نوع الدواء' : 'Medicine type'}>
                         <button type="button" className={medicineMode === 'official' ? 'is-selected' : ''} aria-pressed={medicineMode === 'official'} onClick={() => { setMedicineMode('official'); setCustomDrugName(''); }}>{lang === 'ar' ? 'دواء من القائمة الرسمية' : 'Official formulary medicine'}</button>
                         <button type="button" className={medicineMode === 'custom' ? 'is-selected' : ''} aria-pressed={medicineMode === 'custom'} onClick={() => { setMedicineMode('custom'); setSelectedDrug(''); }}>{lang === 'ar' ? 'دواء غير موجود / كتابة يدوية' : 'Medicine not found / custom'}</button>
@@ -1035,7 +1100,7 @@ export default function DoctorDashboard({ user, lang, t }) {
                         <dl><div><dt>{lang === 'ar' ? 'الجرعة' : 'Dosage'}</dt><dd>{item.dosage}</dd></div><div><dt>{lang === 'ar' ? 'المدة' : 'Duration'}</dt><dd>{item.duration}</dd></div>{(item.instructionsAr || item.instructionsEn) && <div><dt>{lang === 'ar' ? 'التعليمات' : 'Instructions'}</dt><dd>{lang === 'ar' ? item.instructionsAr || item.instructionsEn : item.instructionsEn || item.instructionsAr}</dd></div>}</dl>
                         <div className="doctor-prescribed-actions"><button type="button" className="btn" onClick={() => handleEditPrescriptionItem(item, index)}>{lang === 'ar' ? 'تعديل' : 'Edit'}</button><button type="button" className="btn btn-danger" onClick={() => handleRemovePrescriptionItem(index)}>{lang === 'ar' ? 'إزالة' : 'Remove'}</button></div>
                       </article>; })}</div>}
-                    </div>
+                    </section>
 
                     {/* Laboratory / radiology orders */}
                     <section className="doctor-lab-order-card" aria-labelledby="doctor-lab-order-title">
@@ -1089,13 +1154,9 @@ export default function DoctorDashboard({ user, lang, t }) {
                       </div>}
                     </section>
 
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      style={{ width: '100%', padding: '12px', fontSize: '1rem', fontWeight: 'bold' }}
-                      onClick={handleSaveConsultation}
-                      disabled={isSavingConsultation || isReadOnlyVisit}
-                    >
+                    <div className="doctor-consultation-actions">
+                    <div><strong>{lang === 'ar' ? 'إجراء الكشف' : 'Consultation action'}</strong><span>{lang === 'ar' ? 'راجع البيانات السريرية قبل تنفيذ الإجراء النهائي.' : 'Review the clinical information before the final action.'}</span></div>
+                    <button type="button" className="btn btn-primary" onClick={handleSaveConsultation} disabled={isSavingConsultation || isReadOnlyVisit}>
                       {isFinalizingVisit
                         ? (lang === 'ar'
                             ? 'مراجعة النتائج وإنهاء الزيارة'
@@ -1107,18 +1168,22 @@ export default function DoctorDashboard({ user, lang, t }) {
                           : (lang === 'ar'
                               ? 'إنهاء الزيارة'
                               : 'Complete Visit')}
-                    </button>
+                    </button></div>
                   </div>
                 </div>
                 </fieldset>
               </div>
             ) : (
-              <div style={{ textAlign: 'center', padding: '5rem', color: 'var(--text-secondary)' }}>
-                <Stethoscope size={64} />
-                <p style={{ marginTop: '1rem' }}>{lang === 'ar' ? 'يرجى اختيار مريض من الطابور لبدء الكشف الطبي.' : 'Please select a patient from the queue to start the consultation.'}</p>
-              </div>
+              <section className="doctor-workspace-empty" aria-labelledby="doctor-workspace-empty-title">
+                <span className="doctor-workspace-empty__icon"><Stethoscope size={34} aria-hidden="true" /></span>
+                <h2 id="doctor-workspace-empty-title">{lang === 'ar' ? 'اختر مريضاً من طابور الطبيب لبدء الكشف الطبي.' : 'Select a patient from the doctor queue to start the consultation.'}</h2>
+                <p>{lang === 'ar' ? 'ستظهر بيانات المريض وسجل الزيارات وأدوات التوثيق السريري هنا.' : 'Patient details, visit history, and clinical documentation tools will appear here.'}</p>
+                <ol className="doctor-workflow-steps">
+                  {[lang === 'ar' ? 'اختيار المريض' : 'Select patient', lang === 'ar' ? 'مراجعة ملف المريض' : 'Review patient file', lang === 'ar' ? 'تسجيل العلامات والأعراض' : 'Record vitals and symptoms', lang === 'ar' ? 'التشخيص وخطة العلاج' : 'Diagnose and plan treatment', lang === 'ar' ? 'الوصفة والفحوصات' : 'Prescription and investigations', lang === 'ar' ? 'إكمال الكشف' : 'Complete consultation'].map((step, index) => <li key={step}><span>{index + 1}</span>{step}</li>)}
+                </ol>
+              </section>
             )}
-          </div>
+          </main>
         </div>
       </div>
 
