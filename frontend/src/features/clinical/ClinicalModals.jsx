@@ -829,7 +829,7 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang }) {
         {/* Actions bar (hidden during print) */}
         <div className="no-print-section" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
           <h3 style={{ margin: 0, color: 'var(--primary)' }}>
-            {lang === 'ar' ? 'ملخص الزيارة والتوصيات الطبية' : 'Post-Visit Summary & Care Plan'}
+            {lang === 'ar' ? 'ملخص الزيارة' : 'Post-Visit Summary'}
           </h3>
           <button className="btn btn-secondary" style={{ padding: '4px 8px' }} onClick={onClose}>✕</button>
         </div>
@@ -839,7 +839,7 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang }) {
           <div style={{ textAlign: 'center', borderBottom: '2px solid var(--primary)', paddingBottom: '0.75rem', marginBottom: '1rem' }}>
             <h2 style={{ margin: 0, color: 'var(--primary)', fontSize: '1.4rem' }}>Al-Shifa Medical Center</h2>
             <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-              {lang === 'ar' ? 'ملخص زيارة المريض والتوصيات الطبية' : 'Patient Visit Summary & Clinical Instructions'}
+              {lang === 'ar' ? 'ملخص زيارة المريض' : 'Patient Visit Summary'}
             </p>
           </div>
 
@@ -950,6 +950,7 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang }) {
                     <th>{lang === 'ar' ? 'الدواء' : 'Medication'}</th>
                     <th>{lang === 'ar' ? 'الجرعة' : 'Dosage'}</th>
                     <th>{lang === 'ar' ? 'المدة' : 'Duration'}</th>
+                    <th>{lang === 'ar' ? 'تعليمات الدواء' : 'Medication Instructions'}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -958,6 +959,7 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang }) {
                       <td>{lang === 'ar' ? rx.drugNameAr : rx.drugNameEn}</td>
                       <td>{rx.dosage}</td>
                       <td>{rx.duration}</td>
+                      <td>{lang === 'ar' ? rx.instructionsAr || rx.instructionsEn || '—' : rx.instructionsEn || rx.instructionsAr || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -965,15 +967,14 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang }) {
             </div>
           )}
 
-          {/* Post-Visit Advice */}
-          <div style={{ fontSize: '0.85rem', borderTop: '1px dashed var(--border-color)', paddingTop: '0.75rem' }}>
+          {/* Clinician-authored patient instructions only. The current schema has
+              no dedicated field, so an absent/empty value is intentionally hidden. */}
+          {Array.isArray(summary.instructions) && summary.instructions.length > 0 && <div style={{ fontSize: '0.85rem', borderTop: '1px dashed var(--border-color)', paddingTop: '0.75rem' }}>
             <strong style={{ color: 'var(--primary)' }}>{lang === 'ar' ? 'توجيهات وإرشادات المريض:' : 'Post-Visit Care Instructions:'}</strong>
             <ul style={{ margin: '0.4rem 0 0 1.2rem', padding: 0 }}>
-              {summary.instructions.map((inst, i) => (
-                <li key={i} style={{ marginBottom: '0.2rem' }}>{inst}</li>
-              ))}
+              {summary.instructions.map((inst, i) => <li key={`${inst}-${i}`} style={{ marginBottom: '0.2rem' }}>{inst}</li>)}
             </ul>
-          </div>
+          </div>}
         </div>
 
         {/* Email Controls & Print Buttons (Hidden on print) */}
@@ -994,8 +995,8 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang }) {
                 href={getWhatsAppLink(
                   summary.patient.phone,
                   lang === 'ar'
-                    ? `مركز الشفاء الطبي: ملخص زيارة المريض (${summary.patient.fullNameAr}).\nالتشخيص: ${summary.diagnosis}.\nالعلاج: ${summary.treatment}.\nالوصفة: ${(summary.prescriptions || []).map(p => `${p.drugNameAr} (${p.dosage})`).join(', ')}.\nنتمنى لك الشفاء العاجل!`
-                    : `Al-Shifa Clinic: Post-visit summary for ${summary.patient.fullNameEn}.\nDiagnosis: ${summary.diagnosis}.\nTreatment: ${summary.treatment}.\nPrescriptions: ${(summary.prescriptions || []).map(p => `${p.drugNameEn} (${p.dosage})`).join(', ')}.\nGet well soon!`
+                    ? `مركز الشفاء الطبي: ملخص زيارة المريض (${summary.patient.fullNameAr}).\nالتشخيص: ${summary.diagnosis}.\nالعلاج: ${summary.treatment}.\nالوصفة: ${(summary.prescriptions || []).map(p => `${p.drugNameAr} (${p.dosage}، ${p.duration}${p.instructionsAr || p.instructionsEn ? `، ${p.instructionsAr || p.instructionsEn}` : ''})`).join(', ')}.`
+                    : `Al-Shifa Clinic: Post-visit summary for ${summary.patient.fullNameEn}.\nDiagnosis: ${summary.diagnosis}.\nTreatment: ${summary.treatment}.\nPrescriptions: ${(summary.prescriptions || []).map(p => `${p.drugNameEn} (${p.dosage}, ${p.duration}${p.instructionsEn || p.instructionsAr ? `, ${p.instructionsEn || p.instructionsAr}` : ''})`).join(', ')}.`
                 )}
                 target="_blank"
                 rel="noopener noreferrer"

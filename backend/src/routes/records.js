@@ -2389,12 +2389,9 @@ router.get('/:id/summary', authenticate, allowRoles(ROLES.DOCTOR), async (req, r
             : '',
         isOutOfRange: !!i.isOutOfRange
       }))),
-      instructions: [
-        "Take prescribed medications exactly as directed.",
-        "Drink plenty of water and maintain adequate rest.",
-        "Return immediately if symptoms worsen or high fever persists.",
-        "Follow up in 7 days for progress evaluation."
-      ]
+      // There is currently no dedicated clinician-authored patient-instructions
+      // field on MedicalRecord. Never synthesize clinical advice in a summary.
+      instructions: []
     };
 
     return res.json(summary);
@@ -2468,13 +2465,14 @@ router.post('/:id/send-summary', authenticate, allowRoles(ROLES.DOCTOR), validat
     const treatment = decrypt(record.treatmentEncrypted);
     const vitals = JSON.parse(record.vitalSignsJson || '{}');
 
-    const drugsListHtml = record.prescriptions.flatMap(p => p.prescribedDrugs).map(pd => `
-      <li><strong>${pd.drug?.labelEn || pd.drug?.genericName}</strong>: ${pd.dosage} for ${pd.duration} (${pd.instructionsEn || pd.instructionsAr || 'As instructed'})</li>
-    `).join('');
+    const drugsListHtml = record.prescriptions.flatMap(p => p.prescribedDrugs).map(pd => {
+      const medicationInstructions = pd.instructionsEn || pd.instructionsAr;
+      return `<li><strong>${pd.drug?.labelEn || pd.drug?.genericName || pd.customDrugName || ''}</strong>: ${pd.dosage} for ${pd.duration}${medicationInstructions ? ` (${medicationInstructions})` : ''}</li>`;
+    }).join('');
 
     const htmlContent = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: 24px; color: #1f2937;">
-        <h2 style="color: #0d9488; text-align: center; border-bottom: 2px solid #0d9488; padding-bottom: 10px;">Al-Shifa Medical Center<br/><span style="font-size:16px;">Visit Summary & Instructions</span></h2>
+        <h2 style="color: #0d9488; text-align: center; border-bottom: 2px solid #0d9488; padding-bottom: 10px;">Al-Shifa Medical Center<br/><span style="font-size:16px;">Visit Summary</span></h2>
         
         <p><strong>Patient Name:</strong> ${record.patient.fullNameEn} (${record.patient.fullNameAr})</p>
         <p><strong>Attending Doctor:</strong> ${record.doctor.fullNameEn} - ${record.doctor.specialtyEn}</p>
@@ -2492,13 +2490,6 @@ router.post('/:id/send-summary', authenticate, allowRoles(ROLES.DOCTOR), validat
         <p><strong>Treatment:</strong> ${treatment}</p>
 
         ${drugsListHtml ? `<h4 style="color: #0369a1; margin-bottom: 8px;">Prescribed Medications</h4><ul>${drugsListHtml}</ul>` : ''}
-
-        <h4 style="color: #0369a1; margin-bottom: 8px;">Post-Visit Instructions</h4>
-        <ol>
-          <li>Take all prescribed medications according to schedule.</li>
-          <li>Ensure adequate hydration and rest.</li>
-          <li>Seek immediate medical attention if you experience severe symptoms or high fever.</li>
-        </ol>
 
         <p style="text-align: center; font-size: 12px; color: #6b7280; margin-top: 24px;">Al-Shifa Medical Center - Khartoum, Sudan. Phone: +249 91 234 5678</p>
       </div>

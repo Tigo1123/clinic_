@@ -666,6 +666,76 @@ test('clinical summary requires a verified patient email and never falls back to
   assert.doesNotMatch(JSON.stringify(response.body), /diagnosis|treatment|Prisma|SQL|stack|database/i);
 });
 
+test('visit summary exports only stored clinical content and medication instructions', async () => {
+  const portal = await createAppointmentConcurrencyPatient();
+  const appointment = await prisma.appointment.create({ data: {
+    patientId: portal.patient.id, doctorId: doctor1.id,
+    appointmentDate: '2062-01-03', appointmentTime: '09:00', status: 'COMPLETED'
+  } });
+  const record = await prisma.medicalRecord.create({ data: {
+    patientId: portal.patient.id, doctorId: doctor1.id, appointmentId: appointment.id,
+    symptomsEncrypted: encrypt('Stored symptom'),
+    diagnosisEncrypted: encrypt('Stored diagnosis'),
+    treatmentEncrypted: encrypt('Stored treatment'),
+    clinicalNotesEncrypted: encrypt('Private clinician note is not patient instructions'),
+    vitalSignsJson: '{}',
+    prescriptions: { create: {
+      patientId: portal.patient.id,
+      doctorId: doctor1.id,
+      prescribedDrugs: { create: {
+        customDrugName: 'Stored medicine', dosage: '1x2 daily', duration: '3 Days',
+        instructionsAr: 'بعد الطعام', instructionsEn: 'After food', qtyPrescribed: 6,
+        pharmacyReviewStatus: 'PENDING_REVIEW'
+      } }
+    } }
+  } });
+
+  const summaryResponse = await api.get(`/api/records/${record.id}/summary`).set(auth('doctor'));
+  assert.equal(summaryResponse.status, 200);
+  assert.deepEqual(summaryResponse.body.instructions, []);
+  assert.equal(summaryResponse.body.diagnosis, 'Stored diagnosis');
+  assert.equal(summaryResponse.body.treatment, 'Stored treatment');
+  assert.equal(summaryResponse.body.prescriptions.length, 1);
+  assert.equal(summaryResponse.body.prescriptions[0].instructionsEn, 'After food');
+  assert.doesNotMatch(JSON.stringify(summaryResponse.body), /adequate rest|symptoms worsen|high fever|Follow up in 7 days/i);
+
+  const originalCreateTransport = nodemailer.createTransport;
+  const previousEnvironment = {
+    NOTIFICATIONS_DISABLED: process.env.NOTIFICATIONS_DISABLED,
+    SMTP_HOST: process.env.SMTP_HOST,
+    SMTP_PORT: process.env.SMTP_PORT,
+    SMTP_USER: process.env.SMTP_USER,
+    SMTP_PASS: process.env.SMTP_PASS,
+    SMTP_FROM_EMAIL: process.env.SMTP_FROM_EMAIL
+  };
+  let deliveredMessage = null;
+  nodemailer.createTransport = () => ({
+    async sendMail(message) {
+      deliveredMessage = message;
+      return { messageId: 'visit-summary-stored-content' };
+    }
+  });
+  Object.assign(process.env, {
+    NOTIFICATIONS_DISABLED: 'false', SMTP_HOST: 'smtp.example.test', SMTP_PORT: '2525',
+    SMTP_USER: 'summary-test', SMTP_PASS: 'summary-test-password', SMTP_FROM_EMAIL: 'clinic@example.test'
+  });
+  try {
+    const emailResponse = await api.post(`/api/records/${record.id}/send-summary`).set(auth('doctor')).send({});
+    assert.equal(emailResponse.status, 200);
+    assert.match(deliveredMessage.html, /Stored diagnosis/);
+    assert.match(deliveredMessage.html, /Stored treatment/);
+    assert.match(deliveredMessage.html, /After food/);
+    assert.doesNotMatch(deliveredMessage.html, /adequate hydration|adequate rest|medical attention|high fever|Follow up in 7 days|As instructed/i);
+    assert.doesNotMatch(deliveredMessage.html, /Private clinician note/);
+  } finally {
+    nodemailer.createTransport = originalCreateTransport;
+    for (const [name, value] of Object.entries(previousEnvironment)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
 test('clinical summary SMTP provider failures expose no transport or clinical content', async () => {
   const portal = await createAppointmentConcurrencyPatient();
   const appointment = await prisma.appointment.create({ data: {
