@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, Calendar, Check, Clock, Copy, FileText, Mail, MessageCircle, Pill, Printer, Receipt, Shield, TestTube, User, X } from 'lucide-react';
+import { AlertCircle, Calendar, Check, Copy, FileText, Mail, MessageCircle, Pill, Printer, Receipt, Shield, TestTube, User, X } from 'lucide-react';
 import { fetchWithAuth } from '../../services/staffApi';
 import { useAuth } from '../../app/auth/auth-context';
 import './patientFile.css';
@@ -236,7 +236,16 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
         day: 'numeric', month: 'short', year: 'numeric'
       })
     : '—';
-  const visibleSections = profile ? (profile.availableSections || ['overview']) : ['overview'];
+  const authorizedSections = profile?.availableSections || ['overview'];
+  const preferredSectionOrder = ['overview', 'visits', 'appointments', 'prescriptions', 'laboratory', 'billing'];
+  const visibleSections = profile
+    ? preferredSectionOrder.filter((section) => section === 'visits' || authorizedSections.includes(section))
+    : ['overview'];
+  const canViewMedicalRecords = authorizedSections.includes('visits');
+  const medicalRecordsError = canViewMedicalRecords && profile && !Array.isArray(profile.visits)
+    ? (lang === 'ar' ? 'تعذر تحميل السجلات الطبية.' : 'Medical records could not be loaded.')
+    : '';
+  const medicalRecords = Array.isArray(profile?.visits) ? profile.visits : [];
   const handleSectionKeyDown = (event, index) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
@@ -348,7 +357,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
                   {[
                     ['appointments', lang === 'ar' ? 'المواعيد' : 'Appointments'],
                     ...(user?.role === 'DOCTOR' ? [
-                      ['visits', lang === 'ar' ? 'الزيارات' : 'Visits'],
+                      ['visits', lang === 'ar' ? 'السجلات الطبية' : 'Medical Records'],
                       ['prescriptions', lang === 'ar' ? 'الوصفات' : 'Prescriptions'],
                       ['labOrders', lang === 'ar' ? 'طلبات المختبر' : 'Lab orders']
                     ] : [['invoices', lang === 'ar' ? 'الفواتير' : 'Invoices']])
@@ -565,7 +574,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
                   const labels = {
                     overview: lang === 'ar' ? 'نظرة عامة' : 'Overview',
                     appointments: lang === 'ar' ? 'المواعيد' : 'Appointments',
-                    visits: lang === 'ar' ? 'الزيارات الطبية' : 'Medical visits',
+                    visits: lang === 'ar' ? 'السجلات الطبية' : 'Medical Records',
                     prescriptions: lang === 'ar' ? 'الوصفات' : 'Prescriptions',
                     laboratory: lang === 'ar' ? 'المختبر' : 'Laboratory',
                     billing: lang === 'ar' ? 'الفوترة' : 'Billing'
@@ -615,100 +624,82 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
                 </section>
               )}
 
-              {/* Visits History Timeline Header */}
-              {user?.role === 'DOCTOR' && activeSection === 'visits' && (
-              <section id="patient-file-panel-visits" role="tabpanel" aria-labelledby="patient-file-tab-visits" className="patient-file-section patient-file-visits">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Clock size={18} />
-                  {lang === 'ar' ? `الزيارات السابقة (${profile.visitsCount})` : `Previous Visits (${profile.visitsCount})`}
-                </h4>
-                <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>
-                  {lang === 'ar' ? 'مرتبة من الأحدث للأقدم' : 'Sorted newest to oldest'}
-                </span>
-              </div>
+              {activeSection === 'visits' && (
+                <section id="patient-file-panel-visits" role="tabpanel" aria-labelledby="patient-file-tab-visits" className="patient-file-section patient-file-visits">
+                  <div className="patient-file-section-heading">
+                    <h4><FileText size={18} />{lang === 'ar' ? 'السجلات الطبية' : 'Medical Records'}</h4>
+                    {canViewMedicalRecords && <span>{lang === 'ar' ? 'مرتبة من الأحدث للأقدم' : 'Newest first'}</span>}
+                  </div>
 
-              {/* Visits List */}
-              {profile.visits.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '2rem', opacity: 0.6 }}>
-                  <FileText size={32} style={{ marginBottom: '0.5rem' }} />
-                  <p>{lang === 'ar' ? 'لا توجد زيارات مسجلة لهذا المريض حتى الآن.' : 'No recorded visits for this patient yet.'}</p>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {profile.visits.map((visit) => (
-                    <div
-                      key={visit.id}
-                      className="glass-card"
-                      style={{
-                        padding: '0.85rem 1rem',
-                        borderRadius: '10px',
-                        border: '1px solid var(--border-color)',
-                        background: 'rgba(255,255,255,0.03)',
-                        transition: 'transform 0.15s ease'
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
-                        <div>
-                          <div style={{ fontWeight: 'bold', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <Calendar size={14} style={{ opacity: 0.7 }} />
-                            {new Date(visit.visitDate).toLocaleDateString(
-      lang === 'ar' ? 'ar' : 'en'
-    )}
-                            <span style={{ fontSize: '0.8rem', opacity: 0.6, fontWeight: 'normal' }}>
-                              ({new Date(visit.visitDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
-                            </span>
-                          </div>
-                          <div style={{ fontSize: '0.85rem', opacity: 0.8, marginTop: '2px' }}>
-                            <strong>{lang === 'ar' ? 'الطبيب:' : 'Doctor:'}</strong> {lang === 'ar' ? visit.doctor.fullNameAr : visit.doctor.fullNameEn} ({lang === 'ar' ? visit.doctor.specialtyAr : visit.doctor.specialtyEn})
-                          </div>
-                        </div>
-
-                        {typeof onSelectSummary === 'function' && (
-                          <button
-                            type="button"
-                            className="btn btn-secondary"
-                            style={{ padding: '4px 10px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                            onClick={() => {
-                              const targetId =
-                                visit.recordId ||
-                                visit.id ||
-                                visit.appointmentId;
-
-                              onSelectSummary(targetId);
-                            }}
-                          >
-                            <Printer size={14} />
-                            {lang === 'ar'
-                              ? 'ملخص الزيارة والطباعة'
-                              : 'Visit Summary / Print'}
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Clinical Preview */}
-                      <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px dashed rgba(255,255,255,0.1)', fontSize: '0.85rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.5rem' }}>
-                        <div>
-                          <strong>{lang === 'ar' ? 'التشخيص:' : 'Diagnosis:'}</strong> {visit.diagnosis || 'N/A'}
-                        </div>
-                        <div>
-                          <strong>{lang === 'ar' ? 'الأعراض:' : 'Symptoms:'}</strong> {visit.symptoms || 'N/A'}
-                        </div>
-                      </div>
-
-                      {/* Vitals & Counts Badges */}
-                      <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.5rem', flexWrap: 'wrap', fontSize: '0.75rem', opacity: 0.85 }}>
-                        {visit.vitals?.blood_pressure && <span className="badge" style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 6px', borderRadius: '4px' }}>BP: {visit.vitals.blood_pressure}</span>}
-                        {visit.vitals?.heart_rate && <span className="badge" style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 6px', borderRadius: '4px' }}>HR: {visit.vitals.heart_rate} bpm</span>}
-                        {visit.vitals?.temperature && <span className="badge" style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 6px', borderRadius: '4px' }}>Temp: {visit.vitals.temperature} °C</span>}
-                        {visit.prescriptionsCount > 0 && <span className="badge badge-success" style={{ background: '#10b98133', color: '#10b981', padding: '2px 6px', borderRadius: '4px' }}>{lang === 'ar' ? `وصفات: ${visit.prescriptionsCount}` : `Rx: ${visit.prescriptionsCount}`}</span>}
-                        {visit.labOrdersCount > 0 && <span className="badge badge-info" style={{ background: '#0284c733', color: '#0284c7', padding: '2px 6px', borderRadius: '4px' }}>{lang === 'ar' ? `فحوصات: ${visit.labOrdersCount}` : `Labs: ${visit.labOrdersCount}`}</span>}
-                      </div>
+                  {!canViewMedicalRecords ? (
+                    <div className="patient-file-clinical-access" role="status">
+                      <Shield size={28} aria-hidden="true" />
+                      <p>{lang === 'ar' ? 'السجلات الطبية متاحة فقط للممارسين المصرح لهم.' : 'Medical records are available only to authorized clinical practitioners.'}</p>
                     </div>
-                  ))}
-                </div>
-              )}
-              </section>
+                  ) : medicalRecordsError ? (
+                    <div className="patient-file-clinical-access" role="alert">
+                      <AlertCircle size={28} aria-hidden="true" />
+                      <p>{medicalRecordsError}</p>
+                      <button type="button" className="btn btn-secondary" onClick={loadProfile}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button>
+                    </div>
+                  ) : medicalRecords.length === 0 ? (
+                    <div className="patient-file-clinical-access patient-file-clinical-empty">
+                      <FileText size={30} aria-hidden="true" />
+                      <p>{lang === 'ar' ? 'لا توجد سجلات طبية لهذا المريض حتى الآن.' : 'No medical records are available for this patient yet.'}</p>
+                    </div>
+                  ) : (
+                    <div className="patient-file-records">
+                      {medicalRecords.map((visit) => {
+                        const visitDate = visit.visitDate ? new Date(visit.visitDate) : null;
+                        const validVisitDate = visitDate && !Number.isNaN(visitDate.getTime());
+                        const linkedAppointment = (profile.appointments || []).find((appointment) => appointment.id === visit.appointmentId);
+                        const vitals = visit.vitals && typeof visit.vitals === 'object' ? visit.vitals : {};
+                        const hasVitals = ['blood_pressure', 'heart_rate', 'temperature', 'weight'].some((key) => vitals[key]);
+                        const doctorName = lang === 'ar'
+                          ? visit.doctor?.fullNameAr || visit.doctor?.fullNameEn
+                          : visit.doctor?.fullNameEn || visit.doctor?.fullNameAr;
+                        const specialty = lang === 'ar'
+                          ? visit.doctor?.specialtyAr || visit.doctor?.specialtyEn
+                          : visit.doctor?.specialtyEn || visit.doctor?.specialtyAr;
+
+                        return <article key={visit.id || visit.visitDate} className="patient-file-record-card">
+                          <header>
+                            <div className="patient-file-record-date">
+                              <Calendar size={16} aria-hidden="true" />
+                              <div>
+                                <strong>{validVisitDate ? visitDate.toLocaleDateString(lang === 'ar' ? 'ar' : 'en') : (lang === 'ar' ? 'تاريخ غير متوفر' : 'Date unavailable')}</strong>
+                                {validVisitDate && <span dir="ltr">{visitDate.toLocaleTimeString(lang === 'ar' ? 'ar' : 'en', { hour: '2-digit', minute: '2-digit' })}</span>}
+                              </div>
+                            </div>
+                            {linkedAppointment?.status && <span className="patient-file-status">{localizedStatus(linkedAppointment.status, lang)}</span>}
+                          </header>
+
+                          {(doctorName || specialty) && <div className="patient-file-record-doctor"><strong>{lang === 'ar' ? 'الطبيب' : 'Doctor'}</strong><span>{[doctorName, specialty].filter(Boolean).join(' · ')}</span></div>}
+
+                          {(visit.symptoms || visit.diagnosis || visit.treatment || visit.clinicalNotes) && <div className="patient-file-clinical-grid">
+                            {visit.symptoms && <div><span>{lang === 'ar' ? 'الشكوى والأعراض' : 'Chief complaint / symptoms'}</span><p>{visit.symptoms}</p></div>}
+                            {visit.diagnosis && <div><span>{lang === 'ar' ? 'التشخيص' : 'Diagnosis'}</span><p>{visit.diagnosis}</p></div>}
+                            {visit.treatment && <div><span>{lang === 'ar' ? 'خطة العلاج' : 'Treatment plan'}</span><p>{visit.treatment}</p></div>}
+                            {visit.clinicalNotes && <div><span>{lang === 'ar' ? 'الملاحظات السريرية' : 'Clinical notes'}</span><p>{visit.clinicalNotes}</p></div>}
+                          </div>}
+
+                          {hasVitals && <div className="patient-file-vitals" aria-label={lang === 'ar' ? 'العلامات الحيوية' : 'Vital signs'}>
+                            {vitals.blood_pressure && <span><small>{lang === 'ar' ? 'ضغط الدم' : 'Blood pressure'}</small><strong dir="ltr">{vitals.blood_pressure}</strong></span>}
+                            {vitals.heart_rate && <span><small>{lang === 'ar' ? 'النبض' : 'Heart rate'}</small><strong dir="ltr">{vitals.heart_rate} bpm</strong></span>}
+                            {vitals.temperature && <span><small>{lang === 'ar' ? 'الحرارة' : 'Temperature'}</small><strong dir="ltr">{vitals.temperature} °C</strong></span>}
+                            {vitals.weight && <span><small>{lang === 'ar' ? 'الوزن' : 'Weight'}</small><strong dir="ltr">{vitals.weight} kg</strong></span>}
+                          </div>}
+
+                          <footer className="patient-file-record-related">
+                            {visit.prescriptionsCount > 0 && <span><Pill size={14} />{lang === 'ar' ? `الوصفات المرتبطة: ${visit.prescriptionsCount}` : `Related prescriptions: ${visit.prescriptionsCount}`}</span>}
+                            {visit.labOrdersCount > 0 && <span><TestTube size={14} />{lang === 'ar' ? `طلبات المختبر: ${visit.labOrdersCount}` : `Laboratory orders: ${visit.labOrdersCount}`}</span>}
+                            {typeof onSelectSummary === 'function' && <button type="button" className="btn btn-secondary" onClick={() => onSelectSummary(visit.recordId || visit.id || visit.appointmentId)}><Printer size={14} />{lang === 'ar' ? 'ملخص الزيارة والطباعة' : 'Visit Summary / Print'}</button>}
+                          </footer>
+                        </article>;
+                      })}
+                    </div>
+                  )}
+                </section>
               )}
             </div>
           ) : null}

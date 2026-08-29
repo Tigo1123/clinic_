@@ -11,11 +11,14 @@ test('patient file presents immutable MRN and role-aware sections', () => {
   assert.match(panel, /appointments/);
   assert.match(panel, /billing/);
   assert.match(panel, /user\?\.role === 'DOCTOR'/);
-  assert.match(panel, /profile\.availableSections/);
+  assert.match(panel, /profile\?\.availableSections/);
   assert.match(panel, /profile\.summaryCounts/);
   assert.match(panel, /localizedStatus/);
   assert.match(panel, /profile\.prescriptions/);
   assert.match(panel, /profile\.laboratory/);
+  assert.match(panel, /السجلات الطبية/);
+  assert.match(panel, /Medical Records/);
+  assert.match(panel, /\['overview', 'visits', 'appointments', 'prescriptions', 'laboratory', 'billing'\]/);
 });
 
 test('patient file layout is responsive and avoids UUID-first identity', () => {
@@ -25,7 +28,7 @@ test('patient file layout is responsive and avoids UUID-first identity', () => {
   assert.doesNotMatch(panel, /profile\.id/);
   assert.match(panel, /lang === 'ar'/);
   assert.match(panel, /lang === 'ar' \? 'ملف المريض' : 'Patient File'/);
-  assert.match(styles, /overflow-x: auto/);
+  assert.match(styles, /overflow-x:\s*auto/);
   assert.match(styles, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
 });
 
@@ -35,4 +38,31 @@ test('patient file renders bounded empty loading and error states safely', () =>
   assert.match(panel, /No prescriptions in the authorized record/);
   assert.match(panel, /No laboratory orders in the authorized record/);
   assert.match(panel, /Retry/);
+  assert.match(panel, /لا توجد سجلات طبية لهذا المريض حتى الآن/);
+  assert.match(panel, /No medical records are available for this patient yet/);
+  assert.match(panel, /Medical records could not be loaded/);
+  assert.match(panel, /onClick=\{loadProfile\}/);
+});
+
+test('authorized medical records render clinical details and tolerate missing optional fields', () => {
+  assert.match(panel, /medicalRecords\.map/);
+  assert.match(panel, /visit\.symptoms/);
+  assert.match(panel, /visit\.diagnosis/);
+  assert.match(panel, /visit\.treatment/);
+  assert.match(panel, /visit\.clinicalNotes/);
+  assert.match(panel, /vitals\.blood_pressure/);
+  assert.match(panel, /vitals\.heart_rate/);
+  assert.match(panel, /vitals\.temperature/);
+  assert.match(panel, /vitals\.weight/);
+  assert.match(panel, /visit\.doctor\?\.fullNameAr/);
+  assert.match(panel, /profile\.appointments \|\| \[\]/);
+  assert.match(panel, /prescriptionsCount/);
+  assert.match(panel, /labOrdersCount/);
+});
+
+test('medical record discovery does not bypass backend clinical authorization', () => {
+  assert.match(panel, /canViewMedicalRecords/);
+  assert.match(panel, /authorizedSections\.includes\('visits'\)/);
+  assert.match(panel, /السجلات الطبية متاحة فقط للممارسين المصرح لهم/);
+  assert.match(panel, /Medical records are available only to authorized clinical practitioners/);
 });
