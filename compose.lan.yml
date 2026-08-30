@@ -55,7 +55,6 @@ services:
     volumes:
       - lan-uploads-data:/app/uploads
     networks:
-      - lan-edge
       - lan-app
       - lan-data
     restart: unless-stopped
@@ -80,6 +79,7 @@ services:
     volumes:
       - ./deploy/lan/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
+      - lan-edge
       - lan-app
     restart: unless-stopped
     depends_on:
