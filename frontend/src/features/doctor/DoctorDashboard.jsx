@@ -22,6 +22,7 @@ export default function DoctorDashboard({ user, lang, t }) {
   const [historyData, setHistoryData] = useState([]);
   const [activeSummaryId, setActiveSummaryId] = useState(null);
   const [viewingProfilePatientId, setViewingProfilePatientId] = useState(null);
+  const summaryReturnFocusRef = useRef(null);
 
   // Lab-return / consultation finalization
   const [isFinalizingVisit, setIsFinalizingVisit] = useState(false);
@@ -843,8 +844,9 @@ export default function DoctorDashboard({ user, lang, t }) {
                                     type="button"
                                     className="btn btn-secondary"
                                     style={{ padding: '2px 6px', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                                    onClick={() => {
+                                    onClick={(event) => {
                                       const targetId = rec.id || rec.recordId || rec.appointmentId;
+                                      summaryReturnFocusRef.current = event.currentTarget;
                                       setActiveSummaryId(targetId);
                                     }}
                                   >
@@ -1209,10 +1211,14 @@ export default function DoctorDashboard({ user, lang, t }) {
           patientId={viewingProfilePatientId}
           onClose={() => setViewingProfilePatientId(null)}
           lang={lang}
-          onSelectSummary={(recId) => setActiveSummaryId(recId)}
+          nestedModalOpen={Boolean(activeSummaryId)}
+          onSelectSummary={(recId, trigger) => {
+            summaryReturnFocusRef.current = trigger;
+            setActiveSummaryId(recId);
+          }}
         />
       )}
-      {activeSummaryId && <PostVisitSummaryModal summaryId={activeSummaryId} onClose={() => setActiveSummaryId(null)} lang={lang} />}
+      {activeSummaryId && <PostVisitSummaryModal summaryId={activeSummaryId} onClose={() => setActiveSummaryId(null)} lang={lang} modalLayer={viewingProfilePatientId ? 'nested' : 'base'} returnFocusTo={summaryReturnFocusRef.current} />}
     </div>
   );
 }

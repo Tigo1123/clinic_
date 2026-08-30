@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AlertCircle, Calendar, Check, Copy, FileText, Mail, MessageCircle, Pill, Printer, Receipt, Shield, TestTube, User, X } from 'lucide-react';
 import { fetchWithAuth } from '../../services/staffApi';
 import { useAuth } from '../../app/auth/auth-context';
@@ -41,10 +42,12 @@ function patientAge(dateOfBirth) {
   return age >= 0 ? age : null;
 }
 
-export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary }) {
+export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary, nestedModalOpen = false }) {
   const { user } = useAuth();
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+  const nestedModalOpenRef = useRef(nestedModalOpen);
 
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -92,15 +95,24 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
   }, [loadProfile]);
 
   useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    nestedModalOpenRef.current = nestedModalOpen;
+  }, [nestedModalOpen]);
+
+  useEffect(() => {
     const previousFocus = document.activeElement;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    closeButtonRef.current?.focus();
+    (closeButtonRef.current || dialogRef.current)?.focus();
 
     const handleKeyDown = (event) => {
+      if (nestedModalOpenRef.current) return;
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab' || !dialogRef.current) return;
@@ -123,7 +135,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
       document.body.style.overflow = previousOverflow;
       previousFocus?.focus?.();
     };
-  }, [onClose]);
+  }, []);
 
   const handleGenerateClaimCode = async () => {
     if (!patientId || !canManagePortalLink || profile?.portalLinked) {
@@ -263,7 +275,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
   };
 
   return (
-    <div className="modal-overlay patient-file-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} style={{ zIndex: 1050 }}>
+    <div className="modal-overlay patient-file-overlay modal-layer--patient-file" onMouseDown={(event) => { if (event.target === event.currentTarget && !nestedModalOpen) onClose(); }}>
       <div
         ref={dialogRef}
         className="modal-content no-print-modal patient-file-dialog"
@@ -271,6 +283,8 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
         aria-modal="true"
         aria-labelledby="patient-file-title"
         aria-describedby="patient-file-subtitle"
+        aria-hidden={nestedModalOpen || undefined}
+        inert={nestedModalOpen ? '' : undefined}
         dir={lang === 'ar' ? 'rtl' : 'ltr'}
       >
         <header className="patient-file-header">
@@ -701,7 +715,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
                           <footer className="patient-file-record-related">
                             {visit.prescriptionsCount > 0 && <span><Pill size={14} />{lang === 'ar' ? `الوصفات المرتبطة: ${visit.prescriptionsCount}` : `Related prescriptions: ${visit.prescriptionsCount}`}</span>}
                             {visit.labOrdersCount > 0 && <span><TestTube size={14} />{lang === 'ar' ? `طلبات المختبر: ${visit.labOrdersCount}` : `Laboratory orders: ${visit.labOrdersCount}`}</span>}
-                            {typeof onSelectSummary === 'function' && <button type="button" className="btn btn-secondary" onClick={() => onSelectSummary(visit.recordId || visit.id || visit.appointmentId)}><Printer size={14} />{lang === 'ar' ? 'ملخص الزيارة والطباعة' : 'Visit Summary / Print'}</button>}
+                            {typeof onSelectSummary === 'function' && <button type="button" className="btn btn-secondary" onClick={(event) => onSelectSummary(visit.recordId || visit.id || visit.appointmentId, event.currentTarget)}><Printer size={14} />{lang === 'ar' ? 'ملخص الزيارة والطباعة' : 'Visit Summary / Print'}</button>}
                           </footer>
                         </article>;
                       })}
@@ -720,7 +734,9 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary 
 /* ==========================================
    POST-VISIT SUMMARY & INSTRUCTIONS MODAL
    ========================================== */
-export function PostVisitSummaryModal({ summaryId, onClose, lang }) {
+export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = 'base', returnFocusTo = null }) {
+  const dialogRef = useRef(null);
+  const closeButtonRef = useRef(null);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [errorDetails, setErrorDetails] = useState('');
@@ -770,6 +786,51 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang }) {
     loadSummary();
   }, [loadSummary]);
 
+  useEffect(() => {
+    const previousFocus = returnFocusTo || document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    (closeButtonRef.current || dialogRef.current)?.focus();
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialogRef.current) return;
+      const focusable = [...dialogRef.current.querySelectorAll('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown, true);
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus?.();
+    };
+  }, [onClose, returnFocusTo]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      (closeButtonRef.current || dialogRef.current)?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [loading]);
+
+  const overlayClassName = `modal-overlay visit-summary-overlay modal-layer--${modalLayer === 'nested' ? 'nested' : 'base'}`;
+  const renderModal = (content) => createPortal(content, document.body);
+
   const handleEmailSummary = async () => {
     const idToFetch = typeof summaryId === 'object' ? (summaryId.id || summaryId.recordId || summaryId.appointmentId) : summaryId;
     if (!idToFetch) return;
@@ -805,9 +866,9 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang }) {
   };
 
   if (loading) {
-    return (
-      <div className="modal-overlay no-print-section">
-        <div className="modal-content-panel glass-panel" style={{ textAlign: 'center', padding: '2rem' }}>
+    return renderModal(
+      <div className={`${overlayClassName} no-print-section`} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+        <div ref={dialogRef} tabIndex={-1} className="modal-content-panel glass-panel" role="dialog" aria-modal="true" aria-label={lang === 'ar' ? 'ملخص الزيارة' : 'Visit Summary'} style={{ textAlign: 'center', padding: '2rem' }}>
           <p>{lang === 'ar' ? 'جاري تحميل ملخص الزيارة...' : 'Loading Visit Summary...'}</p>
         </div>
       </div>
@@ -815,31 +876,31 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang }) {
   }
 
   if (!summary) {
-    return (
-      <div className="modal-overlay no-print-section">
-        <div className="modal-content-panel glass-panel" style={{ textAlign: 'center', padding: '2rem' }}>
+    return renderModal(
+      <div className={`${overlayClassName} no-print-section`} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+        <div ref={dialogRef} tabIndex={-1} className="modal-content-panel glass-panel" role="dialog" aria-modal="true" aria-label={lang === 'ar' ? 'ملخص الزيارة' : 'Visit Summary'} style={{ textAlign: 'center', padding: '2rem' }}>
           <p style={{ color: 'var(--danger)', fontWeight: 'bold' }}>
             {lang === 'ar' ? 'تعذر تحميل ملخص الزيارة. حاول مرة أخرى.' : 'Unable to load the visit summary. Please try again.'}
           </p>
           {errorDetails && <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>{errorDetails}</p>}
           <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginTop: '1.25rem' }}>
-            <button className="btn btn-secondary" onClick={onClose}>{lang === 'ar' ? 'إغلاق' : 'Close'}</button>
-            <button className="btn btn-primary" onClick={loadSummary}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button>
+            <button ref={closeButtonRef} type="button" className="btn btn-secondary" onClick={onClose}>{lang === 'ar' ? 'إغلاق' : 'Close'}</button>
+            <button type="button" className="btn btn-primary" onClick={loadSummary}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button>
           </div>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="modal-overlay">
-      <div className="modal-content-panel glass-panel" style={{ maxWidth: '650px', maxHeight: '90vh', overflowY: 'auto' }}>
+  return renderModal(
+    <div className={overlayClassName} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div ref={dialogRef} tabIndex={-1} className="modal-content-panel glass-panel" role="dialog" aria-modal="true" aria-labelledby="visit-summary-title" style={{ maxWidth: '650px', maxHeight: '90vh', overflowY: 'auto' }}>
         {/* Actions bar (hidden during print) */}
         <div className="no-print-section" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
-          <h3 style={{ margin: 0, color: 'var(--primary)' }}>
+          <h3 id="visit-summary-title" style={{ margin: 0, color: 'var(--primary)' }}>
             {lang === 'ar' ? 'ملخص الزيارة' : 'Post-Visit Summary'}
           </h3>
-          <button className="btn btn-secondary" style={{ padding: '4px 8px' }} onClick={onClose}>✕</button>
+          <button ref={closeButtonRef} type="button" className="btn btn-secondary" aria-label={lang === 'ar' ? 'إغلاق ملخص الزيارة' : 'Close visit summary'} style={{ padding: '4px 8px' }} onClick={onClose}>✕</button>
         </div>
 
         {/* Printable Area */}

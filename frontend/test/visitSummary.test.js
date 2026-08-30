@@ -77,3 +77,30 @@ test('empty instructions do not gate summary content or modal actions', () => {
   assert.match(modal, /تعذر تحميل ملخص الزيارة\. حاول مرة أخرى\./);
   assert.match(modal, /Unable to load the visit summary\. Please try again\./);
 });
+
+test('patient-file visit summary uses a named nested portal layer and preserves its parent modal', () => {
+  const modal = source('src/features/clinical/ClinicalModals.jsx');
+  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
+  const styles = source('src/features/clinical/patientFile.css');
+  assert.match(modal, /createPortal\(content, document\.body\)/);
+  assert.match(modal, /modalLayer === 'nested' \? 'nested' : 'base'/);
+  assert.match(styles, /modal-layer--base[^}]*1000/);
+  assert.match(styles, /modal-layer--patient-file[^}]*1050/);
+  assert.match(styles, /modal-layer--nested[^}]*1100/);
+  assert.match(dashboard, /nestedModalOpen=\{Boolean\(activeSummaryId\)\}/);
+  assert.match(dashboard, /modalLayer=\{viewingProfilePatientId \? 'nested' : 'base'\}/);
+  assert.match(modal, /inert=\{nestedModalOpen \? '' : undefined\}/);
+});
+
+test('top summary modal owns escape, backdrop, and focus before returning focus to its launcher', () => {
+  const modal = source('src/features/clinical/ClinicalModals.jsx');
+  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
+  assert.match(modal, /document\.addEventListener\('keydown', handleKeyDown, true\)/);
+  assert.match(modal, /event\.stopImmediatePropagation\(\)/);
+  assert.match(modal, /if \(nestedModalOpenRef\.current\) return/);
+  assert.match(modal, /event\.target === event\.currentTarget\) onClose\(\)/);
+  assert.match(modal, /previousFocus\?\.focus\?\.\(\)/);
+  assert.match(modal, /returnFocusTo \|\| document\.activeElement/);
+  assert.match(dashboard, /summaryReturnFocusRef\.current = trigger/);
+  assert.match(dashboard, /returnFocusTo=\{summaryReturnFocusRef\.current\}/);
+});

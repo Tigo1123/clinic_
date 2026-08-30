@@ -76,3 +76,11 @@ test('authorized patient file renders recorded and missing blood type safely', (
   assert.match(styles, /patient-file-field--blood-type/);
   assert.doesNotMatch(panel, /profile\.bloodType \|\| ['"](?:A|B|AB|O)[+-]['"]/);
 });
+
+test('patient file remains mounted and inert behind a nested visit summary', () => {
+  assert.match(panel, /nestedModalOpen = false/);
+  assert.match(panel, /aria-hidden=\{nestedModalOpen \|\| undefined\}/);
+  assert.match(panel, /inert=\{nestedModalOpen \? '' : undefined\}/);
+  assert.match(panel, /event\.target === event\.currentTarget && !nestedModalOpen/);
+  assert.match(panel, /onSelectSummary\(visit\.recordId \|\| visit\.id \|\| visit\.appointmentId, event\.currentTarget\)/);
+});
