@@ -1,0 +1,104 @@
+name: clinic-lan-foundation
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - lan-postgres-data:/var/lib/postgresql/data
+    networks:
+      - lan-data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      CLINIC_TIME_ZONE: ${CLINIC_TIME_ZONE:?CLINIC_TIME_ZONE is required}
+      PORT: "5000"
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      SOCKET_REVOCATION_DATABASE_URL: ${SOCKET_REVOCATION_DATABASE_URL:?SOCKET_REVOCATION_DATABASE_URL is required}
+      SOCKET_REVOCATION_RECONCILE_MS: ${SOCKET_REVOCATION_RECONCILE_MS:-10000}
+      SOCKET_REVOCATION_UNHEALTHY_GRACE_MS: ${SOCKET_REVOCATION_UNHEALTHY_GRACE_MS:-15000}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_ISSUER: ${JWT_ISSUER:-clinic-api}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-clinic-application}
+      MEDICAL_ENCRYPTION_KEY: ${MEDICAL_ENCRYPTION_KEY:?MEDICAL_ENCRYPTION_KEY is required}
+      MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:?MFA_ENCRYPTION_KEY is required}
+      MFA_TOTP_ISSUER: ${MFA_TOTP_ISSUER:-Clinic Management System}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS is required}
+      TRUST_PROXY: "true"
+      VERIFICATION_PROVIDER: ${VERIFICATION_PROVIDER:-disabled}
+      NOTIFICATIONS_DISABLED: ${NOTIFICATIONS_DISABLED:-true}
+      PHONE_DEFAULT_COUNTRY: ${PHONE_DEFAULT_COUNTRY:-SD}
+      DEFAULT_STATE_ID: ${DEFAULT_STATE_ID:-1}
+      PATIENT_CANCELLATION_CUTOFF_HOURS: ${PATIENT_CANCELLATION_CUTOFF_HOURS:-2}
+      UPLOAD_DIR: /app/uploads
+      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-10485760}
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-900000}
+      RATE_LIMIT_LOGIN_MAX: ${RATE_LIMIT_LOGIN_MAX:-10}
+      RATE_LIMIT_REGISTRATION_MAX: ${RATE_LIMIT_REGISTRATION_MAX:-10}
+      RATE_LIMIT_VERIFICATION_MAX: ${RATE_LIMIT_VERIFICATION_MAX:-10}
+      RATE_LIMIT_CLAIM_MAX: ${RATE_LIMIT_CLAIM_MAX:-10}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+    volumes:
+      - lan-uploads-data:/app/uploads
+    networks:
+      - lan-edge
+      - lan-app
+      - lan-data
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5000/api/health/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_CLINIC_TIME_ZONE: ${VITE_CLINIC_TIME_ZONE:-Africa/Khartoum}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./deploy/lan/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - lan-app
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+networks:
+  lan-edge:
+  lan-app:
+    internal: true
+  lan-data:
+    internal: true
+
+volumes:
+  lan-postgres-data:
+  lan-uploads-data:
