@@ -22,7 +22,7 @@ function block(name) {
 
 test('long-running and one-shot restart policies remain distinct', () => {
   for (const service of ['postgres', 'backend', 'frontend']) assert.match(block(service), /^    restart: unless-stopped$/m);
-  for (const service of ['database-bootstrap', 'backup']) {
+  for (const service of ['database-bootstrap', 'first-admin', 'backup']) {
     assert.match(block(service), /^    profiles:/m);
     assert.match(block(service), /^    restart: "no"$/m);
   }

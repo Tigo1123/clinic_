@@ -391,6 +391,60 @@ Normal restart/recreation must retain `lan-postgres-data` and
 reboot or Docker-daemon restart was performed; that requires a controlled
 Phase 1A.7 test on a dedicated machine.
 
+## Phase 1A.7 acceptance gate
+
+This remains a LAN test bench, not an authorization for clinical operation.
+The first administrator is created exactly once with the explicit
+`first-admin` profile after database bootstrap. Create a unique password in a
+temporary file outside this repository, restrict it to the operator, and run:
+
+```sh
+chmod 600 /secure/path/first-admin-password
+docker compose --env-file /secure/path/clinic-lan.env -f compose.lan.yml \
+  --profile first-admin run --rm first-admin
+```
+
+`FIRST_ADMIN_USERNAME` and `FIRST_ADMIN_PASSWORD_SOURCE_FILE` must be set in
+the protected environment file. The command refuses when any administrator
+already exists, applies the normal password policy, stores only a bcrypt hash,
+and creates an audit record. Securely remove the temporary password file after
+the first login and complete MFA enrollment. It is not a password-recovery
+backdoor and is not passed to the normal backend service.
+
+Acceptance before go-live requires all of the following to be performed and
+recorded on the dedicated clinic hardware:
+
+- install from a reviewed, pre-cached release bundle without Internet access;
+- provision unique runtime, migration, application-encryption, JWT, backup
+  encryption, and backup-signing identities with separate offline escrow;
+- activate and monitor the reviewed backup scheduler and off-server media;
+- establish a clinic-local hostname and locally trusted TLS identity on every
+  staff device;
+- run the full role-based synthetic patient journey and signed restore drill;
+- test login, patient lookup, a harmless read, and Socket.IO from a second
+  laptop and phone on the real clinic LAN;
+- perform a controlled host power-loss/reboot drill, then run
+  `verify-recovery.sh` and inspect the latest signed backup.
+
+The actual second device was not tested automatically. A future manual client
+should browse `http(s)://<clinic-server-lan-address>:<port>`, confirm the page
+and `/api/health/ready`, log in with a disposable acceptance account, navigate
+the patient lookup, perform one harmless read, and confirm Socket.IO reconnects.
+Do not alter host firewall or routing during this repository exercise.
+
+**CLINICAL TLS ACCEPTANCE = BLOCKED.** Port 8080 is still plain HTTP. The future
+design must use a stable clinic-local hostname, a clinic-controlled CA or other
+locally trusted certificate chain, protected private keys, documented device
+trust onboarding, offline-capable renewal/rotation, and the same origin for UI,
+API, uploads, and Socket.IO. An ad-hoc self-signed bypass is not acceptance.
+
+**OFFLINE FRESH-INSTALL ACCEPTANCE = BLOCKED.** Runtime operation is designed
+to be WAN-independent, but a new disconnected server still needs an
+independently prepared release containing source, locked npm dependencies or
+built images, PostgreSQL, Nginx, Node build/runtime images, GnuPG/backup tools,
+checksums, signatures, and installation instructions. Runtime offline success
+must not be confused with offline supply-chain readiness.
+
 ## Intentionally not implemented
 
 - TLS certificates or approval for clinical traffic.

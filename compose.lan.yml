@@ -49,6 +49,30 @@ services:
         condition: service_healthy
     restart: "no"
 
+  first-admin:
+    profiles: ["first-admin"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: ["node", "scripts/provision-first-admin.js"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      LAN_DATABASE_NAME: ${LAN_DATABASE_NAME:?LAN_DATABASE_NAME is required}
+      RUNTIME_LOGIN_ROLE: ${RUNTIME_LOGIN_ROLE:?RUNTIME_LOGIN_ROLE is required}
+      CONFIRM_FIRST_ADMIN_DATABASE: ${CONFIRM_FIRST_ADMIN_DATABASE:?CONFIRM_FIRST_ADMIN_DATABASE is required}
+      FIRST_ADMIN_USERNAME: ${FIRST_ADMIN_USERNAME:?FIRST_ADMIN_USERNAME is required}
+      FIRST_ADMIN_PREFERRED_LANGUAGE: ${FIRST_ADMIN_PREFERRED_LANGUAGE:-en}
+      FIRST_ADMIN_PASSWORD_FILE: /run/secrets/first-admin-password
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+    volumes:
+      - ${FIRST_ADMIN_PASSWORD_SOURCE_FILE:?FIRST_ADMIN_PASSWORD_SOURCE_FILE is required}:/run/secrets/first-admin-password:ro,Z
+    networks:
+      - lan-data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   backup:
     profiles: ["backup"]
     # The one-shot tool needs read access to upload files owned by the backend
