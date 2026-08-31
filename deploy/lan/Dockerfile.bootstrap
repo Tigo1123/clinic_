@@ -1,0 +1,12 @@
+FROM node:22-alpine
+
+RUN apk add --no-cache postgresql-client
+
+WORKDIR /workspace/backend
+COPY backend/package*.json ./
+RUN npm ci
+COPY backend/ ./
+RUN npx prisma generate
+COPY deploy/lan/ /workspace/deploy/lan/
+
+ENTRYPOINT ["/workspace/deploy/lan/bootstrap-database.sh"]

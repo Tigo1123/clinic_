@@ -128,6 +128,82 @@ Arabic, and performs no automatic Google Fonts request. Production and Staging
 email behavior is unchanged unless their operators explicitly set the existing
 `NOTIFICATIONS_DISABLED` variable.
 
+## Phase 1A.4 database roles and bootstrap
+
+The LAN database uses four parameterized responsibilities:
+
+- `SCHEMA_OWNER_ROLE`: NOLOGIN owner of the application schema, Prisma tables,
+  and sequences.
+- `MIGRATION_LOGIN_ROLE`: NOINHERIT login used only for installation and
+  migration. A database-specific default `SET ROLE` makes the schema owner the
+  effective object creator on every new migration connection.
+- `RUNTIME_DATABASE_ROLE`: NOLOGIN privilege role with database `CONNECT`,
+  schema `USAGE`, application-table `SELECT`, `INSERT`, `UPDATE`, and `DELETE`,
+  and `USAGE` only on `patient_file_number_seq`.
+- `RUNTIME_LOGIN_ROLE`: inheriting login used by both runtime database URLs. It
+  is not a member of the owner or migration roles.
+
+The bootstrap revokes database `CONNECT` and schema `CREATE` from `PUBLIC` and
+does not grant runtime schema creation, role administration, database creation,
+object ownership, or `ALL PRIVILEGES`. Runtime cannot read or modify
+`_prisma_migrations`. Table default privileges are configured specifically for
+the effective schema-owner role. Sequence default privileges are deliberately
+not granted: each future sequence must be reviewed, and the existing MRN script
+grants only the required `USAGE` on `patient_file_number_seq`.
+
+### Explicit installation lifecycle
+
+Create a private environment file outside Git from `env.example`, replace every
+placeholder with unique local values, and make the four role names distinct.
+`POSTGRES_ADMIN_CONNECTION`, migration credentials, role passwords, and the
+confirmation value are bootstrap-only and are not passed to the long-running
+backend. `DATABASE_URL` and `SOCKET_REVOCATION_DATABASE_URL` must both use the
+runtime login.
+
+After PostgreSQL is healthy, explicitly run the one-shot profile:
+
+```sh
+docker compose --env-file /secure/path/clinic-lan.env \
+  -f compose.lan.yml --profile database-bootstrap \
+  run --rm database-bootstrap
+```
+
+The command refuses non-local/container database hosts, mismatched database or
+login identities, invalid identifiers, duplicate role names, missing values,
+or a confirmation value that does not exactly equal `LAN_DATABASE_NAME`. It
+then prints only non-secret database/session identity, creates or verifies the
+roles and database, installs owner-specific defaults, verifies migration
+identity, runs the complete existing `prisma migrate deploy` chain, grants
+runtime table permissions, invokes the existing MRN sequence provisioner, and
+performs non-mutating least-privilege checks. It never runs `migrate dev`,
+`db push`, the development seed, or migrations from the normal backend start.
+
+Do not start the backend until this command succeeds. The example environment
+file contains placeholders and is suitable for Compose rendering only, not an
+actual installation.
+
+### Reference data and first administrator
+
+Reference data is not automatic. The existing `bootstrap-reference` command is
+manifest-driven, validates the target environment/database, supports dry-run,
+and uses the separate required `REFERENCE_BOOTSTRAP_DATABASE_URL`. A reviewed
+clinic manifest and an approved invocation procedure are still required before
+using it on a LAN installation; never substitute `prisma/seed.js`.
+
+No secure first-administrator creator currently exists. The password-reset
+script requires an already existing fixed administrator account, so it cannot
+bootstrap a new installation. Phase 1A.4 does not create a default account or
+credential; first-administrator provisioning remains an activation blocker.
+
+### Safety and rollback
+
+The Phase 1A.4 disposable database test procedure is **not** a command to reset
+an operating clinic database. Never point bootstrap or verification variables
+at Production, Staging, Render, or an existing clinical database. Development
+source changes can be reverted with Git, and a positively identified disposable
+test database may be deleted. Resetting an operational clinic database is never
+a rollback procedure.
+
 ## Intentionally not implemented
 
 - TLS certificates or approval for clinical traffic.

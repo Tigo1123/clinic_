@@ -19,6 +19,31 @@ services:
       retries: 20
       start_period: 10s
 
+  database-bootstrap:
+    profiles: ["database-bootstrap"]
+    build:
+      context: .
+      dockerfile: deploy/lan/Dockerfile.bootstrap
+    environment:
+      POSTGRES_ADMIN_CONNECTION: ${POSTGRES_ADMIN_CONNECTION:?POSTGRES_ADMIN_CONNECTION is required}
+      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:?MIGRATION_DATABASE_URL is required}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      LAN_DATABASE_NAME: ${LAN_DATABASE_NAME:?LAN_DATABASE_NAME is required}
+      DATABASE_SCHEMA: ${DATABASE_SCHEMA:-public}
+      SCHEMA_OWNER_ROLE: ${SCHEMA_OWNER_ROLE:?SCHEMA_OWNER_ROLE is required}
+      MIGRATION_LOGIN_ROLE: ${MIGRATION_LOGIN_ROLE:?MIGRATION_LOGIN_ROLE is required}
+      MIGRATION_DATABASE_PASSWORD: ${MIGRATION_DATABASE_PASSWORD:?MIGRATION_DATABASE_PASSWORD is required}
+      RUNTIME_DATABASE_ROLE: ${RUNTIME_DATABASE_ROLE:?RUNTIME_DATABASE_ROLE is required}
+      RUNTIME_LOGIN_ROLE: ${RUNTIME_LOGIN_ROLE:?RUNTIME_LOGIN_ROLE is required}
+      RUNTIME_DATABASE_PASSWORD: ${RUNTIME_DATABASE_PASSWORD:?RUNTIME_DATABASE_PASSWORD is required}
+      CONFIRM_LAN_DATABASE_BOOTSTRAP: ${CONFIRM_LAN_DATABASE_BOOTSTRAP:?CONFIRM_LAN_DATABASE_BOOTSTRAP is required}
+    networks:
+      - lan-data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   backend:
     build:
       context: ./backend

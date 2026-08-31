@@ -1,0 +1,69 @@
+.git
+.gitignore
+.gitattributes
+
+# Environment files and local secret stores at any depth.
+**/.env
+**/.env.*
+**/.secrets
+**/.secrets/**
+**/secrets
+**/secrets/**
+
+# Installed dependencies and generated build/test output.
+node_modules
+**/node_modules
+coverage
+**/coverage
+frontend/dist
+backend/src/generated/prisma
+**/.cache
+**/.vite
+
+# Runtime uploads and local data.
+uploads
+**/uploads
+**/*.db
+**/*.db-*
+**/*.sqlite
+**/*.sqlite3
+**/*.sqlite-journal
+
+# Database exports and local backup directories. SQL source remains included.
+**/*.dump
+**/*.backup
+**/*.bak
+**/*.sql.gz
+**/*.sql.bz2
+**/*.sql.xz
+backup
+backups
+**/backup
+**/backup/**
+**/backups
+**/backups/**
+
+# Private TLS/key material. Public source/config files remain included.
+**/*.key
+**/*.pem
+**/*.p12
+**/*.pfx
+**/*.jks
+**/private-certs
+**/private-certs/**
+
+# Editor, operating-system, temporary, and log artifacts.
+**/*.log
+**/*.tmp
+**/*.temp
+**/*.swp
+**/*~
+.DS_Store
+**/.DS_Store
+.idea
+**/.idea
+.vscode
+**/.vscode
+tmp
+**/tmp
+**/tmp/**
