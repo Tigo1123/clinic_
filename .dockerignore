@@ -42,6 +42,13 @@ backups
 **/backup/**
 **/backups
 **/backups/**
+.local
+**/.local/lan-backups
+**/.local/lan-backups/**
+**/*.backup-private.asc
+**/*.backup-secret.asc
+deploy/lan/keys
+deploy/lan/keys/**
 
 # Private TLS/key material. Public source/config files remain included.
 **/*.key

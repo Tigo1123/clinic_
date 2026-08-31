@@ -44,6 +44,40 @@ services:
         condition: service_healthy
     restart: "no"
 
+  backup:
+    profiles: ["backup"]
+    # The one-shot tool needs read access to upload files owned by the backend
+    # and write access to the separately protected host backup directory.
+    user: "${BACKUP_CONTAINER_UID:-0}:${BACKUP_CONTAINER_GID:-0}"
+    build:
+      context: .
+      dockerfile: deploy/lan/Dockerfile.backup
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ${BACKUP_DATABASE_NAME:-}
+      PGUSER: ${BACKUP_DATABASE_USER:-}
+      PGPASSWORD: ${BACKUP_DATABASE_PASSWORD:-}
+      BACKUP_OUTPUT_DIR: /backups
+      UPLOADS_DIR: /uploads
+      BACKUP_GPG_PUBLIC_KEY_FILE: /run/backup-recipient.asc
+      BACKUP_GPG_RECIPIENT: ${BACKUP_GPG_RECIPIENT:-}
+      BACKUP_GPG_SIGNING_PRIVATE_KEY_FILE: /run/backup-signing-private.asc
+      BACKUP_GPG_SIGNING_FINGERPRINT: ${BACKUP_GPG_SIGNING_FINGERPRINT:-}
+      BACKUP_QUIESCE_CONFIRMED: ${BACKUP_QUIESCE_CONFIRMED:-false}
+      APPLICATION_REVISION: ${APPLICATION_REVISION:-unknown}
+    volumes:
+      - lan-uploads-data:/uploads:ro
+      - ${BACKUP_OUTPUT_DIR:-./.local/lan-backups}:/backups
+      - ${BACKUP_GPG_PUBLIC_KEY_FILE:-./deploy/lan/keys/UNCONFIGURED.asc}:/run/backup-recipient.asc:ro
+      - ${BACKUP_GPG_SIGNING_PRIVATE_KEY_FILE:-./deploy/lan/keys/UNCONFIGURED-SIGNING-PRIVATE.asc}:/run/backup-signing-private.asc:ro
+    networks:
+      - lan-data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   backend:
     build:
       context: ./backend

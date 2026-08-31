@@ -26,6 +26,10 @@ carries the frontend's published HTTP listener; `lan-app` and `lan-data` are
 internal networks for frontend-to-API and API-to-database traffic respectively.
 PostgreSQL data and uploads use separate named volumes.
 
+`lan-postgres-data` and `lan-uploads-data` survive normal container replacement
+and `docker compose down` without volume removal. **Never run `docker compose
+down -v` on a clinic installation**: `-v` destroys these persistent volumes.
+
 ## Files
 
 - `../../compose.lan.yml`: isolated LAN Compose definition.
@@ -204,12 +208,115 @@ source changes can be reverted with Git, and a positively identified disposable
 test database may be deleted. Resetting an operational clinic database is never
 a rollback procedure.
 
+## Phase 1A.5 encrypted backup and disposable restore
+
+Phase 1A.5 adds an explicit one-shot backup tool, not cloud sync or automated
+disaster recovery. A completed set is a mode-restricted directory named
+`clinic-lan-backup-YYYYMMDDTHHMMSSZ` containing an OpenPGP-encrypted
+`<set-id>.tar.gpg`, its detached `<set-id>.tar.gpg.sig`, and a `COMPLETE`
+marker. The marker is written only after the database dump, upload archive,
+hashes, encryption, signing, and exact-fingerprint signature verification have
+succeeded.
+
+Controlled decryption reveals a custom-format `database.dump`, PAX
+`uploads.tar`, `SHA256SUMS`, and `manifest.json`. The manifest records format
+version, ID/time, non-secret database name, PostgreSQL tool version, optional
+Git revision, filenames, sizes, and hashes. It contains no URL, password,
+application secret, TLS private key, or private backup identity. The database
+dump includes application data and `_prisma_migrations`; backup runs no
+migration. Upload symlinks are refused, while nested paths and empty files are
+preserved.
+
+### Keys, credentials, and backup command
+
+The backup image uses GnuPG recipient encryption plus a separate signing
+identity. Generate and separately escrow both the decryption private key and
+signing private key outside Git, outside the server backup disk, and outside the
+backup set. Backup receives the encryption public key and the signing private
+key through separate read-only runtime mounts. Restore and retention receive
+only the signer public key. They use machine-readable `VALIDSIG` status and
+require the exact configured signer fingerprint; signer names and the GnuPG
+trust database are not authorization. A wrong key, altered ciphertext,
+missing/corrupt signature, or unexpected signer fails before database mutation.
+GnuPG, PostgreSQL 16 client tools, GNU tar, coreutils, and findutils
+must be installed or the image built and cached through an approved offline
+software process; running backup requires no Internet.
+
+A dedicated reviewed read-only backup login is preferable. Until one is
+approved, the Phase 1A.4 migration login may be supplied only to this one-shot
+job because runtime intentionally cannot read `_prisma_migrations`. Backup
+credentials are not passed to Express.
+
+Database and upload snapshots are not inherently atomic. Quiesce application
+writes in an approved maintenance window and only then set
+`BACKUP_QUIESCE_CONFIRMED=true`; the script otherwise refuses to run. With a
+private environment file and an existing protected output directory, invoke:
+
+```sh
+docker compose --env-file /secure/path/clinic-lan.env \
+  -f compose.lan.yml --profile backup run --rm backup
+```
+
+The uploads volume is read-only in this job. Plaintext exists only in a
+mode-0700 incomplete directory; `pg_restore --list`, SHA-256 verification, and
+encryption precede completion. Copy completed encrypted sets daily to separate
+offline media. Monitor exit status, completion age, free space, size trends,
+and media health.
+
+Database recovery also requires separately escrowed
+`MEDICAL_ENCRYPTION_KEY`, `MFA_ENCRYPTION_KEY`, operational/JWT secrets, future
+TLS identity/configuration, and the backup private key. Never store those in
+Git or in the backup set they protect.
+
+### Retention, scheduling, and recovery objectives
+
+`retention.sh` keeps a configured count of completed, correctly named sets whose
+detached signature verifies against the configured signer fingerprint. An
+unsigned or corrupt newer directory is not counted and cannot cause an older
+valid backup to be deleted. It defaults to dry-run, always retains at least the
+newest cryptographically valid set, and deletes only individually revalidated
+directories. Review dry-run output before using
+`BACKUP_RETENTION_DRY_RUN=false`; never test retention on an existing user
+backup directory.
+
+The systemd service/timer examples are installation templates and are not
+enabled. The timer proposes a 20-minute cadence, but activation requires a
+site-approved wrapper that safely quiesces and resumes writes plus monitoring.
+Until that exists, the actual RPO is manual with no guaranteed upper bound.
+RTO is also unproven and depends on data size, hardware, and key availability.
+Perform and time regular offline-media restore drills before clinical use.
+
+### Disposable restore drill only
+
+`restore.sh` accepts only an explicit completed set, external private key,
+exact confirmation, a local/container-only PostgreSQL host, a newly created
+empty database matching `clinic_lan_phase1a5_restore_[A-Za-z0-9_]+`, and an
+empty upload directory within a matching disposable path. It never defaults to
+`DATABASE_URL`, creates/drops no database, and refuses a nonempty target.
+
+Before `pg_restore`, it proves that `session_user` is the Phase 1A.4 migration
+login and `current_user` is the NOLOGIN schema owner. It verifies the detached
+signature and exact signer fingerprint before decrypting OpenPGP, allows
+exactly the expected outer members, rejects
+absolute/parent/backslash archive paths, validates manifest ID and SHA-256
+hashes, inspects the dump, and validates upload paths/member types. Uploads are
+extracted without archived ownership or permission restoration. Because
+`pg_restore --no-owner` runs with schema-owner authority, restored objects keep
+the Phase 1A.4 ownership model. Runtime grants and MRN sequence `USAGE` are
+reapplied with the existing Phase 1A.4 mechanisms and least privilege is
+reverified before destroying only the re-proven disposable resources.
+
+This procedure is **not a command to reset an operating clinic database** and
+must never target a running clinic. Source rollback before adoption is a Git
+revert. Disabling the new scheduler/process does not justify deleting verified
+backup sets, and resetting an operational database is never rollback.
+
 ## Intentionally not implemented
 
 - TLS certificates or approval for clinical traffic.
-- Database roles, users, permissions, migrations, or reference-data bootstrap.
 - Real credentials or secret storage.
-- Backup, restore, retention, or disaster recovery.
+- Automatic operational restore/disaster recovery, enabled scheduling, or
+  approved key escrow.
 - Bundled fonts or other runtime Internet-dependency removal.
 - Cloud synchronization, replication, multi-site support, PWA, Service Worker,
   IndexedDB, or browser-side clinical storage.

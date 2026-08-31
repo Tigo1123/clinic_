@@ -1,0 +1,9 @@
+FROM postgres:16-alpine
+
+RUN apk add --no-cache coreutils findutils gnupg tar
+
+COPY deploy/lan/backup.sh /usr/local/bin/clinic-lan-backup
+COPY deploy/lan/restore.sh /usr/local/bin/clinic-lan-restore
+COPY deploy/lan/retention.sh /usr/local/bin/clinic-lan-retention
+
+ENTRYPOINT ["/usr/local/bin/clinic-lan-backup"]
