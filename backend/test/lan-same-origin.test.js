@@ -44,7 +44,8 @@ test('production Socket.IO falls back to the browser origin and standard path', 
 });
 
 test('Nginx preserves API paths, forwarded headers, and same-origin readiness', () => {
-  assert.match(nginx, /location \/api\/ \{[\s\S]*?proxy_pass http:\/\/backend:5000;/);
+  assert.match(nginx, /set \$backend_upstream backend:5000;/);
+  assert.match(nginx, /location \/api\/ \{[\s\S]*?proxy_pass http:\/\/\$backend_upstream;/);
   for (const header of ['Host', 'X-Real-IP', 'X-Forwarded-For', 'X-Forwarded-Host', 'X-Forwarded-Proto']) {
     assert.match(nginx, new RegExp(`proxy_set_header ${header} `));
   }

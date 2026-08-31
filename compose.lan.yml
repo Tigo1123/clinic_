@@ -18,6 +18,11 @@ services:
       timeout: 3s
       retries: 20
       start_period: 10s
+    logging: &lan-logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   database-bootstrap:
     profiles: ["database-bootstrap"]
@@ -126,6 +131,7 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
+    logging: *lan-logging
 
   frontend:
     build:
@@ -150,6 +156,7 @@ services:
       timeout: 3s
       retries: 10
       start_period: 5s
+    logging: *lan-logging
 
 networks:
   lan-edge:

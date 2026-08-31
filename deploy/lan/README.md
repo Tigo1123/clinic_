@@ -311,6 +311,86 @@ must never target a running clinic. Source rollback before adoption is a Git
 revert. Disabling the new scheduler/process does not justify deleting verified
 backup sets, and resetting an operational database is never rollback.
 
+## Phase 1A.6 startup and power-recovery operations
+
+The long-running PostgreSQL, backend, and frontend services use
+`restart: unless-stopped`; the bootstrap and backup profiles remain explicit
+one-shot jobs with `restart: "no"`. PostgreSQL health gates backend creation,
+and backend readiness gates frontend creation. Readiness is healthy only when
+both Prisma database authority and the dedicated Socket.IO revocation listener
+are connected. The revocation listener treats PostgreSQL error/end events as
+unhealthy, fails existing sockets closed after its configured grace period, and
+reconnects with bounded exponential backoff. Prisma reconnects on subsequent
+queries after PostgreSQL returns.
+
+Expected host recovery chain:
+
+```text
+Power restored -> Fedora boots -> Docker starts -> Compose services recover
+ -> PostgreSQL healthy -> backend DB + revocation ready -> frontend healthy
+ -> operator verification -> clinic work resumes
+```
+
+Docker must be enabled at boot. Inspect it without changing host state:
+
+```sh
+systemctl is-enabled docker
+systemctl is-active docker
+```
+
+If it is not enabled, host installation remains blocked until an authorized
+administrator reviews and runs `sudo systemctl enable docker`; this repository
+does not run that command. `systemd/clinic-lan.service.example` is an
+installation template only. Review paths, service account, protected
+environment permissions, shutdown ordering, and host policy before installing
+or enabling it. Phase 1A.6 does not modify host systemd configuration.
+
+### Post-power operator verification
+
+After Docker and the stack have had time to recover, run the non-destructive
+verification using the protected environment file and canonical LAN origin:
+
+```sh
+COMPOSE_ENV_FILE=/secure/path/clinic-lan.env \
+RECOVERY_ORIGIN=http://clinic-server.example.internal:8080 \
+  deploy/lan/verify-recovery.sh
+```
+
+It requires all three containers and healthchecks to be healthy, checks the
+frontend and same-origin `/api/health/ready`, proves backend/PostgreSQL have no
+published ports, and confirms both persistent volume mounts. It prints no
+secrets and performs no database writes.
+
+For diagnosis, use bounded output rather than creating custom log files:
+
+```sh
+docker compose --env-file /secure/path/clinic-lan.env -f compose.lan.yml ps
+docker compose --env-file /secure/path/clinic-lan.env -f compose.lan.yml logs --tail=200 postgres backend frontend
+curl --fail http://clinic-server.example.internal:8080/api/health/ready
+```
+
+The Compose file bounds the default `json-file` logs to five 10 MiB files per
+long-running service. The Docker daemon's site-wide logging and disk policy
+must still be reviewed and monitored.
+
+If PostgreSQL remains unhealthy, stop clinical writes and inspect storage,
+free space, permissions, and bounded logs. If backend remains unhealthy after
+PostgreSQL recovery, check that readiness reports both database and revocation
+authority and inspect backend logs. If frontend alone is unhealthy, inspect
+Nginx health/configuration and backend readiness. Before any invasive repair,
+confirm the newest independently stored signed backup and follow the Phase
+1A.5 disposable restore-drill procedure. Never improvise a restore over the
+operating database.
+
+Never use `docker compose down -v`, delete the named volumes, prune Docker
+storage, reset PostgreSQL, or remove verified backup sets during recovery.
+Normal restart/recreation must retain `lan-postgres-data` and
+`lan-uploads-data`.
+
+**Physical power-loss/host-reboot acceptance remains unproven.** No physical
+reboot or Docker-daemon restart was performed; that requires a controlled
+Phase 1A.7 test on a dedicated machine.
+
 ## Intentionally not implemented
 
 - TLS certificates or approval for clinical traffic.

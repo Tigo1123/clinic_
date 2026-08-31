@@ -41,7 +41,8 @@ test('long-running services retain restart policies, health checks, and persiste
 test('same-origin API and Socket.IO proxy routes remain present', () => {
   assert.match(nginx, /location \/api\/ \{/);
   assert.match(nginx, /location \/socket\.io\/ \{/);
-  assert.match(nginx, /proxy_pass http:\/\/backend:5000;/);
+  assert.match(nginx, /set \$backend_upstream backend:5000;/);
+  assert.match(nginx, /proxy_pass http:\/\/\$backend_upstream;/);
   assert.match(nginx, /proxy_set_header Upgrade \$http_upgrade;/);
   assert.match(nginx, /try_files \$uri \$uri\/ \/index\.html;/);
 });
