@@ -99,6 +99,35 @@ The HTTP origin in this phase is **not approved for clinical operation**.
 Locally trusted TLS and certificate lifecycle controls remain a later mandatory
 gate.
 
+## WAN-disconnected behavior
+
+The LAN environment sets `NOTIFICATIONS_DISABLED=true` and
+`VERIFICATION_PROVIDER=disabled`. Disabled delivery makes no SMTP connection and
+is reported as not delivered; it is never treated as a successful send. Core
+appointment and status workflows continue without waiting for an SMTP timeout.
+
+Local services expected to remain available without WAN, subject to the later
+clinical acceptance gates, are:
+
+- the locally served UI, API, and Socket.IO connection;
+- local staff authentication and MFA;
+- Reception, Doctor, Laboratory, Pharmacy, and Billing/payment workflows; and
+- Patient File access through the local application and database.
+
+WAN-dependent or deliberately degraded features are:
+
+- outbound email and email-delivered visit summaries;
+- patient email verification, email changes, and email password recovery;
+- optional WhatsApp `wa.me` actions, which open only after a user clicks them;
+  the application does not simulate or claim WhatsApp delivery; and
+- any future cloud synchronization or cloud backup, neither of which exists in
+  this phase.
+
+The frontend uses local system font stacks, including Tahoma/Arial fallbacks for
+Arabic, and performs no automatic Google Fonts request. Production and Staging
+email behavior is unchanged unless their operators explicitly set the existing
+`NOTIFICATIONS_DISABLED` variable.
+
 ## Intentionally not implemented
 
 - TLS certificates or approval for clinical traffic.
