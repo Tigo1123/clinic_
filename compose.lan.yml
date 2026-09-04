@@ -164,9 +164,11 @@ services:
       args:
         VITE_CLINIC_TIME_ZONE: ${VITE_CLINIC_TIME_ZONE:-Africa/Khartoum}
     ports:
-      - "8080:8080"
+      - "${LAN_BIND_IP:?LAN_BIND_IP is required}:443:443"
     volumes:
       - ./deploy/lan/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${LAN_TLS_CERT_FILE:?LAN_TLS_CERT_FILE is required}:/etc/nginx/tls/server.crt:ro,Z
+      - ${LAN_TLS_KEY_FILE:?LAN_TLS_KEY_FILE is required}:/etc/nginx/tls/server.key:ro,Z
     networks:
       - lan-edge
       - lan-app

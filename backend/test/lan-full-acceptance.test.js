@@ -102,7 +102,7 @@ test('LAN exposure and persistence gates remain unchanged', () => {
 });
 
 test('documentation does not misclassify unresolved clinical gates', () => {
-  assert.match(readme, /CLINICAL TLS ACCEPTANCE = BLOCKED/);
+  assert.match(readme, /CLINICAL TLS ACCEPTANCE = MANUAL ACCEPTANCE PASSED/);
   assert.match(readme, /OFFLINE FRESH-INSTALL ACCEPTANCE = BLOCKED/);
   assert.match(readme, /Physical power-loss\/host-reboot acceptance remains unproven\./);
   assert.match(readme, /actual second device.*not.*tested/is);

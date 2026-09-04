@@ -55,7 +55,7 @@ test('Nginx preserves API paths, forwarded headers, and same-origin readiness', 
 
 test('LAN CORS is one explicit non-wildcard test-bench origin', () => {
   const origin = lanEnvironment.match(/^CORS_ALLOWED_ORIGINS=(.+)$/m)?.[1];
-  assert.equal(origin, 'http://clinic-server.example.internal:8080');
+  assert.equal(origin, 'https://clinic-server.example.internal');
   assert.notEqual(origin, '*');
   assert.doesNotMatch(origin, /,/);
   assert.match(backendServer, /corsMiddleware\(allowedOrigins\)/);
@@ -76,7 +76,8 @@ test('LAN browser and deployment configuration has no Render endpoint or publish
   assert.doesNotMatch(browserAndLanConfiguration, /(?:^|[./-])render\.com\b|onrender\.com\b/i);
   assert.doesNotMatch(serviceBlock('backend'), /^    ports:/m);
   assert.doesNotMatch(serviceBlock('postgres'), /^    ports:/m);
-  assert.match(serviceBlock('frontend'), /^    ports:\n      - ['"]8080:8080['"]/m);
+  assert.match(serviceBlock('frontend'), /^    ports:\n      - ['"]\$\{LAN_BIND_IP:\?LAN_BIND_IP is required\}:443:443['"]/m);
+  assert.doesNotMatch(serviceBlock('frontend'), /8080:8080/);
   assert.doesNotMatch(serviceBlock('backend'), /^      - lan-edge$/m);
   assert.match(serviceBlock('frontend'), /^      - lan-edge$/m);
 });

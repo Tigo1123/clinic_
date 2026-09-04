@@ -21,8 +21,34 @@ function serviceBlock(name) {
 test('only the frontend publishes a host port', () => {
   assert.doesNotMatch(serviceBlock('postgres'), /^    ports:/m);
   assert.doesNotMatch(serviceBlock('backend'), /^    ports:/m);
-  assert.match(serviceBlock('frontend'), /^    ports:\n      - "8080:8080"/m);
+  assert.match(serviceBlock('frontend'), /^    ports:\n      - "\$\{LAN_BIND_IP:\?LAN_BIND_IP is required\}:443:443"/m);
   assert.equal((compose.match(/^    ports:/gm) || []).length, 1);
+});
+
+test('transitional HTTPS uses deployment-supplied LAN binding and certificate mounts', () => {
+  const frontend = serviceBlock('frontend');
+  assert.match(frontend, /\$\{LAN_BIND_IP:\?LAN_BIND_IP is required\}:443:443/);
+  assert.match(frontend, /\$\{LAN_TLS_CERT_FILE:\?LAN_TLS_CERT_FILE is required\}:\/etc\/nginx\/tls\/server\.crt:ro/);
+  assert.match(frontend, /\$\{LAN_TLS_KEY_FILE:\?LAN_TLS_KEY_FILE is required\}:\/etc\/nginx\/tls\/server\.key:ro/);
+  assert.match(exampleEnvironment, /^LAN_BIND_IP=127\.0\.0\.1$/m);
+  assert.match(exampleEnvironment, /^LAN_TLS_CERT_FILE=\/secure\/path\//m);
+  assert.match(exampleEnvironment, /^LAN_TLS_KEY_FILE=\/secure\/path\//m);
+  assert.doesNotMatch(lanFiles, /-----BEGIN (?:RSA |EC )?PRIVATE KEY-----/);
+  assert.doesNotMatch(lanFiles, /-----BEGIN CERTIFICATE-----/);
+});
+
+test('Nginx TLS and same-origin proxy hardening remain present', () => {
+  assert.match(nginx, /listen 443 ssl;/);
+  assert.match(nginx, /ssl_protocols TLSv1\.2 TLSv1\.3;/);
+  assert.match(nginx, /resolver 127\.0\.0\.11 valid=5s ipv6=off;/);
+  assert.match(nginx, /location \/api\//);
+  assert.match(nginx, /location \/socket\.io\//);
+  assert.match(nginx, /proxy_set_header Upgrade \$http_upgrade;/);
+  assert.match(nginx, /proxy_set_header Connection "upgrade";/);
+  assert.match(nginx, /listen 127\.0\.0\.1:8080;/);
+  assert.match(nginx, /location = \/healthz/);
+  assert.match(nginx, /location \/ \{ return 404; \}/);
+  assert.doesNotMatch(nginx, /Strict-Transport-Security|HSTS/i);
 });
 
 test('long-running services retain restart policies, health checks, and persistence', () => {

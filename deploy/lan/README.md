@@ -1,9 +1,11 @@
-# Offline Phase 1A.2 — same-origin LAN frontend, API, and Socket.IO
+# Offline LAN deployment — HTTPS same-origin frontend, API, and Socket.IO
 
 This directory contains a reversible, test-bench-only foundation for running
 the clinic frontend, Express API, Socket.IO, and PostgreSQL on one local server.
 It is **not approved for clinical operation**. In particular, Phase 1A.1 uses
-plain HTTP and has not implemented secure database bootstrap, TLS, backups, or
+HTTPS :443 is the only LAN application transport. Nginx's loopback-only
+container health listener on :8080 is not published and is not an application
+transport. TLS client trust and operational activation remain gated.
 WAN-disconnected clinical acceptance testing.
 
 ## Architecture
@@ -11,16 +13,16 @@ WAN-disconnected clinical acceptance testing.
 ```text
 Clinic browser
       |
-      v
-http://clinic-server.example.internal:8080  (one browser origin)
-      |-- /            -> React static frontend
-      |-- /api/...     -> Nginx -> backend:5000
-      `-- /socket.io/  -> Nginx -> backend:5000 (WebSocket/long polling)
+      +-- https://clinic-server.local:443 (target origin)
+      |      |-- /            -> React static frontend
+      |      |-- /api/...     -> Nginx -> backend:5000
+      |      `-- /socket.io/  -> Nginx -> backend:5000 (WebSocket/long polling)
+      `-- (Nginx loopback :8080 /healthz only; not LAN-facing)
                                       |
                                       `-> postgres:5432
 ```
 
-Only Nginx publishes host port `8080`. `backend:5000` and `postgres:5432` are
+Nginx publishes only host port `443` (TLS). `backend:5000` and `postgres:5432` are
 Docker-private and must never be entered into a workstation browser. `lan-edge`
 carries the frontend's published HTTP listener; `lan-app` and `lan-data` are
 internal networks for frontend-to-API and API-to-database traffic respectively.
@@ -34,7 +36,7 @@ down -v` on a clinic installation**: `-v` destroys these persistent volumes.
 
 - `../../compose.lan.yml`: isolated LAN Compose definition.
 - `env.example`: non-secret configuration contract with unusable placeholders.
-- `nginx.conf`: HTTP test-bench static server and same-origin reverse proxy.
+- `nginx.conf`: transitional HTTP/TLS static server and same-origin reverse proxy.
 - `../../backend/test/lan-deployment-foundation.test.js`: Phase 1A.1 static
   safety checks.
 - `../../backend/test/lan-same-origin.test.js`: Phase 1A.2 browser-origin,
@@ -82,8 +84,8 @@ endpoint or public Internet connection is required for these normal paths.
 
 `CORS_ALLOWED_ORIGINS` must equal the single origin used by workstations,
 including its scheme and non-default port. The example uses
-`http://clinic-server.example.internal:8080`; wildcard CORS is not allowed.
-This explicit HTTP origin is for Phase 1A.2 test-bench validation only.
+`https://clinic-server.example.internal`; wildcard CORS is not allowed. The
+HTTPS origin is the only staff/browser application origin.
 
 Nginx forwards `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Host`, and
 `X-Forwarded-Proto`. The LAN Compose file sets `TRUST_PROXY=true`, which the
@@ -99,9 +101,21 @@ nor published. Upload creation and patient attachment responses use relative
 `/api/upload/...` links, so authenticated download requests also pass through
 Nginx without embedding a backend hostname.
 
-The HTTP origin in this phase is **not approved for clinical operation**.
-Locally trusted TLS and certificate lifecycle controls remain a later mandatory
-gate.
+## Trusted LAN TLS foundation
+
+Compose binds HTTPS using `LAN_BIND_IP` and mounts only the externally supplied
+server certificate and private key (`LAN_TLS_CERT_FILE` and `LAN_TLS_KEY_FILE`)
+read-only into Nginx. The CA private key is never mounted into any container and
+must remain outside the repository. The certificate should contain SANs for the
+approved clinic IPv4 address and clinic-local names such as `clinic-server` and
+`clinic-server.local`. Install the clinic Root CA trust only on approved clinic
+devices; `clinic-server.local` DNS is not assumed, so the stable LAN IPv4 is an
+accepted fallback. Restrict firewall exposure to the clinic LAN, never WAN.
+
+The internal loopback `:8080/healthz` endpoint exists only for Docker's frontend
+healthcheck; all other paths return 404 and it is not host-published. Do not use
+it as a browser or staff endpoint. Do not enable HSTS until the remaining
+operational recovery gates are approved.
 
 ## WAN-disconnected behavior
 
@@ -352,7 +366,7 @@ verification using the protected environment file and canonical LAN origin:
 
 ```sh
 COMPOSE_ENV_FILE=/secure/path/clinic-lan.env \
-RECOVERY_ORIGIN=http://clinic-server.example.internal:8080 \
+RECOVERY_ORIGIN=https://clinic-server.example.internal \
   deploy/lan/verify-recovery.sh
 ```
 
@@ -366,7 +380,7 @@ For diagnosis, use bounded output rather than creating custom log files:
 ```sh
 docker compose --env-file /secure/path/clinic-lan.env -f compose.lan.yml ps
 docker compose --env-file /secure/path/clinic-lan.env -f compose.lan.yml logs --tail=200 postgres backend frontend
-curl --fail http://clinic-server.example.internal:8080/api/health/ready
+curl --fail https://clinic-server.example.internal/api/health/ready
 ```
 
 The Compose file bounds the default `json-file` logs to five 10 MiB files per
@@ -432,11 +446,11 @@ and `/api/health/ready`, log in with a disposable acceptance account, navigate
 the patient lookup, perform one harmless read, and confirm Socket.IO reconnects.
 Do not alter host firewall or routing during this repository exercise.
 
-**CLINICAL TLS ACCEPTANCE = BLOCKED.** Port 8080 is still plain HTTP. The future
-design must use a stable clinic-local hostname, a clinic-controlled CA or other
-locally trusted certificate chain, protected private keys, documented device
-trust onboarding, offline-capable renewal/rotation, and the same origin for UI,
-API, uploads, and Socket.IO. An ad-hoc self-signed bypass is not acceptance.
+**CLINICAL TLS ACCEPTANCE = MANUAL ACCEPTANCE PASSED; operational gates remain.**
+HTTPS uses a stable clinic-local identity, a clinic-controlled trusted CA,
+protected private keys, documented device trust onboarding, and the same origin
+for UI, API, uploads, and Socket.IO. An ad-hoc self-signed bypass is not
+acceptance.
 
 **OFFLINE FRESH-INSTALL ACCEPTANCE = BLOCKED.** Runtime operation is designed
 to be WAN-independent, but a new disconnected server still needs an
@@ -447,7 +461,7 @@ must not be confused with offline supply-chain readiness.
 
 ## Intentionally not implemented
 
-- TLS certificates or approval for clinical traffic.
+    - automated certificate provisioning or renewal.
 - Real credentials or secret storage.
 - Automatic operational restore/disaster recovery, enabled scheduling, or
   approved key escrow.
@@ -456,4 +470,5 @@ must not be confused with offline supply-chain readiness.
   IndexedDB, or browser-side clinical storage.
 - Deployment to Render, Staging, Production, or a clinic server.
 
-The next phase must not treat this HTTP foundation as ready for patient data.
+The HTTPS transport acceptance does not by itself constitute clinical readiness;
+remaining recovery, backup, WAN, and user-acceptance gates still apply.

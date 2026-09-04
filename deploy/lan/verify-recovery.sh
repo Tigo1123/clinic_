@@ -2,12 +2,12 @@
 set -eu
 
 die() { echo "LAN recovery verification failed: $*" >&2; exit 1; }
-: "${RECOVERY_ORIGIN:?RECOVERY_ORIGIN is required, for example http://clinic-server.example.internal:8080}"
+: "${RECOVERY_ORIGIN:?RECOVERY_ORIGIN is required, for example https://clinic-server.example.internal}"
 COMPOSE_FILE=${COMPOSE_FILE:-compose.lan.yml}
 : "${COMPOSE_ENV_FILE:?COMPOSE_ENV_FILE must point to the protected LAN environment file}"
 
 compose() { docker compose --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"; }
-case "$RECOVERY_ORIGIN" in http://*|https://*) ;; *) die 'RECOVERY_ORIGIN must be an HTTP(S) origin';; esac
+case "$RECOVERY_ORIGIN" in https://*) ;; *) die 'RECOVERY_ORIGIN must be an HTTPS origin';; esac
 
 for service in postgres backend frontend; do
   container=$(compose ps --quiet "$service")
@@ -18,8 +18,18 @@ done
 
 postgres_container=$(compose ps --quiet postgres)
 backend_container=$(compose ps --quiet backend)
-[ "$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$postgres_container")" = null ] || die 'PostgreSQL unexpectedly publishes a host port'
-[ "$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$backend_container")" = null ] || die 'backend unexpectedly publishes a host port'
+frontend_container=$(compose ps --quiet frontend)
+
+postgres_ports=$(docker port "$postgres_container") || die 'could not inspect PostgreSQL published ports'
+backend_ports=$(docker port "$backend_container") || die 'could not inspect backend published ports'
+frontend_ports=$(docker port "$frontend_container") || die 'could not inspect frontend published ports'
+
+[ -z "$postgres_ports" ] || die 'PostgreSQL unexpectedly publishes a host port'
+[ -z "$backend_ports" ] || die 'backend unexpectedly publishes a host port'
+printf '%s\n' "$frontend_ports" | grep -q '^443/tcp -> ' || die 'frontend does not publish HTTPS port 443'
+if printf '%s\n' "$frontend_ports" | grep -q '^8080/tcp -> '; then
+  die 'frontend unexpectedly publishes public HTTP port 8080'
+fi
 docker inspect --format '{{range .Mounts}}{{if and (eq .Type "volume") (eq .Destination "/var/lib/postgresql/data")}}{{.Name}}{{end}}{{end}}' "$postgres_container" | grep -q . || die 'PostgreSQL persistent volume is missing'
 docker inspect --format '{{range .Mounts}}{{if and (eq .Type "volume") (eq .Destination "/app/uploads")}}{{.Name}}{{end}}{{end}}' "$backend_container" | grep -q . || die 'uploads persistent volume is missing'
 
