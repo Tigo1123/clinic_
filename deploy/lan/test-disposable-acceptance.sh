@@ -11,9 +11,12 @@ owner="p1a7_owner_$suffix"
 migration="p1a7_migration_$suffix"
 runtime_role="p1a7_runtime_role_$suffix"
 runtime_login="p1a7_runtime_login_$suffix"
+backup_role="p1a7_backup_role_$suffix"
+backup_login="p1a7_backup_login_$suffix"
 admin_password="p1a7-admin-$suffix-Aa9"
 migration_password="p1a7-migration-$suffix"
 runtime_password="p1a7-runtime-$suffix"
+backup_password="p1a7-backup-$suffix"
 test_root=$(mktemp -d "$PWD/.local/clinic-lan-phase1a7-XXXXXX")
 compose_file="$test_root/compose.yml"
 password_file="$test_root/first-admin-password"
@@ -53,6 +56,9 @@ services:
       RUNTIME_DATABASE_ROLE: $runtime_role
       RUNTIME_LOGIN_ROLE: $runtime_login
       RUNTIME_DATABASE_PASSWORD: $runtime_password
+      BACKUP_DATABASE_ROLE: $backup_role
+      BACKUP_DATABASE_USER: $backup_login
+      BACKUP_DATABASE_PASSWORD: $backup_password
       CONFIRM_LAN_DATABASE_BOOTSTRAP: $database
     networks: [data]
     depends_on: {postgres: {condition: service_healthy}}

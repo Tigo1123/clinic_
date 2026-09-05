@@ -76,7 +76,7 @@ tar -tf "$work_dir/bundle.tar" | awk '
   /(^|\/)\.\.($|\/)/ { exit 1 }
   /\\/ { exit 1 }
   { seen[$0]++ }
-  END { if (seen["manifest.json"] != 1 || seen["SHA256SUMS"] != 1 || seen["database.dump"] != 1 || seen["uploads.tar"] != 1 || length(seen) != 4) exit 1 }
+  END { if (seen["manifest.json"] != 1 || seen["SHA256SUMS"] != 1 || seen["database-counts.tsv"] != 1 || seen["uploads-files.sha256"] != 1 || seen["database.dump"] != 1 || seen["uploads.tar"] != 1 || length(seen) != 6) exit 1 }
 ' || die 'outer archive has unsafe or unexpected members'
 tar -xf "$work_dir/bundle.tar" -C "$payload" --no-same-owner --no-same-permissions
 grep -Fq '"formatVersion": 1' "$payload/manifest.json" || die 'manifest format is unsupported'
@@ -88,4 +88,18 @@ tar -tf "$payload/uploads.tar" | awk '/^\// || /(^|\/)\.\.($|\/)/ || /\\/ { exit
 
 pg_restore --exit-on-error --no-owner --no-privileges --dbname="$RESTORE_DATABASE_NAME" "$payload/database.dump" || die 'database restore failed'
 tar -xf "$payload/uploads.tar" -C "$RESTORE_UPLOADS_DIR" --no-same-owner --no-same-permissions
+psql --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align <<'SQL' | LC_ALL=C sort > "$work_dir/restored-database-counts.tsv"
+SELECT format(
+  'SELECT %L || E''\\t'' || count(*) FROM %I.%I;',
+  n.nspname || '.' || c.relname, n.nspname, c.relname
+)
+FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND c.relkind IN ('r','p')
+ORDER BY n.nspname,c.relname
+\gexec
+SQL
+cmp -s "$payload/database-counts.tsv" "$work_dir/restored-database-counts.tsv" || die 'restored database record counts do not match backup inventory'
+(cd "$RESTORE_UPLOADS_DIR" && find . -type f -exec sha256sum '{}' \; | LC_ALL=C sort) > "$work_dir/restored-uploads-files.sha256"
+cmp -s "$payload/uploads-files.sha256" "$work_dir/restored-uploads-files.sha256" || die 'restored uploads do not match backup inventory'
+psql --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align --command="SELECT 1 / CASE WHEN to_regclass('public._prisma_migrations') IS NOT NULL AND to_regclass('public.\"Patient\"') IS NOT NULL AND EXISTS (SELECT 1 FROM public._prisma_migrations) THEN 1 ELSE 0 END" >/dev/null || die 'expected application tables or migrations are missing'
 echo "Disposable LAN restore completed: database=$RESTORE_DATABASE_NAME uploads=$RESTORE_UPLOADS_DIR"

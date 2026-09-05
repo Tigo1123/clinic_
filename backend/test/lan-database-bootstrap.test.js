@@ -13,8 +13,10 @@ const createRoles = read('deploy/lan/sql/create-roles-and-database.sql');
 const configure = read('deploy/lan/sql/configure-database.sql');
 const grants = read('deploy/lan/sql/grant-runtime.sql');
 const verify = read('deploy/lan/sql/verify-runtime.sql');
+const backupGrants = read('deploy/lan/sql/grant-backup.sql');
+const backupVerify = read('deploy/lan/sql/verify-backup.sql');
 const dockerignore = read('.dockerignore');
-const allSql = `${createRoles}\n${configure}\n${grants}\n${verify}`;
+const allSql = `${createRoles}\n${configure}\n${grants}\n${verify}\n${backupGrants}\n${backupVerify}`;
 
 function serviceBlock(name) {
   const match = compose.match(new RegExp(`^  ${name}:\\n([\\s\\S]*?)(?=^  [a-z][a-z0-9-]*:\\n|^networks:|^volumes:)`, 'm'));
@@ -27,12 +29,13 @@ test('role names and credentials are parameterized and fail closed when missing'
     'POSTGRES_ADMIN_CONNECTION', 'MIGRATION_DATABASE_URL', 'DATABASE_URL', 'LAN_DATABASE_NAME',
     'SCHEMA_OWNER_ROLE', 'MIGRATION_LOGIN_ROLE', 'MIGRATION_DATABASE_PASSWORD',
     'RUNTIME_DATABASE_ROLE', 'RUNTIME_LOGIN_ROLE', 'RUNTIME_DATABASE_PASSWORD',
+    'BACKUP_DATABASE_ROLE', 'BACKUP_DATABASE_USER', 'BACKUP_DATABASE_PASSWORD',
     'CONFIRM_LAN_DATABASE_BOOTSTRAP'
   ]) {
     assert.match(bootstrap, new RegExp(`\\b${name}\\b`));
     assert.match(environment, new RegExp(`^${name}=`, 'm'));
   }
-  assert.match(bootstrap, /All four database role names must be distinct/);
+  assert.match(bootstrap, /All six database role names must be distinct/);
   assert.doesNotMatch(bootstrap, /\beval\b/);
   assert.match(bootstrap, /must target the expected local\/container-only database/);
   assert.match(bootstrap, /CONFIRM_LAN_DATABASE_BOOTSTRAP.*exactly equal LAN_DATABASE_NAME/);
@@ -140,4 +143,19 @@ test('disposable SQL proves database and runtime identity before its first mutat
   assert.match(disposableTest, /session_user = :'expected_runtime_login'/);
   assert.match(disposableTest, /current_user = :'expected_runtime_login'/);
   assert.ok(guardEnd >= 0 && guardEnd < firstMutation, 'identity guard must precede every mutation');
+});
+
+test('dedicated backup login is read-only, non-owner, and has no migration authority', () => {
+  assert.match(createRoles, /backup_role.*NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION/s);
+  assert.match(createRoles, /backup_login_role.*LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION/s);
+  assert.match(createRoles, /GRANT %I TO %I', :'backup_role', :'backup_login_role'/);
+  assert.match(backupGrants, /GRANT SELECT ON TABLE/);
+  assert.match(backupGrants, /GRANT SELECT ON SEQUENCE/);
+  assert.match(backupGrants, /ALTER DEFAULT PRIVILEGES/);
+  assert.match(backupVerify, /_prisma_migrations.*SELECT/s);
+  assert.match(backupVerify, /INSERT,UPDATE,DELETE/);
+  assert.match(backupVerify, /NOT pg_has_role.*schema_owner_role/s);
+  assert.match(backupVerify, /NOT pg_has_role.*migration_login_role/s);
+  assert.match(backupVerify, /pg_get_userbyid.*backup_role.*backup_login_role/s);
+  assert.doesNotMatch(backupGrants, /INSERT|UPDATE|DELETE|CREATE|OWNER TO|GRANT ALL/i);
 });

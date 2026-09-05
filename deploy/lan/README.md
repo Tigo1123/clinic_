@@ -148,7 +148,7 @@ email behavior is unchanged unless their operators explicitly set the existing
 
 ## Phase 1A.4 database roles and bootstrap
 
-The LAN database uses four parameterized responsibilities:
+The LAN database uses six parameterized responsibilities:
 
 - `SCHEMA_OWNER_ROLE`: NOLOGIN owner of the application schema, Prisma tables,
   and sequences.
@@ -160,6 +160,12 @@ The LAN database uses four parameterized responsibilities:
   and `USAGE` only on `patient_file_number_seq`.
 - `RUNTIME_LOGIN_ROLE`: inheriting login used by both runtime database URLs. It
   is not a member of the owner or migration roles.
+- `BACKUP_DATABASE_ROLE`: NOLOGIN read-only privilege role with database
+  `CONNECT`, schema `USAGE`, and `SELECT` on application tables (including
+  `_prisma_migrations`) and sequences.
+- `BACKUP_DATABASE_USER`: inheriting login that is a member only of the backup
+  role. It owns no objects and has no write, migration, creation, ownership, or
+  administrative authority.
 
 The bootstrap revokes database `CONNECT` and schema `CREATE` from `PUBLIC` and
 does not grant runtime schema creation, role administration, database creation,
@@ -256,13 +262,15 @@ GnuPG, PostgreSQL 16 client tools, GNU tar, coreutils, and findutils
 must be installed or the image built and cached through an approved offline
 software process; running backup requires no Internet.
 
-A dedicated reviewed read-only backup login is preferable. Until one is
-approved, the Phase 1A.4 migration login may be supplied only to this one-shot
-job because runtime intentionally cannot read `_prisma_migrations`. Backup
-credentials are not passed to Express.
+Database bootstrap explicitly provisions and verifies a dedicated read-only
+backup role/login. Operational backup must use that login; use of the migration
+login is forbidden. Backup credentials are not passed to Express. Owner-specific
+default privileges cover future application tables and sequences.
 
-Database and upload snapshots are not inherently atomic. Quiesce application
-writes in an approved maintenance window and only then set
+Database and upload snapshots are not inherently atomic. No application
+write-pause/drain control exists today, so automated scheduling remains blocked.
+In an approved maintenance window, prevent new writes, drain in-flight writes,
+and only then set
 `BACKUP_QUIESCE_CONFIRMED=true`; the script otherwise refuses to run. With a
 private environment file and an existing protected output directory, invoke:
 
@@ -273,9 +281,12 @@ docker compose --env-file /secure/path/clinic-lan.env \
 
 The uploads volume is read-only in this job. Plaintext exists only in a
 mode-0700 incomplete directory; `pg_restore --list`, SHA-256 verification, and
-encryption precede completion. Copy completed encrypted sets daily to separate
-offline media. Monitor exit status, completion age, free space, size trends,
-and media health.
+encryption precede completion. This local staging copy is not disaster recovery.
+Use `copy-offserver.sh` to copy a completed set to reviewed removable/off-server
+media. It requires an absolute destination on a different mounted filesystem,
+verifies the exact signer, compares copied bytes, and publishes `COMPLETE` last.
+Keep multiple independent generations, detach/store media per site policy, and
+perform drills from that copy. No Internet or cloud service is required.
 
 Database recovery also requires separately escrowed
 `MEDICAL_ENCRYPTION_KEY`, `MFA_ENCRYPTION_KEY`, operational/JWT secrets, future
@@ -284,7 +295,7 @@ Git or in the backup set they protect.
 
 ### Retention, scheduling, and recovery objectives
 
-`retention.sh` keeps a configured count of completed, correctly named sets whose
+`retention.sh` keeps a configured count (minimum two) of completed, correctly named sets whose
 detached signature verifies against the configured signer fingerprint. An
 unsigned or corrupt newer directory is not counted and cannot cause an older
 valid backup to be deleted. It defaults to dry-run, always retains at least the
@@ -293,9 +304,13 @@ directories. Review dry-run output before using
 `BACKUP_RETENTION_DRY_RUN=false`; never test retention on an existing user
 backup directory.
 
-The systemd service/timer examples are installation templates and are not
-enabled. The timer proposes a 20-minute cadence, but activation requires a
-site-approved wrapper that safely quiesces and resumes writes plus monitoring.
+The systemd service/timer examples are blocked templates and are not enabled.
+They require an executable `/usr/local/sbin/clinic-lan-consistent-backup`, which
+this repository intentionally does not supply. Activation requires a reviewed
+wrapper that blocks new writes, drains in-flight writes, proves the pause, sets
+`BACKUP_QUIESCE_CONFIRMED=true` only for the child backup, resumes writes on
+every exit path, and integrates monitoring. Merely setting the variable is not
+a consistency mechanism.
 Until that exists, the actual RPO is manual with no guaranteed upper bound.
 RTO is also unproven and depends on data size, hardware, and key availability.
 Perform and time regular offline-media restore drills before clinical use.
@@ -319,6 +334,9 @@ extracted without archived ownership or permission restoration. Because
 the Phase 1A.4 ownership model. Runtime grants and MRN sequence `USAGE` are
 reapplied with the existing Phase 1A.4 mechanisms and least privilege is
 reverified before destroying only the re-proven disposable resources.
+The backup records per-table safe record counts and an upload-file SHA-256
+inventory. Restore compares both and requires `Patient`, `_prisma_migrations`,
+and at least one migration record without exposing clinical record contents.
 
 This procedure is **not a command to reset an operating clinic database** and
 must never target a running clinic. Source rollback before adoption is a Git

@@ -12,7 +12,7 @@ case "$BACKUP_OUTPUT_DIR" in /*) ;; *) die 'BACKUP_OUTPUT_DIR must be absolute';
 [ -f "$BACKUP_GPG_SIGNER_PUBLIC_KEY_FILE" ] && [ ! -L "$BACKUP_GPG_SIGNER_PUBLIC_KEY_FILE" ] || die 'signer public key is unsafe'
 case "$BACKUP_GPG_SIGNER_FINGERPRINT" in ''|*[!A-Fa-f0-9]*) die 'signer fingerprint must be hexadecimal';; esac
 case "$BACKUP_RETENTION_COUNT" in ''|*[!0-9]*) die 'BACKUP_RETENTION_COUNT must be an integer';; esac
-[ "$BACKUP_RETENTION_COUNT" -ge 1 ] || die 'at least the newest cryptographically valid backup must be retained'
+[ "$BACKUP_RETENTION_COUNT" -ge 2 ] || die 'at least two cryptographically valid backups must be retained'
 dry_run=${BACKUP_RETENTION_DRY_RUN:-true}
 [ "$dry_run" = true ] || [ "$dry_run" = false ] || die 'BACKUP_RETENTION_DRY_RUN must be true or false'
 
@@ -30,7 +30,7 @@ find "$BACKUP_OUTPUT_DIR" -mindepth 1 -maxdepth 1 -type d -name 'clinic-lan-back
   name=$(basename "$candidate")
   encrypted="$candidate/$name.tar.gpg"
   signature="$candidate/$name.tar.gpg.sig"
-  [ -f "$candidate/COMPLETE" ] && [ -f "$encrypted" ] && [ -f "$signature" ] || continue
+  [ -f "$candidate/COMPLETE" ] && [ ! -L "$candidate/COMPLETE" ] && [ -f "$encrypted" ] && [ ! -L "$encrypted" ] && [ -f "$signature" ] && [ ! -L "$signature" ] || continue
   grep -Fxq 'format=clinic-lan-backup-v1' "$candidate/COMPLETE" && grep -Fxq "id=$name" "$candidate/COMPLETE" || continue
   valid_signer=$(gpg --batch --status-fd 1 --verify "$signature" "$encrypted" 2>/dev/null | awk '$1 == "[GNUPG:]" && $2 == "VALIDSIG" { print $3 }')
   [ "$valid_signer" = "$BACKUP_GPG_SIGNER_FINGERPRINT" ] || continue

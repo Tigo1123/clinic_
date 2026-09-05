@@ -5,5 +5,6 @@ RUN apk add --no-cache coreutils findutils gnupg tar
 COPY deploy/lan/backup.sh /usr/local/bin/clinic-lan-backup
 COPY deploy/lan/restore.sh /usr/local/bin/clinic-lan-restore
 COPY deploy/lan/retention.sh /usr/local/bin/clinic-lan-retention
+COPY deploy/lan/copy-offserver.sh /usr/local/bin/clinic-lan-copy-offserver
 
 ENTRYPOINT ["/usr/local/bin/clinic-lan-backup"]

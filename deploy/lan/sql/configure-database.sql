@@ -2,6 +2,7 @@ SELECT format('REVOKE CONNECT ON DATABASE %I FROM PUBLIC', :'database_name') \ge
 SELECT format('GRANT CONNECT ON DATABASE %I TO %I', :'database_name', :'schema_owner_role') \gexec
 SELECT format('GRANT CONNECT ON DATABASE %I TO %I', :'database_name', :'migration_login_role') \gexec
 SELECT format('GRANT CONNECT ON DATABASE %I TO %I', :'database_name', :'runtime_role') \gexec
+SELECT format('GRANT CONNECT ON DATABASE %I TO %I', :'database_name', :'backup_role') \gexec
 
 SELECT format('ALTER SCHEMA %I OWNER TO %I', :'schema_name', :'schema_owner_role') \gexec
 SELECT format('REVOKE CREATE ON SCHEMA %I FROM PUBLIC', :'schema_name') \gexec

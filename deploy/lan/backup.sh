@@ -44,7 +44,7 @@ symlink_path=$(find "$UPLOADS_DIR" -type l -print -quit) || die 'uploads tree co
 [ -z "$symlink_path" ] || die 'uploads contain a symbolic link; backup refuses links that could escape the upload root'
 
 identity=$(psql --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align --command="SELECT current_database() || '|' || session_user || '|' || current_user || '|' || COALESCE(inet_server_addr()::text, 'local-socket')") || die 'database identity proof failed'
-case "$identity" in "$PGDATABASE"'|'*) ;; *) die 'connected database does not equal PGDATABASE';; esac
+case "$identity" in "$PGDATABASE"'|'"$PGUSER"'|'"$PGUSER"'|'*) ;; *) die 'backup must connect directly as the configured dedicated backup login';; esac
 echo "Backup source identity (database|session user|current user|server): $identity"
 
 backup_id="clinic-lan-backup-$(date -u +%Y%m%dT%H%M%SZ)"
@@ -58,10 +58,23 @@ mkdir -m 700 "$payload"
 pg_dump --format=custom --no-owner --no-privileges --file="$payload/database.dump" || die 'pg_dump failed'
 pg_restore --list "$payload/database.dump" >/dev/null || die 'pg_restore could not inspect database dump'
 tar --format=pax -cf "$payload/uploads.tar" -C "$UPLOADS_DIR" .
+(cd "$UPLOADS_DIR" && find . -type f -exec sha256sum '{}' \; | LC_ALL=C sort) > "$payload/uploads-files.sha256"
+psql --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align <<'SQL' | LC_ALL=C sort > "$payload/database-counts.tsv"
+SELECT format(
+  'SELECT %L || E''\\t'' || count(*) FROM %I.%I;',
+  n.nspname || '.' || c.relname, n.nspname, c.relname
+)
+FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND c.relkind IN ('r','p')
+ORDER BY n.nspname,c.relname
+\gexec
+SQL
 db_hash=$(sha256sum "$payload/database.dump" | awk '{print $1}')
 uploads_hash=$(sha256sum "$payload/uploads.tar" | awk '{print $1}')
 db_size=$(wc -c < "$payload/database.dump" | tr -d ' ')
 uploads_size=$(wc -c < "$payload/uploads.tar" | tr -d ' ')
+table_count=$(wc -l < "$payload/database-counts.tsv" | tr -d ' ')
+upload_file_count=$(wc -l < "$payload/uploads-files.sha256" | tr -d ' ')
 created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 postgres_version=$(pg_dump --version | sed 's/"/\\"/g')
 printf '%s  %s\n%s  %s\n' "$db_hash" database.dump "$uploads_hash" uploads.tar > "$payload/SHA256SUMS"
@@ -74,7 +87,8 @@ cat > "$payload/manifest.json" <<EOF
   "postgresToolVersion": "$postgres_version",
   "applicationRevision": "${APPLICATION_REVISION:-unknown}",
   "databaseDump": {"filename": "database.dump", "sha256": "$db_hash", "bytes": $db_size, "format": "postgres-custom"},
-  "uploadsArchive": {"filename": "uploads.tar", "sha256": "$uploads_hash", "bytes": $uploads_size, "format": "pax-tar"}
+  "uploadsArchive": {"filename": "uploads.tar", "sha256": "$uploads_hash", "bytes": $uploads_size, "format": "pax-tar"},
+  "verification": {"databaseCounts": "database-counts.tsv", "tableCount": $table_count, "uploadsInventory": "uploads-files.sha256", "uploadFileCount": $upload_file_count}
 }
 EOF
 (cd "$payload" && sha256sum --check SHA256SUMS >/dev/null) || die 'pre-encryption checksum validation failed'
@@ -90,7 +104,7 @@ signing_fingerprint=$(gpg --batch --with-colons --list-secret-keys --fingerprint
 [ "$signing_fingerprint" = "$BACKUP_GPG_SIGNING_FINGERPRINT" ] || die 'configured signing private key fingerprint was not imported exactly'
 
 bundle="$work_dir/$backup_id.tar"
-tar --format=pax -cf "$bundle" -C "$payload" manifest.json SHA256SUMS database.dump uploads.tar
+tar --format=pax -cf "$bundle" -C "$payload" manifest.json SHA256SUMS database-counts.tsv uploads-files.sha256 database.dump uploads.tar
 encrypted="$work_dir/$backup_id.tar.gpg"
 signature="$work_dir/$backup_id.tar.gpg.sig"
 gpg --batch --yes --trust-model always --recipient "$BACKUP_GPG_RECIPIENT" --output "$encrypted" --encrypt "$bundle" || die 'OpenPGP encryption failed'

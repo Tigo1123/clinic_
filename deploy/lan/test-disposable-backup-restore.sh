@@ -15,14 +15,19 @@ tool_image="clinic-lan-phase1a5-tools:$suffix"
 admin_password="phase1a5-admin-$suffix"
 migration_password="phase1a5-migration-$suffix"
 runtime_password="phase1a5-runtime-$suffix"
+backup_password="phase1a5-backup-$suffix"
 source_owner="p1a5_src_owner_$suffix"
 source_migration="p1a5_src_migration_$suffix"
 source_runtime_role="p1a5_src_runtime_role_$suffix"
 source_runtime_login="p1a5_src_runtime_login_$suffix"
+source_backup_role="p1a5_src_backup_role_$suffix"
+source_backup_login="p1a5_src_backup_login_$suffix"
 restore_owner="p1a5_rst_owner_$suffix"
 restore_migration="p1a5_rst_migration_$suffix"
 restore_runtime_role="p1a5_rst_runtime_role_$suffix"
 restore_runtime_login="p1a5_rst_runtime_login_$suffix"
+restore_backup_role="p1a5_rst_backup_role_$suffix"
+restore_backup_login="p1a5_rst_backup_login_$suffix"
 mkdir -p .local
 test_root=$(mktemp -d "$PWD/.local/clinic-lan-phase1a5-e2e-XXXXXX")
 
@@ -47,12 +52,12 @@ prove_database() {
 }
 admin_psql() { apsql_port=$1 apsql_database=$2; shift 2; PGPASSWORD="$admin_password" psql --no-psqlrc -v ON_ERROR_STOP=1 -h 127.0.0.1 -p "$apsql_port" -U postgres -d "$apsql_database" "$@"; }
 configure_roles() {
-  cfr_port=$1 cfr_database=$2 cfr_owner=$3 cfr_migration=$4 cfr_runtime_role=$5 cfr_runtime_login=$6
-  MIGRATION_DATABASE_PASSWORD="$migration_password" RUNTIME_DATABASE_PASSWORD="$runtime_password" admin_psql "$cfr_port" postgres \
-    --set=database_name="$cfr_database" --set=schema_owner_role="$cfr_owner" --set=migration_login_role="$cfr_migration" --set=runtime_role="$cfr_runtime_role" --set=runtime_login_role="$cfr_runtime_login" \
+  cfr_port=$1 cfr_database=$2 cfr_owner=$3 cfr_migration=$4 cfr_runtime_role=$5 cfr_runtime_login=$6 cfr_backup_role=$7 cfr_backup_login=$8
+  MIGRATION_DATABASE_PASSWORD="$migration_password" RUNTIME_DATABASE_PASSWORD="$runtime_password" BACKUP_DATABASE_PASSWORD="$backup_password" admin_psql "$cfr_port" postgres \
+    --set=database_name="$cfr_database" --set=schema_owner_role="$cfr_owner" --set=migration_login_role="$cfr_migration" --set=runtime_role="$cfr_runtime_role" --set=runtime_login_role="$cfr_runtime_login" --set=backup_role="$cfr_backup_role" --set=backup_login_role="$cfr_backup_login" \
     --file=deploy/lan/sql/create-roles-and-database.sql
   admin_psql "$cfr_port" "$cfr_database" --set=database_name="$cfr_database" --set=schema_name=public --set=schema_owner_role="$cfr_owner" \
-    --set=migration_login_role="$cfr_migration" --set=runtime_role="$cfr_runtime_role" --set=runtime_login_role="$cfr_runtime_login" --file=deploy/lan/sql/configure-database.sql
+    --set=migration_login_role="$cfr_migration" --set=runtime_role="$cfr_runtime_role" --set=runtime_login_role="$cfr_runtime_login" --set=backup_role="$cfr_backup_role" --file=deploy/lan/sql/configure-database.sql
 }
 empty_public_tables() { PGPASSWORD="$admin_password" psql -At -h 127.0.0.1 -p "$1" -U postgres -d "$2" -c "SELECT count(*) FROM pg_tables WHERE schemaname='public'"; }
 apply_migrations_as_owner() {
@@ -90,12 +95,13 @@ source_port=$(docker port "$source_container" 5432/tcp | sed 's/.*://')
 wait_for_database "$source_port" "$source_db"
 echo 'Disposable source identity before role bootstrap and migration:'
 prove_database "$source_port" "$source_db"
-configure_roles "$source_port" "$source_db" "$source_owner" "$source_migration" "$source_runtime_role" "$source_runtime_login"
+configure_roles "$source_port" "$source_db" "$source_owner" "$source_migration" "$source_runtime_role" "$source_runtime_login" "$source_backup_role" "$source_backup_login"
 source_migration_url="postgresql://$source_migration:$migration_password@127.0.0.1:$source_port/$source_db?options=-c%20role%3D$source_owner"
 source_runtime_url="postgresql://$source_runtime_login:$runtime_password@127.0.0.1:$source_port/$source_db"
 apply_migrations_as_owner "$source_migration_url" "$source_port" "$source_db" "$source_migration"
 PGOPTIONS="-c role=$source_owner" PGPASSWORD="$migration_password" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -p "$source_port" -U "$source_migration" -d "$source_db" --set=schema_name=public --set=runtime_role="$source_runtime_role" --file=deploy/lan/sql/grant-runtime.sql
 MIGRATION_DATABASE_URL="$source_migration_url" RUNTIME_DATABASE_ROLE="$source_runtime_role" DATABASE_SCHEMA=public backend/scripts/provision-patient-mrn-sequence.sh
+PGOPTIONS="-c role=$source_owner" PGPASSWORD="$migration_password" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -p "$source_port" -U "$source_migration" -d "$source_db" --set=schema_name=public --set=backup_role="$source_backup_role" --file=deploy/lan/sql/grant-backup.sql
 PGPASSWORD="$runtime_password" psql --no-psqlrc -v ON_ERROR_STOP=1 -h 127.0.0.1 -p "$source_port" -U "$source_runtime_login" -d "$source_db" <<'SQL'
 INSERT INTO "State" (id, "labelAr", "labelEn") VALUES (990001, 'Disposable', 'Disposable');
 INSERT INTO "Patient" (id, "fullNameAr", "fullNameEn", gender, "dateOfBirth", phone, "addressStateId", "emergencyContact") VALUES ('phase1a5-patient-source', 'Disposable Patient', 'Disposable Patient', 'FEMALE', '1990-01-01', '+249900000001', 990001, 'Disposable Contact');
@@ -142,7 +148,7 @@ find "$test_root/uploads" -type f -exec chmod 644 {} \;
 chmod 755 "$test_root/restored" "$test_root/restored/clinic_lan_phase1a5_restore_$suffix"; chmod 777 "$test_root/restored/clinic_lan_phase1a5_restore_$suffix/uploads"
 chmod 644 "$test_root"/*.asc
 
-docker run --rm --user 0:0 --network host -v "$test_root:$test_root:z" -e PGHOST=127.0.0.1 -e PGPORT="$source_port" -e PGDATABASE="$source_db" -e PGUSER="$source_migration" -e PGPASSWORD="$migration_password" -e PGOPTIONS="-c role=$source_owner" \
+docker run --rm --user 0:0 --network host -v "$test_root:$test_root:z" -e PGHOST=127.0.0.1 -e PGPORT="$source_port" -e PGDATABASE="$source_db" -e PGUSER="$source_backup_login" -e PGPASSWORD="$backup_password" \
   -e BACKUP_OUTPUT_DIR="$test_root/backups" -e UPLOADS_DIR="$test_root/uploads" -e BACKUP_GPG_PUBLIC_KEY_FILE="$test_root/encryption-public.asc" -e BACKUP_GPG_RECIPIENT="$decrypt_fp" \
   -e BACKUP_GPG_SIGNING_PRIVATE_KEY_FILE="$test_root/signing-private.asc" -e BACKUP_GPG_SIGNING_FINGERPRINT="$signer_fp" -e BACKUP_QUIESCE_CONFIRMED=true -e APPLICATION_REVISION=aad24fd "$tool_image"
 docker run --rm --user 0:0 -v "$test_root:$test_root:z" --entrypoint /bin/sh "$tool_image" -c "find '$test_root/backups' -type d -exec chmod 777 {} \\; && find '$test_root/backups' -type f -exec chmod 644 {} \\;"
@@ -156,7 +162,7 @@ docker volume create "$restore_volume" >/dev/null
 docker run -d --name "$restore_container" --mount "source=$restore_volume,target=/var/lib/postgresql/data" -e POSTGRES_DB="$restore_db" -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD="$admin_password" -p 127.0.0.1::5432 postgres:16-alpine >/dev/null
 restore_port=$(docker port "$restore_container" 5432/tcp | sed 's/.*://'); wait_for_database "$restore_port" "$restore_db"
 echo 'Disposable restore identity before role bootstrap:'; prove_database "$restore_port" "$restore_db"
-configure_roles "$restore_port" "$restore_db" "$restore_owner" "$restore_migration" "$restore_runtime_role" "$restore_runtime_login"
+configure_roles "$restore_port" "$restore_db" "$restore_owner" "$restore_migration" "$restore_runtime_role" "$restore_runtime_login" "$restore_backup_role" "$restore_backup_login"
 restore_uploads="$test_root/restored/clinic_lan_phase1a5_restore_$suffix/uploads"
 
 restore_run() {
@@ -218,10 +224,10 @@ echo "$runtime_mrn" | grep -Eq '^SHF-[0-9]{6}$'; [ "$runtime_mrn" != "$source_mr
 # Retention counts only valid signatures: an unsigned newest-looking directory
 # cannot displace or cause deletion of an older cryptographically valid set.
 retention_root="$test_root/retention"; mkdir -p "$retention_root"
-for id in clinic-lan-backup-20260101T000000Z clinic-lan-backup-20260102T000000Z; do mkdir "$retention_root/$id"; cp "$backup_set/$backup_id.tar.gpg" "$retention_root/$id/$id.tar.gpg"; cp "$backup_set/$backup_id.tar.gpg.sig" "$retention_root/$id/$id.tar.gpg.sig"; printf 'format=clinic-lan-backup-v1\nid=%s\n' "$id" > "$retention_root/$id/COMPLETE"; done
+for id in clinic-lan-backup-20260101T000000Z clinic-lan-backup-20260102T000000Z clinic-lan-backup-20260103T000000Z; do mkdir "$retention_root/$id"; cp "$backup_set/$backup_id.tar.gpg" "$retention_root/$id/$id.tar.gpg"; cp "$backup_set/$backup_id.tar.gpg.sig" "$retention_root/$id/$id.tar.gpg.sig"; printf 'format=clinic-lan-backup-v1\nid=%s\n' "$id" > "$retention_root/$id/COMPLETE"; done
 invalid_id=clinic-lan-backup-20990101T000000Z; mkdir "$retention_root/$invalid_id"; cp "$backup_set/$backup_id.tar.gpg" "$retention_root/$invalid_id/$invalid_id.tar.gpg"; printf 'format=clinic-lan-backup-v1\nid=%s\n' "$invalid_id" > "$retention_root/$invalid_id/COMPLETE"
-BACKUP_OUTPUT_DIR="$retention_root" BACKUP_RETENTION_COUNT=1 BACKUP_RETENTION_DRY_RUN=false BACKUP_GPG_SIGNER_PUBLIC_KEY_FILE="$test_root/signer-public.asc" BACKUP_GPG_SIGNER_FINGERPRINT="$signer_fp" deploy/lan/retention.sh
-[ ! -e "$retention_root/clinic-lan-backup-20260101T000000Z" ] && [ -d "$retention_root/clinic-lan-backup-20260102T000000Z" ] && [ -d "$retention_root/$invalid_id" ]
+BACKUP_OUTPUT_DIR="$retention_root" BACKUP_RETENTION_COUNT=2 BACKUP_RETENTION_DRY_RUN=false BACKUP_GPG_SIGNER_PUBLIC_KEY_FILE="$test_root/signer-public.asc" BACKUP_GPG_SIGNER_FINGERPRINT="$signer_fp" deploy/lan/retention.sh
+[ ! -e "$retention_root/clinic-lan-backup-20260101T000000Z" ] && [ -d "$retention_root/clinic-lan-backup-20260102T000000Z" ] && [ -d "$retention_root/clinic-lan-backup-20260103T000000Z" ] && [ -d "$retention_root/$invalid_id" ]
 
 echo 'Disposable restore identity before cleanup:'; prove_database "$restore_port" "$restore_db"
 docker rm -f "$restore_container" "$upload_container" >/dev/null; docker volume rm "$restore_volume" "$upload_volume" >/dev/null; docker image rm "$tool_image" >/dev/null

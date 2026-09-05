@@ -14,6 +14,9 @@ require_value MIGRATION_DATABASE_PASSWORD "${MIGRATION_DATABASE_PASSWORD-}"
 require_value RUNTIME_DATABASE_ROLE "${RUNTIME_DATABASE_ROLE-}"
 require_value RUNTIME_LOGIN_ROLE "${RUNTIME_LOGIN_ROLE-}"
 require_value RUNTIME_DATABASE_PASSWORD "${RUNTIME_DATABASE_PASSWORD-}"
+require_value BACKUP_DATABASE_ROLE "${BACKUP_DATABASE_ROLE-}"
+require_value BACKUP_DATABASE_USER "${BACKUP_DATABASE_USER-}"
+require_value BACKUP_DATABASE_PASSWORD "${BACKUP_DATABASE_PASSWORD-}"
 require_value CONFIRM_LAN_DATABASE_BOOTSTRAP "${CONFIRM_LAN_DATABASE_BOOTSTRAP-}"
 
 DATABASE_SCHEMA=${DATABASE_SCHEMA:-public}
@@ -30,6 +33,8 @@ validate_identifier SCHEMA_OWNER_ROLE "$SCHEMA_OWNER_ROLE"
 validate_identifier MIGRATION_LOGIN_ROLE "$MIGRATION_LOGIN_ROLE"
 validate_identifier RUNTIME_DATABASE_ROLE "$RUNTIME_DATABASE_ROLE"
 validate_identifier RUNTIME_LOGIN_ROLE "$RUNTIME_LOGIN_ROLE"
+validate_identifier BACKUP_DATABASE_ROLE "$BACKUP_DATABASE_ROLE"
+validate_identifier BACKUP_DATABASE_USER "$BACKUP_DATABASE_USER"
 
 [ "$CONFIRM_LAN_DATABASE_BOOTSTRAP" = "$LAN_DATABASE_NAME" ] || {
   echo 'CONFIRM_LAN_DATABASE_BOOTSTRAP must exactly equal LAN_DATABASE_NAME.' >&2
@@ -41,8 +46,17 @@ validate_identifier RUNTIME_LOGIN_ROLE "$RUNTIME_LOGIN_ROLE"
 [ "$SCHEMA_OWNER_ROLE" != "$RUNTIME_LOGIN_ROLE" ] &&
 [ "$MIGRATION_LOGIN_ROLE" != "$RUNTIME_DATABASE_ROLE" ] &&
 [ "$MIGRATION_LOGIN_ROLE" != "$RUNTIME_LOGIN_ROLE" ] &&
-[ "$RUNTIME_DATABASE_ROLE" != "$RUNTIME_LOGIN_ROLE" ] || {
-  echo 'All four database role names must be distinct.' >&2
+[ "$RUNTIME_DATABASE_ROLE" != "$RUNTIME_LOGIN_ROLE" ] &&
+[ "$BACKUP_DATABASE_ROLE" != "$SCHEMA_OWNER_ROLE" ] &&
+[ "$BACKUP_DATABASE_ROLE" != "$MIGRATION_LOGIN_ROLE" ] &&
+[ "$BACKUP_DATABASE_ROLE" != "$RUNTIME_DATABASE_ROLE" ] &&
+[ "$BACKUP_DATABASE_ROLE" != "$RUNTIME_LOGIN_ROLE" ] &&
+[ "$BACKUP_DATABASE_USER" != "$SCHEMA_OWNER_ROLE" ] &&
+[ "$BACKUP_DATABASE_USER" != "$MIGRATION_LOGIN_ROLE" ] &&
+[ "$BACKUP_DATABASE_USER" != "$RUNTIME_DATABASE_ROLE" ] &&
+[ "$BACKUP_DATABASE_USER" != "$RUNTIME_LOGIN_ROLE" ] &&
+[ "$BACKUP_DATABASE_USER" != "$BACKUP_DATABASE_ROLE" ] || {
+  echo 'All six database role names must be distinct.' >&2
   exit 1
 }
 
@@ -79,6 +93,8 @@ psql --no-psqlrc --set=ON_ERROR_STOP=1 \
   --set=migration_login_role="$MIGRATION_LOGIN_ROLE" \
   --set=runtime_role="$RUNTIME_DATABASE_ROLE" \
   --set=runtime_login_role="$RUNTIME_LOGIN_ROLE" \
+  --set=backup_role="$BACKUP_DATABASE_ROLE" \
+  --set=backup_login_role="$BACKUP_DATABASE_USER" \
   --dbname="$POSTGRES_ADMIN_CONNECTION" \
   --file=/workspace/deploy/lan/sql/create-roles-and-database.sql
 
@@ -95,6 +111,7 @@ psql --no-psqlrc --set=ON_ERROR_STOP=1 \
   --set=migration_login_role="$MIGRATION_LOGIN_ROLE" \
   --set=runtime_role="$RUNTIME_DATABASE_ROLE" \
   --set=runtime_login_role="$RUNTIME_LOGIN_ROLE" \
+  --set=backup_role="$BACKUP_DATABASE_ROLE" \
   --dbname="$admin_target_connection" \
   --file=/workspace/deploy/lan/sql/configure-database.sql
 unset admin_target_connection
@@ -112,6 +129,10 @@ psql --no-psqlrc --set=ON_ERROR_STOP=1 \
   --set=runtime_role="$RUNTIME_DATABASE_ROLE" \
   --dbname="$MIGRATION_DATABASE_URL" \
   --file=/workspace/deploy/lan/sql/grant-runtime.sql
+
+psql --no-psqlrc --set=ON_ERROR_STOP=1 \
+  --set=schema_name="$DATABASE_SCHEMA" --set=backup_role="$BACKUP_DATABASE_ROLE" \
+  --dbname="$MIGRATION_DATABASE_URL" --file=/workspace/deploy/lan/sql/grant-backup.sql
 
 RUNTIME_DATABASE_ROLE=$RUNTIME_DATABASE_ROLE \
 MIGRATION_DATABASE_URL=$MIGRATION_DATABASE_URL \

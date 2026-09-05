@@ -14,6 +14,10 @@ const environment = read('deploy/lan/env.example');
 const gitignore = read('.gitignore');
 const dockerignore = read('.dockerignore');
 const disposable = read('deploy/lan/test-disposable-backup-restore.sh');
+const offserver = read('deploy/lan/copy-offserver.sh');
+const backupService = read('deploy/lan/systemd/clinic-lan-backup.service.example');
+const backupTimer = read('deploy/lan/systemd/clinic-lan-backup.timer.example');
+const readme = read('deploy/lan/README.md');
 
 test('named database and uploads volumes remain persistent and are never deleted by backup tooling', () => {
   assert.match(compose, /lan-postgres-data:\/var\/lib\/postgresql\/data/);
@@ -76,7 +80,7 @@ test('restore is disposable-only and validates encryption, checksums, dump, empt
 });
 
 test('retention only removes validated completed named sets, keeps at least one, and supports dry run', () => {
-  assert.match(retention, /BACKUP_RETENTION_COUNT.*-ge 1/);
+  assert.match(retention, /BACKUP_RETENTION_COUNT.*-ge 2/);
   assert.match(retention, /BACKUP_RETENTION_DRY_RUN:-true/);
   assert.match(retention, /clinic-lan-backup-\?\?\?\?\?\?\?\?T\?\?\?\?\?\?Z/);
   assert.match(retention, /COMPLETE/);
@@ -129,4 +133,37 @@ test('backup remains an explicit one-shot process independent of Express', () =>
   assert.match(compose, /^    restart: "no"$/m);
   const backend = compose.match(/^  backend:\n([\s\S]*?)(?=^  frontend:)/m)?.[1] || '';
   assert.doesNotMatch(backend, /BACKUP_|PGPASSWORD|backup\.sh/);
+});
+
+test('key roles are separated and routine backup never receives the decryption private key', () => {
+  assert.match(compose, /BACKUP_GPG_PUBLIC_KEY_FILE/);
+  assert.match(compose, /BACKUP_GPG_SIGNING_PRIVATE_KEY_FILE/);
+  assert.doesNotMatch(compose, /BACKUP_GPG_PRIVATE_KEY_FILE/);
+  assert.doesNotMatch(`${restore}\n${retention}\n${offserver}`, /BACKUP_GPG_SIGNING_PRIVATE_KEY_FILE|--detach-sign/);
+  assert.ok(restore.indexOf('VALIDSIG') < restore.indexOf('private backup key import failed'));
+});
+
+test('off-server copying requires independent storage and verifies before publication', () => {
+  assert.match(offserver, /stat -c %d/);
+  assert.match(offserver, /independently mounted filesystem/);
+  assert.match(offserver, /VALIDSIG/);
+  assert.match(offserver, /cmp -s/);
+  assert.ok(offserver.indexOf('VALIDSIG') < offserver.indexOf('cp "$encrypted"'));
+  assert.ok(offserver.indexOf('cp "$encrypted"') < offserver.lastIndexOf('COMPLETE'));
+  assert.match(readme, /local staging copy is not disaster recovery/i);
+});
+
+test('scheduler cannot directly bypass genuine quiescing', () => {
+  assert.match(backupService, /ConditionPathIsExecutable=.*clinic-lan-consistent-backup/);
+  assert.match(backupTimer, /ConditionPathIsExecutable=.*clinic-lan-consistent-backup/);
+  assert.doesNotMatch(backupService, /ExecStart=.*docker compose/);
+  assert.match(readme, /Merely setting the variable is not.*consistency mechanism/s);
+});
+
+test('restore compares safe database counts and upload hashes from the signed payload', () => {
+  assert.match(backup, /database-counts\.tsv/);
+  assert.match(backup, /uploads-files\.sha256/);
+  assert.match(restore, /restored database record counts do not match/);
+  assert.match(restore, /restored uploads do not match/);
+  assert.match(restore, /expected application tables or migrations are missing/);
 });

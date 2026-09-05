@@ -9,7 +9,9 @@ User=clinic-backup
 Group=clinic-backup
 WorkingDirectory=/opt/clinic-lan
 EnvironmentFile=/etc/clinic-lan/backup.env
-# The site-approved maintenance wrapper must quiesce application writes, set
-# BACKUP_QUIESCE_CONFIRMED=true only while quiesced, run this command, and
-# restore service even after failure. Do not activate this example directly.
-ExecStart=/usr/bin/docker compose --env-file /etc/clinic-lan/runtime.env -f /opt/clinic-lan/compose.lan.yml --profile backup run --rm backup
+# Deliberately references a file not supplied by this repository. A reviewed
+# site wrapper must block new writes, drain in-flight writes, prove the pause,
+# set BACKUP_QUIESCE_CONFIRMED=true only for the child backup process, and
+# resume writes in an EXIT trap. Do not replace this with a direct compose call.
+ConditionPathIsExecutable=/usr/local/sbin/clinic-lan-consistent-backup
+ExecStart=/usr/local/sbin/clinic-lan-consistent-backup
