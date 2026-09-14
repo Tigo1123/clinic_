@@ -55,6 +55,15 @@ let service;
 let drug;
 let fixtureCounter = 0;
 let pharmacyApiPatientToken;
+let activeSpecialtyId;
+
+function structuredPatientName(label = 'Patient') {
+  const suffix = String(label).replace(/[^A-Za-z0-9]/g, '').slice(-24) || 'Patient';
+  return {
+    firstNameAr: 'مريض', fatherNameAr: 'اختبار', grandfatherNameAr: 'أحمد', familyNameAr: `أسرة${suffix}`,
+    firstNameEn: 'Patient', fatherNameEn: 'Test', grandfatherNameEn: 'Ahmed', familyNameEn: `Family${suffix}`
+  };
+}
 
 async function login(username, password) {
   const response = await api.post('/api/auth/login').send({ username, password });
@@ -523,6 +532,7 @@ before(async () => {
   tokens.pharmacy = await login('pharma@cms.com', 'Pharmacist@123');
   doctor1 = await prisma.doctor.findFirst({ where: { user: { username: 'doctor@cms.com' } } });
   doctor2 = await prisma.doctor.findFirst({ where: { user: { username: 'doctor_cardio@cms.com' } } });
+  activeSpecialtyId = (await prisma.specialty.findFirst({ where: { active: true }, select: { id: true } })).id;
   const clinicWeekday = new Date(`${getClinicDateString()}T12:00:00.000Z`).toLocaleDateString('en-US', {
     weekday: 'long', timeZone: 'UTC'
   });
@@ -1093,7 +1103,7 @@ test('receptionist can create a new walk-in atomically and place it in the docto
   const payload = {
     mode: 'NEW', doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot,
     patient: {
-      fullNameAr: 'مريض حضور مباشر', fullNameEn: `Walk-in ${fixtureCounter}`, gender: 'MALE',
+      ...structuredPatientName(`walkin${fixtureCounter}`), gender: 'MALE',
       dateOfBirth: '1990-01-01', nationalId, phone: `0999${String(fixtureCounter).padStart(6, '0')}`,
       addressStateId: 1, emergencyContact: 'Self'
     }
@@ -1161,7 +1171,7 @@ test('walk-in slot conflicts roll back a newly created patient', async () => {
   const nationalId = `WALKIN-CONFLICT-${Date.now()}`;
   const response = await api.post('/api/appointments/walk-in').set(auth('reception')).send({
     mode: 'NEW', doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot,
-    patient: { fullNameAr: 'مريض تعارض', fullNameEn: 'Conflict Walk-in', gender: 'FEMALE', dateOfBirth: '1991-01-01', nationalId, phone: `0988${Date.now().toString().slice(-6)}`, addressStateId: 1 }
+    patient: { ...structuredPatientName('conflictwalkin'), gender: 'FEMALE', dateOfBirth: '1991-01-01', nationalId, phone: `0988${Date.now().toString().slice(-6)}`, addressStateId: 1 }
   });
   assert.equal(response.status, 409);
   assert.equal(response.body.error.code, 'APPOINTMENT_SLOT_UNAVAILABLE');
@@ -1205,7 +1215,7 @@ test('concurrent new walk-ins roll back the losing Patient atomically', async ()
   const makeRequest = (label) => api.post('/api/appointments/walk-in').set(auth('reception')).send({
     mode: 'NEW', doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot,
     patient: {
-      fullNameAr: `مريض جديد ${label}`, fullNameEn: `New walk-in ${label}`, gender: 'FEMALE', dateOfBirth: '1991-01-01',
+      ...structuredPatientName(`newwalkin${label}`), gender: 'FEMALE', dateOfBirth: '1991-01-01',
       nationalId: `C1-${suffix}-${label}`, phone: `+24995${suffix}${label === 'A' ? '1' : '2'}`, addressStateId: 1
     }
   });
@@ -2053,7 +2063,7 @@ test('staff creation canonicalizes email usernames for every supported staff rol
       username: suppliedUsername,
       password: 'CanonicalStaff1',
       role,
-      ...(role === 'DOCTOR' ? { consultationFee: 25000 } : {})
+      ...(role === 'DOCTOR' ? { consultationFee: 25000, specialtyId: activeSpecialtyId, fullNameAr: 'د. طبيب اختبار', fullNameEn: 'Dr. Test Doctor' } : {})
     });
     assert.equal(response.status, 201);
     assert.equal(response.body.user.username, expectedUsername);
@@ -2072,7 +2082,7 @@ test('new mixed-case Doctor authenticates using canonical or supplied email casi
     username: suppliedUsername,
     password,
     role: 'DOCTOR',
-    consultationFee: 25000
+    consultationFee: 25000, specialtyId: activeSpecialtyId, fullNameAr: 'د. طبيب حالة', fullNameEn: 'Dr. Case Doctor'
   });
   assert.equal(created.status, 201);
   assert.equal(created.body.user.username, username);
@@ -2237,8 +2247,7 @@ test('doctor creation rejects empty doctor profile fields with field-specific va
     role: 'DOCTOR',
     fullNameAr: '',
     fullNameEn: '',
-    specialtyAr: 'طب عام',
-    specialtyEn: 'General Medicine',
+    specialtyId: activeSpecialtyId,
     consultationFee: 25000
   });
   assert.equal(response.status, 422);
@@ -2255,7 +2264,7 @@ test('doctor creation requires a valid consultation fee', async () => {
     role: 'DOCTOR'
   });
   assert.equal(response.status, 422);
-  assert.equal(response.body.error.code, 'CONSULTATION_FEE_REQUIRED');
+  assert.equal(response.body.error.code, 'DOCTOR_CONFIGURATION_REQUIRED');
   assert.equal(await prisma.user.count({ where: { username: 'doctor-no-fee@cms.com' } }), 0);
 });
 
@@ -2267,8 +2276,7 @@ test('valid doctor creation atomically creates the user, profile, and audit entr
     role: 'DOCTOR',
     fullNameAr: 'د. طبيب الاختبار',
     fullNameEn: 'Dr. Integration Test',
-    specialtyAr: 'طب عام',
-    specialtyEn: 'General Medicine',
+    specialtyId: activeSpecialtyId,
     consultationFee: 25000
   });
   assert.equal(response.status, 201);
@@ -2313,7 +2321,7 @@ test('an unrelated P2002 is not mislabeled as a duplicate username and rolls bac
       username: existingUsername,
       password: 'StrongUniqueOwner1',
       role: 'DOCTOR',
-      fullNameEn,
+      fullNameAr: 'د. فشل فريد', fullNameEn, specialtyId: activeSpecialtyId,
       consultationFee: 25000
     });
     assert.equal(existing.status, 201);
@@ -2322,7 +2330,7 @@ test('an unrelated P2002 is not mislabeled as a duplicate username and rolls bac
       username: attemptedUsername,
       password: 'StrongUniqueAttempt1',
       role: 'DOCTOR',
-      fullNameEn,
+      fullNameAr: 'د. فشل فريد', fullNameEn, specialtyId: activeSpecialtyId,
       consultationFee: 25000
     });
     assert.equal(response.status, 500);
@@ -2354,7 +2362,7 @@ test('forced doctor-profile failure rolls back the staff user', async () => {
       username,
       password: 'StrongDoctor1',
       role: 'DOCTOR',
-      fullNameEn: 'Force Doctor Failure',
+      fullNameAr: 'د. فشل', fullNameEn: 'Force Doctor Failure', specialtyId: activeSpecialtyId,
       consultationFee: 25000
     });
     assert.equal(response.status, 500);
@@ -2389,8 +2397,7 @@ test('forced audit-log failure rolls back the entire staff account', async () =>
       role: 'DOCTOR',
       fullNameAr: 'د. اختبار تراجع التدقيق',
       fullNameEn,
-      specialtyAr: 'طب عام',
-      specialtyEn: 'General Medicine',
+      specialtyId: activeSpecialtyId,
       consultationFee: 25000
     });
     assert.equal(response.status, 500);
@@ -2471,8 +2478,7 @@ test('ADMIN reset preserves Doctor identity, replaces the hash, and revokes prio
     role: 'DOCTOR',
     fullNameAr: 'د. اختبار إعادة التعيين',
     fullNameEn: 'Dr. Password Reset Test',
-    specialtyAr: 'طب عام',
-    specialtyEn: 'General Medicine',
+    specialtyId: activeSpecialtyId,
     consultationFee: 25000
   });
   assert.equal(creation.status, 201);
@@ -3050,12 +3056,14 @@ test('public directory and catalog responses use allowlisted DTOs', async () => 
   assert.equal(doctors.headers['cache-control'], undefined);
   for (const doctor of doctors.body) {
     assert.deepEqual(Object.keys(doctor).sort(), [
-      'consultationFee', 'fullNameAr', 'fullNameEn', 'id', 'specialtyAr', 'specialtyEn'
+      'consultationFee', 'fullNameAr', 'fullNameEn', 'id', 'specialty', 'specialtyAr', 'specialtyEn'
     ]);
     assert.equal(Object.hasOwn(doctor, 'userId'), false);
+    assert.equal(Object.hasOwn(doctor, 'specialtyId'), false);
     assert.equal(Object.hasOwn(doctor, 'weeklySchedule'), false);
     assert.equal(Object.hasOwn(doctor, 'status'), false);
     assert.equal(Object.hasOwn(doctor, 'updatedAt'), false);
+    if (doctor.specialty) assert.deepEqual(Object.keys(doctor.specialty).sort(), ['id', 'nameAr', 'nameEn']);
   }
 
   const services = await api.get('/api/billing/services');
@@ -3098,8 +3106,9 @@ test('public directory and catalog responses use allowlisted DTOs', async () => 
     'appointmentDate', 'appointmentTime', 'bookingReference', 'doctor', 'id', 'status'
   ]);
   assert.deepEqual(Object.keys(booking.body.doctor).sort(), [
-    'consultationFee', 'fullNameAr', 'fullNameEn', 'id', 'specialtyAr', 'specialtyEn'
+    'consultationFee', 'fullNameAr', 'fullNameEn', 'id', 'specialty', 'specialtyAr', 'specialtyEn'
   ]);
+  if (booking.body.doctor.specialty) assert.deepEqual(Object.keys(booking.body.doctor.specialty).sort(), ['id', 'nameAr', 'nameEn']);
   assert.match(booking.body.bookingReference, /^[0-9A-F]{8}$/);
   for (const field of ['patient', 'patientId', 'userId', 'weeklySchedule', 'whatsAppLinkAr', 'whatsAppLinkEn']) {
     assert.equal(Object.hasOwn(booking.body, field), false);
@@ -3261,7 +3270,7 @@ test('operational patient search is exact for national ID, bounded, and safely p
 test('patient file numbers are server-assigned, searchable, and immutable', async () => {
   const suffix = String(++fixtureCounter).padStart(7, '0').slice(-7);
   const response = await api.post('/api/patients').set(auth('reception')).send({
-    fullNameAr: 'مريض رقم الملف', fullNameEn: 'File Number Patient', gender: 'MALE', dateOfBirth: '1971-07-07',
+    ...structuredPatientName('filenumber'), gender: 'MALE', dateOfBirth: '1971-07-07',
     phone: `+24998${suffix}`, addressStateId: 1
   });
   assert.equal(response.status, 201);
@@ -3270,7 +3279,7 @@ test('patient file numbers are server-assigned, searchable, and immutable', asyn
   assert.equal(patient.fileNumber, response.body.fileNumber);
   assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'PATIENT_FILE_CREATED', details: { contains: response.body.fileNumber } } }), 1);
   const injected = await api.post('/api/patients').set(auth('reception')).send({
-    fullNameAr: 'مريض حقول محظورة', fullNameEn: 'Forbidden Fields Patient', gender: 'FEMALE', dateOfBirth: '1972-08-08',
+    ...structuredPatientName('forbiddenfields'), gender: 'FEMALE', dateOfBirth: '1972-08-08',
     phone: `+24998${String(++fixtureCounter).padStart(7, '0').slice(-7)}`, addressStateId: 1, fileNumber: 'SHF-999999', mrn: 'SHF-999999'
   });
   assert.equal(injected.status, 422);
@@ -3334,7 +3343,7 @@ test('receptionist new-patient creation warns without merging and existing selec
   } });
   const before = await prisma.patient.count();
   const response = await api.post('/api/patients').set(auth('reception')).send({
-    fullNameAr: 'اسم جديد مشابه', fullNameEn: 'Similar New Name', gender: 'FEMALE', dateOfBirth: '1993-05-04',
+    ...structuredPatientName('similarnew'), gender: 'FEMALE', dateOfBirth: '1993-05-04',
     phone: '092 ' + phone.slice(-7), addressStateId: 1
   });
   assert.equal(response.status, 409);
@@ -3357,7 +3366,7 @@ test('walk-in NEW mode warns on a possible patient duplicate before creating eit
   const response = await api.post('/api/appointments/walk-in').set(auth('reception')).send({
     mode: 'NEW', doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot,
     patient: {
-      fullNameAr: 'اسم مشابه للدخول', fullNameEn: 'Similar Walk-in Name', gender: 'MALE',
+      ...structuredPatientName('similarwalkin'), gender: 'MALE',
       dateOfBirth: '1986-06-06', phone, addressStateId: 1
     }
   });
@@ -3372,7 +3381,7 @@ test('concurrent receptionist registration preserves database-enforced national-
   const suffix = String(++fixtureCounter).padStart(7, '0').slice(-7);
   const nationalId = `CONCURRENT-${suffix}`;
   const create = (label) => api.post('/api/patients').set(auth('reception')).send({
-    fullNameAr: `مريض متزامن ${label}`, fullNameEn: `Concurrent Patient ${label}`, gender: 'FEMALE',
+    ...structuredPatientName(`concurrent${label}`), gender: 'FEMALE',
     dateOfBirth: label === 'A' ? '1981-01-01' : '1982-02-02', nationalId,
     phone: `+24997${suffix.slice(0, -1)}${label === 'A' ? '1' : '2'}`, addressStateId: 1
   });
@@ -6958,7 +6967,7 @@ test('public booking never attaches an appointment by phone alone', async () => 
   const otp = await api.post('/api/appointments/otp/request').send({ phone: `093 ${phone.slice(-7)}` });
   assert.equal(otp.status, 200);
   const response = await api.post('/api/appointments/book').send({
-    ...slot, fullNameAr: 'مريض آخر بنفس الهاتف', fullNameEn: 'Different Shared Phone Patient', gender: 'FEMALE',
+    ...slot, ...structuredPatientName('phoneonly'), gender: 'FEMALE',
     dateOfBirth: '1995-05-05', phone, addressStateId: 1, otpCode: otp.body.developmentCode
   });
   assert.equal(response.status, 201);
@@ -6973,12 +6982,12 @@ test('public booking reuses only a strong exact identity and rejects mismatched 
   const phone = `+24994${String(++fixtureCounter).padStart(7, '0').slice(-7)}`;
   const nationalId = `PUBLIC-${String(++fixtureCounter).padStart(7, '0').slice(-7)}`;
   const existing = await prisma.patient.create({ data: {
-    fullNameAr: 'مريض تطابق قوي', fullNameEn: 'Strong Match Patient', gender: 'MALE', dateOfBirth: '1987-07-07',
+    ...structuredPatientName('strongmatch'), fullNameAr: 'مريض اختبار أحمد أسرةstrongmatch', fullNameEn: 'Patient Test Ahmed Familystrongmatch', gender: 'MALE', dateOfBirth: '1987-07-07',
     nationalId, phone, addressStateId: 1, emergencyContact: 'Self'
   } });
   const otp = await api.post('/api/appointments/otp/request').send({ phone });
   const matched = await api.post('/api/appointments/book').send({
-    ...firstSlot, fullNameAr: existing.fullNameAr, fullNameEn: existing.fullNameEn, gender: existing.gender,
+    ...firstSlot, ...structuredPatientName('strongmatch'), gender: existing.gender,
     dateOfBirth: existing.dateOfBirth, nationalId: nationalId.toLowerCase(), phone, addressStateId: 1, otpCode: otp.body.developmentCode
   });
   assert.equal(matched.status, 201);
@@ -6989,7 +6998,7 @@ test('public booking reuses only a strong exact identity and rejects mismatched 
   const secondSlot = await findAvailableAppointmentSlot(doctor1.id);
   const otp2 = await api.post('/api/appointments/otp/request').send({ phone });
   const mismatched = await api.post('/api/appointments/book').send({
-    ...secondSlot, fullNameAr: 'هوية مختلفة', fullNameEn: 'Different Identity', gender: 'FEMALE',
+    ...secondSlot, ...structuredPatientName('mismatch'), gender: 'FEMALE',
     dateOfBirth: '1999-09-09', nationalId, phone, addressStateId: 1, otpCode: otp2.body.developmentCode
   });
   assert.equal(mismatched.status, 409);
@@ -7053,7 +7062,7 @@ test('cancellation racing with a competing booking preserves one active slot', a
   assert.equal(otp.status, 200);
   const [cancel, booking] = await Promise.all([
     api.post(`/api/patient/appointments/${appointment.id}/cancel`).set({ Authorization: `Bearer ${owner.token}` }),
-    api.post('/api/appointments/book').send({ doctorId: doctor1.id, appointmentDate: slot.appointmentDate, appointmentTime: slot.appointmentTime, fullNameAr: 'مريض حجز متنافس', fullNameEn: 'Race Booking Patient', gender: 'FEMALE', dateOfBirth: '1991-01-01', phone, addressStateId: 1, otpCode: otp.body.developmentCode })
+    api.post('/api/appointments/book').send({ doctorId: doctor1.id, appointmentDate: slot.appointmentDate, appointmentTime: slot.appointmentTime, ...structuredPatientName('racebooking'), gender: 'FEMALE', dateOfBirth: '1991-01-01', phone, addressStateId: 1, otpCode: otp.body.developmentCode })
   ]);
   assert.ok([200, 409].includes(cancel.status));
   assert.ok([201, 409].includes(booking.status));
@@ -7103,9 +7112,7 @@ test('patient login reports whether the medical record is linked', async () => {
   const register = await api
     .post('/api/patient-auth/register')
     .send({
-      fullName: 'Patient Linkage Test',
-      fullNameAr: 'مريض اختبار الربط',
-      fullNameEn: 'Patient Linkage Test',
+      ...structuredPatientName('patientlinkage'),
       phone,
       email,
       dateOfBirth: '1994-04-15',
@@ -8199,7 +8206,7 @@ async function createAdditionalPaidPrescriptionForDrug({ drugId, patientId = pat
 async function bookingPayload(date, time, phone) {
   const otp = await api.post('/api/appointments/otp/request').send({ phone });
   assert.equal(otp.status, 200);
-  return { doctorId: doctor1.id, appointmentDate: date, appointmentTime: time, fullNameAr: 'مريض حجز', fullNameEn: 'Booking Patient', gender: 'MALE', dateOfBirth: '1990-01-01', phone, addressStateId: 1, otpCode: otp.body.developmentCode };
+  return { doctorId: doctor1.id, appointmentDate: date, appointmentTime: time, ...structuredPatientName(`booking${phone}`), gender: 'MALE', dateOfBirth: '1990-01-01', phone, addressStateId: 1, otpCode: otp.body.developmentCode };
 }
 
 
@@ -8213,9 +8220,7 @@ test('patient can securely change verified email', async () => {
   const register = await api
     .post('/api/patient-auth/register')
     .send({
-      fullName: 'Profile Email Test',
-      fullNameAr: 'اختبار تغيير البريد',
-      fullNameEn: 'Profile Email Test',
+      ...structuredPatientName('profileemail'),
       phone,
       email: currentEmail,
       dateOfBirth: '1994-04-15',
@@ -8311,9 +8316,7 @@ test('patient phone change updates account and patient but remains unverified', 
   const register = await api
     .post('/api/patient-auth/register')
     .send({
-      fullName: 'Profile Phone Test',
-      fullNameAr: 'اختبار تغيير الهاتف',
-      fullNameEn: 'Profile Phone Test',
+      ...structuredPatientName('profilephone'),
       phone,
       email,
       dateOfBirth: '1993-03-12',
@@ -8407,9 +8410,7 @@ test('patient profile persists blood type', async () => {
   const register = await api
     .post('/api/patient-auth/register')
     .send({
-      fullName: 'Profile Blood Type Test',
-      fullNameAr: 'اختبار فصيلة الدم',
-      fullNameEn: 'Profile Blood Type Test',
+      ...structuredPatientName('profileblood'),
       phone,
       email,
       dateOfBirth: '1992-02-10',
@@ -8480,9 +8481,7 @@ test('patient lab results stay hidden until released and expose released standar
   const register = await api
     .post('/api/patient-auth/register')
     .send({
-      fullName: 'Laboratory Patient Test',
-      fullNameAr: 'مريض اختبار المختبر',
-      fullNameEn: 'Laboratory Patient Test',
+      ...structuredPatientName('laboratorypatient'),
       phone,
       email,
       dateOfBirth: '1991-05-17',
@@ -8767,9 +8766,7 @@ test('login self-heals orphan patient account by creating missing patient record
   const register = await api
     .post('/api/patient-auth/register')
     .send({
-      fullName: 'Orphan Create Test',
-      fullNameAr: 'اختبار إصلاح الحساب',
-      fullNameEn: 'Orphan Create Test',
+      ...structuredPatientName('orphancreate'),
       phone,
       email,
       dateOfBirth,
@@ -8838,7 +8835,7 @@ test('login self-heals orphan patient account by creating missing patient record
 
   assert.ok(healedPatient);
   assert.match(healedPatient.fileNumber, /^SHF-\d+$/);
-  assert.equal(healedPatient.fullNameEn, 'Orphan Create Test');
+  assert.equal(healedPatient.fullNameEn, 'Patient Test Ahmed Familyorphancreate');
   assert.equal(healedPatient.dateOfBirth, dateOfBirth);
   assert.equal(healedPatient.phone, phone);
 
@@ -8867,9 +8864,7 @@ test('login self-heals orphan account by linking exactly one existing unclaimed 
   const register = await api
     .post('/api/patient-auth/register')
     .send({
-      fullName: 'Orphan Link Test',
-      fullNameAr: 'اختبار ربط الحساب',
-      fullNameEn: 'Orphan Link Test',
+      ...structuredPatientName('orphanlink'),
       phone,
       email,
       dateOfBirth,
@@ -8967,9 +8962,7 @@ test('login does not auto-link orphan account when multiple patient records matc
   const register = await api
     .post('/api/patient-auth/register')
     .send({
-      fullName: 'Orphan Ambiguous Test',
-      fullNameAr: 'اختبار التطابق المتعدد',
-      fullNameEn: 'Orphan Ambiguous Test',
+      ...structuredPatientName('orphanambiguous'),
       phone,
       email,
       dateOfBirth,
@@ -9074,9 +9067,7 @@ test('email-only verification never auto-links an existing medical record', asyn
   const register = await api
     .post('/api/patient-auth/register')
     .send({
-      fullName: 'Email Only Security Test',
-      fullNameAr: 'اختبار أمان البريد فقط',
-      fullNameEn: 'Email Only Security Test',
+      ...structuredPatientName('emailonly'),
       phone,
       email,
       dateOfBirth,

@@ -9,6 +9,7 @@ const api = request(app);
 const password = 'StrongPass123';
 let adminToken, receptionToken, doctorToken;
 const auth = (token) => ({ Authorization: `Bearer ${token}` });
+const structuredName = { firstNameAr: 'مريض', fatherNameAr: 'اختبار', grandfatherNameAr: 'أحمد', familyNameAr: 'الأسرة', firstNameEn: 'Offline', fatherNameEn: 'Test', grandfatherNameEn: 'Patient', familyNameEn: 'Family' };
 
 async function createPatient(phone, dob = '1980-01-01') {
   return prisma.patient.create({ data: { fullNameAr: 'مريض اختبار', fullNameEn: 'Offline Test', gender: 'MALE', dateOfBirth: dob, phone, addressStateId: 1, emergencyContact: 'Self' } });
@@ -26,7 +27,7 @@ before(async () => {
 after(async () => { process.env.VERIFICATION_PROVIDER = 'development'; await prisma.$disconnect(); if (httpServer.listening) await new Promise((resolve) => httpServer.close(resolve)); });
 
 test('offline public registration and password recovery fail closed without creating a pending account or pretending delivery', async () => {
-  const registration = await api.post('/api/patient-auth/register').send({ fullName: 'Offline User', phone: '+250788200001', email: 'offline-registration@example.com', dateOfBirth: '1990-01-01', gender: 'MALE', password });
+  const registration = await api.post('/api/patient-auth/register').send({ ...structuredName, phone: '+250788200001', email: 'offline-registration@example.com', dateOfBirth: '1990-01-01', gender: 'MALE', password });
   assert.equal(registration.status, 503);
   assert.equal(registration.body.error.code, 'VERIFICATION_UNAVAILABLE');
   assert.equal(await prisma.user.count({ where: { email: 'offline-registration@example.com' } }), 0);

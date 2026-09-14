@@ -53,6 +53,8 @@ model Doctor {
   fullNameEn      String
   specialtyAr     String
   specialtyEn     String
+  specialtyId     String?
+  specialty       Specialty?      @relation(fields: [specialtyId], references: [id])
   consultationFee Decimal
   weeklySchedule  String // JSON config of slots & hours
   status          String          @default("ACTIVE") // ACTIVE, INACTIVE
@@ -63,11 +65,30 @@ model Doctor {
   labOrders       LabOrder[]
 }
 
+model Specialty {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  nameAr    String
+  nameEn    String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  doctors   Doctor[]
+}
+
 model Patient {
   id                       String             @id @default(uuid())
   fileNumber               String             @unique @default(dbgenerated("('SHF-'::text || lpad(nextval('patient_file_number_seq'::regclass)::text, 6, '0'::text))"))
   fullNameAr               String
   fullNameEn               String
+  firstNameAr              String?
+  fatherNameAr             String?
+  grandfatherNameAr        String?
+  familyNameAr             String?
+  firstNameEn              String?
+  fatherNameEn             String?
+  grandfatherNameEn        String?
+  familyNameEn             String?
   gender                   String // MALE, FEMALE
   dateOfBirth              String // YYYY-MM-DD
   nationalId               String?            @unique
@@ -360,6 +381,14 @@ model PatientRegistration {
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   fullNameAr     String
   fullNameEn     String
+  firstNameAr    String?
+  fatherNameAr   String?
+  grandfatherNameAr String?
+  familyNameAr   String?
+  firstNameEn    String?
+  fatherNameEn   String?
+  grandfatherNameEn String?
+  familyNameEn   String?
   gender         String
   dateOfBirth    String
   addressStateId Int

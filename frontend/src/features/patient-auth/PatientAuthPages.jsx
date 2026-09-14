@@ -460,7 +460,8 @@ export function PatientForgotPassword(){
 export function PatientRegister(){
   const{t}=useTranslation();const navigate=useNavigate();
   const[form,setForm]=useState({
-    fullName:'',
+    firstNameAr:'', fatherNameAr:'', grandfatherNameAr:'', familyNameAr:'',
+    firstNameEn:'', fatherNameEn:'', grandfatherNameEn:'', familyNameEn:'',
     countryCode:'+249',
     phone:'',
     email:'',
@@ -540,7 +541,9 @@ async function resendVerification(){
     setLoading(false);
   }
 }
-  return <AuthShell title={t('createPatientAccount')}>{!challenge?<form onSubmit={register}><Field label={t('fullName')} value={form.fullName} onChange={fullName=>setForm({...form,fullName})} error={fieldErrors.fullName}/><label className="patient-field">
+  return <AuthShell title={t('createPatientAccount')}>{!challenge?<form onSubmit={register}>
+  {['firstNameAr','fatherNameAr','grandfatherNameAr','familyNameAr','firstNameEn','fatherNameEn','grandfatherNameEn','familyNameEn'].map((field)=><Field key={field} label={t(field)} value={form[field]} onChange={(value)=>setForm({...form,[field]:value})} error={fieldErrors[field]}/>)}
+  <label className="patient-field">
   {t('phone')}
   <div style={{display:'grid',gridTemplateColumns:'150px 1fr',gap:'.5rem'}}>
     <select
@@ -922,4 +925,4 @@ function OfflineActivation(){
 function AuthShell({title,children}){const{t}=useTranslation();return <main className="patient-auth-shell"><aside className="patient-auth-aside"><Link to="/"><HeartPulse size={24}/>{t('brandName')}</Link><div><h2>{title}</h2><p>{t('secureAccessDescription')}</p></div></aside><div className="patient-auth-content"><section className="patient-card patient-auth"><h1>{title}</h1>{children}</section></div></main>}
 function Field({label,type='text',value,onChange,autoComplete,error}){return <><label className="patient-field">{label}<input type={type} value={value} onChange={event=>onChange(event.target.value)} autoComplete={autoComplete} required aria-invalid={Boolean(error)}/></label>{error&&<span className="field-error">{error}</span>}</>}
 function Alert({children}){return <div className="patient-alert error" role="alert">{children}</div>}
-function friendlyValidation(field,message,t){if(field==='password'){if(/uppercase/i.test(message))return t('passwordUpper');if(/lowercase/i.test(message))return t('passwordLower');if(/number/i.test(message))return t('passwordNumber');return t('passwordMin')}if(field==='email')return t('emailInvalid');if(field==='phone')return t('phoneInvalid');if(field==='fullName')return t('fullNameInvalid');if(field==='dateOfBirth')return t('dateInvalid');return t('fieldInvalid')}
+function friendlyValidation(field,message,t){if(field==='password'){if(/uppercase/i.test(message))return t('passwordUpper');if(/lowercase/i.test(message))return t('passwordLower');if(/number/i.test(message))return t('passwordMin')}if(field==='email')return t('emailInvalid');if(field==='phone')return t('phoneInvalid');if(/Name(?:Ar|En)$/.test(field))return t('fullNameInvalid');if(field==='dateOfBirth')return t('dateInvalid');return t('fieldInvalid')}

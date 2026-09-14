@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { getClinicDateString } from '../utils/clinicTime.js';
 import { findPossiblePatientDuplicates, normalizeFileNumber, normalizeNationalId, normalizePatientPhone, safeDuplicateCandidates } from '../utils/patientIdentity.js';
+import { structuredPatientName, structuredPatientNameSchema } from '../utils/patientName.js';
 
 const router = express.Router();
 
@@ -32,6 +33,10 @@ router.get('/search', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST),
       where: { status: 'ACTIVE', ...(exact?.id ? { id: { not: exact.id } } : {}), OR: [
         { fullNameAr: { contains: q, mode: 'insensitive' } },
         { fullNameEn: { contains: q, mode: 'insensitive' } },
+        { firstNameAr: { contains: q, mode: 'insensitive' } }, { fatherNameAr: { contains: q, mode: 'insensitive' } },
+        { grandfatherNameAr: { contains: q, mode: 'insensitive' } }, { familyNameAr: { contains: q, mode: 'insensitive' } },
+        { firstNameEn: { contains: q, mode: 'insensitive' } }, { fatherNameEn: { contains: q, mode: 'insensitive' } },
+        { grandfatherNameEn: { contains: q, mode: 'insensitive' } }, { familyNameEn: { contains: q, mode: 'insensitive' } },
         { phone: { contains: q } },
         ...(exactNationalId ? [{ nationalId: exactNationalId }] : [])
       ] },
@@ -124,8 +129,7 @@ router.post('/', authenticate, checkRoles('ADMIN', 'RECEPTIONIST'), (req, res, n
     return sendError(res, 422, 'PATIENT_IDENTITY_FIELD_FORBIDDEN', 'Patient file identity fields cannot be supplied by the client.');
   }
   return next();
-}, validate(z.object({
-  fullNameAr: z.string().trim().min(2).max(150), fullNameEn: z.string().trim().min(2).max(150),
+}, validate(structuredPatientNameSchema.extend({
   gender: z.enum(['MALE', 'FEMALE']), dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   nationalId: z.string().trim().max(30).optional(), phone: z.string().trim().min(7).max(30),
   addressStateId: z.coerce.number().int().min(1).max(18), addressDetails: z.string().trim().max(300).optional(),
@@ -133,8 +137,6 @@ router.post('/', authenticate, checkRoles('ADMIN', 'RECEPTIONIST'), (req, res, n
   insuranceAttachmentPath: z.string().max(300).optional()
 })), async (req, res) => {
   const {
-    fullNameAr,
-    fullNameEn,
     gender,
     dateOfBirth,
     nationalId,
@@ -146,7 +148,7 @@ router.post('/', authenticate, checkRoles('ADMIN', 'RECEPTIONIST'), (req, res, n
     insuranceAttachmentPath
   } = req.body;
 
-  if (!fullNameAr || !fullNameEn || !gender || !dateOfBirth || !phone || !addressStateId) {
+  if (!gender || !dateOfBirth || !phone || !addressStateId) {
     return res.status(400).json({ error: 'Missing mandatory registration fields.' });
   }
 
@@ -166,7 +168,7 @@ router.post('/', authenticate, checkRoles('ADMIN', 'RECEPTIONIST'), (req, res, n
     const patient = await prisma.$transaction(async (tx) => {
       const created = await tx.patient.create({
         data: {
-          fullNameAr, fullNameEn, gender, dateOfBirth, nationalId: normalizedNationalId,
+          ...structuredPatientName(req.body), gender, dateOfBirth, nationalId: normalizedNationalId,
           phone: normalizedPhone, addressStateId: parseInt(addressStateId), addressDetails,
           emergencyContact: finalEmergencyContact, status: 'ACTIVE',
           nationalIdAttachmentPath: nationalIdAttachmentPath || null,

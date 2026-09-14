@@ -7,8 +7,7 @@ export function buildStaffCreationPayload({
   preferredLanguage,
   fullNameAr,
   fullNameEn,
-  specialtyAr,
-  specialtyEn,
+  specialtyId,
   consultationFee
 }) {
   const payload = { username, password, role };
@@ -18,8 +17,7 @@ export function buildStaffCreationPayload({
     Object.assign(payload, {
       fullNameAr,
       fullNameEn,
-      specialtyAr,
-      specialtyEn,
+      specialtyId,
       consultationFee
     });
   }

@@ -43,7 +43,7 @@ function isAppointmentSlotConflict(error) {
       && ['doctorId', 'appointmentDate', 'appointmentTime'].every((field) => target.includes(field)));
 }
 
-const doctorSelect = { id: true, fullNameAr: true, fullNameEn: true, specialtyAr: true, specialtyEn: true, consultationFee: true, status: true };
+const doctorSelect = { id: true, fullNameAr: true, fullNameEn: true, specialtyAr: true, specialtyEn: true, specialty: { select: { id: true, nameAr: true, nameEn: true } }, consultationFee: true, status: true };
 
 const recoveryIdentityLimiter = createLoginLimiter({ windowMs: rateLimits.windowMs, limit: rateLimits.verification });
 router.get('/me', async (req, res) => {
@@ -135,9 +135,8 @@ router.get('/doctors', async (req, res) => {
 });
 
 router.get('/specialties', async (req, res) => {
-  const doctors = await prisma.doctor.findMany({ where: { status: 'ACTIVE' }, select: { specialtyAr: true, specialtyEn: true } });
-  const specialties = [...new Map(doctors.map((doctor) => [doctor.specialtyEn.trim().toLowerCase(), { labelAr: doctor.specialtyAr, labelEn: doctor.specialtyEn }])).values()];
-  return res.json(specialties);
+  const specialties = await prisma.specialty.findMany({ where: { active: true }, select: { id: true, nameAr: true, nameEn: true }, orderBy: { nameEn: 'asc' } });
+  return res.json(specialties.map(({ id, nameAr, nameEn }) => ({ id, labelAr: nameAr, labelEn: nameEn })));
 });
 
 router.get('/doctors/:id', async (req, res) => {

@@ -40,6 +40,19 @@ async function main() {
     });
   }
 
+  // Reference catalog only. This seed is guarded by assertDemoSeedAllowed(),
+  // so it never becomes an implicit production data path.
+  const specialties = [
+    { code: 'surgery', nameAr: 'الجراحة', nameEn: 'Surgery' },
+    { code: 'dentistry', nameAr: 'طب الأسنان', nameEn: 'Dentistry' },
+    { code: 'orthopedics', nameAr: 'جراحة العظام', nameEn: 'Orthopedics' },
+    { code: 'internal-medicine', nameAr: 'الباطنية', nameEn: 'Internal Medicine' },
+    { code: 'neurology', nameAr: 'طب الأعصاب', nameEn: 'Neurology' }
+  ];
+  for (const specialty of specialties) {
+    await prisma.specialty.upsert({ where: { code: specialty.code }, update: { nameAr: specialty.nameAr, nameEn: specialty.nameEn, active: true }, create: specialty });
+  }
+
   // 2. Hash default passwords
   const adminPasswordHash = await bcrypt.hash('Admin@123', 10);
   const recepPasswordHash = await bcrypt.hash('Receptionist@123', 10);

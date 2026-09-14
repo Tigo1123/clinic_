@@ -8,6 +8,7 @@ import { filterStaffUsers, isStaffRole } from '../../utils/staffRoles';
 import AuditLogPanel from './AuditLogPanel';
 import AnalyticsPanel from './AnalyticsPanel';
 import ClinicProfilePanel from './ClinicProfilePanel';
+import SpecialtyRow from './SpecialtyRow';
 
 export default function AdminDashboard({ user, lang, t }) {
   const [activeTab, setActiveTab] = useState('profile');
@@ -25,8 +26,10 @@ export default function AdminDashboard({ user, lang, t }) {
   const [newRole, setNewRole] = useState('RECEPTIONIST');
   const [newFullNameAr, setNewFullNameAr] = useState('');
   const [newFullNameEn, setNewFullNameEn] = useState('');
-  const [newSpecialtyAr, setNewSpecialtyAr] = useState('طب عام');
-  const [newSpecialtyEn, setNewSpecialtyEn] = useState('General Medicine');
+  const [specialties, setSpecialties] = useState([]);
+  const [newSpecialtyId, setNewSpecialtyId] = useState('');
+  const [specialtyDraft, setSpecialtyDraft] = useState({ code: '', nameAr: '', nameEn: '' });
+  const [specialtyError, setSpecialtyError] = useState('');
   const [newConsultationFee, setNewConsultationFee] = useState('20000');
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -42,6 +45,22 @@ export default function AdminDashboard({ user, lang, t }) {
   const [revokePending, setRevokePending] = useState(false);
   const newPasswordChecks = getStaffPasswordChecks(newPassword);
   const resetPasswordChecks = getStaffPasswordChecks(resetNewPassword);
+  useEffect(() => {
+    fetchWithAuth('/api/specialties').then((response) => response.ok ? response.json() : []).then(setSpecialties).catch(() => setSpecialties([]));
+  }, []);
+  const reloadSpecialties = () => fetchWithAuth('/api/specialties').then((response) => response.ok ? response.json() : []).then(setSpecialties);
+  const createSpecialty = async (event) => {
+    event.preventDefault(); setSpecialtyError('');
+    const response = await fetchWithAuth('/api/specialties', { method: 'POST', body: JSON.stringify({ ...specialtyDraft, active: true }) });
+    if (!response.ok) { setSpecialtyError(apiErrorMessage(await response.json().catch(() => ({})), lang === 'ar' ? 'تعذر إنشاء التخصص.' : 'Unable to create specialty.')); return; }
+    setSpecialtyDraft({ code: '', nameAr: '', nameEn: '' }); await reloadSpecialties();
+  };
+  const saveSpecialty = async (specialty) => {
+    setSpecialtyError('');
+    const response = await fetchWithAuth(`/api/specialties/${specialty.id}`, { method: 'PATCH', body: JSON.stringify({ code: specialty.code, nameAr: specialty.nameAr, nameEn: specialty.nameEn, active: specialty.active }) });
+    if (!response.ok) { setSpecialtyError(apiErrorMessage(await response.json().catch(() => ({})), lang === 'ar' ? 'تعذر حفظ التخصص.' : 'Unable to save specialty.')); return; }
+    await reloadSpecialties();
+  };
 
   const roleLabels = {
     ADMIN: { ar: 'مدير النظام', en: 'Administrator' },
@@ -178,8 +197,7 @@ export default function AdminDashboard({ user, lang, t }) {
           role: newRole,
           fullNameAr: newFullNameAr,
           fullNameEn: newFullNameEn,
-          specialtyAr: newSpecialtyAr,
-          specialtyEn: newSpecialtyEn,
+          specialtyId: newSpecialtyId,
           consultationFee: newConsultationFee
         }))
       });
@@ -190,8 +208,7 @@ export default function AdminDashboard({ user, lang, t }) {
         setNewPassword('');
         setNewFullNameAr('');
         setNewFullNameEn('');
-        setNewSpecialtyAr('طب عام');
-        setNewSpecialtyEn('General Medicine');
+        setNewSpecialtyId('');
         setNewConsultationFee('20000');
         // Reload list
         fetchWithAuth('/api/auth/users')
@@ -350,6 +367,7 @@ export default function AdminDashboard({ user, lang, t }) {
             <DollarSign size={18} />
             {lang === 'ar' ? 'إدارة الأسعار' : 'Pricing Management'}
           </button>
+          <button className={`menu-btn ${activeTab === 'specialties' ? 'active' : ''}`} onClick={() => setActiveTab('specialties')}><Sliders size={18}/>{lang === 'ar' ? 'التخصصات' : 'Specialties'}</button>
           <button
             className={`menu-btn ${activeTab === 'analytics' ? 'active' : ''}`}
             onClick={() => setActiveTab('analytics')}
@@ -452,26 +470,7 @@ export default function AdminDashboard({ user, lang, t }) {
                         onChange={(e) => setNewFullNameEn(e.target.value)}
                       />
                     </div>
-                    <div className="form-group">
-                      <label className="form-label">{lang === 'ar' ? 'التخصص (عربي)' : 'Specialty (Arabic)'}</label>
-                      <input
-                        type="text"
-                        required
-                        className="form-input"
-                        value={newSpecialtyAr}
-                        onChange={(e) => setNewSpecialtyAr(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">{lang === 'ar' ? 'التخصص (إنجليزي)' : 'Specialty (English)'}</label>
-                      <input
-                        type="text"
-                        required
-                        className="form-input"
-                        value={newSpecialtyEn}
-                        onChange={(e) => setNewSpecialtyEn(e.target.value)}
-                      />
-                    </div>
+                    <div className="form-group"><label className="form-label">{lang === 'ar' ? 'التخصص' : 'Specialty'}</label><select required className="form-input" value={newSpecialtyId} onChange={(e) => setNewSpecialtyId(e.target.value)}><option value="">{lang === 'ar' ? 'اختر التخصص' : 'Select specialty'}</option>{specialties.filter((specialty) => specialty.active).map((specialty) => <option key={specialty.id} value={specialty.id}>{lang === 'ar' ? specialty.nameAr : specialty.nameEn}</option>)}</select></div>
                     <div className="form-group">
                       <label className="form-label">{lang === 'ar' ? 'رسوم الكشف (جنيه سوداني)' : 'Consultation Fee (SDG)'}</label>
                       <input
@@ -628,6 +627,8 @@ export default function AdminDashboard({ user, lang, t }) {
             )}
           </div>
         )}
+
+        {activeTab === 'specialties' && <div className="glass-panel" style={{ padding: '1.5rem' }}><h3>{lang === 'ar' ? 'إدارة التخصصات' : 'Specialty management'}</h3>{specialtyError && <div className="badge badge-danger">{specialtyError}</div>}<form onSubmit={createSpecialty} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem', margin: '1rem 0' }}><input required className="form-input" placeholder={lang === 'ar' ? 'رمز التخصص' : 'Specialty code'} value={specialtyDraft.code} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, code: e.target.value }))}/><input required className="form-input" placeholder={lang === 'ar' ? 'الاسم بالعربية' : 'Arabic name'} value={specialtyDraft.nameAr} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, nameAr: e.target.value }))}/><input required className="form-input" placeholder={lang === 'ar' ? 'الاسم بالإنجليزية' : 'English name'} value={specialtyDraft.nameEn} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, nameEn: e.target.value }))}/><button className="btn btn-primary">{lang === 'ar' ? 'إضافة' : 'Add'}</button></form><div className="table-wrap"><table><thead><tr><th>{lang === 'ar' ? 'الرمز' : 'Code'}</th><th>{lang === 'ar' ? 'العربية' : 'Arabic'}</th><th>{lang === 'ar' ? 'الإنجليزية' : 'English'}</th><th>{lang === 'ar' ? 'الحالة' : 'Status'}</th><th>{lang === 'ar' ? 'حفظ' : 'Save'}</th></tr></thead><tbody>{specialties.map((specialty) => <SpecialtyRow key={specialty.id} specialty={specialty} lang={lang} onSave={saveSpecialty}/>)}</tbody></table></div></div>}
 
         {activeTab === 'analytics' && (
           <AnalyticsPanel

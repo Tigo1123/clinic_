@@ -15,6 +15,7 @@ import { markSensitiveResponse } from '../utils/edgeSecurity.js';
 import { configuredSlots, DATE_PATTERN, TIME_PATTERN, todayString } from '../utils/scheduling.js';
 import { findPossiblePatientDuplicates, normalizeNationalId, normalizePatientPhone, safeDuplicateCandidates } from '../utils/patientIdentity.js';
 import { publicDoctorSelect, toPublicBookingConfirmation, toPublicDoctor } from '../utils/publicDto.js';
+import { structuredPatientName, structuredPatientNameSchema } from '../utils/patientName.js';
 
 const router = express.Router();
 const otpLimiter = rateLimit({ windowMs: rateLimits.windowMs, limit: rateLimits.verification, standardHeaders: 'draft-7', legacyHeaders: false });
@@ -68,9 +69,7 @@ function isEmergencyOverrideConflict(error) {
     && String(error.message || '').includes('EmergencyOverride_appointmentId_key');
 }
 
-const walkInPatientSchema = z.object({
-  fullNameAr: z.string().trim().min(2).max(150),
-  fullNameEn: z.string().trim().min(2).max(150),
+const walkInPatientSchema = structuredPatientNameSchema.extend({
   gender: z.enum(['MALE', 'FEMALE']),
   dateOfBirth: z.string().regex(DATE_PATTERN),
   nationalId: z.string().trim().max(30).optional(),
@@ -156,9 +155,8 @@ router.post('/otp/request', otpLimiter, async (req, res) => {
  * POST /api/appointments/book
  * Public patient booking submission. Handles verification check & rate limit check (2 per day per phone).
  */
-router.post('/book', validate(z.object({
+router.post('/book', validate(structuredPatientNameSchema.extend({
   doctorId: z.string().uuid(), appointmentDate: z.string().regex(DATE_PATTERN), appointmentTime: z.string().regex(TIME_PATTERN),
-  fullNameAr: z.string().trim().min(2).max(150), fullNameEn: z.string().trim().min(2).max(150),
   gender: z.enum(['MALE', 'FEMALE']), dateOfBirth: z.string().regex(DATE_PATTERN), nationalId: z.string().trim().max(30).optional(),
   phone: z.string().trim().min(7).max(30), addressStateId: z.coerce.number().int().min(1).max(18), otpCode: z.string().length(6)
 }).strict()), async (req, res) => {
@@ -168,8 +166,6 @@ router.post('/book', validate(z.object({
     doctorId,
     appointmentDate,
     appointmentTime,
-    fullNameAr,
-    fullNameEn,
     gender,
     dateOfBirth,
     nationalId,
@@ -219,8 +215,8 @@ router.post('/book', validate(z.object({
         const identityMatches = normalizePatientPhone(patient.phone) === normalizedPhone
           && patient.dateOfBirth === dateOfBirth
           && patient.gender === gender
-          && patient.fullNameAr.trim() === fullNameAr.trim()
-          && patient.fullNameEn.trim().toLocaleLowerCase('en') === fullNameEn.trim().toLocaleLowerCase('en');
+          && patient.fullNameAr.trim() === structuredPatientName(req.body).fullNameAr
+          && patient.fullNameEn.trim().toLocaleLowerCase('en') === structuredPatientName(req.body).fullNameEn.toLocaleLowerCase('en');
         if (!identityMatches) return sendError(res, 409, 'PATIENT_IDENTITY_REVIEW_REQUIRED', 'The booking could not be linked automatically. Contact reception for identity review.');
       }
     }
@@ -228,8 +224,7 @@ router.post('/book', validate(z.object({
     if (!patient) {
       patient = await prisma.patient.create({
         data: {
-          fullNameAr,
-          fullNameEn,
+          ...structuredPatientName(req.body),
           gender,
           dateOfBirth,
           nationalId: normalizedNationalId,
@@ -388,8 +383,7 @@ router.post('/walk-in', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
         if (candidates.length) throw Object.assign(new Error('A possible existing patient was found. Search and select the existing patient before creating a new walk-in record.'), { status: 409, code: 'POSSIBLE_PATIENT_DUPLICATE', details: safeDuplicateCandidates(candidates) });
         targetPatient = await tx.patient.create({
           data: {
-            fullNameAr: patient.fullNameAr,
-            fullNameEn: patient.fullNameEn,
+            ...structuredPatientName(patient),
             gender: patient.gender,
             dateOfBirth: patient.dateOfBirth,
             nationalId: normalizedNationalId,

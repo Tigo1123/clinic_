@@ -14,6 +14,7 @@ import { rateLimits } from '../config.js';
 import { getClinicDateString } from '../utils/clinicTime.js';
 import { passwordSchema } from '../utils/passwordPolicy.js';
 import { markSensitiveResponse } from '../utils/edgeSecurity.js';
+import { structuredPatientName, structuredPatientNameSchema } from '../utils/patientName.js';
 
 const router = express.Router();
 router.use((req, res, next) => { markSensitiveResponse(res); next(); });
@@ -71,9 +72,8 @@ async function consumeClaimCredential(tx, { credential, patientId, dateOfBirth }
   return consumed.count === 1 ? { claim } : { error: claimFailure() };
 }
 
-router.post('/register', registrationLimiter, validate(z.object({
-  fullName: z.string().trim().min(2).max(150), fullNameAr: z.string().trim().min(2).max(150).optional(),
-  fullNameEn: z.string().trim().min(2).max(150).optional(), phone: z.string().trim().min(7).max(30),
+router.post('/register', registrationLimiter, validate(structuredPatientNameSchema.extend({
+  phone: z.string().trim().min(7).max(30),
   email: z.string().trim().email().max(254), dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   gender: z.enum(['MALE', 'FEMALE']), password: passwordSchema, addressStateId: z.coerce.number().int().min(1).max(18).optional()
 }).strict()), async (req, res, next) => {
@@ -92,9 +92,9 @@ router.post('/register', registrationLimiter, validate(z.object({
         username: email || phoneNormalized, email, phoneNormalized, passwordHash, role: ROLES.PATIENT,
         status: 'PENDING_VERIFICATION', preferredLanguage: 'en'
       } });
+      const name = structuredPatientName(req.body);
       await tx.patientRegistration.create({ data: {
-        userId: created.id, fullNameAr: req.body.fullNameAr || req.body.fullName,
-        fullNameEn: req.body.fullNameEn || req.body.fullName, gender: req.body.gender,
+        userId: created.id, ...name, gender: req.body.gender,
         dateOfBirth: req.body.dateOfBirth, addressStateId: req.body.addressStateId || Number(process.env.DEFAULT_STATE_ID || 1)
       } });
       return created;
@@ -131,6 +131,10 @@ router.post('/verify', verificationLimiter, validate(z.object({ challengeId: z.s
     if (matches.length === 0) {
       const patient = await tx.patient.create({ data: {
         userId: challenge.userId, fullNameAr: registration.fullNameAr, fullNameEn: registration.fullNameEn,
+        firstNameAr: registration.firstNameAr, fatherNameAr: registration.fatherNameAr,
+        grandfatherNameAr: registration.grandfatherNameAr, familyNameAr: registration.familyNameAr,
+        firstNameEn: registration.firstNameEn, fatherNameEn: registration.fatherNameEn,
+        grandfatherNameEn: registration.grandfatherNameEn, familyNameEn: registration.familyNameEn,
         gender: registration.gender, dateOfBirth: registration.dateOfBirth, phone: challenge.user.phoneNormalized,
         addressStateId: registration.addressStateId, emergencyContact: 'Self'
       } });

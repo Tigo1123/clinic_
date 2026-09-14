@@ -8,6 +8,7 @@ export const publicDoctorSelect = Object.freeze({
   fullNameEn: true,
   specialtyAr: true,
   specialtyEn: true,
+  specialty: { select: { id: true, nameAr: true, nameEn: true } },
   consultationFee: true
 });
 
@@ -18,6 +19,7 @@ export function toPublicDoctor(doctor) {
     fullNameEn: doctor.fullNameEn,
     specialtyAr: doctor.specialtyAr,
     specialtyEn: doctor.specialtyEn,
+    specialty: doctor.specialty || null,
     consultationFee: doctor.consultationFee
   };
 }

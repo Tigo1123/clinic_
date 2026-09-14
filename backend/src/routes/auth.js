@@ -27,7 +27,7 @@ router.post('/logout', authenticate, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 export const STAFF_ROLES = ['ADMIN', 'RECEPTIONIST', 'DOCTOR', 'PHARMACIST', 'LAB_TECH'];
-const DOCTOR_CREATION_FIELDS = ['fullNameAr', 'fullNameEn', 'specialtyAr', 'specialtyEn', 'consultationFee'];
+const DOCTOR_CREATION_FIELDS = ['fullNameAr', 'fullNameEn', 'specialtyId', 'consultationFee'];
 
 function isUsernameUniqueViolation(error) {
   if (error?.code !== 'P2002') return false;
@@ -56,8 +56,7 @@ const staffCreationSchema = z.preprocess((input) => {
   preferredLanguage: z.enum(['ar', 'en']).optional(),
   fullNameAr: z.string().trim().min(1, 'Arabic full name cannot be empty.').max(150).optional(),
   fullNameEn: z.string().trim().min(1, 'English full name cannot be empty.').max(150).optional(),
-  specialtyAr: z.string().trim().min(1, 'Arabic specialty cannot be empty.').max(150).optional(),
-  specialtyEn: z.string().trim().min(1, 'English specialty cannot be empty.').max(150).optional(),
+  specialtyId: z.string().uuid().optional(),
   consultationFee: z.coerce.number().int().positive().max(1_000_000_000).optional()
 }));
 
@@ -530,8 +529,8 @@ router.post('/users', authenticate, checkRoles('ADMIN'), validate(staffCreationS
   if (!username || !password || !role) {
     return res.status(400).json({ error: 'Username, password, and role are required.' });
   }
-  if (role === 'DOCTOR' && req.body.consultationFee == null) {
-    return sendError(res, 422, 'CONSULTATION_FEE_REQUIRED', 'A configured consultation fee is required for a doctor account.');
+  if (role === 'DOCTOR' && (req.body.consultationFee == null || !req.body.specialtyId)) {
+    return sendError(res, 422, 'DOCTOR_CONFIGURATION_REQUIRED', 'A consultation fee and active specialty are required for a doctor account.');
   }
 
   try {
@@ -558,6 +557,8 @@ router.post('/users', authenticate, checkRoles('ADMIN'), validate(staffCreationS
       });
 
       if (role === 'DOCTOR') {
+        const specialty = await tx.specialty.findFirst({ where: { id: req.body.specialtyId, active: true } });
+        if (!specialty) throw Object.assign(new Error('Active specialty not found.'), { status: 422, code: 'SPECIALTY_INACTIVE_OR_NOT_FOUND' });
         const docSchedule = JSON.stringify([
           { day: 'Sunday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
           { day: 'Monday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
@@ -573,8 +574,9 @@ router.post('/users', authenticate, checkRoles('ADMIN'), validate(staffCreationS
             userId: createdUser.id,
             fullNameAr: req.body.fullNameAr || `د. ${username.split('@')[0]}`,
             fullNameEn: req.body.fullNameEn || `Dr. ${username.split('@')[0]}`,
-            specialtyAr: req.body.specialtyAr || 'طب عام',
-            specialtyEn: req.body.specialtyEn || 'General Medicine',
+            specialtyId: specialty.id,
+            specialtyAr: specialty.nameAr,
+            specialtyEn: specialty.nameEn,
             consultationFee: req.body.consultationFee,
             weeklySchedule: docSchedule,
             status: 'ACTIVE'
@@ -606,6 +608,9 @@ router.post('/users', authenticate, checkRoles('ADMIN'), validate(staffCreationS
       }
     });
   } catch (error) {
+    if (error?.code === 'SPECIALTY_INACTIVE_OR_NOT_FOUND') {
+      return sendError(res, 422, 'SPECIALTY_INACTIVE_OR_NOT_FOUND', 'The selected specialty is not available.');
+    }
     if (isUsernameUniqueViolation(error)) {
       return sendError(res, 409, 'USERNAME_ALREADY_REGISTERED', 'Username is already registered.');
     }
