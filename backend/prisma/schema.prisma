@@ -342,10 +342,14 @@ model PatientClaimCode {
   patientId   String
   patient     Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
   codeHash    String
+  publicId    String?   @unique
   expiresAt   DateTime
+  attemptCount Int      @default(0)
+  maxAttempts Int       @default(5)
   usedAt      DateTime?
   createdById String
   createdBy   User      @relation("ClaimCodeIssuer", fields: [createdById], references: [id])
+  issuerAuthVersion Int?
   createdAt   DateTime  @default(now())
 
   @@index([patientId, createdAt])

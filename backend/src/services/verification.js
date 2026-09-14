@@ -6,6 +6,7 @@ import { ApiError } from '../utils/apiError.js';
 
 export const registrationPurpose = () => process.env.VERIFICATION_PROVIDER === 'email' ? 'REGISTRATION_EMAIL' : 'REGISTRATION_PHONE';
 const invalid = () => new ApiError(422, 'VERIFICATION_INVALID', 'Verification request is invalid or already used.');
+export const verificationUnavailable = () => new ApiError(503, 'VERIFICATION_UNAVAILABLE', 'Online verification is currently unavailable. Please contact reception to activate your patient account.');
 export async function lockAccount(tx, userId) {
   await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE`;
   return tx.user.findUnique({ where: { id: userId } });
@@ -14,6 +15,9 @@ export async function invalidateChallenges(tx, userId) {
   await tx.verificationChallenge.updateMany({ where: { userId, usedAt: null }, data: { usedAt: new Date() } });
 }
 export async function createVerificationChallenge(user, type, targetNormalized) {
+  // Disabled is an intentional offline operating mode, not a delivery attempt.
+  // Refuse before persisting a challenge so no UI can honestly claim a code was sent.
+  if (process.env.VERIFICATION_PROVIDER === 'disabled') throw verificationUnavailable();
   const code = String(crypto.randomInt(100000, 1000000));
   const codeHash = await bcrypt.hash(code, 10);
   const challenge = await prisma.$transaction(async (tx) => {

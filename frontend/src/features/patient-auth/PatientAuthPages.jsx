@@ -72,7 +72,7 @@ export function PatientLogin(){
       setCode('');
       setMessage(t('verificationResent'));
     }catch(requestError){
-      setError(requestError.message);
+      setError(requestError.code === 'VERIFICATION_UNAVAILABLE' ? t('onlineVerificationUnavailable') : requestError.message);
     }finally{
       setLoading(false);
     }
@@ -288,7 +288,7 @@ export function PatientForgotPassword(){
         setStep('reset');
       }
     }catch(requestError){
-      setError(requestError.message);
+      setError(requestError.code === 'VERIFICATION_UNAVAILABLE' ? t('onlineVerificationUnavailable') : requestError.message);
     }finally{
       setLoading(false);
     }
@@ -477,7 +477,7 @@ const localPhone = payload.phone.trim().replace(/^0+/, '');
 payload.phone = `${payload.countryCode}${localPhone}`;
 delete payload.countryCode;
 
-const data=await apiRequest('/api/patient-auth/register',{method:'POST',body:JSON.stringify(payload)});setChallenge(data)}catch(requestError){const details=Array.isArray(requestError.details)?requestError.details:[];if(details.length){const fields={};for(const detail of details)fields[detail.field]=friendlyValidation(detail.field,detail.message,t);setFieldErrors(fields)}else setError(requestError.message)}finally{setLoading(false)}}
+const data=await apiRequest('/api/patient-auth/register',{method:'POST',body:JSON.stringify(payload)});setChallenge(data)}catch(requestError){const details=Array.isArray(requestError.details)?requestError.details:[];if(details.length){const fields={};for(const detail of details)fields[detail.field]=friendlyValidation(detail.field,detail.message,t);setFieldErrors(fields)}else setError(requestError.code==='VERIFICATION_UNAVAILABLE'?t('onlineVerificationUnavailable'):requestError.message)}finally{setLoading(false)}}
   async function verify(event){
     event.preventDefault();
     setLoading(true);
@@ -752,9 +752,7 @@ export function PatientClaim() {
     });
   }
 
-  if (!user) {
-    return <Navigate to="/patient-login" replace />;
-  }
+  if (!user) return <OfflineActivation />;
 
   if (user.role !== 'PATIENT') {
     return <Navigate to="/" replace />;
@@ -912,6 +910,13 @@ export function PatientClaim() {
       </div>
     </main>
   );
+}
+
+function OfflineActivation(){
+  const { t } = useTranslation(); const navigate = useNavigate();
+  const [form,setForm]=useState({code:'',dateOfBirth:'',email:'',password:'',confirmPassword:''}); const [error,setError]=useState(''); const [loading,setLoading]=useState(false);
+  async function submit(event){event.preventDefault();if(form.password!==form.confirmPassword){setError(t('passwordMismatch'));return;}setLoading(true);setError('');try{await apiRequest('/api/patient-auth/offline-activation',{method:'POST',body:JSON.stringify({code:form.code.trim(),dateOfBirth:form.dateOfBirth,email:form.email.trim()||undefined,password:form.password})});navigate('/patient-login',{state:{message:t('offlineActivationSuccess')}});}catch(e){setError(e.code==='CLAIM_VERIFICATION_FAILED'?t('claimCredentialInvalid'):e.message);}finally{setLoading(false);}}
+  return <AuthShell title={t('offlineActivation')}><p>{t('offlineActivationInstructions')}</p><form onSubmit={submit}><Field label={t('claimCode')} value={form.code} onChange={code=>setForm({...form,code})} autoComplete="one-time-code"/><Field label={t('dateOfBirth')} type="date" value={form.dateOfBirth} onChange={dateOfBirth=>setForm({...form,dateOfBirth})}/><Field label={t('emailOptional')} type="email" value={form.email} onChange={email=>setForm({...form,email})}/><Field label={t('newPassword')} type="password" value={form.password} onChange={password=>setForm({...form,password})} autoComplete="new-password"/><Field label={t('confirmPassword')} type="password" value={form.confirmPassword} onChange={confirmPassword=>setForm({...form,confirmPassword})} autoComplete="new-password"/>{error&&<Alert>{error}</Alert>}<button className="patient-button" style={{width:'100%'}} disabled={loading}>{loading?t('loading'):t('activatePatientAccount')}</button></form></AuthShell>;
 }
 
 function AuthShell({title,children}){const{t}=useTranslation();return <main className="patient-auth-shell"><aside className="patient-auth-aside"><Link to="/"><HeartPulse size={24}/>{t('brandName')}</Link><div><h2>{title}</h2><p>{t('secureAccessDescription')}</p></div></aside><div className="patient-auth-content"><section className="patient-card patient-auth"><h1>{title}</h1>{children}</section></div></main>}

@@ -8,7 +8,7 @@ import { authenticate } from '../middleware/auth.js';
 import { allowRoles, ROLES } from '../middleware/policies.js';
 import { validate } from '../middleware/validate.js';
 import { normalizeEmail, normalizePhone } from '../utils/identity.js';
-import { createVerificationChallenge, consumeVerificationChallenge, registrationPurpose, invalidateChallenges } from '../services/verification.js';
+import { createVerificationChallenge, consumeVerificationChallenge, registrationPurpose, invalidateChallenges, verificationUnavailable } from '../services/verification.js';
 import { ApiError, sendError } from '../utils/apiError.js';
 import { rateLimits } from '../config.js';
 import { getClinicDateString } from '../utils/clinicTime.js';
@@ -32,6 +32,45 @@ async function matchingPatients(phoneNormalized, dateOfBirth, db = prisma) {
   return candidates.filter((patient) => normalizePhone(patient.phone) === phoneNormalized);
 }
 
+const offlineVerificationDisabled = () => process.env.VERIFICATION_PROVIDER === 'disabled';
+const claimFailure = () => new ApiError(422, 'CLAIM_VERIFICATION_FAILED', 'Claim verification failed.');
+// 12 and 24 random bytes encode to exactly 16 and 32 base64url characters.
+// Keep generation, parsing, and request validation on this one format.
+const CLAIM_PUBLIC_ID_BYTES = 12;
+const CLAIM_SECRET_BYTES = 24;
+const CLAIM_CREDENTIAL_PATTERN = /^[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{32}$/;
+const claimCredentialSchema = z.string().regex(CLAIM_CREDENTIAL_PATTERN);
+function parseClaimCredential(code) {
+  if (!CLAIM_CREDENTIAL_PATTERN.test(String(code))) return null;
+  const [publicId, secret] = String(code).split('.');
+  return { publicId, secret };
+}
+
+async function consumeClaimCredential(tx, { credential, patientId, dateOfBirth }) {
+  const parsed = parseClaimCredential(credential);
+  if (!parsed) return { error: claimFailure() };
+  const claim = await tx.patientClaimCode.findUnique({
+    where: { publicId: parsed.publicId },
+    include: { patient: { select: { id: true, userId: true, dateOfBirth: true } }, createdBy: { select: { status: true, role: true, authVersion: true } } }
+  });
+  if (!claim || claim.patientId !== patientId || claim.patient.userId || claim.patient.dateOfBirth !== dateOfBirth ||
+      claim.usedAt || claim.expiresAt <= new Date() || claim.attemptCount >= claim.maxAttempts ||
+      claim.issuerAuthVersion === null || claim.createdBy.status !== 'ACTIVE' ||
+      ![ROLES.ADMIN, ROLES.RECEPTIONIST].includes(claim.createdBy.role) || claim.createdBy.authVersion !== claim.issuerAuthVersion) {
+    return { error: claimFailure() };
+  }
+  const valid = await bcrypt.compare(parsed.secret, claim.codeHash);
+  if (!valid) {
+    await tx.patientClaimCode.updateMany({ where: { id: claim.id, usedAt: null, attemptCount: { lt: claim.maxAttempts } }, data: { attemptCount: { increment: 1 } } });
+    return { error: claimFailure() };
+  }
+  const consumed = await tx.patientClaimCode.updateMany({
+    where: { id: claim.id, usedAt: null, expiresAt: { gt: new Date() }, attemptCount: { lt: claim.maxAttempts } },
+    data: { usedAt: new Date() }
+  });
+  return consumed.count === 1 ? { claim } : { error: claimFailure() };
+}
+
 router.post('/register', registrationLimiter, validate(z.object({
   fullName: z.string().trim().min(2).max(150), fullNameAr: z.string().trim().min(2).max(150).optional(),
   fullNameEn: z.string().trim().min(2).max(150).optional(), phone: z.string().trim().min(7).max(30),
@@ -40,6 +79,7 @@ router.post('/register', registrationLimiter, validate(z.object({
 }).strict()), async (req, res, next) => {
   let createdUserId;
   try {
+    if (offlineVerificationDisabled()) throw verificationUnavailable();
     const phoneNormalized = normalizePhone(req.body.phone);
     const email = normalizeEmail(req.body.email);
     if (!phoneNormalized) return sendError(res, 422, 'PHONE_INVALID', 'Phone number is invalid.');
@@ -370,6 +410,9 @@ router.post(
   })),
   async (req, res, next) => {
     try {
+      // This is deliberately non-generic in offline mode: a generic "sent"
+      // response would be a false delivery claim. It reveals no account state.
+      if (offlineVerificationDisabled()) throw verificationUnavailable();
       const email = normalizeEmail(req.body.email);
 
       const genericResponse = {
@@ -677,7 +720,7 @@ router.post(
   }
 );
 
-router.post('/claim', claimLimiter, authenticate, allowRoles(ROLES.PATIENT), validate(z.object({ code: z.string().min(6).max(20), dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })), async (req, res, next) => {
+router.post('/claim', claimLimiter, authenticate, allowRoles(ROLES.PATIENT), validate(z.object({ code: claimCredentialSchema, dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })), async (req, res, next) => {
   try {
     if (await prisma.patient.findUnique({ where: { userId: req.user.id } })) return sendError(res, 409, 'PATIENT_ALREADY_LINKED', 'Account is already linked to a patient record.');
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
@@ -686,23 +729,61 @@ router.post('/claim', claimLimiter, authenticate, allowRoles(ROLES.PATIENT), val
       await audit(user.id, 'PATIENT_CLAIM_REJECTED', 'Patient claim did not resolve to one available record.', req);
       return res.json({ state: matches.length > 1 ? 'AMBIGUOUS_MATCH' : 'MANUAL_REVIEW_REQUIRED' });
     }
-    const claim = await prisma.patientClaimCode.findFirst({ where: { patientId: matches[0].id, usedAt: null, expiresAt: { gt: new Date() } }, orderBy: { createdAt: 'desc' } });
-    if (!claim || !(await bcrypt.compare(req.body.code, claim.codeHash))) {
-      const currentOwner = await prisma.patient.findUnique({ where: { id: matches[0].id }, select: { userId: true } });
-      if (currentOwner?.userId) return sendError(res, 409, 'PATIENT_ALREADY_CLAIMED', 'Patient record was claimed by another account.');
-      await audit(user.id, 'PATIENT_CLAIM_REJECTED', 'Patient claim code verification failed.', req);
-      return sendError(res, 422, 'CLAIM_VERIFICATION_FAILED', 'Claim verification failed.');
-    }
     const linked = await prisma.$transaction(async (tx) => {
+      const result = await consumeClaimCredential(tx, { credential: req.body.code, patientId: matches[0].id, dateOfBirth: req.body.dateOfBirth });
+      if (result.error) return false;
       const updated = await tx.patient.updateMany({ where: { id: matches[0].id, userId: null }, data: { userId: user.id } });
       if (updated.count !== 1) return false;
-      await tx.patientClaimCode.update({ where: { id: claim.id }, data: { usedAt: new Date() } });
       return true;
     });
-    if (!linked) return sendError(res, 409, 'PATIENT_ALREADY_CLAIMED', 'Patient record was claimed by another account.');
+    if (!linked) {
+      await audit(user.id, 'PATIENT_CLAIM_REJECTED', 'Patient claim credential was rejected or ownership changed.', req);
+      return sendError(res, 422, 'CLAIM_VERIFICATION_FAILED', 'Claim verification failed.');
+    }
     await audit(user.id, 'PATIENT_RECORD_CLAIMED', `Claimed existing patient record ${matches[0].id}.`, req);
     return res.json({ state: 'CLAIMED' });
   } catch (error) { next(error); }
+});
+
+// Offline clinic-assisted activation: reception verifies identity in person,
+// issues a high-entropy credential, then the patient sets a local password.
+// Phone/email verification fields intentionally remain null: no channel was
+// proven by this flow.
+router.post('/offline-activation', claimLimiter, validate(z.object({
+  code: claimCredentialSchema, dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  password: passwordSchema, email: z.string().trim().email().max(254).optional()
+}).strict()), async (req, res, next) => {
+  try {
+    if (!offlineVerificationDisabled()) return sendError(res, 409, 'OFFLINE_ACTIVATION_UNAVAILABLE', 'Clinic-assisted activation is not available while online verification is enabled.');
+    const parsed = parseClaimCredential(req.body.code);
+    if (!parsed) throw claimFailure();
+    const preliminary = await prisma.patientClaimCode.findUnique({ where: { publicId: parsed.publicId }, select: { patientId: true } });
+    if (!preliminary) throw claimFailure();
+    const email = req.body.email ? normalizeEmail(req.body.email) : null;
+    const passwordHash = await bcrypt.hash(req.body.password, bcryptRounds);
+    const result = await prisma.$transaction(async (tx) => {
+      const patient = await tx.patient.findUnique({ where: { id: preliminary.patientId } });
+      if (!patient || patient.userId) return { error: claimFailure() };
+      const consumed = await consumeClaimCredential(tx, { credential: req.body.code, patientId: patient.id, dateOfBirth: req.body.dateOfBirth });
+      if (consumed.error) return { error: consumed.error };
+      const phoneNormalized = normalizePhone(patient.phone);
+      if (!phoneNormalized) return { error: claimFailure() };
+      const user = await tx.user.create({ data: {
+        username: email || phoneNormalized, email, phoneNormalized, passwordHash,
+        role: ROLES.PATIENT, status: 'ACTIVE', preferredLanguage: 'en'
+      } });
+      const linked = await tx.patient.updateMany({ where: { id: patient.id, userId: null }, data: { userId: user.id } });
+      if (linked.count !== 1) throw new ApiError(409, 'PATIENT_ALREADY_CLAIMED', 'Patient record was claimed by another account.');
+      return { userId: user.id, patientId: patient.id };
+    });
+    if (result.error) throw result.error;
+    await audit(result.userId, 'PATIENT_OFFLINE_ACTIVATION_COMPLETED', `Clinic-assisted activation linked patient record ${result.patientId}.`, req);
+    return markSensitiveResponse(res).status(201).json({ state: 'ACTIVATED' });
+  } catch (error) {
+    if (error.code === 'P2002') return sendError(res, 409, 'ACCOUNT_ALREADY_EXISTS', 'An account already exists for this identity.');
+    if (error instanceof ApiError && error.code === 'CLAIM_VERIFICATION_FAILED') await audit(null, 'PATIENT_OFFLINE_ACTIVATION_REJECTED', 'Offline activation credential was rejected.', req).catch(() => {});
+    next(error);
+  }
 });
 
 router.post('/claims/:patientId/code', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res, next) => {
@@ -710,8 +791,13 @@ router.post('/claims/:patientId/code', authenticate, allowRoles(ROLES.ADMIN, ROL
     const patient = await prisma.patient.findUnique({ where: { id: req.params.patientId } });
     if (!patient) return sendError(res, 404, 'PATIENT_NOT_FOUND', 'Patient not found.');
     if (patient.userId) return sendError(res, 409, 'PATIENT_ALREADY_CLAIMED', 'Patient record is already linked.');
-    const code = crypto.randomBytes(6).toString('base64url').toUpperCase();
-    await prisma.patientClaimCode.create({ data: { patientId: patient.id, codeHash: await bcrypt.hash(code, 10), expiresAt: new Date(Date.now() + 30 * 60000), createdById: req.user.id } });
+    const publicId = crypto.randomBytes(CLAIM_PUBLIC_ID_BYTES).toString('base64url');
+    const secret = crypto.randomBytes(CLAIM_SECRET_BYTES).toString('base64url');
+    const code = `${publicId}.${secret}`;
+    await prisma.$transaction(async (tx) => {
+      await tx.patientClaimCode.updateMany({ where: { patientId: patient.id, usedAt: null }, data: { usedAt: new Date() } });
+      await tx.patientClaimCode.create({ data: { patientId: patient.id, publicId, codeHash: await bcrypt.hash(secret, 10), expiresAt: new Date(Date.now() + 30 * 60000), createdById: req.user.id, issuerAuthVersion: req.user.av } });
+    });
     await audit(req.user.id, 'PATIENT_CLAIM_CODE_ISSUED', `Issued claim code for patient ${patient.id}.`, req);
     return markSensitiveResponse(res).status(201).json({ code, expiresInMinutes: 30 });
   } catch (error) { next(error); }
