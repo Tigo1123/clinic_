@@ -17,6 +17,7 @@ model User {
   status                     String                  @default("ACTIVE") // ACTIVE, INACTIVE
   lastPasswordChange         DateTime?
   authVersion                Int                     @default(0)
+  mustChangePassword         Boolean                 @default(false)
   mfaSecret                  String?
   mfaEnabled                 Boolean                 @default(false)
   mfaConfiguration           MfaConfiguration?

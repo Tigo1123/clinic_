@@ -14,6 +14,7 @@ import StaffSecurityDialog from './components/StaffSecurityDialog';
 import MfaCodeInput from './components/MfaCodeInput';
 import { clearStaffSession, readStaffSession, writeStaffSession } from './services/authStorage';
 import { completeStaffMfa, completeStaffMfaRecovery, isTerminalMfaError, startStaffLogin } from './services/staffLogin';
+import { fetchWithAuth } from './services/staffApi';
 import {
   configureStaffSocketSessionRevocation,
   connectStaffSocket,
@@ -126,14 +127,14 @@ export default function App({ initialView = 'login' }) {
 
           {user ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              <NotificationDropdown userId={user?.id} lang={lang} />
+              {!user.mustChangePassword && <NotificationDropdown userId={user?.id} lang={lang} />}
               <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
                 {user.username} ({user.role})
               </span>
-              <button className="btn btn-secondary" onClick={() => setSecurityOpen(true)}>
+              {!user.mustChangePassword && <button className="btn btn-secondary" onClick={() => setSecurityOpen(true)}>
                 <ShieldCheck size={16} />
                 {t('securitySettings')}
-              </button>
+              </button>}
               <button className="btn btn-secondary" onClick={handleLogout}>
                 <LogOut size={16} />
                 {t('logout')}
@@ -150,13 +151,45 @@ export default function App({ initialView = 'login' }) {
           <div role="alert" className="badge badge-danger staff-login-error">{t('sessionNoLongerValid')}</div>
         )}
         {view === 'login' && <LoginView onLogin={handleLogin} t={t} />}
-        {view === 'dashboard' && user && (
-          <DashboardContainer user={user} lang={lang} t={t} />
-        )}
+        {view === 'dashboard' && user && (user.mustChangePassword
+          ? <RequiredPasswordChange t={t} onComplete={handleLogout} />
+          : <DashboardContainer user={user} lang={lang} t={t} />)}
       </main>
       {securityOpen && user && <StaffSecurityDialog user={user} onUserChange={handleUserChange} onClose={() => setSecurityOpen(false)} t={t} />}
     </div>
   );
+}
+
+function RequiredPasswordChange({ t, onComplete }) {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const submit = async (event) => {
+    event.preventDefault();
+    setError('');
+    if (newPassword !== confirmPassword) return setError(t('passwordsDoNotMatch'));
+    setSaving(true);
+    try {
+      const response = await fetchWithAuth('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body?.error?.message || body?.error || t('passwordChangeFailed'));
+      await onComplete();
+    } catch (requestError) { setError(requestError.message); }
+    finally { setSaving(false); }
+  };
+  return <section className="staff-login-card" style={{ maxWidth: 460, margin: '3rem auto' }}>
+    <div className="staff-mfa-icon"><ShieldCheck size={30} /></div>
+    <h2>{t('passwordChangeRequired')}</h2><p>{t('passwordChangeRequiredDescription')}</p>
+    <form onSubmit={submit} className="staff-login-form">
+      <input className="form-input" type="password" autoComplete="current-password" placeholder={t('currentPassword')} value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
+      <input className="form-input" type="password" autoComplete="new-password" placeholder={t('newPassword')} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required minLength={10} maxLength={200} />
+      <input className="form-input" type="password" autoComplete="new-password" placeholder={t('confirmNewPassword')} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required />
+      {error && <div role="alert" className="badge badge-danger">{error}</div>}
+      <button className="btn btn-primary" disabled={saving}>{saving ? t('loading') : t('savePassword')}</button>
+    </form>
+  </section>;
 }
 
 /* ==========================================

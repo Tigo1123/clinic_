@@ -13,6 +13,9 @@ export async function authenticate(req, res, next) {
   const token = authHeader.split(' ')[1];
   try {
     req.user = await verifyActiveAccessToken(token);
+    if (req.user.mustChangePassword && !['/api/auth/change-password', '/api/auth/logout'].includes(req.originalUrl.split('?')[0])) {
+      return sendError(res, 403, 'PASSWORD_CHANGE_REQUIRED', 'You must change your password before accessing clinic services.');
+    }
     next();
   } catch (error) {
     if (error instanceof AccessTokenError && error.code === 'SESSION_REVOKED') {

@@ -113,6 +113,7 @@ router.post('/verify', mfaLimiter, validate(loginVerificationSchema), async (req
         role: user.role,
         preferredLanguage: user.preferredLanguage,
         mfaEnabled: true,
+        mustChangePassword: user.mustChangePassword,
         doctorId: user.doctor?.id || null,
         doctorName: user.doctor?.fullNameEn || null,
         patientLinked: null,
@@ -166,6 +167,7 @@ router.post('/recovery/verify', mfaLimiter, validate(recoveryLoginSchema), async
       user: {
         id: user.id, username: user.username, role: user.role,
         preferredLanguage: user.preferredLanguage, mfaEnabled: true,
+        mustChangePassword: user.mustChangePassword,
         doctorId: user.doctor?.id || null, doctorName: user.doctor?.fullNameEn || null,
         patientLinked: null, patientId: null, email: user.email, phone: user.phoneNormalized
       }

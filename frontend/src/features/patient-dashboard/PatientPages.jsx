@@ -999,6 +999,9 @@ export function Profile() {
   const [phoneChanging, setPhoneChanging] = useState(false);
   const [phoneChangeError, setPhoneChangeError] = useState('');
   const [phoneChangeMessage, setPhoneChangeMessage] = useState('');
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [passwordChanging, setPasswordChanging] = useState(false);
+  const [passwordChangeError, setPasswordChangeError] = useState('');
 
   useEffect(() => {
     if (!data) return;
@@ -1058,6 +1061,20 @@ export function Profile() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function changePassword(event) {
+    event.preventDefault();
+    setPasswordChangeError('');
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) return setPasswordChangeError(t('passwordsDoNotMatch'));
+    setPasswordChanging(true);
+    try {
+      await apiRequest('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword: passwordForm.currentPassword, newPassword: passwordForm.newPassword }) });
+      clearPatientSession();
+      window.location.replace('/patient-login');
+    } catch (requestError) {
+      setPasswordChangeError(requestError?.message || t('passwordChangeFailed'));
+    } finally { setPasswordChanging(false); }
   }
 
   async function requestEmailChange(event) {
@@ -1411,6 +1428,17 @@ export function Profile() {
 
           <section className="patient-card">
             <h2>{t('accountSecurity')}</h2>
+
+            <div style={{ padding: '0 0 1rem', borderBottom: '1px solid var(--border-color)' }}>
+              <strong>{t('changePassword')}</strong><p style={{ margin: '.3rem 0 1rem' }}>{t('passwordChangeSignInAgain')}</p>
+              <form onSubmit={changePassword} style={{ display: 'grid', gap: '.7rem', maxWidth: 420 }}>
+                <input type="password" autoComplete="current-password" placeholder={t('currentPassword')} value={passwordForm.currentPassword} onChange={(event) => setPasswordForm({ ...passwordForm, currentPassword: event.target.value })} required />
+                <input type="password" autoComplete="new-password" placeholder={t('newPassword')} value={passwordForm.newPassword} onChange={(event) => setPasswordForm({ ...passwordForm, newPassword: event.target.value })} required minLength={10} maxLength={200} />
+                <input type="password" autoComplete="new-password" placeholder={t('confirmNewPassword')} value={passwordForm.confirmPassword} onChange={(event) => setPasswordForm({ ...passwordForm, confirmPassword: event.target.value })} required />
+                {passwordChangeError && <div className="patient-alert error" role="alert">{passwordChangeError}</div>}
+                <button className="patient-button" disabled={passwordChanging}>{passwordChanging ? t('loading') : t('changePassword')}</button>
+              </form>
+            </div>
 
             {/* Email */}
             <div

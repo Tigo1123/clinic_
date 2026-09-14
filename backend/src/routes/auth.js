@@ -66,6 +66,7 @@ const staffPasswordResetSchema = z.object({
   currentAdminPassword: z.string().min(1).max(200),
   mfaCode: z.string().regex(/^\d{6}$/).optional()
 }).strict();
+const passwordChangeSchema = z.object({ currentPassword: z.string().min(1).max(200), newPassword: passwordSchema }).strict();
 
 const loginLimiter = createLoginLimiter({ windowMs: rateLimits.windowMs, limit: rateLimits.login });
 const adminResetLimiter = createAdminResetLimiter({ windowMs: rateLimits.windowMs, limit: rateLimits.adminReset });
@@ -155,6 +156,7 @@ router.post('/login', loginLimiter, validate(z.object({
           role: true,
           status: true,
           authVersion: true,
+          mustChangePassword: true,
           mfaEnabled: true,
           preferredLanguage: true,
           email: true,
@@ -380,6 +382,7 @@ router.post('/login', loginLimiter, validate(z.object({
         role: user.role,
         preferredLanguage: user.preferredLanguage,
         mfaEnabled: user.mfaEnabled,
+        mustChangePassword: user.mustChangePassword,
         doctorId: doctorDetails ? doctorDetails.id : null,
         doctorName: doctorDetails ? doctorDetails.fullNameEn : null,
         patientLinked:
@@ -549,7 +552,8 @@ router.post('/users', authenticate, checkRoles('ADMIN'), validate(staffCreationS
           passwordHash,
           role,
           preferredLanguage: preferredLanguage || 'ar',
-          status: 'ACTIVE'
+          status: 'ACTIVE',
+          mustChangePassword: true
         }
       });
 
@@ -597,7 +601,8 @@ router.post('/users', authenticate, checkRoles('ADMIN'), validate(staffCreationS
         id: newUser.id,
         username: newUser.username,
         role: newUser.role,
-        status: newUser.status
+        status: newUser.status,
+        mustChangePassword: newUser.mustChangePassword
       }
     });
   } catch (error) {
@@ -606,6 +611,27 @@ router.post('/users', authenticate, checkRoles('ADMIN'), validate(staffCreationS
     }
     logger.error('auth.staff_creation_failed', { requestId: req.id, error });
     return sendError(res, 500, 'STAFF_CREATION_FAILED', 'Failed to create staff user.');
+  }
+});
+
+router.post('/change-password', authenticate, validate(passwordChangeSchema), async (req, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { id: true, role: true, status: true, passwordHash: true, authVersion: true, mustChangePassword: true } });
+    if (!user || user.status !== 'ACTIVE' || user.authVersion !== req.user.av) return sendError(res, 401, 'SESSION_REVOKED', 'This session is no longer active.');
+    if (!await bcrypt.compare(req.body.currentPassword, user.passwordHash)) return sendError(res, 401, 'CURRENT_PASSWORD_INVALID', 'Current password is invalid.');
+    if (await bcrypt.compare(req.body.newPassword, user.passwordHash)) return sendError(res, 422, 'PASSWORD_REUSE_NOT_ALLOWED', 'New password must be different from the current password.');
+    const passwordHash = await bcrypt.hash(req.body.newPassword, bcryptRounds);
+    await prisma.$transaction(async (tx) => {
+      const current = await tx.user.findUnique({ where: { id: user.id }, select: { authVersion: true, role: true, status: true } });
+      if (!current || current.authVersion !== user.authVersion || current.role !== user.role || current.status !== 'ACTIVE') throw new Error('PASSWORD_CHANGE_CONFLICT');
+      await tx.user.update({ where: { id: user.id }, data: { passwordHash, lastPasswordChange: new Date(), mustChangePassword: false, authVersion: { increment: 1 } } });
+      await tx.tenantAuditLog.create({ data: { userId: user.id, action: 'USER_PASSWORD_CHANGED', details: JSON.stringify({ role: user.role, clearedMustChangePassword: user.mustChangePassword }), ipAddress: req.ip || 'unknown' } });
+    });
+    logger.security('auth.user_password_changed', { requestId: req.id, userId: user.id, role: user.role, ip: req.ip });
+    return res.json({ success: true, message: 'Password changed. Sign in again.' });
+  } catch (error) {
+    if (error?.message === 'PASSWORD_CHANGE_CONFLICT') return sendError(res, 409, 'PASSWORD_CHANGE_CONFLICT', 'Account security state changed. Sign in again.');
+    return next(error);
   }
 });
 
@@ -721,6 +747,7 @@ router.post('/users/:id/reset-password', authenticate, checkRoles('ADMIN'), admi
         data: {
           passwordHash,
           lastPasswordChange: changedAt,
+          mustChangePassword: true,
           authVersion: { increment: 1 }
         },
         select: { id: true, username: true, role: true, status: true }

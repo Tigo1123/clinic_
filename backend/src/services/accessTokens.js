@@ -78,7 +78,7 @@ export async function verifyActiveAccessToken(token) {
 
   const activeUser = await prisma.user.findUnique({
     where: { id: decoded.sub },
-    select: { status: true, role: true, authVersion: true }
+    select: { status: true, role: true, authVersion: true, mustChangePassword: true }
   });
 
   if (
@@ -90,5 +90,5 @@ export async function verifyActiveAccessToken(token) {
     throw new AccessTokenError('SESSION_REVOKED', 'This session is no longer active.');
   }
 
-  return decoded;
+  return { ...decoded, mustChangePassword: activeUser.mustChangePassword };
 }

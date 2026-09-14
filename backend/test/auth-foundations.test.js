@@ -224,6 +224,35 @@ test('admin session revocation publishes an auth-version notification that disco
   } finally { await client.end(); }
 });
 
+test('authenticated users change only their own password and every prior session is revoked', async () => {
+  for (const role of ['PATIENT', 'DOCTOR']) {
+    const { user, token } = await account('ACTIVE', role);
+    const nextPassword = `Changed${crypto.randomUUID().replaceAll('-', '')}1A`;
+    assert.equal((await api.post('/api/auth/change-password').set(auth(token)).send({ currentPassword: 'wrong', newPassword: nextPassword })).status, 401);
+    assert.equal((await api.post('/api/auth/change-password').set(auth(token)).send({ currentPassword: password, newPassword: 'weak' })).status, 422);
+    assert.equal((await api.post('/api/auth/change-password').set(auth(token)).send({ currentPassword: password, newPassword: password })).status, 422);
+    assert.equal((await api.post('/api/auth/change-password').set(auth(token)).send({ currentPassword: password, newPassword: nextPassword })).status, 200);
+    const updated = await prisma.user.findUnique({ where: { id: user.id } });
+    assert.equal(updated.role, role); assert.equal(updated.status, 'ACTIVE'); assert.equal(updated.mustChangePassword, false);
+    assert.equal((await api.get('/api/notifications').set(auth(token))).status, 401);
+    assert.equal((await socketError(token)).data.code, 'SESSION_REVOKED');
+    assert.equal((await api.post('/api/auth/login').send({ username: user.username, password })).status, 401);
+    assert.equal((await api.post('/api/auth/login').send({ username: user.username, password: nextPassword })).status, 200);
+    assert.ok(await prisma.tenantAuditLog.findFirst({ where: { userId: user.id, action: 'USER_PASSWORD_CHANGED' } }));
+  }
+});
+
+test('staff requiring first-login password change is server-side restricted until it changes its own password', async () => {
+  const { user, token } = await account('ACTIVE', 'RECEPTIONIST');
+  await prisma.user.update({ where: { id: user.id }, data: { mustChangePassword: true } });
+  const restrictedToken = signAccessToken({ ...user, authVersion: user.authVersion });
+  assert.equal((await api.get('/api/notifications').set(auth(restrictedToken))).status, 403);
+  const nextPassword = `Onboard${crypto.randomUUID().replaceAll('-', '')}1A`;
+  assert.equal((await api.post('/api/auth/change-password').set(auth(restrictedToken)).send({ currentPassword: password, newPassword: nextPassword })).status, 200);
+  assert.equal((await prisma.user.findUnique({ where: { id: user.id } })).mustChangePassword, false);
+  assert.equal((await api.post('/api/auth/login').send({ username: user.username, password: nextPassword })).status, 200);
+});
+
 test('authenticated phone verification has a separate owner-bound endpoint and never activates inactive accounts', async () => {
   const { user, token } = await account();
   const issued = await api.post('/api/patient-auth/verification/request').set(auth(token)).send({ type: 'PHONE' });

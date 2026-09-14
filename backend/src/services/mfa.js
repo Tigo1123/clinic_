@@ -249,7 +249,7 @@ export async function verifyTotpLoginChallenge(token, code, staffRoles, now = ne
       where: { id: challenge.userId },
       select: {
         id: true, username: true, role: true, status: true, preferredLanguage: true,
-        email: true, phoneNormalized: true, authVersion: true, mfaEnabled: true,
+        email: true, phoneNormalized: true, authVersion: true, mfaEnabled: true, mustChangePassword: true,
         mfaConfiguration: { select: { state: true, secretEncrypted: true, lastTotpStep: true } },
         doctor: { select: { id: true, fullNameEn: true } }
       }
@@ -363,7 +363,7 @@ export async function verifyRecoveryLoginChallenge(token, recoveryCode, staffRol
       where: { id: challenge.userId },
       select: {
         id: true, username: true, role: true, status: true, preferredLanguage: true,
-        email: true, phoneNormalized: true, authVersion: true, mfaEnabled: true,
+        email: true, phoneNormalized: true, authVersion: true, mfaEnabled: true, mustChangePassword: true,
         mfaConfiguration: { select: { state: true } },
         doctor: { select: { id: true, fullNameEn: true } }
       }
