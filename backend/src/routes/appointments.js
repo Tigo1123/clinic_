@@ -14,6 +14,7 @@ import { emitQueueUpdate } from '../utils/socketEvents.js';
 import { markSensitiveResponse } from '../utils/edgeSecurity.js';
 import { configuredSlots, DATE_PATTERN, TIME_PATTERN, todayString } from '../utils/scheduling.js';
 import { findPossiblePatientDuplicates, normalizeNationalId, normalizePatientPhone, safeDuplicateCandidates } from '../utils/patientIdentity.js';
+import { publicDoctorSelect, toPublicBookingConfirmation, toPublicDoctor } from '../utils/publicDto.js';
 
 const router = express.Router();
 const otpLimiter = rateLimit({ windowMs: rateLimits.windowMs, limit: rateLimits.verification, standardHeaders: 'draft-7', legacyHeaders: false });
@@ -96,6 +97,7 @@ const walkInSchema = z.object({
 }).strict();
 
 router.get('/slots', validate(z.object({ doctorId: z.string().uuid(), date: z.string().regex(DATE_PATTERN) }), 'query'), async (req, res) => {
+  markSensitiveResponse(res);
   const { doctorId, date } = req.query;
 
   if (date < todayString()) return sendError(res, 422, 'APPOINTMENT_DATE_IN_PAST', 'Past appointment dates are not allowed.');
@@ -160,6 +162,7 @@ router.post('/book', validate(z.object({
   gender: z.enum(['MALE', 'FEMALE']), dateOfBirth: z.string().regex(DATE_PATTERN), nationalId: z.string().trim().max(30).optional(),
   phone: z.string().trim().min(7).max(30), addressStateId: z.coerce.number().int().min(1).max(18), otpCode: z.string().length(6)
 }).strict()), async (req, res) => {
+  markSensitiveResponse(res);
   if (process.env.NODE_ENV === 'production') return sendError(res, 503, 'PUBLIC_BOOKING_VERIFICATION_UNAVAILABLE', 'Public OTP booking is unavailable. Use an authenticated patient account to book.');
   const {
     doctorId,
@@ -278,7 +281,7 @@ router.post('/book', validate(z.object({
     });
 
     // 5. Send Multi-Channel Notifications & Get WhatsApp Links
-    const notifResult = await sendBookingConfirmation(appointment);
+    await sendBookingConfirmation(appointment);
 
     // Emit WebSocket update & notify receptionists in real-time
     const io = req.app.get('io');
@@ -310,11 +313,7 @@ router.post('/book', validate(z.object({
       console.error('Failed to dispatch receptionist notifications:', notifErr);
     }
 
-    return res.status(201).json({
-      ...appointment,
-      whatsAppLinkAr: notifResult?.whatsAppLinkAr,
-      whatsAppLinkEn: notifResult?.whatsAppLinkEn
-    });
+    return res.status(201).json(toPublicBookingConfirmation(appointment));
 
   } catch (error) {
     if (isPatientNationalIdConflict(error)) return sendError(res, 409, 'PATIENT_IDENTITY_REVIEW_REQUIRED', 'The booking could not be linked automatically. Contact reception for identity review.');
@@ -765,9 +764,11 @@ router.post('/:id/transfer', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTI
 router.get('/doctors', async (req, res) => {
   try {
     const doctors = await prisma.doctor.findMany({
-      where: { status: 'ACTIVE' }
+      where: { status: 'ACTIVE' },
+      select: publicDoctorSelect,
+      orderBy: { fullNameEn: 'asc' }
     });
-    return res.json(doctors);
+    return res.json(doctors.map(toPublicDoctor));
   } catch (error) {
     console.error('Fetch doctors error:', error);
     return res.status(500).json({ error: 'Failed to retrieve doctors.' });

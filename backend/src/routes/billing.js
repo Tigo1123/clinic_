@@ -8,6 +8,11 @@ import { validate } from '../middleware/validate.js';
 import { sendError } from '../utils/apiError.js';
 import { clinicDateSequence, clinicMonthBounds, getClinicDateString, instantToClinicDateString } from '../utils/clinicTime.js';
 import { emitQueueUpdate } from '../utils/socketEvents.js';
+import {
+  publicClinicalServiceSelect,
+  staffInsuranceCompanySelect,
+  toPublicClinicalService
+} from '../utils/publicDto.js';
 
 const router = express.Router();
 const MAX_MONEY_SDG = 1_000_000_000;
@@ -1650,9 +1655,11 @@ router.get('/services', async (req, res) => {
       where: {
         status: 'ACTIVE',
         baseFeeSdg: { gt: 0, lte: MAX_MONEY_SDG }
-      }
+      },
+      select: publicClinicalServiceSelect,
+      orderBy: { labelEn: 'asc' }
     });
-    return res.json(services);
+    return res.json(services.map(toPublicClinicalService));
   } catch (error) {
     console.error('Fetch services error:', error);
     return res.status(500).json({ error: 'Failed to retrieve clinical services.' });
@@ -1663,9 +1670,12 @@ router.get('/services', async (req, res) => {
  * GET /api/billing/insurance-companies
  * Returns list of insurance companies.
  */
-router.get('/insurance-companies', async (req, res) => {
+router.get('/insurance-companies', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
   try {
-    const companies = await prisma.insuranceCompany.findMany();
+    const companies = await prisma.insuranceCompany.findMany({
+      select: staffInsuranceCompanySelect,
+      orderBy: { labelEn: 'asc' }
+    });
     return res.json(companies);
   } catch (error) {
     console.error('Fetch insurance companies error:', error);

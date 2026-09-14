@@ -24,6 +24,7 @@ import { logger } from '../utils/logger.js';
 import { markSensitiveResponse } from '../utils/edgeSecurity.js';
 
 const router = express.Router();
+router.use((req, res, next) => { markSensitiveResponse(res); next(); });
 const STAFF_ROLES = [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.DOCTOR, ROLES.LAB_TECH, ROLES.PHARMACIST];
 const mfaLimiter = rateLimit({
   windowMs: rateLimits.windowMs,

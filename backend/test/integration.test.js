@@ -3029,6 +3029,143 @@ test('material API security headers are maintained and HSTS is owned by the TLS 
   assert.equal(production.headers['x-powered-by'], undefined);
 });
 
+test('public directory and catalog responses use allowlisted DTOs', async () => {
+  const inactiveService = await prisma.clinicalService.create({ data: {
+    labelAr: `خدمة غير عامة ${fixtureCounter}`,
+    labelEn: `Private inactive service ${fixtureCounter}`,
+    baseFeeSdg: 500,
+    category: 'LABORATORY',
+    status: 'INACTIVE'
+  } });
+  const insuranceCompany = await prisma.insuranceCompany.create({ data: {
+    labelAr: `تأمين اختبار ${fixtureCounter}`,
+    labelEn: `Test insurer ${fixtureCounter}`,
+    copayPercentage: 15,
+    billingCycleDays: 45
+  } });
+
+  const doctors = await api.get('/api/appointments/doctors');
+  assert.equal(doctors.status, 200);
+  assert.ok(doctors.body.length > 0);
+  assert.equal(doctors.headers['cache-control'], undefined);
+  for (const doctor of doctors.body) {
+    assert.deepEqual(Object.keys(doctor).sort(), [
+      'consultationFee', 'fullNameAr', 'fullNameEn', 'id', 'specialtyAr', 'specialtyEn'
+    ]);
+    assert.equal(Object.hasOwn(doctor, 'userId'), false);
+    assert.equal(Object.hasOwn(doctor, 'weeklySchedule'), false);
+    assert.equal(Object.hasOwn(doctor, 'status'), false);
+    assert.equal(Object.hasOwn(doctor, 'updatedAt'), false);
+  }
+
+  const services = await api.get('/api/billing/services');
+  assert.equal(services.status, 200);
+  assert.ok(services.body.length > 0);
+  assert.equal(services.headers['cache-control'], undefined);
+  assert.equal(services.body.some((item) => item.id === inactiveService.id), false);
+  for (const item of services.body) {
+    assert.deepEqual(Object.keys(item).sort(), [
+      'baseFeeSdg', 'baseFeeUsd', 'category', 'id', 'labelAr', 'labelEn'
+    ]);
+    assert.equal(Object.hasOwn(item, 'status'), false);
+    assert.equal(Object.hasOwn(item, 'updatedAt'), false);
+  }
+
+  assert.equal((await api.get('/api/billing/insurance-companies')).status, 401);
+  assert.equal((await api.get('/api/billing/insurance-companies').set(auth('doctor'))).status, 403);
+  const companies = await api.get('/api/billing/insurance-companies').set(auth('reception'));
+  assert.equal(companies.status, 200);
+  const returnedCompany = companies.body.find((item) => item.id === insuranceCompany.id);
+  assert.deepEqual(Object.keys(returnedCompany).sort(), ['copayPercentage', 'id', 'labelAr', 'labelEn']);
+  assert.equal(Object.hasOwn(returnedCompany, 'billingCycleDays'), false);
+
+  const slots = await api.get('/api/appointments/slots').query({ doctorId: doctor1.id, date: getClinicDateString() });
+  assert.equal(slots.status, 200);
+  assert.ok(slots.body.every((slot) => /^\d{2}:\d{2}$/.test(slot)));
+  assert.match(slots.headers['cache-control'], /(?:^|,)\s*no-store(?:,|$)/);
+
+  const health = await api.get('/api/health/ready');
+  assert.deepEqual(Object.keys(health.body), ['status']);
+  assert.ok(['healthy', 'unhealthy'].includes(health.body.status));
+
+  const slot = await findAvailableAppointmentSlot(doctor1.id);
+  const booking = await api.post('/api/appointments/book').send(
+    await bookingPayload(slot.appointmentDate, slot.appointmentTime, `0977${String(++fixtureCounter).padStart(6, '0')}`)
+  );
+  assert.equal(booking.status, 201);
+  assert.match(booking.headers['cache-control'], /(?:^|,)\s*no-store(?:,|$)/);
+  assert.deepEqual(Object.keys(booking.body).sort(), [
+    'appointmentDate', 'appointmentTime', 'bookingReference', 'doctor', 'id', 'status'
+  ]);
+  assert.deepEqual(Object.keys(booking.body.doctor).sort(), [
+    'consultationFee', 'fullNameAr', 'fullNameEn', 'id', 'specialtyAr', 'specialtyEn'
+  ]);
+  assert.match(booking.body.bookingReference, /^[0-9A-F]{8}$/);
+  for (const field of ['patient', 'patientId', 'userId', 'weeklySchedule', 'whatsAppLinkAr', 'whatsAppLinkEn']) {
+    assert.equal(Object.hasOwn(booking.body, field), false);
+  }
+  for (const response of [doctors, services, booking]) {
+    assert.doesNotMatch(JSON.stringify(response.body), /passwordHash|authVersion|mustChangePassword|mfaSecret|recoveryCode|weeklySchedule/i);
+  }
+});
+
+test('authenticated clinical, operational, and security responses are not cacheable', async () => {
+  fixtureCounter += 1;
+  const patientUser = await prisma.user.create({ data: {
+    username: `cache-patient-${fixtureCounter}@example.test`,
+    passwordHash: 'not-used-for-cache-test',
+    role: 'PATIENT',
+    status: 'ACTIVE'
+  } });
+  const patient = await prisma.patient.create({ data: {
+    userId: patientUser.id,
+    fullNameAr: `مريض ذاكرة ${fixtureCounter}`,
+    fullNameEn: `Cache Patient ${fixtureCounter}`,
+    gender: 'MALE',
+    dateOfBirth: '1990-01-01',
+    phone: `0968${String(fixtureCounter).padStart(6, '0')}`,
+    addressStateId: 1,
+    emergencyContact: 'Self'
+  } });
+  const appointment = await prisma.appointment.create({ data: {
+    patientId: patient.id,
+    doctorId: doctor1.id,
+    appointmentDate: `2049-11-${String((fixtureCounter % 27) + 1).padStart(2, '0')}`,
+    appointmentTime: '16:00',
+    status: 'COMPLETED'
+  } });
+  await prisma.medicalRecord.create({ data: {
+    patientId: patient.id,
+    doctorId: doctor1.id,
+    appointmentId: appointment.id,
+    symptomsEncrypted: '', diagnosisEncrypted: '', treatmentEncrypted: '', vitalSignsJson: '{}', clinicalNotesEncrypted: ''
+  } });
+  const patientToken = signAccessToken({
+    id: patientUser.id,
+    username: patientUser.username,
+    role: patientUser.role,
+    authVersion: patientUser.authVersion
+  });
+  const responses = await Promise.all([
+    api.get('/api/patients/search?q=Test').set(auth('reception')),
+    api.get(`/api/appointments/queue/${doctor1.id}`).query({ date: getClinicDateString() }).set(auth('doctor')),
+    api.get('/api/records/drugs').set(auth('doctor')),
+    api.get('/api/records/lab-orders/pending').set(auth('lab')),
+    api.get('/api/pharmacy/formulary').set(auth('pharmacy')),
+    api.get('/api/billing/lab-orders/pending').set(auth('reception')),
+    api.get('/api/auth/users').set(auth('admin')),
+    api.get('/api/patient/medical-records').set({ Authorization: `Bearer ${patientToken}` }),
+    api.post('/api/auth/mfa/verify').send({ challengeToken: 'x'.repeat(40), code: '000000' })
+  ]);
+
+  for (const response of responses.slice(0, -1)) assert.equal(response.status, 200);
+  assert.equal(responses.at(-1).status, 401);
+  for (const response of responses) {
+    assert.match(response.headers['cache-control'] || '', /(?:^|,)\s*no-store(?:,|$)/);
+    assert.match(response.headers.pragma || '', /no-cache/);
+  }
+});
+
 test('representative login limiter returns a safe draft-7 429 response', async () => {
   const limiterApp = express();
   limiterApp.use(createLoginLimiter({ windowMs: 60_000, limit: 2 }));
@@ -6825,7 +6962,8 @@ test('public booking never attaches an appointment by phone alone', async () => 
     dateOfBirth: '1995-05-05', phone, addressStateId: 1, otpCode: otp.body.developmentCode
   });
   assert.equal(response.status, 201);
-  assert.notEqual(response.body.patientId, victim.id);
+  assert.equal(Object.hasOwn(response.body, 'patientId'), false);
+  assert.equal(Object.hasOwn(response.body, 'patient'), false);
   assert.equal(await prisma.appointment.count({ where: { id: response.body.id, patientId: victim.id } }), 0);
   assert.equal(await prisma.patient.count({ where: { phone: normalizePatientPhone(phone) } }), 2);
 });
@@ -6844,7 +6982,8 @@ test('public booking reuses only a strong exact identity and rejects mismatched 
     dateOfBirth: existing.dateOfBirth, nationalId: nationalId.toLowerCase(), phone, addressStateId: 1, otpCode: otp.body.developmentCode
   });
   assert.equal(matched.status, 201);
-  assert.equal(matched.body.patientId, existing.id);
+  assert.equal(Object.hasOwn(matched.body, 'patientId'), false);
+  assert.equal((await prisma.appointment.findUnique({ where: { id: matched.body.id } })).patientId, existing.id);
   assert.equal(await prisma.patient.count({ where: { nationalId } }), 1);
 
   const secondSlot = await findAvailableAppointmentSlot(doctor1.id);

@@ -426,7 +426,7 @@ export default function ReceptionDashboard({ lang, t }) {
 
   useEffect(() => {
     if (!selectedDoctor && doctors.length) {
-      setSelectedDoctor(doctors.find((doctor) => doctor.status === 'ACTIVE') || doctors[0]);
+      setSelectedDoctor(doctors[0]);
     }
   }, [doctors, selectedDoctor]);
 
@@ -1112,7 +1112,7 @@ export default function ReceptionDashboard({ lang, t }) {
   };
 
   const queueMetrics = [
-    { key: 'doctors', icon: Stethoscope, value: doctors.filter((doctor) => doctor.status === 'ACTIVE').length, ar: 'الأطباء المناوبون', en: 'On-duty doctors' },
+    { key: 'doctors', icon: Stethoscope, value: doctors.length, ar: 'الأطباء المناوبون', en: 'On-duty doctors' },
     { key: 'appointments', icon: CalendarDays, value: appointments.length, ar: 'مواعيد الطبيب', en: 'Doctor appointments' },
     { key: 'waiting', icon: Clock, value: appointments.filter((appointment) => appointment.status === 'CHECKED_IN').length, ar: 'بانتظار الطبيب', en: 'Waiting' },
     { key: 'pending', icon: AlertCircle, value: pendingAppointments.length, ar: 'بانتظار التأكيد', en: 'Pending approval' },
@@ -1583,7 +1583,7 @@ export default function ReceptionDashboard({ lang, t }) {
                     <div className="form-group"><label className="form-label">{t('addressState')}</label><select className="form-input" value={addressStateId} onChange={(e) => setAddressStateId(e.target.value)}>{SUDANESE_STATES.map((st) => <option key={st.id} value={st.id}>{lang === 'ar' ? st.labelAr : st.labelEn}</option>)}</select></div>
                   </>
                 )}
-                <div className="form-group"><label className="form-label">{lang === 'ar' ? 'الطبيب' : 'Doctor'} *</label><select required className="form-input" value={walkInDoctorId} onChange={(e) => handleWalkInDoctorChange(e.target.value)}><option value="">{lang === 'ar' ? 'اختر الطبيب' : 'Select doctor'}</option>{doctors.filter((doctor) => doctor.status === 'ACTIVE').map((doctor) => <option key={doctor.id} value={doctor.id}>{lang === 'ar' ? doctor.fullNameAr : doctor.fullNameEn}</option>)}</select></div>
+                <div className="form-group"><label className="form-label">{lang === 'ar' ? 'الطبيب' : 'Doctor'} *</label><select required className="form-input" value={walkInDoctorId} onChange={(e) => handleWalkInDoctorChange(e.target.value)}><option value="">{lang === 'ar' ? 'اختر الطبيب' : 'Select doctor'}</option>{doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{lang === 'ar' ? doctor.fullNameAr : doctor.fullNameEn}</option>)}</select></div>
                 <div className="form-group"><label className="form-label">{lang === 'ar' ? 'موعد اليوم' : "Today's slot"} *</label><select required className="form-input" value={walkInTime} onChange={(e) => setWalkInTime(e.target.value)} disabled={!walkInDoctorId}><option value="">{walkInSlots.length ? (lang === 'ar' ? 'اختر الوقت' : 'Select time') : (lang === 'ar' ? 'لا توجد أوقات متاحة' : 'No available slots')}</option>{walkInSlots.map((slot) => <option key={slot} value={slot}>{slot}</option>)}</select></div>
                 <div className="badge badge-info">{lang === 'ar' ? 'سيتم تسجيل الحضور فورًا مع الالتزام ببوابة دفع الكشف.' : 'The patient will be checked in immediately; the consultation payment gate still applies.'}</div>
                 <button type="submit" className="btn btn-primary" disabled={walkInSubmitting || !walkInDoctorId || !walkInTime || (walkInMode === 'EXISTING' && !walkInPatient)}>{walkInSubmitting ? (lang === 'ar' ? 'جارٍ التسجيل...' : 'Registering...') : (lang === 'ar' ? 'تسجيل الحضور وإرسال المريض للطبيب' : 'Check in and send to doctor')}</button>

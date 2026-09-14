@@ -144,7 +144,9 @@ test('unique existing patient is automatically linked after verification', async
     where: { id: existing.id }
   });
 
-  assert.equal(linkedPatient.userId, registration.body.userId);
+  const registeredUser = await prisma.user.findUnique({ where: { email: 'claim@example.com' } });
+  assert.equal(Object.hasOwn(registration.body, 'userId'), false);
+  assert.equal(linkedPatient.userId, registeredUser.id);
 
   const session = await login('+250788100020');
   assert.equal(session.status, 200);
@@ -195,7 +197,9 @@ test('auto-link assigns an existing patient to only one verified account', async
     where: { id: existing.id }
   });
 
-  assert.equal(linked.userId, registration.body.userId);
+  const registeredUser = await prisma.user.findUnique({ where: { email: 'claim-race@example.com' } });
+  assert.equal(Object.hasOwn(registration.body, 'userId'), false);
+  assert.equal(linked.userId, registeredUser.id);
 
   const issued = await api
     .post(`/api/patient-auth/claims/${existing.id}/code`)

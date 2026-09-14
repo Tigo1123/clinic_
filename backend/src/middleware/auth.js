@@ -1,10 +1,14 @@
 import { sendError } from '../utils/apiError.js';
 import { AccessTokenError, verifyActiveAccessToken } from '../services/accessTokens.js';
+import { markSensitiveResponse } from '../utils/edgeSecurity.js';
 
 /**
  * Middleware to verify JWT token.
  */
 export async function authenticate(req, res, next) {
+  // Every route that requires a bearer token is sensitive, including denial
+  // responses. Prevent browser and intermediary caches from retaining it.
+  markSensitiveResponse(res);
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return sendError(res, 401, 'AUTHENTICATION_REQUIRED', 'Access denied. No token provided.');

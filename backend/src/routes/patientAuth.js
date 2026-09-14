@@ -65,7 +65,7 @@ router.post('/register', registrationLimiter, validate(z.object({
     if (!verificationTarget) throw new ApiError(422, 'VERIFICATION_TARGET_MISSING', 'Email is required when email verification is configured.');
     const { challenge, developmentCode } = await createVerificationChallenge(user, verificationType, verificationTarget);
     await audit(user.id, 'PATIENT_ACCOUNT_REGISTRATION', 'Patient online account registration started.', req);
-    return markSensitiveResponse(res).status(201).json({ state: 'VERIFICATION_REQUIRED', userId: user.id, challengeId: challenge.id, ...(developmentCode ? { developmentCode } : {}) });
+    return markSensitiveResponse(res).status(201).json({ state: 'VERIFICATION_REQUIRED', challengeId: challenge.id, ...(developmentCode ? { developmentCode } : {}) });
   } catch (error) {
     if (createdUserId) await prisma.user.delete({ where: { id: createdUserId } }).catch(() => {});
     if (error.code === 'P2002') return sendError(res, 409, 'ACCOUNT_ALREADY_EXISTS', 'An account already exists for this identity.');

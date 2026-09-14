@@ -90,26 +90,11 @@ app.get(['/api/health', '/api/health/ready'], async (req, res) => {
   try {
     // Basic DB ping to ensure connection works
     await prisma.$queryRaw`SELECT 1`;
-    if (!socketRevocation.isReady()) {
-      return res.status(503).json({
-        status: 'unhealthy',
-        database: 'connected',
-        socketRevocation: 'disconnected'
-      });
-    }
-    return res.json({
-      status: 'healthy',
-      database: 'connected',
-      socketRevocation: 'connected',
-      timestamp: new Date().toISOString()
-    });
+    if (!socketRevocation.isReady()) return res.status(503).json({ status: 'unhealthy' });
+    return res.json({ status: 'healthy' });
   } catch (error) {
     logger.error('health.database_failed', { requestId: req.id, error });
-    return res.status(503).json({
-      status: 'unhealthy',
-      database: 'disconnected',
-      socketRevocation: socketRevocation.isReady() ? 'connected' : 'disconnected'
-    });
+    return res.status(503).json({ status: 'unhealthy' });
   }
 });
 
