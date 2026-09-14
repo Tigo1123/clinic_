@@ -757,6 +757,61 @@ router.post('/users/:id/reset-password', authenticate, checkRoles('ADMIN'), admi
 });
 
 /**
+ * POST /api/auth/users/:id/revoke-sessions
+ * Ends every active session for a user without modifying credentials, status,
+ * or role. Self-revocation is deliberately left to the account logout route.
+ */
+router.post('/users/:id/revoke-sessions', authenticate, checkRoles('ADMIN'), async (req, res, next) => {
+  if (req.params.id === req.user.id) {
+    return sendError(res, 409, 'ADMIN_SELF_SESSION_REVOCATION_UNSUPPORTED', 'Use logout to sign out your own sessions.');
+  }
+
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${req.params.id} FOR UPDATE`;
+      const target = await tx.user.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, username: true, role: true, status: true, authVersion: true }
+      });
+      if (!target) throw new Error('SESSION_REVOCATION_TARGET_NOT_FOUND');
+      if (target.status !== 'ACTIVE') throw new Error('SESSION_REVOCATION_TARGET_INACTIVE');
+
+      const revoked = await tx.user.update({
+        where: { id: target.id },
+        data: { authVersion: { increment: 1 } },
+        select: { id: true, username: true, role: true, status: true, authVersion: true }
+      });
+      await tx.tenantAuditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'USER_SESSIONS_REVOKED_BY_ADMIN',
+          details: JSON.stringify({ userId: target.id, targetRole: target.role, previousAuthVersion: target.authVersion, authVersion: revoked.authVersion }),
+          ipAddress: req.ip || 'unknown'
+        }
+      });
+      return revoked;
+    });
+
+    logger.security('auth.user_sessions_revoked_by_admin', {
+      requestId: req.id,
+      actorUserId: req.user.id,
+      targetUserId: updated.id,
+      targetRole: updated.role,
+      ip: req.ip
+    });
+    return res.json({ success: true, user: updated });
+  } catch (error) {
+    if (error?.message === 'SESSION_REVOCATION_TARGET_NOT_FOUND') {
+      return sendError(res, 404, 'USER_NOT_FOUND', 'User was not found.');
+    }
+    if (error?.message === 'SESSION_REVOCATION_TARGET_INACTIVE') {
+      return sendError(res, 409, 'USER_SESSION_REVOCATION_NOT_APPLICABLE', 'Inactive accounts do not have active sessions to revoke.');
+    }
+    return next(error);
+  }
+});
+
+/**
  * PUT /api/auth/users/:id/status
  * Toggles status of a staff member. Only accessible by ADMIN.
  */

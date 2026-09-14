@@ -37,6 +37,9 @@ export default function AdminDashboard({ user, lang, t }) {
   const [resetMfaCode, setResetMfaCode] = useState('');
   const [resetError, setResetError] = useState('');
   const [resetPending, setResetPending] = useState(false);
+  const [revokeTarget, setRevokeTarget] = useState(null);
+  const [revokeError, setRevokeError] = useState('');
+  const [revokePending, setRevokePending] = useState(false);
   const newPasswordChecks = getStaffPasswordChecks(newPassword);
   const resetPasswordChecks = getStaffPasswordChecks(resetNewPassword);
 
@@ -234,6 +237,34 @@ export default function AdminDashboard({ user, lang, t }) {
       }
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const closeSessionRevocation = (force = false) => {
+    if (revokePending && !force) return;
+    setRevokeTarget(null);
+    setRevokeError('');
+  };
+
+  const handleSessionRevocation = async () => {
+    if (!revokeTarget || revokePending) return;
+    setRevokePending(true);
+    setRevokeError('');
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const response = await fetchWithAuth(`/api/auth/users/${revokeTarget.id}/revoke-sessions`, { method: 'POST' });
+      const data = await response.json();
+      if (!response.ok) {
+        setRevokeError(apiErrorMessage(data, lang === 'ar' ? 'تعذر إنهاء الجلسات.' : 'Failed to sign out the user.'));
+        return;
+      }
+      closeSessionRevocation(true);
+      setSuccessMsg(lang === 'ar' ? 'تم إنهاء جميع جلسات المستخدم النشطة.' : 'All active sessions for this user have been ended.');
+    } catch {
+      setRevokeError(lang === 'ar' ? 'تعذر الاتصال بالخادم. يرجى المحاولة مرة أخرى.' : 'Unable to connect to the server. Please try again.');
+    } finally {
+      setRevokePending(false);
     }
   };
 
@@ -505,6 +536,14 @@ export default function AdminDashboard({ user, lang, t }) {
                         >
                           {lang === 'ar' ? 'إعادة تعيين كلمة المرور' : 'Reset Password'}
                         </button>}
+                        {u.id !== user?.id && u.status === 'ACTIVE' && <button
+                          type="button"
+                          className="btn btn-secondary"
+                          style={{ padding: '4px 8px', fontSize: '0.8rem', marginInlineStart: '0.4rem' }}
+                          onClick={() => { setRevokeTarget(u); setRevokeError(''); }}
+                        >
+                          {lang === 'ar' ? 'إنهاء الجلسات' : 'Sign out of all devices'}
+                        </button>}
                         </>}
                       </td>
                     </tr>
@@ -549,6 +588,22 @@ export default function AdminDashboard({ user, lang, t }) {
                     <button type="submit" className="btn btn-primary" disabled={resetPending}>{resetPending ? (lang === 'ar' ? 'جارٍ الحفظ…' : 'Saving…') : (lang === 'ar' ? 'إعادة التعيين' : 'Reset Password')}</button>
                   </div>
                 </form>
+              </div>
+            </div>}
+            {revokeTarget && <div className="modal-overlay" role="presentation">
+              <div className="modal-content-panel" role="dialog" aria-modal="true" aria-labelledby="staff-session-revocation-title" style={{ width: 'min(520px, 100%)', padding: '1.5rem' }}>
+                <h3 id="staff-session-revocation-title">{lang === 'ar' ? 'إنهاء جلسات المستخدم' : 'Sign out user from all devices'}</h3>
+                <p>{revokeTarget.username} — {getRoleLabel(revokeTarget.role)}</p>
+                <p style={{ opacity: 0.8 }}>
+                  {lang === 'ar'
+                    ? 'سيتم إنهاء الجلسات النشطة فقط. لن يتم تعطيل الحساب أو تغيير كلمة المرور أو الدور.'
+                    : 'This ends active sessions only. It does not deactivate the account, reset the password, or change the role.'}
+                </p>
+                {revokeError && <div role="alert" className="badge badge-danger" style={{ width: '100%', marginBottom: '1rem', padding: '0.5rem' }}>{revokeError}</div>}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem' }}>
+                  <button type="button" className="btn btn-secondary" disabled={revokePending} onClick={closeSessionRevocation}>{lang === 'ar' ? 'إلغاء' : 'Cancel'}</button>
+                  <button type="button" className="btn btn-danger" disabled={revokePending} onClick={handleSessionRevocation}>{revokePending ? (lang === 'ar' ? 'جارٍ الإنهاء…' : 'Signing out…') : (lang === 'ar' ? 'إنهاء جميع الجلسات' : 'Sign out all devices')}</button>
+                </div>
               </div>
             </div>}
           </div>

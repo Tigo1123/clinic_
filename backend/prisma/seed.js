@@ -1,7 +1,9 @@
 import { PrismaClient } from '../src/generated/prisma/index.js';
 import bcrypt from 'bcryptjs';
 import { buildMedicineIdentityKey, normalizeBatchNumber } from '../src/utils/medicineManagement.js';
+import { assertDemoSeedAllowed } from '../scripts/demo-seed-policy.js';
 
+assertDemoSeedAllowed();
 const prisma = new PrismaClient();
 
 async function main() {

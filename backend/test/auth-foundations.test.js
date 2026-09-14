@@ -157,6 +157,73 @@ test('logout publishes a committed generation change which disconnects only stal
   } finally { await client.end(); }
 });
 
+test('ADMIN can revoke every target role without changing credentials, role, or active status', async () => {
+  const admin = await account('ACTIVE', 'ADMIN');
+  for (const role of ['DOCTOR', 'RECEPTIONIST', 'LAB_TECH', 'PHARMACIST', 'PATIENT']) {
+    const target = await account('ACTIVE', role);
+    const before = await prisma.user.findUnique({
+      where: { id: target.user.id },
+      select: { passwordHash: true, role: true, status: true, authVersion: true }
+    });
+    assert.equal(await socketError(target.token), undefined);
+    const revoked = await api.post(`/api/auth/users/${target.user.id}/revoke-sessions`).set(auth(admin.token));
+    assert.equal(revoked.status, 200);
+    assert.equal(revoked.body.success, true);
+    const after = await prisma.user.findUnique({
+      where: { id: target.user.id },
+      select: { passwordHash: true, role: true, status: true, authVersion: true }
+    });
+    assert.equal(after.passwordHash, before.passwordHash);
+    assert.equal(after.role, before.role);
+    assert.equal(after.status, before.status);
+    assert.equal(after.authVersion, before.authVersion + 1);
+    assert.equal((await api.get('/api/notifications').set(auth(target.token))).status, 401);
+    assert.equal((await socketError(target.token)).data.code, 'SESSION_REVOKED');
+    assert.equal((await api.post('/api/auth/login').send({ username: target.user.username, password })).status, 200);
+    const audit = await prisma.tenantAuditLog.findFirst({
+      where: { userId: admin.user.id, action: 'USER_SESSIONS_REVOKED_BY_ADMIN', details: { contains: target.user.id } },
+      orderBy: { timestamp: 'desc' }
+    });
+    assert.ok(audit);
+  }
+});
+
+test('session revocation endpoint rejects unauthenticated, non-admin, and self-revocation requests', async () => {
+  const target = await account('ACTIVE', 'DOCTOR');
+  assert.equal((await api.post(`/api/auth/users/${target.user.id}/revoke-sessions`)).status, 401);
+  for (const role of ['RECEPTIONIST', 'DOCTOR', 'LAB_TECH', 'PHARMACIST', 'PATIENT']) {
+    const actor = await account('ACTIVE', role);
+    assert.equal((await api.post(`/api/auth/users/${target.user.id}/revoke-sessions`).set(auth(actor.token))).status, 403);
+  }
+  const admin = await account('ACTIVE', 'ADMIN');
+  assert.equal((await api.post(`/api/auth/users/${admin.user.id}/revoke-sessions`).set(auth(admin.token))).status, 409);
+  assert.equal((await prisma.user.findUnique({ where: { id: admin.user.id } })).authVersion, admin.user.authVersion);
+  assert.equal((await prisma.user.findUnique({ where: { id: target.user.id } })).authVersion, target.user.authVersion);
+});
+
+test('admin session revocation publishes an auth-version notification that disconnects target sockets', async () => {
+  const admin = await account('ACTIVE', 'ADMIN');
+  const target = await account('ACTIVE', 'DOCTOR');
+  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  await client.connect();
+  await client.query(`LISTEN ${SOCKET_REVOCATION_CHANNEL}`);
+  let disconnects = 0;
+  const socket = { user: { id: target.user.id, av: target.user.authVersion }, emit() {}, disconnect() { disconnects++; } };
+  const service = new SocketRevocationService({ of: () => ({ sockets: new Map([['target', socket]]), adapter: { rooms: new Map([[`user_${target.user.id}`, new Set(['target'])]]) } }) }, {});
+  try {
+    const notice = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Revocation notification timeout')), 3000);
+      client.on('notification', (message) => {
+        const payload = JSON.parse(message.payload);
+        if (payload.userId === target.user.id) { clearTimeout(timer); resolve(message.payload); }
+      });
+    });
+    assert.equal((await api.post(`/api/auth/users/${target.user.id}/revoke-sessions`).set(auth(admin.token))).status, 200);
+    service.handleNotification(await notice);
+    assert.equal(disconnects, 1);
+  } finally { await client.end(); }
+});
+
 test('authenticated phone verification has a separate owner-bound endpoint and never activates inactive accounts', async () => {
   const { user, token } = await account();
   const issued = await api.post('/api/patient-auth/verification/request').set(auth(token)).send({ type: 'PHONE' });
