@@ -378,7 +378,7 @@ test('forgot password sends a reset challenge without exposing unknown emails', 
 
   assert.equal(unknown.status, 200);
   assert.equal(unknown.body.success, true);
-  assert.equal(Object.hasOwn(unknown.body, 'challengeId'), false);
+  assert.equal(Object.hasOwn(unknown.body, 'challengeId'), true);
 
   assert.ok(account.user.id);
 });

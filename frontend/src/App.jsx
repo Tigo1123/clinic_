@@ -1,3 +1,4 @@
+import { logoutAccount } from './services/logout.js';
 import React, { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -76,7 +77,8 @@ export default function App({ initialView = 'login' }) {
     setView('dashboard');
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await logoutAccount('staff');
     setSecurityOpen(false);
     setRecoveryLoginNotice(false);
     clearStaffSession();

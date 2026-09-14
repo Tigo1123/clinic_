@@ -1,3 +1,4 @@
+import { clearPatientSession } from '../../services/authStorage.js';
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -984,6 +985,7 @@ export function Profile() {
 
   const [emailChangeOpen, setEmailChangeOpen] = useState(false);
   const [newEmail, setNewEmail] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
   const [emailChallengeId, setEmailChallengeId] = useState('');
   const [emailCode, setEmailCode] = useState('');
   const [emailChanging, setEmailChanging] = useState(false);
@@ -1071,7 +1073,7 @@ export function Profile() {
         {
           method: 'POST',
           body: JSON.stringify({
-            email: newEmail.trim()
+            email: newEmail.trim(), currentPassword
           })
         }
       );
@@ -1110,7 +1112,7 @@ export function Profile() {
           method: 'POST',
           body: JSON.stringify({
             challengeId: emailChallengeId,
-            code: emailCode
+            code: emailCode, currentPassword
           })
         }
       );
@@ -1126,11 +1128,9 @@ export function Profile() {
       setEmailCode('');
       setNewEmail('');
 
-      try {
-        await reload();
-      } catch (reloadError) {
-        console.error('Patient profile reload error:', reloadError);
-      }
+      setCurrentPassword('');
+      clearPatientSession();
+      window.location.replace('/patient-login');
     } catch (requestError) {
       setEmailChangeError(
         requestError?.message ||
@@ -1213,11 +1213,8 @@ export function Profile() {
       setPhoneCode('');
       setNewPhone('');
 
-      try {
-        await reload();
-      } catch (reloadError) {
-        console.error('Patient profile reload error:', reloadError);
-      }
+      clearPatientSession();
+      window.location.replace('/patient-login');
     } catch (requestError) {
       setPhoneChangeError(
         requestError?.message ||
@@ -1470,6 +1467,9 @@ export function Profile() {
                 <div style={{ marginTop: '1rem' }}>
                   {!emailChallengeId ? (
                     <form onSubmit={requestEmailChange}>
+                      <label className="patient-field">{lang === 'ar' ? 'كلمة المرور الحالية' : 'Current password'}
+                        <input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
+                      </label>
                       <label className="patient-field">
                         {lang === 'ar'
                           ? 'البريد الإلكتروني الجديد'

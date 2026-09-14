@@ -1,14 +1,14 @@
+import crypto from 'crypto';
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
-import crypto from 'crypto';
 import { z } from 'zod';
 import prisma from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { allowRoles, ROLES } from '../middleware/policies.js';
 import { validate } from '../middleware/validate.js';
 import { normalizeEmail, normalizePhone } from '../utils/identity.js';
-import { createVerificationChallenge, consumeVerificationChallenge } from '../services/verification.js';
+import { createVerificationChallenge, consumeVerificationChallenge, registrationPurpose, invalidateChallenges } from '../services/verification.js';
 import { ApiError, sendError } from '../utils/apiError.js';
 import { rateLimits } from '../config.js';
 import { getClinicDateString } from '../utils/clinicTime.js';
@@ -16,18 +16,19 @@ import { passwordSchema } from '../utils/passwordPolicy.js';
 import { markSensitiveResponse } from '../utils/edgeSecurity.js';
 
 const router = express.Router();
+router.use((req, res, next) => { markSensitiveResponse(res); next(); });
 const limiter = (limit) => rateLimit({ windowMs: rateLimits.windowMs, limit, standardHeaders: 'draft-7', legacyHeaders: false, handler: (req, res) => sendError(res, 429, 'RATE_LIMITED', 'Too many attempts. Please try again later.') });
 const registrationLimiter = limiter(rateLimits.registration);
 const verificationLimiter = limiter(rateLimits.verification);
 const claimLimiter = limiter(rateLimits.claim);
 const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
 
-async function audit(userId, action, details, req) {
-  await prisma.tenantAuditLog.create({ data: { userId, action, details, ipAddress: req.ip || 'unknown' } });
+async function audit(userId, action, details, req, db = prisma) {
+  await db.tenantAuditLog.create({ data: { userId, action, details, ipAddress: req.ip || 'unknown' } });
 }
 
-async function matchingPatients(phoneNormalized, dateOfBirth) {
-  const candidates = await prisma.patient.findMany({ where: { dateOfBirth }, select: { id: true, phone: true, userId: true } });
+async function matchingPatients(phoneNormalized, dateOfBirth, db = prisma) {
+  const candidates = await db.patient.findMany({ where: { dateOfBirth }, select: { id: true, phone: true, userId: true } });
   return candidates.filter((patient) => normalizePhone(patient.phone) === phoneNormalized);
 }
 
@@ -59,8 +60,8 @@ router.post('/register', registrationLimiter, validate(z.object({
       return created;
     });
     createdUserId = user.id;
-    const verificationType = process.env.VERIFICATION_PROVIDER === 'email' ? 'EMAIL' : 'PHONE';
-    const verificationTarget = verificationType === 'EMAIL' ? email : phoneNormalized;
+    const verificationType = registrationPurpose();
+    const verificationTarget = verificationType.endsWith('EMAIL') ? email : phoneNormalized;
     if (!verificationTarget) throw new ApiError(422, 'VERIFICATION_TARGET_MISSING', 'Email is required when email verification is configured.');
     const { challenge, developmentCode } = await createVerificationChallenge(user, verificationType, verificationTarget);
     await audit(user.id, 'PATIENT_ACCOUNT_REGISTRATION', 'Patient online account registration started.', req);
@@ -74,27 +75,28 @@ router.post('/register', registrationLimiter, validate(z.object({
 
 router.post('/verify', verificationLimiter, validate(z.object({ challengeId: z.string().uuid(), code: z.string().regex(/^\d{6}$/) }).strict()), async (req, res, next) => {
   try {
-    const challenge = await consumeVerificationChallenge(req.body.challengeId, req.body.code);
-    const registration = await prisma.patientRegistration.findUnique({ where: { userId: challenge.userId } });
+    const result = await consumeVerificationChallenge({ challengeId: req.body.challengeId, code: req.body.code, purpose: registrationPurpose(), transition: async (tx, challenge) => {
+      await tx.user.update({ where: { id: challenge.userId }, data: { status: 'ACTIVE', ...(challenge.type.endsWith('PHONE') ? { phoneVerifiedAt: new Date() } : { emailVerifiedAt: new Date() }) } });
+    const registration = await tx.patientRegistration.findUnique({ where: { userId: challenge.userId } });
     if (!registration) {
-      const linkedPatient = await prisma.patient.findUnique({ where: { userId: challenge.userId } });
-      if (linkedPatient) return res.json({ state: 'VERIFIED' });
+      const linkedPatient = await tx.patient.findUnique({ where: { userId: challenge.userId } });
+      if (linkedPatient) return ({ state: 'VERIFIED' });
       throw new ApiError(409, 'REGISTRATION_STATE_INVALID', 'Registration details are unavailable.');
     }
-    const matches = await matchingPatients(challenge.user.phoneNormalized, registration.dateOfBirth);
+    const matches = await matchingPatients(challenge.user.phoneNormalized, registration.dateOfBirth, tx);
     if (matches.some((patient) => patient.userId)) {
-      await audit(challenge.userId, 'PATIENT_CLAIM_REJECTED', 'Matching patient record is already claimed.', req);
-      return res.json({ state: 'MANUAL_REVIEW_REQUIRED' });
+      await audit(challenge.userId, 'PATIENT_CLAIM_REJECTED', 'Matching patient record is already claimed.', req, tx);
+      return ({ state: 'MANUAL_REVIEW_REQUIRED' });
     }
     if (matches.length === 0) {
-      const patient = await prisma.patient.create({ data: {
+      const patient = await tx.patient.create({ data: {
         userId: challenge.userId, fullNameAr: registration.fullNameAr, fullNameEn: registration.fullNameEn,
         gender: registration.gender, dateOfBirth: registration.dateOfBirth, phone: challenge.user.phoneNormalized,
         addressStateId: registration.addressStateId, emergencyContact: 'Self'
       } });
-      await audit(challenge.userId, 'PATIENT_FILE_CREATED', JSON.stringify({ patientId: patient.id, fileNumber: patient.fileNumber, context: 'ONLINE_VERIFICATION' }), req);
-      await audit(challenge.userId, 'PATIENT_RECORD_CREATED', `Created patient record ${patient.id} for verified account.`, req);
-      return res.json({ state: 'CLAIMED' });
+      await audit(challenge.userId, 'PATIENT_FILE_CREATED', JSON.stringify({ patientId: patient.id, fileNumber: patient.fileNumber, context: 'ONLINE_VERIFICATION' }), req, tx);
+      await audit(challenge.userId, 'PATIENT_RECORD_CREATED', `Created patient record ${patient.id} for verified account.`, req, tx);
+      return ({ state: 'CLAIMED' });
     }
     if (matches.length === 1) {
       const matchedPatient = matches[0];
@@ -105,7 +107,7 @@ router.post('/verify', verificationLimiter, validate(z.object({ challengeId: z.s
       // Email verification is sufficient for creating a brand-new empty
       // Patient record, but it must never grant access to an existing
       // clinical record based on an unverified phone number.
-      const verifiedUser = await prisma.user.findUnique({
+      const verifiedUser = await tx.user.findUnique({
         where: {
           id: challenge.userId
         },
@@ -119,10 +121,10 @@ router.post('/verify', verificationLimiter, validate(z.object({ challengeId: z.s
           challenge.userId,
           'PATIENT_AUTO_LINK_REJECTED',
           'Automatic linkage to an existing patient record requires a verified phone number.',
-          req
+          req, tx
         );
 
-        return res.json({
+        return ({
           state: 'MANUAL_REVIEW_REQUIRED',
           reason: 'VERIFIED_PHONE_REQUIRED'
         });
@@ -130,7 +132,7 @@ router.post('/verify', verificationLimiter, validate(z.object({ challengeId: z.s
 
       // Auto-link only when the matching patient record is still unclaimed.
       // The match is already constrained by normalized phone + date of birth.
-      const linked = await prisma.patient.updateMany({
+      const linked = await tx.patient.updateMany({
         where: {
           id: matchedPatient.id,
           userId: null
@@ -145,30 +147,32 @@ router.post('/verify', verificationLimiter, validate(z.object({ challengeId: z.s
           challenge.userId,
           'PATIENT_AUTO_LINK_CONFLICT',
           'Matching patient record could not be auto-linked because ownership changed.',
-          req
+          req, tx
         );
 
-        return res.json({ state: 'MANUAL_REVIEW_REQUIRED' });
+        return ({ state: 'MANUAL_REVIEW_REQUIRED' });
       }
 
       await audit(
         challenge.userId,
         'PATIENT_RECORD_AUTO_LINKED',
         `Automatically linked verified account to existing patient record ${matchedPatient.id}.`,
-        req
+        req, tx
       );
 
-      return res.json({ state: 'CLAIMED' });
+      return ({ state: 'CLAIMED' });
     }
 
     await audit(
       challenge.userId,
       'PATIENT_CLAIM_AMBIGUOUS',
       'Multiple patient records matched verified identity and date of birth.',
-      req
+      req, tx
     );
 
-    return res.json({ state: 'AMBIGUOUS_MATCH' });
+    return ({ state: 'AMBIGUOUS_MATCH' });
+    } });
+    return res.json(result);
   } catch (error) { next(error); }
 });
 router.post(
@@ -184,7 +188,7 @@ router.post(
         include: { user: true }
       });
 
-      if (!previousChallenge || previousChallenge.usedAt) {
+      if (!previousChallenge || previousChallenge.usedAt || previousChallenge.type !== registrationPurpose() || previousChallenge.authVersion !== previousChallenge.user.authVersion) {
         return sendError(
           res,
           422,
@@ -202,13 +206,10 @@ router.post(
         );
       }
 
-      const verificationType =
-        process.env.VERIFICATION_PROVIDER === 'email'
-          ? 'EMAIL'
-          : previousChallenge.type;
+      const verificationType = registrationPurpose();
 
       const target =
-        verificationType === 'EMAIL'
+        verificationType.endsWith('EMAIL')
           ? previousChallenge.user.email
           : previousChallenge.user.phoneNormalized;
 
@@ -319,13 +320,10 @@ router.post(
         );
       }
 
-      const verificationType =
-        process.env.VERIFICATION_PROVIDER === 'email'
-          ? 'EMAIL'
-          : 'PHONE';
+      const verificationType = registrationPurpose();
 
       const target =
-        verificationType === 'EMAIL'
+        verificationType.endsWith('EMAIL')
           ? user.email
           : user.phoneNormalized;
 
@@ -384,49 +382,19 @@ router.post(
       });
 
       // Do not reveal whether the email exists.
-      if (!user || user.role !== ROLES.PATIENT) {
-        return res.json(genericResponse);
+      if (!user || user.role !== ROLES.PATIENT || user.status !== 'ACTIVE') {
+        return res.json({ ...genericResponse, challengeId: crypto.randomUUID() });
       }
 
-      const code = String(crypto.randomInt(100000, 1000000));
-      const codeHash = await bcrypt.hash(code, 10);
-
-      const challenge = await prisma.verificationChallenge.create({
-        data: {
-          userId: user.id,
-          type: 'PASSWORD_RESET',
-          targetNormalized: email,
-          codeHash,
-          expiresAt: new Date(Date.now() + 10 * 60 * 1000)
-        }
-      });
-
-      const developmentMode =
-        process.env.VERIFICATION_PROVIDER === 'development' &&
-        process.env.NODE_ENV !== 'production';
-
-      if (!developmentMode) {
-        const { sendEmail } = await import('../utils/notifications.js');
-
-        const sent = await sendEmail({
-          to: email,
-          subject: 'Reset your patient account password',
-          text: `Your password reset code is ${code}. It expires in 10 minutes.`
-        });
-
-        if (!sent) {
-          await prisma.verificationChallenge.delete({
-            where: { id: challenge.id }
-          }).catch(() => {});
-
-          return sendError(
-            res,
-            503,
-            'PASSWORD_RESET_DELIVERY_FAILED',
-            'Password reset email could not be delivered.'
-          );
-        }
+      let issued;
+      try {
+        issued = await createVerificationChallenge(user, 'PASSWORD_RESET', email);
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error;
+        // Delivery and concurrent identity changes must not disclose existence.
+        return res.json({ ...genericResponse, challengeId: crypto.randomUUID() });
       }
+      const { challenge, developmentCode } = issued;
 
       await audit(
         user.id,
@@ -440,7 +408,7 @@ router.post(
         challengeId: challenge.id,
         ...(process.env.VERIFICATION_PROVIDER === 'development' &&
         process.env.NODE_ENV !== 'production'
-          ? { developmentCode: code }
+          ? { developmentCode }
           : {})
       });
     } catch (error) {
@@ -460,132 +428,30 @@ router.post(
   })),
   async (req, res, next) => {
     try {
-      const challenge = await prisma.verificationChallenge.findUnique({
-        where: { id: req.body.challengeId },
-        include: { user: true }
-      });
-
-      if (
-        !challenge ||
-        challenge.type !== 'PASSWORD_RESET' ||
-        challenge.usedAt
-      ) {
-        return sendError(
-          res,
-          422,
-          'PASSWORD_RESET_INVALID',
-          'Password reset request is invalid or already used.'
-        );
-      }
-
-      if (challenge.expiresAt <= new Date()) {
-        return sendError(
-          res,
-          422,
-          'PASSWORD_RESET_EXPIRED',
-          'Password reset code has expired.'
-        );
-      }
-
-      if (challenge.attemptCount >= challenge.maxAttempts) {
-        return sendError(
-          res,
-          429,
-          'PASSWORD_RESET_ATTEMPTS_EXCEEDED',
-          'Password reset attempt limit exceeded.'
-        );
-      }
-
-      const valid = await bcrypt.compare(
-        String(req.body.code),
-        challenge.codeHash
-      );
-
-      if (!valid) {
-        await prisma.verificationChallenge.update({
-          where: { id: challenge.id },
-          data: {
-            attemptCount: { increment: 1 }
-          }
-        });
-
-        return sendError(
-          res,
-          422,
-          'PASSWORD_RESET_CODE_INCORRECT',
-          'Password reset code is incorrect.'
-        );
-      }
-
-      const passwordHash = await bcrypt.hash(
-        req.body.newPassword,
-        bcryptRounds
-      );
-
-      const changedAt = new Date();
-
-      const updated = await prisma.$transaction(async (tx) => {
-        const consumed = await tx.verificationChallenge.updateMany({
-          where: {
-            id: challenge.id,
-            usedAt: null
-          },
-          data: {
-            usedAt: changedAt
-          }
-        });
-
-        if (consumed.count !== 1) {
-          return false;
-        }
-
-        await tx.user.update({
-          where: { id: challenge.userId },
-          data: {
-            passwordHash,
-            lastPasswordChange: changedAt,
-            authVersion: { increment: 1 }
-          }
-        });
-
-        await tx.verificationChallenge.updateMany({
-          where: {
-            userId: challenge.userId,
-            type: 'PASSWORD_RESET',
-            id: { not: challenge.id },
-            usedAt: null
-          },
-          data: { usedAt: changedAt }
-        });
-
-        return true;
-      });
-
-      if (!updated) {
-        return sendError(
-          res,
-          422,
-          'PASSWORD_RESET_INVALID',
-          'Password reset request is invalid or already used.'
-        );
-      }
-
-      await audit(
-        challenge.userId,
-        'PATIENT_PASSWORD_RESET_COMPLETED',
-        'Patient password was reset successfully.',
-        req
-      );
+      const passwordHash = await bcrypt.hash(req.body.newPassword, bcryptRounds);
+      await consumeVerificationChallenge({ challengeId: req.body.challengeId, code: req.body.code, purpose: 'PASSWORD_RESET', transition: async (tx, challenge) => {
+        await tx.user.update({ where: { id: challenge.userId }, data: { passwordHash, lastPasswordChange: new Date(), authVersion: { increment: 1 } } });
+        await invalidateChallenges(tx, challenge.userId);
+        await audit(challenge.userId, 'PATIENT_PASSWORD_RESET_COMPLETED', 'Patient password was reset successfully.', req, tx);
+      } });
 
       return res.json({
         success: true,
         message: 'Password reset successfully.'
       });
     } catch (error) {
+      if (error instanceof ApiError && error.code?.startsWith('VERIFICATION_')) error.code = error.code.replace('VERIFICATION_', 'PASSWORD_RESET_');
       next(error);
     }
   }
 );
+
+router.post('/verification/verify', verificationLimiter, authenticate, allowRoles(ROLES.PATIENT), validate(z.object({ challengeId: z.string().uuid(), code: z.string().regex(/^\d{6}$/), type: z.enum(['PHONE', 'EMAIL']) }).strict()), async (req, res, next) => {
+  try {
+    await consumeVerificationChallenge({ ...req.body, purpose: req.body.type, userId: req.user.id, authVersion: req.user.av, transition: (tx, challenge) => tx.user.update({ where: { id: challenge.userId }, data: req.body.type === 'PHONE' ? { phoneVerifiedAt: new Date() } : { emailVerifiedAt: new Date() }, select: { id: true } }) });
+    return res.json({ state: 'VERIFIED' });
+  } catch (error) { next(error); }
+});
 
 router.post('/verification/request', verificationLimiter, authenticate, allowRoles(ROLES.PATIENT), validate(z.object({ type: z.enum(['PHONE', 'EMAIL']) })), async (req, res, next) => {
   try {

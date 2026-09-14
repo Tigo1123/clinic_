@@ -1483,6 +1483,8 @@ test('staff MFA enrollment, enforced login, recovery, challenge, and disable lif
     .set({ Authorization: `Bearer ${staffToken}` }).send({ code: totpFor(secondEnrollment.body.secret).generate() });
   assert.equal(confirmation.status, 200);
   assert.equal(confirmation.body.state, 'ENABLED');
+  staff.authVersion += 1;
+  assert.equal((await api.get('/api/patients').set({ Authorization: `Bearer ${staffToken}` })).status, 401);
   assert.equal(confirmation.body.recoveryCodes.length, 10);
   assert.equal(Object.hasOwn(confirmation.body, 'secret'), false);
   configuration = await prisma.mfaConfiguration.findUnique({ where: { userId: staff.id } });
@@ -1835,6 +1837,12 @@ test('staff MFA enrollment, enforced login, recovery, challenge, and disable lif
   assert.equal(regenerate.status, 200);
   assert.match(regenerate.headers['cache-control'], /(?:^|,)\s*no-store(?:,|$)/);
   assert.equal(regenerate.body.recoveryCodes.length, 10);
+
+  assert.equal((await api.get('/api/patients').set({ Authorization: `Bearer ${staffToken}` })).status, 401);
+  const regeneratedLogin = await recoveryChallengeFor();
+  const regeneratedSession = await verifyRecovery(regeneratedLogin, regenerate.body.recoveryCodes[9]);
+  assert.equal(regeneratedSession.status, 200);
+  staffToken = regeneratedSession.body.token;
 
   const beforeDisable = await prisma.user.findUnique({ where: { id: staff.id }, select: { authVersion: true } });
 
@@ -8103,7 +8111,8 @@ test('patient can securely change verified email', async () => {
     .post('/api/patient/me/email-change/request')
     .set('Authorization', `Bearer ${token}`)
     .send({
-      email: newEmail
+      email: newEmail,
+      currentPassword: password
     });
 
   assert.equal(requestChange.status, 201);
@@ -8115,12 +8124,13 @@ test('patient can securely change verified email', async () => {
     .set('Authorization', `Bearer ${token}`)
     .send({
       challengeId: requestChange.body.challengeId,
-      code: requestChange.body.developmentCode
+      code: requestChange.body.developmentCode,
+      currentPassword: password
     });
 
   assert.equal(confirmChange.status, 200);
-  assert.equal(confirmChange.body.email, newEmail);
-  assert.equal(confirmChange.body.emailVerified, true);
+  assert.equal(confirmChange.body.reauthenticationRequired, true);
+  assert.equal((await api.get('/api/patient/me').set('Authorization', `Bearer ${token}`)).status, 401);
 
   const user = await prisma.user.findUnique({
     where: {
@@ -8226,7 +8236,8 @@ test('patient phone change updates account and patient but remains unverified', 
     });
 
   assert.equal(confirmChange.status, 200);
-  assert.equal(confirmChange.body.phone, newPhone);
+  assert.equal(confirmChange.body.reauthenticationRequired, true);
+  assert.equal((await api.get('/api/patient/me').set('Authorization', `Bearer ${token}`)).status, 401);
   assert.equal(confirmChange.body.phoneVerified, false);
 
   const updatedUser = await prisma.user.findUnique({
@@ -8948,7 +8959,7 @@ test('email-only verification never auto-links an existing medical record', asyn
       id: register.body.challengeId
     },
     data: {
-      type: 'EMAIL',
+      type: 'REGISTRATION_EMAIL',
       targetNormalized: email
     }
   });
@@ -8970,12 +8981,17 @@ test('email-only verification never auto-links an existing medical record', asyn
     }
   });
 
-  const verify = await api
+  const previousProvider = process.env.VERIFICATION_PROVIDER;
+  process.env.VERIFICATION_PROVIDER = 'email';
+  let verify;
+  try {
+    verify = await api
     .post('/api/patient-auth/verify')
     .send({
       challengeId: register.body.challengeId,
       code: register.body.developmentCode
     });
+  } finally { process.env.VERIFICATION_PROVIDER = previousProvider; }
 
   assert.equal(verify.status, 200);
 

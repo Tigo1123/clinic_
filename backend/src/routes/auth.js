@@ -17,6 +17,15 @@ import { clinicDayBounds } from '../utils/clinicTime.js';
 const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
 
 const router = express.Router();
+router.use((req, res, next) => { markSensitiveResponse(res); next(); });
+// Account-wide logout. A concurrent/repeated request cannot bump a newer
+// generation: the update is conditional on the authenticated generation.
+router.post('/logout', authenticate, async (req, res, next) => {
+  try {
+    await prisma.user.updateMany({ where: { id: req.user.id, authVersion: req.user.av }, data: { authVersion: { increment: 1 } } });
+    return res.status(204).end();
+  } catch (error) { next(error); }
+});
 export const STAFF_ROLES = ['ADMIN', 'RECEPTIONIST', 'DOCTOR', 'PHARMACIST', 'LAB_TECH'];
 const DOCTOR_CREATION_FIELDS = ['fullNameAr', 'fullNameEn', 'specialtyAr', 'specialtyEn', 'consultationFee'];
 
@@ -160,6 +169,13 @@ router.post('/login', loginLimiter, validate(z.object({
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
 
+    // 3. Verify password
+    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+    if (!isPasswordValid) {
+      logger.security('auth.login_failed', { requestId: req.id, userId: user.id, reason: 'invalid_credentials', ip: req.ip });
+      return res.status(401).json({ error: 'Invalid username or password.' });
+    }
+
     // 2. Check account status
     if (user.status === 'PENDING_VERIFICATION') {
       logger.security('auth.login_blocked', {
@@ -187,13 +203,6 @@ router.post('/login', loginLimiter, validate(z.object({
         error: 'Your account is deactivated. Contact Admin.',
         code: 'ACCOUNT_INACTIVE'
       });
-    }
-
-    // 3. Verify password
-    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
-    if (!isPasswordValid) {
-      logger.security('auth.login_failed', { requestId: req.id, userId: user.id, reason: 'invalid_credentials', ip: req.ip });
-      return res.status(401).json({ error: 'Invalid username or password.' });
     }
 
     // 4. Enforce the second authentication factor for enrolled staff before

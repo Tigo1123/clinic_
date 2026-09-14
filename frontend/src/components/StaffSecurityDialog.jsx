@@ -1,3 +1,5 @@
+import { clearStaffSession } from '../services/authStorage.js';
+import { disconnectStaffSocket, connectStaffSocket } from '../services/staffSocket.js';
 import React, { useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Check, Copy, KeyRound, ShieldCheck, X } from 'lucide-react';
@@ -29,7 +31,9 @@ function ProofFields({ currentPassword, setCurrentPassword, proofType, setProofT
   </>;
 }
 
-export default function StaffSecurityDialog({ user, onUserChange, onClose, t }) {
+export default function StaffSecurityDialog({ user, onClose, t }) {
+  const [revoked, setRevoked] = useState(false);
+  const closeDialog = () => { if (revoked) window.location.replace('/staff'); else onClose(); };
   const [mode, setMode] = useState('overview');
   const [currentPassword, setCurrentPassword] = useState('');
   const [enrollment, setEnrollment] = useState(null);
@@ -66,6 +70,7 @@ export default function StaffSecurityDialog({ user, onUserChange, onClose, t }) 
       setEnrollment({ secret: result.secret, otpauthUri: result.otpauthUri, expiresAt: result.expiresAt });
       setMode('setup');
     } catch (requestError) {
+      connectStaffSocket();
       setError(requestError?.status ? t('mfaReauthFailed') : t('mfaServiceUnavailable'));
     } finally { setPending(false); }
   };
@@ -80,13 +85,17 @@ export default function StaffSecurityDialog({ user, onUserChange, onClose, t }) 
     }
     setPending(true); setError('');
     try {
+      disconnectStaffSocket();
       const result = await confirmMfaEnrollment(code);
+      clearStaffSession();
+      setRevoked(true);
       enrollmentCodeRef.current?.clear();
       setEnrollment(null);
       setRecoveryCodes(result.recoveryCodes);
-      onUserChange({ ...user, mfaEnabled: true });
+
       setMode('recovery');
     } catch (requestError) {
+      connectStaffSocket();
       if (['MFA_ENROLLMENT_EXPIRED', 'MFA_ENROLLMENT_NOT_PENDING'].includes(requestError?.code)) {
         resetSensitive('overview');
         setError(t('mfaEnrollmentExpired'));
@@ -104,18 +113,22 @@ export default function StaffSecurityDialog({ user, onUserChange, onClose, t }) 
     }
     setPending(true); setError('');
     try {
+      disconnectStaffSocket();
       if (mode === 'disable') {
         await disableMfa(currentPassword, proofType, submittedProof);
-        onUserChange({ ...user, mfaEnabled: false });
-        resetSensitive('overview');
+        clearStaffSession();
+        window.location.replace('/staff');
       } else {
         const result = await regenerateMfaRecoveryCodes(currentPassword, proofType, submittedProof);
+        clearStaffSession();
+        setRevoked(true);
         proofRef.current?.clear();
         setCurrentPassword(''); setProof('');
         setRecoveryCodes(result.recoveryCodes);
         setMode('recovery');
       }
     } catch (requestError) {
+      connectStaffSocket();
       setError(requestError?.status ? t('mfaReauthFailed') : t('mfaServiceUnavailable'));
     } finally { setPending(false); }
   };
@@ -132,11 +145,12 @@ export default function StaffSecurityDialog({ user, onUserChange, onClose, t }) 
 
   return <div className="security-dialog-backdrop" role="presentation">
     <section className="security-dialog glass-panel" role="dialog" aria-modal="true" aria-labelledby="security-dialog-title">
-      <button type="button" className="security-dialog-close" aria-label={t('close')} disabled={mode === 'recovery' && !acknowledged} onClick={onClose}><X size={20} /></button>
+      <button type="button" className="security-dialog-close" aria-label={t('close')} disabled={mode === 'recovery' && !acknowledged} onClick={closeDialog}><X size={20} /></button>
       <div className="security-dialog-heading">
         <span className="staff-mfa-icon"><ShieldCheck size={28} /></span>
         <div><h2 id="security-dialog-title">{t('securitySettings')}</h2><p>{t('mfaSettingsDescription')}</p></div>
       </div>
+      {revoked && <p role="status">{t('securitySignInAgain')}</p>}
       {error && <div className="badge badge-danger staff-login-error" role="alert">{error}</div>}
 
       {mode === 'overview' && <div className="security-overview">

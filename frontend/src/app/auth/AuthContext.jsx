@@ -1,6 +1,7 @@
+import { logoutAccount } from '../../services/logout.js';
 import { useMemo, useState } from 'react';
 import { AuthContext } from './auth-context';
-import { clearPatientSession, readPatientSession, updateStoredPatient, writePatientSession } from '../../services/authStorage';
+import { readPatientSession, updateStoredPatient, writePatientSession } from '../../services/authStorage';
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
@@ -27,8 +28,8 @@ export function AuthProvider({ children }) {
     });
   };
 
-  const logout = () => {
-    clearPatientSession();
+  const logout = async () => {
+    await logoutAccount('patient');
     setUser(null);
   };
 

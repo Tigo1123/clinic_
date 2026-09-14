@@ -282,6 +282,7 @@ model LabOrder {
 }
 
 model VerificationChallenge {
+  authVersion      Int?
   id               String    @id @default(uuid())
   userId           String
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)

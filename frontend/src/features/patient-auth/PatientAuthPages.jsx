@@ -744,8 +744,8 @@ export function PatientClaim() {
     }
   }
 
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await logout();
 
     navigate('/patient-login', {
       replace: true
