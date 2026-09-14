@@ -24,11 +24,38 @@ export function corsMiddleware(allowedOrigins) {
 }
 
 export function securityHeadersMiddleware(production) {
-  return helmet({
-    contentSecurityPolicy: false,
+  const helmetMiddleware = helmet({
+    contentSecurityPolicy: production ? {
+      useDefaults: true,
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        frameAncestors: ["'none'"],
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        objectSrc: ["'none'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'"],
+        fontSrc: ["'self'", 'data:'],
+        connectSrc: ["'self'"],
+        upgradeInsecureRequests: []
+      }
+    } : false,
     crossOriginResourcePolicy: { policy: 'same-site' },
-    hsts: production ? { maxAge: 31536000, includeSubDomains: true } : false,
-    referrerPolicy: { policy: 'no-referrer' }
+    frameguard: { action: 'deny' },
+    // TLS terminates at the frontend edge in the supported deployment, which
+    // owns HSTS for both document and proxied API responses.
+    hsts: false,
+    referrerPolicy: { policy: 'no-referrer' },
+    permittedCrossDomainPolicies: { permittedPolicies: 'none' }
+  });
+
+  // Helmet 8 does not yet provide Permissions-Policy middleware. Set the
+  // restrictive policy explicitly so proxied API responses match the edge.
+  return (req, res, next) => helmetMiddleware(req, res, (error) => {
+    if (error) return next(error);
+    res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
+    return next();
   });
 }
 

@@ -271,7 +271,7 @@ export default function ReceptionDashboard({ lang, t }) {
         fetchPendingAppointments();
         refreshDoctorQueue();
         if (data.whatsAppLinkAr) {
-          window.open(data.whatsAppLinkAr, '_blank');
+          window.open(data.whatsAppLinkAr, '_blank', 'noopener,noreferrer');
         }
       } else {
         setErrorMsg(

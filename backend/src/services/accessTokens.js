@@ -42,7 +42,7 @@ export function signAccessToken({ id, username, role, authVersion, doctorId = nu
       audience: accessTokenAudience(),
       issuer: accessTokenIssuer(),
       subject: id,
-      expiresIn: process.env.JWT_EXPIRES_IN || '8h'
+      expiresIn: process.env.JWT_EXPIRES_IN || '30m'
     }
   );
 }

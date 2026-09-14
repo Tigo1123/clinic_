@@ -3010,21 +3010,22 @@ test('production CORS accepts canonical HTTPS origins and rejects malformed valu
   }
 });
 
-test('material Helmet headers and production HSTS are maintained', async () => {
+test('material API security headers are maintained and HSTS is owned by the TLS edge', async () => {
   const response = await api.get('/api/health/live');
   assert.equal(response.headers['x-powered-by'], undefined);
   assert.equal(response.headers['x-content-type-options'], 'nosniff');
   assert.equal(response.headers['referrer-policy'], 'no-referrer');
-  assert.equal(response.headers['x-frame-options'], 'SAMEORIGIN');
+  assert.equal(response.headers['x-frame-options'], 'DENY');
   assert.equal(response.headers['cross-origin-resource-policy'], 'same-site');
+  assert.match(response.headers['permissions-policy'], /camera=\(\)/);
 
   const productionApp = express();
   productionApp.disable('x-powered-by');
   productionApp.use(securityHeadersMiddleware(true));
   productionApp.get('/probe', (req, res) => res.json({ ok: true }));
   const production = await request(productionApp).get('/probe');
-  assert.match(production.headers['strict-transport-security'], /max-age=31536000/i);
-  assert.match(production.headers['strict-transport-security'], /includeSubDomains/i);
+  assert.equal(production.headers['strict-transport-security'], undefined);
+  assert.match(production.headers['content-security-policy'], /script-src 'self'/);
   assert.equal(production.headers['x-powered-by'], undefined);
 });
 
