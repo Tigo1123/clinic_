@@ -1,4 +1,4 @@
-import test, { before, after } from 'node:test';
+import test, { before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -56,6 +56,18 @@ let drug;
 let fixtureCounter = 0;
 let pharmacyApiPatientToken;
 let activeSpecialtyId;
+const walkInClockOriginalNow = Date.now.bind(Date);
+const walkInClockOriginalTZ = process.env.TZ;
+let walkInClockActive = false;
+let walkInClockRealStart = 0;
+const WALK_IN_FROZEN_INSTANT = Date.parse('2026-09-15T06:00:00.000Z');
+afterEach(() => {
+  if (!walkInClockActive) return;
+  Date.now = walkInClockOriginalNow;
+  if (walkInClockOriginalTZ === undefined) delete process.env.TZ;
+  else process.env.TZ = walkInClockOriginalTZ;
+  walkInClockActive = false;
+});
 
 function structuredPatientName(label = 'Patient') {
   const suffix = String(label).replace(/[^A-Za-z0-9]/g, '').slice(-24) || 'Patient';
@@ -318,10 +330,16 @@ async function findAvailableAppointmentSlot(doctorId) {
 }
 
 async function findTodayWalkInSlot(doctorId) {
+  if (!walkInClockActive) {
+    walkInClockActive = true;
+    walkInClockRealStart = Date.now();
+    process.env.TZ = 'UTC';
+    Date.now = () => WALK_IN_FROZEN_INSTANT + (walkInClockOriginalNow() - walkInClockRealStart);
+  }
   const response = await api.get('/api/appointments/slots').query({ doctorId, date: getClinicDateString() });
   assert.equal(response.status, 200);
   assert.ok(response.body.length > 0, 'A configured clinic slot is required for walk-in tests.');
-  return response.body[0];
+  return { appointmentDate: getClinicDateString(), appointmentTime: response.body[0] };
 }
 
 async function createStandaloneTestPatient(label = 'C1') {
@@ -1098,10 +1116,10 @@ test('normal receptionist transitions work and terminal appointment states remai
 });
 
 test('receptionist can create a new walk-in atomically and place it in the doctor queue', async () => {
-  const slot = await findTodayWalkInSlot(doctor1.id);
+  const { appointmentDate, appointmentTime: slot } = await findTodayWalkInSlot(doctor1.id);
   const nationalId = `WALKIN-${Date.now()}-${++fixtureCounter}`;
   const payload = {
-    mode: 'NEW', doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot,
+    mode: 'NEW', doctorId: doctor1.id, appointmentDate, appointmentTime: slot,
     patient: {
       ...structuredPatientName(`walkin${fixtureCounter}`), gender: 'MALE',
       dateOfBirth: '1990-01-01', nationalId, phone: `0999${String(fixtureCounter).padStart(6, '0')}`,
@@ -1112,17 +1130,18 @@ test('receptionist can create a new walk-in atomically and place it in the docto
   assert.equal(response.status, 201);
   assert.equal(response.body.status, 'CHECKED_IN');
   assert.equal(response.body.doctorId, doctor1.id);
-  assert.equal(response.body.appointmentDate, getClinicDateString());
+  assert.equal(response.body.appointmentDate, appointmentDate);
   const patient = await prisma.patient.findUnique({ where: { nationalId } });
   assert.ok(patient);
   const persisted = await prisma.appointment.findUnique({ where: { id: response.body.id } });
   assert.equal(persisted.patientId, patient.id);
-  assert.equal((await api.get(`/api/appointments/queue/${doctor1.id}`).query({ date: getClinicDateString() }).set(auth('doctor'))).body.some((item) => item.id === response.body.id), true);
+  assert.equal((await api.get(`/api/appointments/queue/${doctor1.id}`).query({ date: appointmentDate }).set(auth('doctor'))).body.some((item) => item.id === response.body.id), true);
   assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'WALK_IN_APPOINTMENT_CREATED', details: { contains: response.body.id } } }), 1);
 });
 
 test('walk-in role authorization and validation are enforced', async () => {
-  const body = { mode: 'EXISTING', patientId: patient1.id, doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: '09:00' };
+  const { appointmentDate, appointmentTime: validSlot } = await findTodayWalkInSlot(doctor1.id);
+  const body = { mode: 'EXISTING', patientId: patient1.id, doctorId: doctor1.id, appointmentDate, appointmentTime: validSlot };
   for (const role of ['doctor', 'pharmacy', 'lab']) {
     const response = await api.post('/api/appointments/walk-in').set(auth(role)).send(body);
     assert.equal(response.status, 403);
@@ -1134,18 +1153,18 @@ test('walk-in role authorization and validation are enforced', async () => {
   assert.equal((await api.post('/api/appointments/walk-in').set(auth('reception')).send({ ...body, appointmentTime: '23:59' })).status, 422);
   assert.equal((await api.post('/api/appointments/walk-in').set(auth('reception')).send({ ...body, status: 'CHECKED_IN' })).status, 422);
   assert.equal((await api.post('/api/appointments/walk-in').set(auth('reception')).send({ ...body, patientId: crypto.randomUUID() })).status, 404);
-  const adminSlot = await findTodayWalkInSlot(doctor1.id);
+  const { appointmentDate: adminDate, appointmentTime: adminSlot } = await findTodayWalkInSlot(doctor1.id);
   const adminPatient = await prisma.patient.create({ data: {
     fullNameAr: `مريض مدير مباشر ${fixtureCounter + 1}`, fullNameEn: `Admin walk-in ${fixtureCounter + 1}`,
     gender: 'FEMALE', dateOfBirth: '1991-01-01', phone: `0966${String(++fixtureCounter).padStart(6, '0')}`,
     addressStateId: 1, emergencyContact: 'Self'
   } });
-  assert.equal((await api.post('/api/appointments/walk-in').set(auth('admin')).send({ ...body, patientId: adminPatient.id, appointmentTime: adminSlot })).status, 201);
+  assert.equal((await api.post('/api/appointments/walk-in').set(auth('admin')).send({ ...body, patientId: adminPatient.id, appointmentDate: adminDate, appointmentTime: adminSlot })).status, 201);
 });
 
 test('existing patient walk-in prevents duplicate same-day intake and preserves billing gate', async () => {
-  const slot = await findTodayWalkInSlot(doctor1.id);
-  const body = { mode: 'EXISTING', patientId: patient1.id, doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot };
+  const { appointmentDate, appointmentTime: slot } = await findTodayWalkInSlot(doctor1.id);
+  const body = { mode: 'EXISTING', patientId: patient1.id, doctorId: doctor1.id, appointmentDate, appointmentTime: slot };
   const first = await api.post('/api/appointments/walk-in').set(auth('reception')).send(body);
   assert.equal(first.status, 201);
   assert.equal(await prisma.patient.count({ where: { id: patient1.id } }), 1);
@@ -1158,19 +1177,19 @@ test('existing patient walk-in prevents duplicate same-day intake and preserves 
 });
 
 test('walk-in slot conflicts roll back a newly created patient', async () => {
-  const slot = await findTodayWalkInSlot(doctor1.id);
+  const { appointmentDate, appointmentTime: slot } = await findTodayWalkInSlot(doctor1.id);
   const existingPatient = await prisma.patient.create({ data: {
     fullNameAr: `مريض تعارض قائم ${fixtureCounter + 1}`, fullNameEn: `Existing conflict patient ${fixtureCounter + 1}`,
     gender: 'MALE', dateOfBirth: '1989-01-01', phone: `0955${String(++fixtureCounter).padStart(6, '0')}`,
     addressStateId: 1, emergencyContact: 'Self'
   } });
   const existing = await api.post('/api/appointments/walk-in').set(auth('reception')).send({
-    mode: 'EXISTING', patientId: existingPatient.id, doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot
+    mode: 'EXISTING', patientId: existingPatient.id, doctorId: doctor1.id, appointmentDate, appointmentTime: slot
   });
   assert.equal(existing.status, 201);
   const nationalId = `WALKIN-CONFLICT-${Date.now()}`;
   const response = await api.post('/api/appointments/walk-in').set(auth('reception')).send({
-    mode: 'NEW', doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot,
+    mode: 'NEW', doctorId: doctor1.id, appointmentDate, appointmentTime: slot,
     patient: { ...structuredPatientName('conflictwalkin'), gender: 'FEMALE', dateOfBirth: '1991-01-01', nationalId, phone: `0988${Date.now().toString().slice(-6)}`, addressStateId: 1 }
   });
   assert.equal(response.status, 409);
@@ -1179,41 +1198,41 @@ test('walk-in slot conflicts roll back a newly created patient', async () => {
 });
 
 test('concurrent walk-in requests claim one slot and one same-patient appointment', async () => {
-  const slot = await findTodayWalkInSlot(doctor1.id);
+  const { appointmentDate, appointmentTime: slot } = await findTodayWalkInSlot(doctor1.id);
   const concurrentPatient = await prisma.patient.create({ data: {
     fullNameAr: `مريض تزامن مباشر ${fixtureCounter + 1}`,
     fullNameEn: `Concurrent walk-in ${fixtureCounter + 1}`,
     gender: 'MALE', dateOfBirth: '1990-01-01', phone: `0977${String(++fixtureCounter).padStart(6, '0')}`,
     addressStateId: 1, emergencyContact: 'Self'
   } });
-  const makeBody = (patientId) => ({ mode: 'EXISTING', patientId, doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot });
+  const makeBody = (patientId) => ({ mode: 'EXISTING', patientId, doctorId: doctor1.id, appointmentDate, appointmentTime: slot });
   const responses = await Promise.all([
     api.post('/api/appointments/walk-in').set(auth('reception')).send(makeBody(concurrentPatient.id)),
     api.post('/api/appointments/walk-in').set(auth('reception')).send(makeBody(concurrentPatient.id))
   ]);
   assert.deepEqual(responses.map((response) => response.status).sort(), [201, 409]);
   assert.equal(responses.find((response) => response.status === 409).body.error.code, 'WALK_IN_ALREADY_EXISTS');
-  assert.equal(await prisma.appointment.count({ where: { patientId: concurrentPatient.id, appointmentDate: getClinicDateString(), status: 'CHECKED_IN' } }), 1);
+  assert.equal(await prisma.appointment.count({ where: { patientId: concurrentPatient.id, appointmentDate, status: 'CHECKED_IN' } }), 1);
 });
 
 test('concurrent walk-ins from different patients claim one doctor slot', async () => {
-  const slot = await findTodayWalkInSlot(doctor1.id);
+  const { appointmentDate, appointmentTime: slot } = await findTodayWalkInSlot(doctor1.id);
   const firstPatient = await createStandaloneTestPatient('Different A');
   const secondPatient = await createStandaloneTestPatient('Different B');
   const request = (patientId) => api.post('/api/appointments/walk-in').set(auth('reception')).send({
-    mode: 'EXISTING', patientId, doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot
+    mode: 'EXISTING', patientId, doctorId: doctor1.id, appointmentDate, appointmentTime: slot
   });
   const responses = await Promise.all([request(firstPatient.id), request(secondPatient.id)]);
   assert.deepEqual(responses.map((response) => response.status).sort(), [201, 409]);
   assert.equal(responses.find((response) => response.status === 409).body.error.code, 'APPOINTMENT_SLOT_UNAVAILABLE');
-  assert.equal(await prisma.appointment.count({ where: { doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot, status: { notIn: ['CANCELLED', 'NO_SHOW'] } } }), 1);
+  assert.equal(await prisma.appointment.count({ where: { doctorId: doctor1.id, appointmentDate, appointmentTime: slot, status: { notIn: ['CANCELLED', 'NO_SHOW'] } } }), 1);
 });
 
 test('concurrent new walk-ins roll back the losing Patient atomically', async () => {
-  const slot = await findTodayWalkInSlot(doctor1.id);
+  const { appointmentDate, appointmentTime: slot } = await findTodayWalkInSlot(doctor1.id);
   const suffix = String(++fixtureCounter).padStart(6, '0').slice(-6);
   const makeRequest = (label) => api.post('/api/appointments/walk-in').set(auth('reception')).send({
-    mode: 'NEW', doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot,
+    mode: 'NEW', doctorId: doctor1.id, appointmentDate, appointmentTime: slot,
     patient: {
       ...structuredPatientName(`newwalkin${label}`), gender: 'FEMALE', dateOfBirth: '1991-01-01',
       nationalId: `C1-${suffix}-${label}`, phone: `+24995${suffix}${label === 'A' ? '1' : '2'}`, addressStateId: 1
@@ -1226,7 +1245,7 @@ test('concurrent new walk-ins roll back the losing Patient atomically', async ()
   assert.equal(loser.body.error.code, 'APPOINTMENT_SLOT_UNAVAILABLE');
   const nationalIds = [`C1-${suffix}-A`, `C1-${suffix}-B`];
   assert.equal(await prisma.patient.count({ where: { nationalId: { in: nationalIds } } }), 1);
-  assert.equal(await prisma.appointment.count({ where: { doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot, status: { notIn: ['CANCELLED', 'NO_SHOW'] } } }), 1);
+  assert.equal(await prisma.appointment.count({ where: { doctorId: doctor1.id, appointmentDate, appointmentTime: slot, status: { notIn: ['CANCELLED', 'NO_SHOW'] } } }), 1);
   assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'WALK_IN_APPOINTMENT_CREATED', details: { contains: winner.body.id } } }), 1);
 });
 
@@ -3355,7 +3374,7 @@ test('receptionist new-patient creation warns without merging and existing selec
 });
 
 test('walk-in NEW mode warns on a possible patient duplicate before creating either record', async () => {
-  const slot = await findTodayWalkInSlot(doctor1.id);
+  const { appointmentDate, appointmentTime: slot } = await findTodayWalkInSlot(doctor1.id);
   const suffix = String(++fixtureCounter).padStart(7, '0').slice(-7);
   const phone = `+24996${suffix}`;
   const existing = await prisma.patient.create({ data: {
@@ -3364,7 +3383,7 @@ test('walk-in NEW mode warns on a possible patient duplicate before creating eit
   } });
   const beforePatients = await prisma.patient.count();
   const response = await api.post('/api/appointments/walk-in').set(auth('reception')).send({
-    mode: 'NEW', doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot,
+    mode: 'NEW', doctorId: doctor1.id, appointmentDate, appointmentTime: slot,
     patient: {
       ...structuredPatientName('similarwalkin'), gender: 'MALE',
       dateOfBirth: '1986-06-06', phone, addressStateId: 1
@@ -3374,7 +3393,7 @@ test('walk-in NEW mode warns on a possible patient duplicate before creating eit
   assert.equal(response.body.error.code, 'POSSIBLE_PATIENT_DUPLICATE');
   assert.equal(response.body.error.details[0].id, existing.id);
   assert.equal(await prisma.patient.count(), beforePatients);
-  assert.equal(await prisma.appointment.count({ where: { patientId: existing.id, appointmentDate: getClinicDateString(), appointmentTime: slot } }), 0);
+  assert.equal(await prisma.appointment.count({ where: { patientId: existing.id, appointmentDate, appointmentTime: slot } }), 0);
 });
 
 test('concurrent receptionist registration preserves database-enforced national-ID uniqueness', async () => {
@@ -3720,16 +3739,16 @@ test('patient booking and rescheduling derive identity and workflow fields on th
   assert.equal(created.doctorId, firstSlot.doctorId);
   assert.equal(created.status, 'PENDING');
 
-  const walkInSlot = await findTodayWalkInSlot(doctor1.id);
+  const { appointmentDate: walkInDate, appointmentTime: walkInSlot } = await findTodayWalkInSlot(doctor1.id);
   const beforeWalkIns = await prisma.appointment.count({ where: {
     patientId: victim.patient.id,
-    appointmentDate: getClinicDateString()
+    appointmentDate: walkInDate
   } });
   const walkInAttempt = await api.post('/api/appointments/walk-in').set(auth('reception')).send({
     mode: 'EXISTING',
     patientId: victim.patient.id,
     doctorId: doctor1.id,
-    appointmentDate: getClinicDateString(),
+    appointmentDate: walkInDate,
     appointmentTime: walkInSlot,
     status: 'COMPLETED',
     queuePosition: -999,
@@ -3739,7 +3758,7 @@ test('patient booking and rescheduling derive identity and workflow fields on th
   assertSafeAuthorizationDenial(walkInAttempt, 422);
   assert.equal(await prisma.appointment.count({ where: {
     patientId: victim.patient.id,
-    appointmentDate: getClinicDateString()
+    appointmentDate: walkInDate
   } }), beforeWalkIns);
 
   const secondSlot = await findAvailableAppointmentSlot(doctor2.id);
