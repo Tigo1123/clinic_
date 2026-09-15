@@ -104,7 +104,7 @@ router.get('/slots', validate(z.object({ doctorId: z.string().uuid(), date: z.st
   try {
     // 1. Fetch Doctor
     const doctor = await prisma.doctor.findUnique({
-      where: { id: doctorId }
+      where: { id: doctorId, status: 'ACTIVE', OR: [{ specialtyId: null }, { specialty: { active: true } }] }
     });
 
     if (!doctor || doctor.status !== 'ACTIVE') {
@@ -172,7 +172,7 @@ router.post('/book', validate(structuredPatientNameSchema.extend({
   try {
     if (appointmentDate < todayString()) return sendError(res, 422, 'APPOINTMENT_DATE_IN_PAST', 'Past appointment dates are not allowed.');
     if (dateOfBirth >= todayString()) return sendError(res, 422, 'INVALID_DATE_OF_BIRTH', 'Date of birth must be in the past.');
-    const doctor = await prisma.doctor.findFirst({ where: { id: doctorId, status: 'ACTIVE' } });
+    const doctor = await prisma.doctor.findFirst({ where: { id: doctorId, status: 'ACTIVE', OR: [{ specialtyId: null }, { specialty: { active: true } }] } });
     if (!doctor) return sendError(res, 404, 'DOCTOR_NOT_FOUND', 'Active doctor not found.');
     if (!(await getConfiguredSlots(doctor, appointmentDate)).includes(appointmentTime)) {
       return sendError(res, 422, 'INVALID_APPOINTMENT_SLOT', 'The selected time is not in the doctor schedule.');
@@ -344,7 +344,7 @@ router.post('/walk-in', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
   }
 
   try {
-    const doctor = await prisma.doctor.findFirst({ where: { id: doctorId, status: 'ACTIVE' } });
+    const doctor = await prisma.doctor.findFirst({ where: { id: doctorId, status: 'ACTIVE', OR: [{ specialtyId: null }, { specialty: { active: true } }] } });
     if (!doctor) return sendError(res, 404, 'DOCTOR_NOT_FOUND', 'Active doctor not found.');
     if (!(await getConfiguredSlots(doctor, appointmentDate)).includes(appointmentTime)) {
       return sendError(res, 422, 'INVALID_APPOINTMENT_SLOT', 'The selected time is not in the doctor schedule.');
@@ -692,7 +692,7 @@ router.post('/:id/transfer', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTI
   try {
     const [appointment, targetDoctor] = await Promise.all([
       prisma.appointment.findUnique({ where: { id: req.params.id } }),
-      prisma.doctor.findFirst({ where: { id: targetDoctorId, status: 'ACTIVE' } })
+      prisma.doctor.findFirst({ where: { id: targetDoctorId, status: 'ACTIVE', OR: [{ specialtyId: null }, { specialty: { active: true } }] } })
     ]);
     if (!appointment) return sendError(res, 404, 'APPOINTMENT_NOT_FOUND', 'Appointment not found.');
     if (!targetDoctor) return sendError(res, 404, 'DOCTOR_NOT_FOUND', 'Target doctor is not active.');
@@ -744,7 +744,7 @@ router.post('/:id/transfer', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTI
 router.get('/doctors', async (req, res) => {
   try {
     const doctors = await prisma.doctor.findMany({
-      where: { status: 'ACTIVE' },
+      where: { status: 'ACTIVE', OR: [{ specialtyId: null }, { specialty: { active: true } }] },
       select: publicDoctorSelect,
       orderBy: { fullNameEn: 'asc' }
     });

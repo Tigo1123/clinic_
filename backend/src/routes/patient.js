@@ -130,7 +130,7 @@ router.post('/me/phone-change/verify', recoveryIdentityLimiter, validate(z.objec
 });
 
 router.get('/doctors', async (req, res) => {
-  const doctors = await prisma.doctor.findMany({ where: { status: 'ACTIVE' }, select: doctorSelect, orderBy: { fullNameEn: 'asc' } });
+  const doctors = await prisma.doctor.findMany({ where: { status: 'ACTIVE', OR: [{ specialtyId: null }, { specialty: { active: true } }] }, select: doctorSelect, orderBy: { fullNameEn: 'asc' } });
   return res.json(doctors);
 });
 
