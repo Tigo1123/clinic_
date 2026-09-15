@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, Building, DollarSign, Sliders, Users } from 'lucide-react';
+import { Activity, Building, CalendarDays, DollarSign, Sliders, Users } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import RoleHero from '../../components/healthcare/RoleHero';
 import { getStaffPasswordChecks, isStaffPasswordValid, STAFF_PASSWORD_MAX_LENGTH } from '../../utils/staffPasswordPolicy';
@@ -9,6 +9,7 @@ import AuditLogPanel from './AuditLogPanel';
 import AnalyticsPanel from './AnalyticsPanel';
 import ClinicProfilePanel from './ClinicProfilePanel';
 import SpecialtyRow from './SpecialtyRow';
+import AdminSchedulePanel from './AdminSchedulePanel';
 
 export default function AdminDashboard({ user, lang, t }) {
   const [activeTab, setActiveTab] = useState('profile');
@@ -368,6 +369,7 @@ export default function AdminDashboard({ user, lang, t }) {
             {lang === 'ar' ? 'إدارة الأسعار' : 'Pricing Management'}
           </button>
           <button className={`menu-btn ${activeTab === 'specialties' ? 'active' : ''}`} onClick={() => setActiveTab('specialties')}><Sliders size={18}/>{lang === 'ar' ? 'التخصصات' : 'Specialties'}</button>
+          <button className={`menu-btn ${activeTab === 'scheduling' ? 'active' : ''}`} onClick={() => setActiveTab('scheduling')}><CalendarDays size={18}/>{lang === 'ar' ? 'جداول الأطباء' : 'Doctor schedules'}</button>
           <button
             className={`menu-btn ${activeTab === 'analytics' ? 'active' : ''}`}
             onClick={() => setActiveTab('analytics')}
@@ -629,6 +631,7 @@ export default function AdminDashboard({ user, lang, t }) {
         )}
 
         {activeTab === 'specialties' && <div className="glass-panel" style={{ padding: '1.5rem' }}><h3>{lang === 'ar' ? 'إدارة التخصصات' : 'Specialty management'}</h3>{specialtyError && <div className="badge badge-danger">{specialtyError}</div>}<form onSubmit={createSpecialty} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem', margin: '1rem 0' }}><input required className="form-input" placeholder={lang === 'ar' ? 'رمز التخصص' : 'Specialty code'} value={specialtyDraft.code} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, code: e.target.value }))}/><input required className="form-input" placeholder={lang === 'ar' ? 'الاسم بالعربية' : 'Arabic name'} value={specialtyDraft.nameAr} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, nameAr: e.target.value }))}/><input required className="form-input" placeholder={lang === 'ar' ? 'الاسم بالإنجليزية' : 'English name'} value={specialtyDraft.nameEn} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, nameEn: e.target.value }))}/><button className="btn btn-primary">{lang === 'ar' ? 'إضافة' : 'Add'}</button></form><div className="table-wrap"><table><thead><tr><th>{lang === 'ar' ? 'الرمز' : 'Code'}</th><th>{lang === 'ar' ? 'العربية' : 'Arabic'}</th><th>{lang === 'ar' ? 'الإنجليزية' : 'English'}</th><th>{lang === 'ar' ? 'الحالة' : 'Status'}</th><th>{lang === 'ar' ? 'حفظ' : 'Save'}</th></tr></thead><tbody>{specialties.map((specialty) => <SpecialtyRow key={specialty.id} specialty={specialty} lang={lang} onSave={saveSpecialty}/>)}</tbody></table></div></div>}
+        {activeTab === 'scheduling' && user?.role === 'ADMIN' && <AdminSchedulePanel lang={lang} t={t} />}
 
         {activeTab === 'analytics' && (
           <AnalyticsPanel
