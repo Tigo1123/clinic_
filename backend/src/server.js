@@ -99,6 +99,8 @@ app.get(['/api/health', '/api/health/ready'], async (req, res) => {
   }
 });
 
+app.get('/api/public-config', (req, res) => res.json({ clinicTimeZone: environment.clinicTimeZone }));
+
 // Mount modular API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/auth/mfa', mfaRoutes);

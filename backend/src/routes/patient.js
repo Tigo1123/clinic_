@@ -6,7 +6,7 @@ import { authenticate } from '../middleware/auth.js';
 import { allowRoles, requireOwnedPatient, ROLES } from '../middleware/policies.js';
 import { validate } from '../middleware/validate.js';
 import { sendError } from '../utils/apiError.js';
-import { configuredSlots, DATE_PATTERN, TIME_PATTERN, todayString } from '../utils/scheduling.js';
+import { getConfiguredSlots, DATE_PATTERN, TIME_PATTERN, todayString } from '../utils/scheduling.js';
 import { decrypt } from '../utils/encryption.js';
 import { cancellationCutoffReached } from '../utils/clinicTime.js';
 import { normalizeEmail, normalizePhone } from '../utils/identity.js';
@@ -168,7 +168,7 @@ async function validateSlot(res, doctorId, date, time) {
   if (date < todayString()) { sendError(res, 422, 'APPOINTMENT_DATE_IN_PAST', 'Past appointment dates are not allowed.'); return null; }
   const doctor = await prisma.doctor.findFirst({ where: { id: doctorId, status: 'ACTIVE' } });
   if (!doctor) { sendError(res, 404, 'DOCTOR_NOT_FOUND', 'Active doctor not found.'); return null; }
-  if (!configuredSlots(doctor, date).includes(time)) { sendError(res, 422, 'INVALID_APPOINTMENT_SLOT', 'The selected time is not in the doctor schedule.'); return null; }
+  if (!(await getConfiguredSlots(doctor, date)).includes(time)) { sendError(res, 422, 'INVALID_APPOINTMENT_SLOT', 'The selected time is not in the doctor schedule.'); return null; }
   return doctor;
 }
 

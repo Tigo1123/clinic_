@@ -5,9 +5,10 @@ import './components/ui/ui.css'
 import './i18n.js'
 import AppRouter from './app/router/AppRouter.jsx'
 import AppErrorBoundary from './components/feedback/AppErrorBoundary.jsx'
+import { loadClinicTimeZone } from './utils/clinicTime.js'
 
-createRoot(document.getElementById('root')).render(
+loadClinicTimeZone().finally(() => createRoot(document.getElementById('root')).render(
   <StrictMode>
     <AppErrorBoundary><AppRouter /></AppErrorBoundary>
   </StrictMode>,
-)
+))

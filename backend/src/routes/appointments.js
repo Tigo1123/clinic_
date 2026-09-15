@@ -12,7 +12,7 @@ import { rateLimits } from '../config.js';
 import crypto from 'crypto';
 import { emitQueueUpdate } from '../utils/socketEvents.js';
 import { markSensitiveResponse } from '../utils/edgeSecurity.js';
-import { configuredSlots, DATE_PATTERN, TIME_PATTERN, todayString } from '../utils/scheduling.js';
+import { getAvailableSlots, getConfiguredSlots, validateBookableSlot, DATE_PATTERN, TIME_PATTERN, todayString } from '../utils/scheduling.js';
 import { findPossiblePatientDuplicates, normalizeNationalId, normalizePatientPhone, safeDuplicateCandidates } from '../utils/patientIdentity.js';
 import { publicDoctorSelect, toPublicBookingConfirmation, toPublicDoctor } from '../utils/publicDto.js';
 import { structuredPatientName, structuredPatientNameSchema } from '../utils/patientName.js';
@@ -112,24 +112,10 @@ router.get('/slots', validate(z.object({ doctorId: z.string().uuid(), date: z.st
     }
 
     // 2. Parse schedule configuration
-    const slots = configuredSlots(doctor, date);
+    const slots = await getAvailableSlots(doctor, date);
 
     // 4. Fetch already booked slots for this doctor on this day
-    const bookings = await prisma.appointment.findMany({
-      where: {
-        doctorId,
-        appointmentDate: date,
-        status: { notIn: ['CANCELLED', 'NO_SHOW'] }
-      },
-      select: { appointmentTime: true }
-    });
-
-    const bookedTimes = bookings.map((b) => b.appointmentTime);
-
-    // 5. Filter out booked slots
-    const availableSlots = slots.filter((slot) => !bookedTimes.includes(slot));
-
-    return res.json(availableSlots);
+    return res.json(slots);
 
   } catch (error) {
     console.error('Slot calculation error:', error);
@@ -188,7 +174,7 @@ router.post('/book', validate(structuredPatientNameSchema.extend({
     if (dateOfBirth >= todayString()) return sendError(res, 422, 'INVALID_DATE_OF_BIRTH', 'Date of birth must be in the past.');
     const doctor = await prisma.doctor.findFirst({ where: { id: doctorId, status: 'ACTIVE' } });
     if (!doctor) return sendError(res, 404, 'DOCTOR_NOT_FOUND', 'Active doctor not found.');
-    if (!configuredSlots(doctor, appointmentDate).includes(appointmentTime)) {
+    if (!(await getConfiguredSlots(doctor, appointmentDate)).includes(appointmentTime)) {
       return sendError(res, 422, 'INVALID_APPOINTMENT_SLOT', 'The selected time is not in the doctor schedule.');
     }
     // 1. Rate Limit check: max 2 bookings per day per phone number
@@ -360,7 +346,7 @@ router.post('/walk-in', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
   try {
     const doctor = await prisma.doctor.findFirst({ where: { id: doctorId, status: 'ACTIVE' } });
     if (!doctor) return sendError(res, 404, 'DOCTOR_NOT_FOUND', 'Active doctor not found.');
-    if (!configuredSlots(doctor, appointmentDate).includes(appointmentTime)) {
+    if (!(await getConfiguredSlots(doctor, appointmentDate)).includes(appointmentTime)) {
       return sendError(res, 422, 'INVALID_APPOINTMENT_SLOT', 'The selected time is not in the doctor schedule.');
     }
     if (mode === 'NEW' && patient.dateOfBirth >= todayString()) {
@@ -711,7 +697,7 @@ router.post('/:id/transfer', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTI
     if (!appointment) return sendError(res, 404, 'APPOINTMENT_NOT_FOUND', 'Appointment not found.');
     if (!targetDoctor) return sendError(res, 404, 'DOCTOR_NOT_FOUND', 'Target doctor is not active.');
     if (appointment.status !== 'CHECKED_IN') return sendError(res, 409, 'TRANSFER_INVALID_STATE', 'Only checked-in appointments can be transferred.');
-    if (!configuredSlots(targetDoctor, appointment.appointmentDate).includes(appointment.appointmentTime)) {
+    if (!(await getConfiguredSlots(targetDoctor, appointment.appointmentDate)).includes(appointment.appointmentTime)) {
       return sendError(res, 409, 'TARGET_DOCTOR_UNAVAILABLE', 'Target doctor is not scheduled for this appointment slot.');
     }
     const conflict = await prisma.appointment.findFirst({ where: {
