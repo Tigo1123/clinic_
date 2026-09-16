@@ -7,7 +7,7 @@ import { useAuth } from '../../app/auth/auth-context';
 import { INITIAL_ONBOARDING_FORM, NAME_FIELDS, ONBOARDING_STEPS, onboardingErrorMessage, passwordChecks, registrationPayload, RESEND_COOLDOWN_SECONDS, resendSecondsRemaining, validateOnboardingStep } from './onboarding';
 import { callingCode, countryFlag, countryName, normalisePatientPhone, PATIENT_PHONE_COUNTRIES, splitInternationalPhone } from './phoneCountries';
 import { SUDANESE_STATES } from '../reception/clinicData';
-import patientAuthDoctor from '../../assets/patient-auth-doctor.webp';
+import patientAuthDoctor from '../../assets/patient-auth-doctor-v2.webp';
 
 export function PatientLogin(){
   const{t}=useTranslation();

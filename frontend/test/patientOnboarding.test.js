@@ -90,7 +90,7 @@ test('registration page renders the stepper, keeps RTL/LTR inputs explicit, and 
   assert.match(page, /onboarding-resend/);
   assert.match(page, /verification\/resend/);
   assert.match(page, /inputMode="numeric" maxLength=\{6\} dir="ltr"/);
-  assert.match(page, /patient-auth-doctor\.webp/);
+  assert.match(page, /patient-auth-doctor-v2\.webp/);
   assert.match(page, /patient-auth-hero-copy/);
   assert.match(page, /alreadyHaveAccount/);
   assert.match(page, /to="\/patient-login"/);
