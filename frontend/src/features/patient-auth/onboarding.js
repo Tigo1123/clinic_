@@ -1,3 +1,5 @@
+import { DEFAULT_PHONE_COUNTRY, normalisePatientPhone } from './phoneCountries.js';
+
 export const ONBOARDING_STEPS = ['arabicName', 'englishName', 'personalDetails', 'contact', 'address', 'security', 'review'];
 
 export const NAME_FIELDS = [
@@ -8,14 +10,12 @@ export const NAME_FIELDS = [
 export const INITIAL_ONBOARDING_FORM = {
   firstNameAr: '', fatherNameAr: '', grandfatherNameAr: '', familyNameAr: '',
   firstNameEn: '', fatherNameEn: '', grandfatherNameEn: '', familyNameEn: '',
-  phone: '', email: '', dateOfBirth: '', gender: '', addressStateId: '1',
+  phoneCountry: DEFAULT_PHONE_COUNTRY, phone: '', email: '', dateOfBirth: '', gender: '', addressStateId: '1',
   password: '', confirmPassword: ''
 };
 
 const NAME_MAX = 80;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const rwandaPhonePattern = /^\+250(?:7[2389])\d{7}$/;
-
 export function normaliseOnboardingForm(form) {
   return Object.fromEntries(Object.entries(form).map(([key, value]) =>
     [key, typeof value === 'string' && key !== 'password' && key !== 'confirmPassword' ? value.trim().replace(/\s+/gu, ' ') : value]
@@ -47,7 +47,7 @@ export function validateOnboardingStep(form, step, messages, today) {
     if (value[field] && (value[field].length > NAME_MAX || /[\u0000-\u001F\u007F]/u.test(value[field]))) errors[field] = messages.nameInvalid;
   }
   if (step === 2) { required('gender'); if (!isValidPastDate(value.dateOfBirth, today)) errors.dateOfBirth = messages.dateInvalid; }
-  if (step === 3) { if (!rwandaPhonePattern.test(value.phone.replace(/[\s-]/g, ''))) errors.phone = messages.phoneInvalid; if (!emailPattern.test(value.email)) errors.email = messages.emailInvalid; }
+  if (step === 3) { if (!normalisePatientPhone(value.phone, value.phoneCountry)) errors.phone = messages.phoneInvalid; if (!emailPattern.test(value.email)) errors.email = messages.emailInvalid; }
   if (step === 4) required('addressStateId');
   if (step === 5) {
     if (!Object.values(passwordChecks(value.password)).every(Boolean)) errors.password = messages.passwordInvalid;
@@ -60,7 +60,7 @@ export function registrationPayload(form) {
   const value = normaliseOnboardingForm(form);
   return Object.fromEntries([
     ...NAME_FIELDS.map((field) => [field, value[field]]),
-    ['phone', value.phone.replace(/[\s-]/g, '')], ['email', value.email], ['dateOfBirth', value.dateOfBirth],
+    ['phone', normalisePatientPhone(value.phone, value.phoneCountry)], ['email', value.email], ['dateOfBirth', value.dateOfBirth],
     ['gender', value.gender], ['addressStateId', Number(value.addressStateId)], ['password', value.password]
   ]);
 }
