@@ -3,12 +3,14 @@ import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
 import { decrypt } from '../utils/encryption.js';
 import { allowRoles, doctorHasPatientAccess, getDoctorMedicalRecordAccess, ROLES } from '../middleware/policies.js';
-import { sendError } from '../utils/apiError.js';
+import { ApiError, sendError } from '../utils/apiError.js';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { getClinicDateString } from '../utils/clinicTime.js';
 import { findPossiblePatientDuplicates, normalizeFileNumber, normalizeNationalId, normalizePatientPhone, safeDuplicateCandidates } from '../utils/patientIdentity.js';
-import { structuredPatientName, structuredPatientNameSchema } from '../utils/patientName.js';
+import { STRUCTURED_PATIENT_NAME_FIELDS, structuredPatientName, structuredPatientNameSchema } from '../utils/patientName.js';
+
+import { lockPatientIdentity, patientDateOfBirthSchema, patientIdentitySummary } from '../utils/patientOnboarding.js';
 
 const router = express.Router();
 
@@ -130,12 +132,12 @@ router.post('/', authenticate, checkRoles('ADMIN', 'RECEPTIONIST'), (req, res, n
   }
   return next();
 }, validate(structuredPatientNameSchema.extend({
-  gender: z.enum(['MALE', 'FEMALE']), dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  gender: z.enum(['MALE', 'FEMALE']), dateOfBirth: patientDateOfBirthSchema,
   nationalId: z.string().trim().max(30).optional(), phone: z.string().trim().min(7).max(30),
   addressStateId: z.coerce.number().int().min(1).max(18), addressDetails: z.string().trim().max(300).optional(),
   emergencyContact: z.string().trim().max(150).optional(), nationalIdAttachmentPath: z.string().max(300).optional(),
   insuranceAttachmentPath: z.string().max(300).optional()
-})), async (req, res) => {
+}).strict()), async (req, res) => {
   const {
     gender,
     dateOfBirth,
@@ -162,10 +164,10 @@ router.post('/', authenticate, checkRoles('ADMIN', 'RECEPTIONIST'), (req, res, n
     const normalizedNationalId = normalizeNationalId(nationalId);
     if (!normalizedPhone) return sendError(res, 422, 'PHONE_INVALID', 'Phone number is invalid.');
     if (nationalId && !normalizedNationalId) return sendError(res, 422, 'NATIONAL_ID_INVALID', 'National ID is invalid.');
-    const candidates = await findPossiblePatientDuplicates(prisma, { phone: normalizedPhone, dateOfBirth, nationalId: normalizedNationalId });
-    if (candidates.length) return sendError(res, 409, 'POSSIBLE_PATIENT_DUPLICATE', 'A possible existing patient was found. Search and select the existing patient or review the identity before creating a new record.', safeDuplicateCandidates(candidates));
-
     const patient = await prisma.$transaction(async (tx) => {
+      await lockPatientIdentity(tx, { phone: normalizedPhone, dateOfBirth, nationalId: normalizedNationalId });
+      const candidates = await findPossiblePatientDuplicates(tx, { phone: normalizedPhone, dateOfBirth, nationalId: normalizedNationalId });
+      if (candidates.length) throw new ApiError(409, 'POSSIBLE_PATIENT_DUPLICATE', 'A possible existing patient was found. Search and select the existing patient or review the identity before creating a new record.', safeDuplicateCandidates(candidates));
       const created = await tx.patient.create({
         data: {
           ...structuredPatientName(req.body), gender, dateOfBirth, nationalId: normalizedNationalId,
@@ -185,13 +187,49 @@ router.post('/', authenticate, checkRoles('ADMIN', 'RECEPTIONIST'), (req, res, n
       return created;
     });
 
-    return res.status(201).json(patient);
+    return res.status(201).json(patientIdentitySummary(patient));
   } catch (error) {
+    if (error instanceof ApiError) return sendError(res, error.status, error.code, error.message, error.details);
     if (error?.code === 'P2002') return sendError(res, 409, 'POSSIBLE_PATIENT_DUPLICATE', 'A possible existing patient was found. Search and review the identity before creating a new record.');
     console.error('Patient registration error:', error);
     return res.status(500).json({ error: 'Failed to register patient.' });
   }
 });
+
+// Identity corrections are staff-authorized. Self-service cannot rename a
+// patient or change identifiers through its contact/profile payload.
+const patientCorrectionSchema = structuredPatientNameSchema.partial().extend({
+  addressStateId: z.coerce.number().int().min(1).max(18).optional(),
+  addressDetails: z.string().trim().max(300).nullable().optional(),
+  emergencyContact: z.string().trim().min(1).max(150).optional()
+}).strict().superRefine((body, ctx) => {
+  if (!Object.keys(body).length) ctx.addIssue({ code: 'custom', message: 'At least one profile field is required.' });
+  if (STRUCTURED_PATIENT_NAME_FIELDS.some((field) => body[field] !== undefined)) {
+    for (const field of STRUCTURED_PATIENT_NAME_FIELDS) {
+      if (body[field] === undefined) ctx.addIssue({ code: 'custom', path: [field], message: 'A name correction requires all four Arabic and English components.' });
+    }
+  }
+});
+
+router.patch('/:id', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST),
+  validate(z.object({ id: z.string().uuid() }), 'params'), validate(patientCorrectionSchema), async (req, res, next) => {
+    try {
+      const patient = await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "Patient" WHERE "id" = ${req.params.id} FOR UPDATE`;
+        const existing = await tx.patient.findUnique({ where: { id: req.params.id } });
+        if (!existing) throw new ApiError(404, 'PATIENT_NOT_FOUND', 'Patient not found.');
+        const name = structuredPatientName(req.body);
+        const updated = await tx.patient.update({ where: { id: existing.id }, data: {
+          ...(name || {}), addressStateId: req.body.addressStateId,
+          addressDetails: req.body.addressDetails, emergencyContact: req.body.emergencyContact
+        } });
+        await tx.tenantAuditLog.create({ data: { userId: req.user.id, action: 'PATIENT_IDENTITY_UPDATED',
+          details: JSON.stringify({ patientId: updated.id, changedFields: Object.keys(req.body) }), ipAddress: req.ip || 'unknown' } });
+        return updated;
+      });
+      return res.json(patientIdentitySummary(patient));
+    } catch (error) { next(error); }
+  });
 
 /**
  * GET /api/patients/:id

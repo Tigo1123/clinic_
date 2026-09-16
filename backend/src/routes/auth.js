@@ -16,6 +16,11 @@ import { clinicDayBounds } from '../utils/clinicTime.js';
 
 const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
 
+import { lockPatientIdentity } from '../utils/patientOnboarding.js';
+import { normalizePatientPhone } from '../utils/patientIdentity.js';
+import { structuredPatientName } from '../utils/patientName.js';
+import { lockAccount } from '../services/verification.js';
+
 const router = express.Router();
 router.use((req, res, next) => { markSensitiveResponse(res); next(); });
 // Account-wide logout. A concurrent/repeated request cannot bump a newer
@@ -267,96 +272,37 @@ router.post('/login', loginLimiter, validate(z.object({
         });
 
         if (registration && user.phoneNormalized) {
-          const candidates = await prisma.patient.findMany({
-            where: {
-              dateOfBirth: registration.dateOfBirth
-            },
-            select: {
-              id: true,
-              phone: true,
-              userId: true
-            }
-          });
-
-          const normalizedMatches = candidates.filter(
-            (patient) =>
-              normalizePhone(patient.phone) ===
-              normalizePhone(user.phoneNormalized)
-          );
-
-          if (normalizedMatches.length === 0) {
-            try {
-              const createdPatient = await prisma.patient.create({
-                data: {
-                  userId: user.id,
-                  fullNameAr: registration.fullNameAr,
-                  fullNameEn: registration.fullNameEn,
-                  gender: registration.gender,
-                  dateOfBirth: registration.dateOfBirth,
-                  phone: user.phoneNormalized,
-                  addressStateId: registration.addressStateId,
-                  emergencyContact: 'Self'
-                },
-                select: {
-                  id: true,
-                  fileNumber: true
-                }
-              });
-
-              patientDetails = createdPatient;
-
-              await prisma.tenantAuditLog.create({
-                data: {
-                  userId: user.id,
-                  action: 'PATIENT_LOGIN_SELF_HEALED',
-                  details: `Created missing patient record ${createdPatient.id} during authenticated login recovery.`,
-                  ipAddress: req.ip || 'unknown'
-                }
-              });
-              await prisma.tenantAuditLog.create({
-                data: {
-                  userId: user.id,
-                  action: 'PATIENT_FILE_CREATED',
-                  details: JSON.stringify({ patientId: createdPatient.id, fileNumber: createdPatient.fileNumber, context: 'PATIENT_LOGIN_SELF_HEAL' }),
-                  ipAddress: req.ip || 'unknown'
-                }
-              });
-            } catch (recoveryError) {
-              console.error('Patient login self-heal create error:', recoveryError);
-            }
-          } else if (
-            normalizedMatches.length === 1 &&
-            !normalizedMatches[0].userId &&
-            user.phoneVerifiedAt
-          ) {
-            try {
-              const linked = await prisma.patient.updateMany({
-                where: {
-                  id: normalizedMatches[0].id,
-                  userId: null
-                },
-                data: {
-                  userId: user.id
-                }
-              });
-
-              if (linked.count === 1) {
-                patientDetails = {
-                  id: normalizedMatches[0].id
-                };
-
-                await prisma.tenantAuditLog.create({
-                  data: {
-                    userId: user.id,
-                    action: 'PATIENT_LOGIN_SELF_HEALED',
-                    details: `Linked orphan patient account to existing patient record ${normalizedMatches[0].id} during login recovery.`,
-                    ipAddress: req.ip || 'unknown'
-                  }
-                });
+          try {
+            patientDetails = await prisma.$transaction(async (tx) => {
+              const current = await lockAccount(tx, user.id);
+              if (!current || current.status !== 'ACTIVE' || current.authVersion !== user.authVersion) return null;
+              await lockPatientIdentity(tx, { phone: current.phoneNormalized, dateOfBirth: registration.dateOfBirth });
+              const existing = await tx.patient.findUnique({ where: { userId: user.id }, select: { id: true } });
+              if (existing) return existing;
+              const candidates = await tx.patient.findMany({ where: { dateOfBirth: registration.dateOfBirth }, select: { id: true, phone: true, userId: true } });
+              const normalizedMatches = candidates.filter((patient) => normalizePatientPhone(patient.phone) === normalizePatientPhone(current.phoneNormalized));
+              if (!normalizedMatches.length) {
+                const created = await tx.patient.create({ data: {
+                  userId: user.id, fullNameAr: registration.fullNameAr, fullNameEn: registration.fullNameEn,
+                  ...(structuredPatientName(registration) || {}),
+                  gender: registration.gender, dateOfBirth: registration.dateOfBirth, phone: current.phoneNormalized,
+                  addressStateId: registration.addressStateId, emergencyContact: 'Self'
+                }, select: { id: true, fileNumber: true } });
+                await tx.tenantAuditLog.create({ data: { userId: user.id, action: 'PATIENT_LOGIN_SELF_HEALED', details: `Created missing patient record ${created.id} during authenticated login recovery.`, ipAddress: req.ip || 'unknown' } });
+                await tx.tenantAuditLog.create({ data: { userId: user.id, action: 'PATIENT_FILE_CREATED', details: JSON.stringify({ patientId: created.id, fileNumber: created.fileNumber, context: 'PATIENT_LOGIN_SELF_HEAL' }), ipAddress: req.ip || 'unknown' } });
+                return created;
               }
-            } catch (recoveryError) {
-              console.error('Patient login self-heal link error:', recoveryError);
-            }
+              if (normalizedMatches.length === 1 && !normalizedMatches[0].userId && current.phoneVerifiedAt) {
+                const linked = await tx.patient.updateMany({ where: { id: normalizedMatches[0].id, userId: null }, data: { userId: user.id } });
+                if (linked.count === 1) {
+                  await tx.tenantAuditLog.create({ data: { userId: user.id, action: 'PATIENT_LOGIN_SELF_HEALED', details: `Linked orphan patient account to existing patient record ${normalizedMatches[0].id} during login recovery.`, ipAddress: req.ip || 'unknown' } });
+                  return { id: normalizedMatches[0].id };
+                }
+              }
+              return null;
+            });
+          } catch (recoveryError) {
+            console.error('Patient login self-heal error:', recoveryError);
           }
         }
       }

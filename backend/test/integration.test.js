@@ -3851,7 +3851,7 @@ test('lab result CAS ignores hidden release, workflow, version, and actor fields
   assert.equal(storedAppointment.status, 'WAITING_LAB');
 });
 
-test('patient profile writes strip identity, verification, role, and financial fields', async () => {
+test('patient profile writes reject identity, verification, role, and financial fields', async () => {
   const actor = await createAppointmentConcurrencyPatient();
   const victim = await createAppointmentConcurrencyPatient();
   const beforeUser = await prisma.user.findUnique({ where: { id: actor.user.id } });
@@ -3870,13 +3870,13 @@ test('patient profile writes strip identity, verification, role, and financial f
       invoiceStatus: 'PAID',
       paymentStatus: 'PAID'
     });
-  assert.equal(response.status, 200);
+  assert.equal(response.status, 422);
   const [afterPatient, afterUser, victimPatient] = await Promise.all([
     prisma.patient.findUnique({ where: { id: actor.patient.id } }),
     prisma.user.findUnique({ where: { id: actor.user.id } }),
     prisma.patient.findUnique({ where: { id: victim.patient.id } })
   ]);
-  assert.equal(afterPatient.emergencyContact, 'Mass Assignment Test Contact');
+  assert.equal(afterPatient.emergencyContact, actor.patient.emergencyContact);
   assert.equal(afterPatient.userId, actor.user.id);
   assert.equal(victimPatient.userId, victim.user.id);
   assert.deepEqual(

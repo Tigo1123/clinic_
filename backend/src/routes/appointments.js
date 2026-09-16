@@ -6,7 +6,7 @@ import { sendNotification } from './notifications.js';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { allowRoles, ROLES } from '../middleware/policies.js';
-import { sendError } from '../utils/apiError.js';
+import { ApiError, sendError } from '../utils/apiError.js';
 import rateLimit from 'express-rate-limit';
 import { rateLimits } from '../config.js';
 import crypto from 'crypto';
@@ -16,6 +16,8 @@ import { getAvailableSlots, getConfiguredSlots, validateBookableSlot, DATE_PATTE
 import { findPossiblePatientDuplicates, normalizeNationalId, normalizePatientPhone, safeDuplicateCandidates } from '../utils/patientIdentity.js';
 import { publicDoctorSelect, toPublicBookingConfirmation, toPublicDoctor } from '../utils/publicDto.js';
 import { structuredPatientName, structuredPatientNameSchema } from '../utils/patientName.js';
+
+import { lockPatientIdentity, patientDateOfBirthSchema } from '../utils/patientOnboarding.js';
 
 const router = express.Router();
 const otpLimiter = rateLimit({ windowMs: rateLimits.windowMs, limit: rateLimits.verification, standardHeaders: 'draft-7', legacyHeaders: false });
@@ -71,7 +73,7 @@ function isEmergencyOverrideConflict(error) {
 
 const walkInPatientSchema = structuredPatientNameSchema.extend({
   gender: z.enum(['MALE', 'FEMALE']),
-  dateOfBirth: z.string().regex(DATE_PATTERN),
+  dateOfBirth: patientDateOfBirthSchema,
   nationalId: z.string().trim().max(30).optional(),
   phone: z.string().trim().min(7).max(30),
   addressStateId: z.coerce.number().int().min(1).max(18),
@@ -143,7 +145,7 @@ router.post('/otp/request', otpLimiter, async (req, res) => {
  */
 router.post('/book', validate(structuredPatientNameSchema.extend({
   doctorId: z.string().uuid(), appointmentDate: z.string().regex(DATE_PATTERN), appointmentTime: z.string().regex(TIME_PATTERN),
-  gender: z.enum(['MALE', 'FEMALE']), dateOfBirth: z.string().regex(DATE_PATTERN), nationalId: z.string().trim().max(30).optional(),
+  gender: z.enum(['MALE', 'FEMALE']), dateOfBirth: patientDateOfBirthSchema, nationalId: z.string().trim().max(30).optional(),
   phone: z.string().trim().min(7).max(30), addressStateId: z.coerce.number().int().min(1).max(18), otpCode: z.string().length(6)
 }).strict()), async (req, res) => {
   markSensitiveResponse(res);
@@ -208,28 +210,21 @@ router.post('/book', validate(structuredPatientNameSchema.extend({
     }
 
     if (!patient) {
-      patient = await prisma.patient.create({
-        data: {
-          ...structuredPatientName(req.body),
-          gender,
-          dateOfBirth,
-          nationalId: normalizedNationalId,
-          phone: normalizedPhone,
-          addressStateId: parseInt(addressStateId),
-          emergencyContact: 'Self',
-          status: 'ACTIVE'
-        }
-      });
-      try {
-        await prisma.tenantAuditLog.create({ data: {
-          userId: null,
-          action: 'PATIENT_FILE_CREATED',
-          details: JSON.stringify({ patientId: patient.id, fileNumber: patient.fileNumber, context: 'PUBLIC_BOOKING' }),
+      patient = await prisma.$transaction(async (tx) => {
+        await lockPatientIdentity(tx, { phone: normalizedPhone, dateOfBirth, nationalId: normalizedNationalId });
+        const candidates = await findPossiblePatientDuplicates(tx, { phone: normalizedPhone, dateOfBirth, nationalId: normalizedNationalId });
+        if (candidates.length) throw new ApiError(409, 'PATIENT_IDENTITY_REVIEW_REQUIRED', 'The booking could not be linked automatically. Contact reception for identity review.');
+        const created = await tx.patient.create({ data: {
+          ...structuredPatientName(req.body), gender, dateOfBirth, nationalId: normalizedNationalId,
+          phone: normalizedPhone, addressStateId: parseInt(addressStateId), emergencyContact: 'Self', status: 'ACTIVE'
+        } });
+        await tx.tenantAuditLog.create({ data: {
+          userId: null, action: 'PATIENT_FILE_CREATED',
+          details: JSON.stringify({ patientId: created.id, fileNumber: created.fileNumber, context: 'PUBLIC_BOOKING' }),
           ipAddress: req.ip || 'unknown'
         } });
-      } catch (auditError) {
-        console.error('Patient file creation audit error:', auditError);
-      }
+        return created;
+      });
     }
 
     // 3. Friendly pre-check; the database unique index is the final concurrency guard.
@@ -297,6 +292,7 @@ router.post('/book', validate(structuredPatientNameSchema.extend({
     return res.status(201).json(toPublicBookingConfirmation(appointment));
 
   } catch (error) {
+    if (error instanceof ApiError) return sendError(res, error.status, error.code, error.message);
     if (isPatientNationalIdConflict(error)) return sendError(res, 409, 'PATIENT_IDENTITY_REVIEW_REQUIRED', 'The booking could not be linked automatically. Contact reception for identity review.');
     if (isAppointmentSlotConflict(error)) {
       return sendError(res, 409, 'APPOINTMENT_SLOT_UNAVAILABLE', 'This appointment slot was booked in the meantime. Please select another slot.');
@@ -365,6 +361,7 @@ router.post('/walk-in', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
         const normalizedNationalId = normalizeNationalId(patient.nationalId);
         if (!normalizedPhone) throw Object.assign(new Error('Phone number is invalid.'), { status: 422, code: 'PHONE_INVALID' });
         if (patient.nationalId && !normalizedNationalId) throw Object.assign(new Error('National ID is invalid.'), { status: 422, code: 'NATIONAL_ID_INVALID' });
+        await lockPatientIdentity(tx, { phone: normalizedPhone, dateOfBirth: patient.dateOfBirth, nationalId: normalizedNationalId });
         const candidates = await findPossiblePatientDuplicates(tx, { phone: normalizedPhone, dateOfBirth: patient.dateOfBirth, nationalId: normalizedNationalId });
         if (candidates.length) throw Object.assign(new Error('A possible existing patient was found. Search and select the existing patient before creating a new walk-in record.'), { status: 409, code: 'POSSIBLE_PATIENT_DUPLICATE', details: safeDuplicateCandidates(candidates) });
         targetPatient = await tx.patient.create({

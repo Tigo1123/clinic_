@@ -16,6 +16,9 @@ import { passwordSchema } from '../utils/passwordPolicy.js';
 import { markSensitiveResponse } from '../utils/edgeSecurity.js';
 import { structuredPatientName, structuredPatientNameSchema } from '../utils/patientName.js';
 
+import { normalizePatientPhone } from '../utils/patientIdentity.js';
+import { lockPatientIdentity, patientDateOfBirthSchema, patientIdentitySummary } from '../utils/patientOnboarding.js';
+
 const router = express.Router();
 router.use((req, res, next) => { markSensitiveResponse(res); next(); });
 const limiter = (limit) => rateLimit({ windowMs: rateLimits.windowMs, limit, standardHeaders: 'draft-7', legacyHeaders: false, handler: (req, res) => sendError(res, 429, 'RATE_LIMITED', 'Too many attempts. Please try again later.') });
@@ -30,7 +33,7 @@ async function audit(userId, action, details, req, db = prisma) {
 
 async function matchingPatients(phoneNormalized, dateOfBirth, db = prisma) {
   const candidates = await db.patient.findMany({ where: { dateOfBirth }, select: { id: true, phone: true, userId: true } });
-  return candidates.filter((patient) => normalizePhone(patient.phone) === phoneNormalized);
+  return candidates.filter((patient) => normalizePatientPhone(patient.phone) === phoneNormalized);
 }
 
 const offlineVerificationDisabled = () => process.env.VERIFICATION_PROVIDER === 'disabled';
@@ -74,18 +77,18 @@ async function consumeClaimCredential(tx, { credential, patientId, dateOfBirth }
 
 router.post('/register', registrationLimiter, validate(structuredPatientNameSchema.extend({
   phone: z.string().trim().min(7).max(30),
-  email: z.string().trim().email().max(254), dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  email: z.string().trim().email().max(254), dateOfBirth: patientDateOfBirthSchema,
   gender: z.enum(['MALE', 'FEMALE']), password: passwordSchema, addressStateId: z.coerce.number().int().min(1).max(18).optional()
 }).strict()), async (req, res, next) => {
   let createdUserId;
   try {
     if (offlineVerificationDisabled()) throw verificationUnavailable();
-    const phoneNormalized = normalizePhone(req.body.phone);
+    const phoneNormalized = normalizePatientPhone(req.body.phone);
     const email = normalizeEmail(req.body.email);
     if (!phoneNormalized) return sendError(res, 422, 'PHONE_INVALID', 'Phone number is invalid.');
     if (req.body.dateOfBirth >= getClinicDateString()) return sendError(res, 422, 'INVALID_DATE_OF_BIRTH', 'Date of birth must be in the past.');
     if (await prisma.user.findUnique({ where: { phoneNormalized } })) return sendError(res, 409, 'PHONE_ALREADY_REGISTERED', 'An account already exists for this phone number.');
-    if (email && await prisma.user.findUnique({ where: { email } })) return sendError(res, 409, 'EMAIL_ALREADY_REGISTERED', 'An account already exists for this email.');
+    if (email && await prisma.user.findFirst({ where: { OR: [{ email: { equals: email, mode: 'insensitive' } }, { username: { equals: email, mode: 'insensitive' } }] } })) return sendError(res, 409, 'EMAIL_ALREADY_REGISTERED', 'An account already exists for this email.');
     const passwordHash = await bcrypt.hash(req.body.password, bcryptRounds);
     const user = await prisma.$transaction(async (tx) => {
       const created = await tx.user.create({ data: {
@@ -105,10 +108,15 @@ router.post('/register', registrationLimiter, validate(structuredPatientNameSche
     if (!verificationTarget) throw new ApiError(422, 'VERIFICATION_TARGET_MISSING', 'Email is required when email verification is configured.');
     const { challenge, developmentCode } = await createVerificationChallenge(user, verificationType, verificationTarget);
     await audit(user.id, 'PATIENT_ACCOUNT_REGISTRATION', 'Patient online account registration started.', req);
-    return markSensitiveResponse(res).status(201).json({ state: 'VERIFICATION_REQUIRED', challengeId: challenge.id, ...(developmentCode ? { developmentCode } : {}) });
+    return markSensitiveResponse(res).status(201).json({ state: 'VERIFICATION_REQUIRED', identity: patientIdentitySummary({ ...structuredPatientName(req.body), gender: req.body.gender, dateOfBirth: req.body.dateOfBirth, phone: phoneNormalized, addressStateId: req.body.addressStateId || Number(process.env.DEFAULT_STATE_ID || 1) }), challengeId: challenge.id, ...(developmentCode ? { developmentCode } : {}) });
   } catch (error) {
     if (createdUserId) await prisma.user.delete({ where: { id: createdUserId } }).catch(() => {});
-    if (error.code === 'P2002') return sendError(res, 409, 'ACCOUNT_ALREADY_EXISTS', 'An account already exists for this identity.');
+    if (error.code === 'P2002') {
+      const target = error.meta?.target || [];
+      if (target.includes('phoneNormalized')) return sendError(res, 409, 'PHONE_ALREADY_REGISTERED', 'An account already exists for this phone number.');
+      if (target.includes('email') || target.includes('username')) return sendError(res, 409, 'EMAIL_ALREADY_REGISTERED', 'An account already exists for this email.');
+      return sendError(res, 409, 'ACCOUNT_ALREADY_EXISTS', 'An account already exists for this identity.');
+    }
     next(error);
   }
 });
@@ -117,12 +125,11 @@ router.post('/verify', verificationLimiter, validate(z.object({ challengeId: z.s
   try {
     const result = await consumeVerificationChallenge({ challengeId: req.body.challengeId, code: req.body.code, purpose: registrationPurpose(), transition: async (tx, challenge) => {
       await tx.user.update({ where: { id: challenge.userId }, data: { status: 'ACTIVE', ...(challenge.type.endsWith('PHONE') ? { phoneVerifiedAt: new Date() } : { emailVerifiedAt: new Date() }) } });
+    const linkedPatient = await tx.patient.findUnique({ where: { userId: challenge.userId } });
+    if (linkedPatient) return { state: 'VERIFIED', patient: patientIdentitySummary(linkedPatient) };
     const registration = await tx.patientRegistration.findUnique({ where: { userId: challenge.userId } });
-    if (!registration) {
-      const linkedPatient = await tx.patient.findUnique({ where: { userId: challenge.userId } });
-      if (linkedPatient) return ({ state: 'VERIFIED' });
-      throw new ApiError(409, 'REGISTRATION_STATE_INVALID', 'Registration details are unavailable.');
-    }
+    if (!registration) throw new ApiError(409, 'REGISTRATION_STATE_INVALID', 'Registration details are unavailable.');
+    await lockPatientIdentity(tx, { phone: challenge.user.phoneNormalized, dateOfBirth: registration.dateOfBirth });
     const matches = await matchingPatients(challenge.user.phoneNormalized, registration.dateOfBirth, tx);
     if (matches.some((patient) => patient.userId)) {
       await audit(challenge.userId, 'PATIENT_CLAIM_REJECTED', 'Matching patient record is already claimed.', req, tx);
@@ -140,7 +147,7 @@ router.post('/verify', verificationLimiter, validate(z.object({ challengeId: z.s
       } });
       await audit(challenge.userId, 'PATIENT_FILE_CREATED', JSON.stringify({ patientId: patient.id, fileNumber: patient.fileNumber, context: 'ONLINE_VERIFICATION' }), req, tx);
       await audit(challenge.userId, 'PATIENT_RECORD_CREATED', `Created patient record ${patient.id} for verified account.`, req, tx);
-      return ({ state: 'CLAIMED' });
+      return ({ state: 'CLAIMED', patient: patientIdentitySummary(patient) });
     }
     if (matches.length === 1) {
       const matchedPatient = matches[0];
@@ -204,7 +211,7 @@ router.post('/verify', verificationLimiter, validate(z.object({ challengeId: z.s
         req, tx
       );
 
-      return ({ state: 'CLAIMED' });
+      return ({ state: 'CLAIMED', patient: patientIdentitySummary(await tx.patient.findUnique({ where: { id: matchedPatient.id } })) });
     }
 
     await audit(
@@ -778,11 +785,11 @@ router.post('/offline-activation', claimLimiter, validate(z.object({
       } });
       const linked = await tx.patient.updateMany({ where: { id: patient.id, userId: null }, data: { userId: user.id } });
       if (linked.count !== 1) throw new ApiError(409, 'PATIENT_ALREADY_CLAIMED', 'Patient record was claimed by another account.');
-      return { userId: user.id, patientId: patient.id };
+      return { userId: user.id, patientId: patient.id, patient: patientIdentitySummary(patient) };
     });
     if (result.error) throw result.error;
     await audit(result.userId, 'PATIENT_OFFLINE_ACTIVATION_COMPLETED', `Clinic-assisted activation linked patient record ${result.patientId}.`, req);
-    return markSensitiveResponse(res).status(201).json({ state: 'ACTIVATED' });
+    return markSensitiveResponse(res).status(201).json({ state: 'ACTIVATED', patient: result.patient });
   } catch (error) {
     if (error.code === 'P2002') return sendError(res, 409, 'ACCOUNT_ALREADY_EXISTS', 'An account already exists for this identity.');
     if (error instanceof ApiError && error.code === 'CLAIM_VERIFICATION_FAILED') await audit(null, 'PATIENT_OFFLINE_ACTIVATION_REJECTED', 'Offline activation credential was rejected.', req).catch(() => {});
