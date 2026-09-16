@@ -6,9 +6,9 @@ import { normalizeEmail } from '../utils/identity.js';
 import { structuredPatientName } from '../utils/patientName.js';
 import { normalizePatientPhone } from '../utils/patientIdentity.js';
 import { patientIdentitySummary } from '../utils/patientOnboarding.js';
-import { createVerificationChallengeRecord } from './verification.js';
 import { hashOnboardingCapability } from './externalAuthCapability.js';
-import { assertPhoneVerificationAvailable, sendPhoneVerificationCode } from './phoneVerification.js';
+import { signAccessToken } from './accessTokens.js';
+import { finalizePatientRegistration } from './patientRegistrationFinalization.js';
 
 const GOOGLE_PROVIDER = 'GOOGLE';
 const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
@@ -32,10 +32,7 @@ async function findEmailUsers(email, tx) {
   });
 }
 
-export async function completeGooglePatientOnboarding({ onboardingToken, fields, db = prisma, now = new Date(), phoneDelivery = sendPhoneVerificationCode } = {}) {
-  // Google already proves email ownership. Phone verification is the only
-  // remaining registration challenge and must have an available provider.
-  assertPhoneVerificationAvailable();
+export async function completeGooglePatientOnboarding({ onboardingToken, fields, db = prisma, now = new Date() } = {}) {
   const capabilityHash = hashOnboardingCapability(onboardingToken);
   const phoneNormalized = normalizePatientPhone(fields.phone);
   if (!phoneNormalized) throw new ApiError(422, 'PHONE_INVALID', 'Phone number is invalid.');
@@ -92,9 +89,7 @@ export async function completeGooglePatientOnboarding({ onboardingToken, fields,
     await tx.userExternalIdentity.create({
       data: { userId: user.id, provider: GOOGLE_PROVIDER, providerSubject: pending.providerSubject, normalizedEmailAtLink: email }
     });
-    const verificationType = 'REGISTRATION_PHONE';
-    const verificationTarget = phoneNormalized;
-    const verification = await createVerificationChallengeRecord(tx, user, verificationType, verificationTarget);
+    const finalized = await finalizePatientRegistration(tx, { user, registration: await tx.patientRegistration.findUnique({ where: { userId: user.id } }), ipAddress: 'google-onboarding' });
     const consumed = await tx.pendingExternalAuth.updateMany({
       where: { id: pending.id, consumedAt: null, expiresAt: { gt: now } },
       data: { consumedAt: now }
@@ -102,18 +97,23 @@ export async function completeGooglePatientOnboarding({ onboardingToken, fields,
     if (consumed.count !== 1) throw invalidCapability();
 
     return {
-      state: 'VERIFICATION_REQUIRED',
-      identity: patientIdentitySummary({ ...name, gender: fields.gender, dateOfBirth: fields.dateOfBirth, phone: phoneNormalized, addressStateId: state.id }),
-      challengeId: verification.challenge.id,
-      _delivery: { destination: verificationTarget, code: verification.code, purpose: verificationType }
+      ...finalized,
+      identity: finalized.patient || patientIdentitySummary({ ...name, gender: fields.gender, dateOfBirth: fields.dateOfBirth, phone: phoneNormalized, addressStateId: state.id }),
+      user: finalized.user
     };
-  }, { timeout: 15000 }).then(async ({ _delivery, ...result }) => {
-    try {
-      const delivery = await phoneDelivery(_delivery);
-      return { ...result, ...(delivery.developmentCode ? { developmentCode: delivery.developmentCode } : {}) };
-    } catch (error) {
-      if (error?.code === 'VERIFICATION_UNAVAILABLE' || error?.code === 'VERIFICATION_DELIVERY_FAILED') throw error;
-      throw new ApiError(503, 'VERIFICATION_DELIVERY_FAILED', 'Verification could not be delivered.');
-    }
+  }, { timeout: 15000 }).then((result) => {
+    if (result.state !== 'CLAIMED') return { state: result.state, ...(result.reason ? { reason: result.reason } : {}) };
+    const user = result.user;
+    const token = signAccessToken({ id: user.id, username: user.username, role: user.role, authVersion: user.authVersion });
+    return {
+      status: 'AUTHENTICATED',
+      token,
+      user: {
+        id: user.id, username: user.username, role: user.role, preferredLanguage: user.preferredLanguage,
+        mfaEnabled: user.mfaEnabled, mustChangePassword: user.mustChangePassword, doctorId: null, doctorName: null,
+        patientLinked: true, patientId: result.patient?.id || null, email: user.email, phone: user.phoneNormalized
+      },
+      patient: result.patient
+    };
   });
 }
