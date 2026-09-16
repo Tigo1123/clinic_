@@ -6,6 +6,7 @@ import prisma from '../src/db.js';
 import { app, shutdown } from '../src/server.js';
 import { signAccessToken } from '../src/services/accessTokens.js';
 import { STRUCTURED_PATIENT_NAME_FIELDS } from '../src/utils/patientName.js';
+import { REFERENCE_BOOTSTRAP_STATES } from '../src/services/referenceBootstrap.js';
 
 const api = request(app);
 const password = `${randomBytes(20).toString('hex')}Aa1`;
@@ -94,6 +95,40 @@ test('self-registration waits for verification, creates one MRN, and repeated ve
   const records = await prisma.patient.findMany({ where: { userId: user.id } });
   assert.equal(records.length, 1); assert.equal(records[0].fileNumber, verified.body.patient.fileNumber);
   assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'PATIENT_FILE_CREATED', details: { contains: records[0].id } } }), 1);
+});
+
+test('address states are resolved before registration and retrying verification after reference recovery creates one Patient', async () => {
+  const state = REFERENCE_BOOTSTRAP_STATES.find((candidate) => candidate.id === 18);
+  await prisma.state.delete({ where: { id: state.id } });
+  try {
+    const rejectedPayload = { ...portalPayload(), addressStateId: state.id };
+    const rejected = await api.post('/api/patient-auth/register').send(rejectedPayload);
+    assert.equal(rejected.status, 422); assert.equal(rejected.body.error.code, 'INVALID_ADDRESS_STATE');
+    assert.equal(await prisma.user.count({ where: { email: rejectedPayload.email } }), 0);
+
+    await prisma.state.create({ data: state });
+    const payload = { ...portalPayload(), addressStateId: state.id };
+    const registration = await api.post('/api/patient-auth/register').send(payload);
+    assert.equal(registration.status, 201);
+    await prisma.state.delete({ where: { id: state.id } });
+
+    const failedVerification = await verify(registration);
+    assert.equal(failedVerification.status, 422); assert.equal(failedVerification.body.error.code, 'INVALID_ADDRESS_STATE');
+    const pendingUser = await prisma.user.findUnique({ where: { email: payload.email } });
+    const pendingChallenge = await prisma.verificationChallenge.findUnique({ where: { id: registration.body.challengeId } });
+    assert.equal(pendingUser.status, 'PENDING_VERIFICATION'); assert.equal(pendingChallenge.usedAt, null);
+    assert.equal(await prisma.patient.count({ where: { userId: pendingUser.id } }), 0);
+
+    await prisma.state.create({ data: state });
+    const retried = await verify(registration);
+    assert.equal(retried.status, 200); assert.equal(retried.body.state, 'CLAIMED');
+    const patients = await prisma.patient.findMany({ where: { userId: pendingUser.id } });
+    assert.equal(patients.length, 1); assert.equal(patients[0].addressStateId, state.id);
+    assert.match(patients[0].fileNumber, /^SHF-\d+$/);
+    assert.equal((await verify(registration)).status, 422);
+  } finally {
+    await prisma.state.upsert({ where: { id: state.id }, update: {}, create: state });
+  }
 });
 
 test('duplicate account phone/email conflicts are explicit, including concurrent registration', async () => {

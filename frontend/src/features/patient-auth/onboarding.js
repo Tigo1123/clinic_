@@ -68,6 +68,7 @@ export function registrationPayload(form) {
 export function onboardingErrorMessage(error, messages) {
   if (error?.status === 429) return messages.rateLimited;
   const code = error?.code;
+  if (code === 'INVALID_ADDRESS_STATE') return messages.addressStateInvalid;
   if (code === 'EMAIL_ALREADY_REGISTERED') return messages.emailDuplicate;
   if (code === 'PHONE_ALREADY_REGISTERED') return messages.phoneDuplicate;
   if (/DUPLICATE|IDENTITY|MANUAL_REVIEW|AMBIGUOUS/.test(code || '')) return messages.manualReview;

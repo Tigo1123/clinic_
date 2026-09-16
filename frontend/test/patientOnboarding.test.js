@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { INITIAL_ONBOARDING_FORM, NAME_FIELDS, normaliseOnboardingForm, ONBOARDING_STEPS, onboardingErrorMessage, registrationPayload, validateOnboardingStep } from '../src/features/patient-auth/onboarding.js';
 import { DEFAULT_PHONE_COUNTRY, normalisePatientPhone, PATIENT_PHONE_COUNTRIES, splitInternationalPhone } from '../src/features/patient-auth/phoneCountries.js';
 
-const messages = { required:'required', nameInvalid:'name', dateInvalid:'dob', phoneInvalid:'phone', emailInvalid:'email', passwordInvalid:'password', passwordMismatch:'mismatch', rateLimited:'rate', emailDuplicate:'email duplicate', phoneDuplicate:'phone duplicate', manualReview:'review', verificationFailed:'verify', requestFailed:'failed' };
+const messages = { required:'required', nameInvalid:'name', dateInvalid:'dob', phoneInvalid:'phone', emailInvalid:'email', passwordInvalid:'password', passwordMismatch:'mismatch', rateLimited:'rate', addressStateInvalid:'state invalid', emailDuplicate:'email duplicate', phoneDuplicate:'phone duplicate', manualReview:'review', verificationFailed:'verify', requestFailed:'failed' };
 const complete = { ...INITIAL_ONBOARDING_FORM, firstNameAr:'محمد', fatherNameAr:'أحمد', grandfatherNameAr:'علي', familyNameAr:'النور', firstNameEn:'José', fatherNameEn:'Ahmed', grandfatherNameEn:'Ali', familyNameEn:"O’Neill", dateOfBirth:'1990-01-02', gender:'MALE', phone:'+250788123456', email:'patient@example.test', password:'SecurePass1', confirmPassword:'SecurePass1' };
 
 test('onboarding defines seven steps and all required bilingual name fields', () => {
@@ -61,6 +61,7 @@ test('registration payload is allowlisted and cannot inject MRN or client identi
 });
 
 test('safe localized errors cover duplicate identities, verification, rate limiting, and server failures', () => {
+  assert.equal(onboardingErrorMessage({ code:'INVALID_ADDRESS_STATE' }, messages), 'state invalid');
   assert.equal(onboardingErrorMessage({ code:'EMAIL_ALREADY_REGISTERED' }, messages), 'email duplicate');
   assert.equal(onboardingErrorMessage({ code:'PHONE_ALREADY_REGISTERED' }, messages), 'phone duplicate');
   assert.equal(onboardingErrorMessage({ code:'VERIFICATION_CODE_EXPIRED' }, messages), 'verify');
