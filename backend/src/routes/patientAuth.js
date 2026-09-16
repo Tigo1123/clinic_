@@ -19,6 +19,7 @@ import { structuredPatientName, structuredPatientNameSchema } from '../utils/pat
 import { normalizePatientPhone } from '../utils/patientIdentity.js';
 import { lockPatientIdentity, patientDateOfBirthSchema, patientIdentitySummary } from '../utils/patientOnboarding.js';
 import { resolveGooglePatientIdentity } from '../services/googlePatientIdentity.js';
+import { completeGooglePatientOnboarding } from '../services/googlePatientOnboarding.js';
 
 const router = express.Router();
 router.use((req, res, next) => { markSensitiveResponse(res); next(); });
@@ -28,6 +29,18 @@ const verificationLimiter = limiter(rateLimits.verification);
 const claimLimiter = limiter(rateLimits.claim);
 const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
 const verificationResendCooldownMs = 60 * 1000;
+const patientRegistrationFieldsSchema = structuredPatientNameSchema.extend({
+  phone: z.string().trim().min(7).max(30),
+  email: z.string().trim().email().max(254), dateOfBirth: patientDateOfBirthSchema,
+  gender: z.enum(['MALE', 'FEMALE']), password: passwordSchema, addressStateId: z.coerce.number().int().min(1).max(18).optional()
+});
+const googlePatientCompletionSchema = structuredPatientNameSchema.extend({
+  onboardingToken: z.string().trim().min(1).max(200),
+  phone: z.string().trim().min(7).max(30),
+  dateOfBirth: patientDateOfBirthSchema,
+  gender: z.enum(['MALE', 'FEMALE']), password: passwordSchema,
+  addressStateId: z.coerce.number().int().min(1).max(18).optional()
+}).strict();
 
 async function audit(userId, action, details, req, db = prisma) {
   await db.tenantAuditLog.create({ data: { userId, action, details, ipAddress: req.ip || 'unknown' } });
@@ -83,11 +96,7 @@ async function consumeClaimCredential(tx, { credential, patientId, dateOfBirth }
   return consumed.count === 1 ? { claim } : { error: claimFailure() };
 }
 
-router.post('/register', registrationLimiter, validate(structuredPatientNameSchema.extend({
-  phone: z.string().trim().min(7).max(30),
-  email: z.string().trim().email().max(254), dateOfBirth: patientDateOfBirthSchema,
-  gender: z.enum(['MALE', 'FEMALE']), password: passwordSchema, addressStateId: z.coerce.number().int().min(1).max(18).optional()
-}).strict()), async (req, res, next) => {
+router.post('/register', registrationLimiter, validate(patientRegistrationFieldsSchema.strict()), async (req, res, next) => {
   let createdUserId;
   try {
     if (offlineVerificationDisabled()) throw verificationUnavailable();
@@ -143,9 +152,26 @@ router.post('/google/verify', verificationLimiter, validate(z.object({
   }
 });
 
+router.post('/google/complete', registrationLimiter, validate(googlePatientCompletionSchema), async (req, res, next) => {
+  try {
+    const result = await completeGooglePatientOnboarding({ onboardingToken: req.body.onboardingToken, fields: req.body });
+    return markSensitiveResponse(res).status(201).json(result);
+  } catch (error) {
+    if (error.code === 'P2002') {
+      const target = error.meta?.target || [];
+      if (target.includes('phoneNormalized')) return sendError(res, 409, 'PHONE_ALREADY_REGISTERED', 'An account already exists for this phone number.');
+      if (target.includes('email') || target.includes('username')) return sendError(res, 409, 'EMAIL_ALREADY_REGISTERED', 'An account already exists for this email.');
+      return sendError(res, 409, 'ACCOUNT_ALREADY_EXISTS', 'An account already exists for this identity.');
+    }
+    return next(error);
+  }
+});
+
 router.post('/verify', verificationLimiter, validate(z.object({ challengeId: z.string().uuid(), code: z.string().regex(/^\d{6}$/) }).strict()), async (req, res, next) => {
   try {
-    const result = await consumeVerificationChallenge({ challengeId: req.body.challengeId, code: req.body.code, purpose: registrationPurpose(), transition: async (tx, challenge) => {
+    const challengeRecord = await prisma.verificationChallenge.findUnique({ where: { id: req.body.challengeId }, select: { type: true } });
+    if (!challengeRecord || !['REGISTRATION_EMAIL', 'REGISTRATION_PHONE'].includes(challengeRecord.type)) return sendError(res, 422, 'VERIFICATION_INVALID', 'Verification challenge is invalid or already used.');
+    const result = await consumeVerificationChallenge({ challengeId: req.body.challengeId, code: req.body.code, purpose: challengeRecord.type, transition: async (tx, challenge) => {
       const linkedPatient = await tx.patient.findUnique({ where: { userId: challenge.userId } });
       if (linkedPatient) return { state: 'VERIFIED', patient: patientIdentitySummary(linkedPatient) };
       const registration = await tx.patientRegistration.findUnique({ where: { userId: challenge.userId } });
@@ -262,7 +288,7 @@ router.post(
         include: { user: true }
       });
 
-      if (!previousChallenge || previousChallenge.usedAt || previousChallenge.type !== registrationPurpose() || previousChallenge.authVersion !== previousChallenge.user.authVersion) {
+      if (!previousChallenge || previousChallenge.usedAt || !['REGISTRATION_EMAIL', 'REGISTRATION_PHONE'].includes(previousChallenge.type) || previousChallenge.authVersion !== previousChallenge.user.authVersion) {
         return sendError(
           res,
           422,
@@ -280,7 +306,7 @@ router.post(
         );
       }
 
-      const verificationType = registrationPurpose();
+      const verificationType = previousChallenge.type;
 
       const target =
         verificationType.endsWith('EMAIL')
@@ -395,7 +421,8 @@ router.post(
         );
       }
 
-      const verificationType = registrationPurpose();
+      const googleIdentity = await prisma.userExternalIdentity.findFirst({ where: { userId: user.id, provider: 'GOOGLE' }, select: { id: true } });
+      const verificationType = googleIdentity ? 'REGISTRATION_PHONE' : registrationPurpose();
 
       const target =
         verificationType.endsWith('EMAIL')
