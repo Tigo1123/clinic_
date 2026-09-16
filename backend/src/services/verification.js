@@ -14,7 +14,7 @@ export async function lockAccount(tx, userId) {
 export async function invalidateChallenges(tx, userId) {
   await tx.verificationChallenge.updateMany({ where: { userId, usedAt: null }, data: { usedAt: new Date() } });
 }
-export async function createVerificationChallenge(user, type, targetNormalized) {
+export async function createVerificationChallenge(user, type, targetNormalized, { cooldownMs = 0 } = {}) {
   // Disabled is an intentional offline operating mode, not a delivery attempt.
   // Refuse before persisting a challenge so no UI can honestly claim a code was sent.
   if (process.env.VERIFICATION_PROVIDER === 'disabled') throw verificationUnavailable();
@@ -28,6 +28,16 @@ export async function createVerificationChallenge(user, type, targetNormalized) 
     if (registration ? current.status !== 'PENDING_VERIFICATION' : current.status !== 'ACTIVE') throw invalid();
     if (!['REGISTRATION_EMAIL', 'REGISTRATION_PHONE', 'EMAIL', 'PHONE', 'PASSWORD_RESET', 'PROFILE_EMAIL_CHANGE', 'PROFILE_PHONE_CHANGE'].includes(type)) throw invalid();
     if (!type.startsWith('PROFILE_') && targetNormalized !== (type.endsWith('PHONE') ? current.phoneNormalized : current.email)) throw invalid();
+    if (cooldownMs > 0) {
+      const latest = await tx.verificationChallenge.findFirst({
+        where: { userId: user.id, type },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true }
+      });
+      if (latest && latest.createdAt.getTime() + cooldownMs > Date.now()) {
+        throw new ApiError(429, 'VERIFICATION_RESEND_COOLDOWN', 'Please wait before requesting another verification code.');
+      }
+    }
     if (type !== 'PASSWORD_RESET') await tx.verificationChallenge.updateMany({ where: { userId: user.id, type, usedAt: null }, data: { usedAt: new Date() } });
     return tx.verificationChallenge.create({ data: { userId: user.id, type, targetNormalized, authVersion: current.authVersion, codeHash, expiresAt: new Date(Date.now() + 600000) } });
   });

@@ -97,6 +97,38 @@ test('self-registration waits for verification, creates one MRN, and repeated ve
   assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'PATIENT_FILE_CREATED', details: { contains: records[0].id } } }), 1);
 });
 
+test('registration OTP resend is cooldown-protected, rotates the code, and still creates one patient file', async () => {
+  const payload = portalPayload();
+  const registration = await api.post('/api/patient-auth/register').send(payload);
+  assert.equal(registration.status, 201);
+  const user = await prisma.user.findUnique({ where: { email: payload.email } });
+
+  const immediate = await api.post('/api/patient-auth/verification/resend').send({ challengeId: registration.body.challengeId });
+  assert.equal(immediate.status, 429);
+  assert.equal(immediate.body.error.code, 'VERIFICATION_RESEND_COOLDOWN');
+  assert.equal(await prisma.patient.count({ where: { userId: user.id } }), 0);
+
+  await prisma.verificationChallenge.update({
+    where: { id: registration.body.challengeId },
+    data: { createdAt: new Date(Date.now() - 61_000) }
+  });
+  const resent = await api.post('/api/patient-auth/verification/resend').send({ challengeId: registration.body.challengeId });
+  assert.equal(resent.status, 201);
+  assert.notEqual(resent.body.challengeId, registration.body.challengeId);
+  assert.equal(await prisma.patient.count({ where: { userId: user.id } }), 0);
+  assert.ok((await prisma.verificationChallenge.findUnique({ where: { id: registration.body.challengeId } })).usedAt);
+
+  const oldCode = await verify(registration);
+  assert.equal(oldCode.status, 422);
+  const verified = await api.post('/api/patient-auth/verify').send({ challengeId: resent.body.challengeId, code: resent.body.developmentCode });
+  assert.equal(verified.status, 200);
+  const patients = await prisma.patient.findMany({ where: { userId: user.id } });
+  assert.equal(patients.length, 1);
+  assert.match(patients[0].fileNumber, /^SHF-\d+$/);
+  assert.equal((await api.post('/api/patient-auth/verify').send({ challengeId: resent.body.challengeId, code: resent.body.developmentCode })).status, 422);
+  assert.equal(await prisma.patient.count({ where: { userId: user.id } }), 1);
+});
+
 test('address states are resolved before registration and retrying verification after reference recovery creates one Patient', async () => {
   const state = REFERENCE_BOOTSTRAP_STATES.find((candidate) => candidate.id === 18);
   await prisma.state.delete({ where: { id: state.id } });

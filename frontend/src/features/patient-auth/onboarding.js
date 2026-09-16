@@ -1,6 +1,11 @@
 import { DEFAULT_PHONE_COUNTRY, normalisePatientPhone } from './phoneCountries.js';
 
 export const ONBOARDING_STEPS = ['arabicName', 'englishName', 'personalDetails', 'contact', 'address', 'security', 'review'];
+export const RESEND_COOLDOWN_SECONDS = 60;
+
+export function resendSecondsRemaining(availableAt, now = Date.now()) {
+  return Math.max(0, Math.ceil((availableAt - now) / 1000));
+}
 
 export const NAME_FIELDS = [
   'firstNameAr', 'fatherNameAr', 'grandfatherNameAr', 'familyNameAr',

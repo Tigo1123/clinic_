@@ -26,6 +26,7 @@ const registrationLimiter = limiter(rateLimits.registration);
 const verificationLimiter = limiter(rateLimits.verification);
 const claimLimiter = limiter(rateLimits.claim);
 const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
+const verificationResendCooldownMs = 60 * 1000;
 
 async function audit(userId, action, details, req, db = prisma) {
   await db.tenantAuditLog.create({ data: { userId, action, details, ipAddress: req.ip || 'unknown' } });
@@ -286,7 +287,8 @@ router.post(
         await createVerificationChallenge(
           previousChallenge.user,
           verificationType,
-          target
+          target,
+          { cooldownMs: verificationResendCooldownMs }
         );
 
       await audit(
@@ -400,7 +402,8 @@ router.post(
         await createVerificationChallenge(
           user,
           verificationType,
-          target
+          target,
+          { cooldownMs: verificationResendCooldownMs }
         );
 
       await audit(

@@ -210,3 +210,28 @@
 @media(max-width:600px){.patient-auth-shell--onboarding .patient-auth-aside{min-height:178px;padding:1.25rem}.patient-auth-shell--onboarding .onboarding-illustration{display:none}.patient-auth-shell--onboarding .patient-auth-aside>div{max-width:100%}.patient-auth-shell--onboarding .patient-auth-aside h2{font-size:1.65rem}.patient-auth-shell--onboarding .onboarding-progress{grid-template-columns:repeat(4,1fr);margin:1.5rem 0}.patient-auth-shell--onboarding .onboarding-progress::before{display:none}.patient-auth-shell--onboarding .onboarding-progress button span{display:block;overflow:hidden;text-overflow:ellipsis;max-width:72px}.patient-auth-shell--onboarding .onboarding-progress button{font-size:.66rem}.patient-auth-shell--onboarding .onboarding-progress button::first-line{width:32px;height:32px}.patient-auth-shell--onboarding .onboarding-grid{gap:0}.patient-auth-shell--onboarding .patient-auth{padding:1.35rem}.onboarding-language{width:100%;justify-content:center}}
 .patient-phone-control{display:grid;grid-template-columns:minmax(150px,1fr) minmax(0,1fr);gap:.55rem}.patient-phone-control select{min-width:0;font-size:.88rem}.patient-phone-control input{min-width:0;direction:ltr;text-align:left}.patient-phone-control select:focus-visible,.patient-phone-control input:focus-visible{outline:3px solid rgba(20,121,238,.35);outline-offset:2px}
 @media(max-width:420px){.patient-phone-control{grid-template-columns:1fr}.patient-phone-control select{min-height:48px!important}}
+
+/* Onboarding registration and OTP: compact, touch-friendly mobile treatment. */
+.onboarding-step-summary{display:none}.onboarding-verification{width:min(460px,100%)}.onboarding-verification .patient-field input{font-variant-numeric:tabular-nums;letter-spacing:.16em;text-align:center}.onboarding-resend{display:grid;justify-items:center;gap:.25rem;margin-top:1.35rem;padding-top:1.15rem;border-top:1px solid var(--color-border);text-align:center}.onboarding-resend p{margin:0;color:var(--color-text-secondary);font-size:.9rem}.onboarding-resend-button{min-height:44px;padding:.55rem .75rem;border:0;background:transparent;color:var(--color-primary-strong);font:inherit;font-weight:800;cursor:pointer;text-decoration:underline;text-underline-offset:3px}.onboarding-resend-button:disabled{color:var(--color-text-muted);cursor:not-allowed;text-decoration:none}.onboarding-resend-button:focus-visible{outline:3px solid rgba(20,121,238,.35);outline-offset:3px;border-radius:8px}
+
+@media(max-width:600px){
+  .patient-auth-shell--onboarding .patient-auth-aside{min-height:148px;padding:1rem 1.1rem 1.15rem}
+  .patient-auth-shell--onboarding .patient-auth-aside>a{font-size:1rem}
+  .patient-auth-shell--onboarding .patient-auth-aside>div{margin:auto 0 0}
+  .patient-auth-shell--onboarding .patient-auth-aside h2{margin:0 0 .25rem;font-size:1.35rem;line-height:1.25;letter-spacing:0}
+  .patient-auth-shell--onboarding .patient-auth-aside p{margin:0;font-size:.82rem;line-height:1.45}
+  .patient-auth-shell--onboarding .patient-auth-content{display:block;padding:0 .75rem 1.5rem}
+  .patient-auth-shell--onboarding .patient-auth{margin-top:-.7rem;padding:1.15rem;box-shadow:var(--shadow-md)}
+  .patient-auth-shell--onboarding .patient-auth h1{margin:.95rem 0 .35rem;font-size:1.55rem;line-height:1.28}
+  .patient-auth-shell--onboarding .onboarding-language{margin-inline:auto}
+  .onboarding-step-summary{display:grid;gap:.2rem;margin:1.15rem 0 .85rem;padding:.75rem .85rem;background:var(--color-primary-soft);border-radius:14px}
+  .onboarding-step-summary span{color:var(--color-primary-strong);font-size:.76rem;font-weight:800}
+  .onboarding-step-summary strong{font-size:.95rem}
+  .patient-auth-shell--onboarding .onboarding-progress{display:none}
+  .patient-auth-shell--onboarding .onboarding-caption{margin:0 0 1.25rem;font-size:.9rem;line-height:1.55}
+  .patient-auth-shell--onboarding .patient-field{margin-bottom:1rem;font-size:.88rem}
+  .patient-auth-shell--onboarding .patient-field input,.patient-auth-shell--onboarding .patient-field select{min-height:48px;padding:.7rem .8rem}
+  .patient-auth-shell--onboarding .onboarding-actions{margin-top:1.45rem;gap:.6rem}
+  .patient-auth-shell--onboarding .onboarding-actions .patient-button{min-height:48px}
+  .onboarding-verification .patient-field input{min-height:56px;font-size:1.15rem}
+}

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import i18n from '../src/i18n.js';
 import { readFileSync } from 'node:fs';
-import { INITIAL_ONBOARDING_FORM, NAME_FIELDS, normaliseOnboardingForm, ONBOARDING_STEPS, onboardingErrorMessage, registrationPayload, validateOnboardingStep } from '../src/features/patient-auth/onboarding.js';
+import { INITIAL_ONBOARDING_FORM, NAME_FIELDS, normaliseOnboardingForm, ONBOARDING_STEPS, onboardingErrorMessage, registrationPayload, RESEND_COOLDOWN_SECONDS, resendSecondsRemaining, validateOnboardingStep } from '../src/features/patient-auth/onboarding.js';
 import { DEFAULT_PHONE_COUNTRY, normalisePatientPhone, PATIENT_PHONE_COUNTRIES, splitInternationalPhone } from '../src/features/patient-auth/phoneCountries.js';
 
 const messages = { required:'required', nameInvalid:'name', dateInvalid:'dob', phoneInvalid:'phone', emailInvalid:'email', passwordInvalid:'password', passwordMismatch:'mismatch', rateLimited:'rate', addressStateInvalid:'state invalid', emailDuplicate:'email duplicate', phoneDuplicate:'phone duplicate', manualReview:'review', verificationFailed:'verify', requestFailed:'failed' };
@@ -69,6 +69,14 @@ test('safe localized errors cover duplicate identities, verification, rate limit
   assert.equal(onboardingErrorMessage({ message:'raw database error' }, messages), 'failed');
 });
 
+test('OTP resend cooldown is deterministic and localized in both languages', async () => {
+  assert.equal(RESEND_COOLDOWN_SECONDS, 60);
+  assert.equal(resendSecondsRemaining(160_000, 100_001), 60);
+  assert.equal(resendSecondsRemaining(160_000, 160_000), 0);
+  await i18n.changeLanguage('ar'); assert.match(i18n.t('onboardingResendAvailableIn', { seconds:47 }), /47/);
+  await i18n.changeLanguage('en'); assert.equal(i18n.t('onboardingResendAvailableIn', { seconds:47 }), 'Resend available in 47s');
+});
+
 test('registration page renders the stepper, keeps RTL/LTR inputs explicit, and continues verified patients safely', () => {
   const page = readFileSync(new URL('../src/features/patient-auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
   assert.match(page, /onboarding-progress/);
@@ -78,4 +86,8 @@ test('registration page renders the stepper, keeps RTL/LTR inputs explicit, and 
   assert.match(page, /inputMode="tel" dir="ltr"/);
   assert.match(page, /continueToDashboard/);
   assert.match(page, /identity\?\.fileNumber/);
+  assert.match(page, /onboarding-step-summary/);
+  assert.match(page, /onboarding-resend/);
+  assert.match(page, /verification\/resend/);
+  assert.match(page, /inputMode="numeric" maxLength=\{6\} dir="ltr"/);
 });
