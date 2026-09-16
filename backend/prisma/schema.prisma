@@ -411,6 +411,7 @@ model PendingExternalAuth {
   provider        String
   providerSubject String
   verifiedEmail   String
+  capabilityHash  String   @unique
   expiresAt       DateTime
   consumedAt      DateTime?
   createdAt       DateTime @default(now())

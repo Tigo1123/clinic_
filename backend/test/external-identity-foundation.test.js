@@ -6,6 +6,7 @@ import prisma from '../src/db.js';
 const createdUsers = [];
 const createdPending = [];
 const provider = 'google';
+const capabilityHash = (character) => character.repeat(64);
 
 async function createUser() {
   const id = randomUUID();
@@ -58,8 +59,9 @@ test('different users can link different identities from the same provider', asy
 test('pending external auth has no User or Patient and supports expiry/consumption lifecycle', async () => {
   const providerSubject = `pending-${randomUUID()}`;
   const verifiedEmail = `${randomUUID()}@example.invalid`;
+  const firstCapabilityHash = capabilityHash('a');
   const pending = await prisma.pendingExternalAuth.create({
-    data: { provider, providerSubject, verifiedEmail, expiresAt: new Date(Date.now() + 10 * 60 * 1000) }
+    data: { provider, providerSubject, verifiedEmail, capabilityHash: firstCapabilityHash, expiresAt: new Date(Date.now() + 10 * 60 * 1000) }
   });
   createdPending.push(pending.id);
 
@@ -67,19 +69,31 @@ test('pending external auth has no User or Patient and supports expiry/consumpti
   // PendingExternalAuth has no User/Patient relation by design; creation above
   // cannot create either medical/account record.
   assert.equal(pending.consumedAt, null);
+  assert.equal(pending.capabilityHash, firstCapabilityHash);
   assert.ok(pending.expiresAt > new Date());
+
+  const rotatedCapabilityHash = capabilityHash('b');
+  const rotated = await prisma.pendingExternalAuth.update({ where: { id: pending.id }, data: { capabilityHash: rotatedCapabilityHash } });
+  assert.equal(rotated.capabilityHash, rotatedCapabilityHash);
+  assert.equal(await prisma.pendingExternalAuth.count({ where: { capabilityHash: firstCapabilityHash } }), 0);
+  assert.equal(await prisma.pendingExternalAuth.count({ where: { capabilityHash: rotatedCapabilityHash } }), 1);
 
   const consumed = await prisma.pendingExternalAuth.update({ where: { id: pending.id }, data: { consumedAt: new Date(), expiresAt: new Date(Date.now() - 1000) } });
   assert.ok(consumed.consumedAt);
   assert.ok(consumed.expiresAt < new Date());
   await assert.rejects(
-    prisma.pendingExternalAuth.create({ data: { provider, providerSubject, verifiedEmail, expiresAt: new Date(Date.now() + 600000) } }),
+    prisma.pendingExternalAuth.create({ data: { provider, providerSubject, verifiedEmail, capabilityHash: capabilityHash('c'), expiresAt: new Date(Date.now() + 600000) } }),
+    { code: 'P2002' }
+  );
+
+  await assert.rejects(
+    prisma.pendingExternalAuth.create({ data: { provider, providerSubject: `other-${randomUUID()}`, verifiedEmail: `${randomUUID()}@example.invalid`, capabilityHash: rotatedCapabilityHash, expiresAt: new Date(Date.now() + 600000) } }),
     { code: 'P2002' }
   );
 
   const concurrentSubject = `concurrent-${randomUUID()}`;
   const concurrent = await Promise.allSettled(Array.from({ length: 2 }, () => prisma.pendingExternalAuth.create({
-    data: { provider, providerSubject: concurrentSubject, verifiedEmail: `${randomUUID()}@example.invalid`, expiresAt: new Date(Date.now() + 600000) }
+    data: { provider, providerSubject: concurrentSubject, verifiedEmail: `${randomUUID()}@example.invalid`, capabilityHash: capabilityHash(randomUUID().replace(/-/g, '').slice(0, 1)), expiresAt: new Date(Date.now() + 600000) }
   })));
   assert.equal(concurrent.filter((result) => result.status === 'fulfilled').length, 1);
   const concurrentRow = await prisma.pendingExternalAuth.findUnique({ where: { provider_providerSubject: { provider, providerSubject: concurrentSubject } } });
