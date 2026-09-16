@@ -286,7 +286,7 @@
 .patient-auth-shell--login .patient-auth form{margin-top:1.45rem}
 .patient-auth-divider{display:flex;align-items:center;gap:.9rem;margin:1.5rem 0 1.15rem;color:#7890a5;font-size:.78rem;font-weight:700}
 .patient-auth-divider::before,.patient-auth-divider::after{content:'';height:1px;flex:1;background:#dbe7f0}
-.patient-google-button{display:flex;justify-content:center;min-height:44px;width:100%;overflow:hidden}.patient-google-button>div{max-width:100%}.patient-google-unavailable{margin:.75rem 0;color:#6b8298;text-align:center;font-size:.8rem}.patient-auth-google-entry{margin-top:1.35rem}.patient-auth-google-entry .patient-auth-divider{margin:.25rem 0 1rem}
+.patient-google-button{position:relative;display:flex;justify-content:center;min-height:44px;width:100%;overflow:hidden}.patient-google-button>div{max-width:100%}.patient-google-button.is-loading{opacity:.65}.patient-google-loading{position:absolute;inset:0;background:rgba(255,255,255,.35);cursor:wait}.patient-google-unavailable{margin:.75rem 0;color:#6b8298;text-align:center;font-size:.8rem}.patient-auth-google-entry{margin-top:1.35rem}.patient-auth-google-entry .patient-auth-divider{margin:.25rem 0 1rem}
 .patient-auth-create-account{display:grid;gap:.65rem;text-align:center}
 .patient-auth-create-account p{margin:0;color:#657d93;font-size:.85rem}
 .patient-auth-secondary-button{display:grid;place-items:center;min-height:48px;padding:.7rem 1rem;color:#176fbe;background:#fff;border:1px solid #7fb7dc;border-radius:11px;font-weight:800;text-decoration:none;transition:background-color .18s ease,border-color .18s ease,box-shadow .18s ease,transform .18s ease}

@@ -26,7 +26,7 @@ function loadGoogleIdentityServices() {
   return gisScriptPromise;
 }
 
-export function GoogleIdentityButton({ onCredential, text = 'continue_with', className = '' }) {
+export function GoogleIdentityButton({ onCredential, text = 'continue_with', className = '', loading = false }) {
   const { t, i18n } = useTranslation();
   const buttonRef = useRef(null);
   const initializedRef = useRef(false);
@@ -55,5 +55,5 @@ export function GoogleIdentityButton({ onCredential, text = 'continue_with', cla
   }, [clientId, i18n.language, onCredential, text]);
 
   if (state === 'unavailable') return <p className={`patient-google-unavailable ${className}`.trim()} role="status">{t('googleSignInUnavailable')}</p>;
-  return <div className={`patient-google-button ${className}`.trim()} aria-busy={state !== 'ready'}><div ref={buttonRef} /></div>;
+  return <div className={`patient-google-button${loading ? ' is-loading' : ''} ${className}`.trim()} aria-busy={state !== 'ready' || loading}><div ref={buttonRef} />{loading && <span className="patient-google-loading" aria-hidden="true" />}</div>;
 }

@@ -1,4 +1,5 @@
 import { clearPatientSession, clearStaffSession, readPatientSession, readStaffSession } from './authStorage.js';
+import { clearGoogleOnboardingToken } from '../features/patient-auth/googleOnboardingStorage.js';
 
 // Logout revokes every session for this account. Local cleanup is unconditional.
 export async function logoutAccount(kind) {
@@ -14,6 +15,6 @@ export async function logoutAccount(kind) {
     // The server may be unreachable. Do not retain local credentials.
   } finally {
     if (staff) clearStaffSession();
-    else clearPatientSession();
+    else { clearPatientSession(); clearGoogleOnboardingToken(); }
   }
 }
