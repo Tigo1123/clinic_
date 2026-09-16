@@ -18,6 +18,7 @@ import { structuredPatientName, structuredPatientNameSchema } from '../utils/pat
 
 import { normalizePatientPhone } from '../utils/patientIdentity.js';
 import { lockPatientIdentity, patientDateOfBirthSchema, patientIdentitySummary } from '../utils/patientOnboarding.js';
+import { resolveGooglePatientIdentity } from '../services/googlePatientIdentity.js';
 
 const router = express.Router();
 router.use((req, res, next) => { markSensitiveResponse(res); next(); });
@@ -127,6 +128,18 @@ router.post('/register', registrationLimiter, validate(structuredPatientNameSche
       return sendError(res, 409, 'ACCOUNT_ALREADY_EXISTS', 'An account already exists for this identity.');
     }
     next(error);
+  }
+});
+
+router.post('/google/verify', verificationLimiter, validate(z.object({
+  credential: z.string().trim().min(1).max(20000)
+}).strict()), async (req, res, next) => {
+  try {
+    const result = await resolveGooglePatientIdentity({ credential: req.body.credential });
+    const status = ['ACCOUNT_LINK_REQUIRED', 'REGISTRATION_PENDING'].includes(result.status) ? 409 : 200;
+    return markSensitiveResponse(res).status(status).json(result);
+  } catch (error) {
+    return next(error);
   }
 });
 
