@@ -19,6 +19,11 @@ function positiveInteger(name, fallback) {
   return value;
 }
 
+export function configuredGoogleClientId(env = process.env) {
+  const value = String(env.GOOGLE_CLIENT_ID || '').trim();
+  return value || null;
+}
+
 export function canonicalProductionOrigin(origin) {
   if (origin === '*' || !origin.startsWith('https://')) return null;
   try {
@@ -86,6 +91,7 @@ export function validateEnvironment() {
     allowedOrigins: origins.length
       ? (production ? [...new Set(origins.map(canonicalProductionOrigin))] : origins)
       : ['http://localhost:5173'],
+    googleClientId: configuredGoogleClientId(),
     clinicTimeZone,
     socketRevocation: {
       databaseUrl: socketRevocationDatabaseUrl,
