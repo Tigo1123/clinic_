@@ -7,7 +7,12 @@ export const specialties = [
   ['dentistry', 'Dentistry', 'طب الأسنان'],
   ['internal-medicine', 'Internal Medicine', 'الباطنية'],
   ['surgery', 'Surgery', 'الجراحة'],
-  ['neurology', 'Neurology', 'طب الأعصاب']
+  ['neurology', 'Neurology', 'طب الأعصاب'],
+  ['PED', 'Pediatrics', 'الأطفال'],
+  ['OBG', 'Obstetrics & Gynecology', 'النساء والتوليد'],
+  ['ENT', 'ENT', 'الأنف والأذن والحنجرة'],
+  ['DERM', 'Dermatology', 'الجلدية'],
+  ['OPH', 'Ophthalmology', 'العيون']
 ].map(([code, nameEn, nameAr]) => ({ code, nameEn, nameAr }));
 
 export const doctors = [

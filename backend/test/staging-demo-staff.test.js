@@ -33,14 +33,14 @@ test('staging gate rejects production, missing opt-in, missing password and wron
   ]) assert.throws(() => validateDemoEnvironment({ ...env, ...patch }));
 });
 
-test('CLI seeds 13 accounts, 10 linked doctors, 5 specialties and 21 schedule periods; rerun preserves IDs', async () => {
+test('CLI seeds 13 accounts, 10 linked doctors, 10 specialties and 21 schedule periods; rerun preserves IDs', async () => {
   const run = () => spawnSync(process.execPath, ['scripts/seed-staging-demo-staff.js'], { env, encoding: 'utf8' });
   const before = await snapshot();
   const first = run();
   assert.equal(first.status, 0, first.stderr);
   assert.equal(first.stdout.includes(password), false);
   assert.equal(/passwordHash|\$2[aby]\$/.test(first.stdout + first.stderr), false);
-  assert.deepEqual(JSON.parse(first.stdout), { event: 'staging_demo_staff_ready', users: 13, doctors: 10, specialties: 5, schedules: 10, periods: 21 });
+  assert.deepEqual(JSON.parse(first.stdout), { event: 'staging_demo_staff_ready', users: 13, doctors: 10, specialties: 10, schedules: 10, periods: 21 });
   const seeded = await snapshot();
   assert.equal(run().status, 0);
   const repeated = await snapshot();
@@ -55,6 +55,16 @@ test('CLI seeds 13 accounts, 10 linked doctors, 5 specialties and 21 schedule pe
     assert.ok(user.lastPasswordChange);
   }
   for (const item of specialties) assert.equal(repeated.specialties.filter((s) => s.code === item.code && s.active).length, 1);
+  assert.equal(repeated.doctors.length - before.doctors.length, 10);
+  for (const code of ['PED', 'OBG', 'ENT', 'DERM', 'OPH']) {
+    const specialty = repeated.specialties.find((s) => s.code === code);
+    assert.ok(specialty?.active);
+    assert.equal(repeated.doctors.filter((d) => d.specialtyId === specialty.id).length, 0);
+  }
+  for (const { deletionProtected: _oldProtection, ...old } of before.specialties) {
+    const { deletionProtected: _newProtection, ...current } = repeated.specialties.find((s) => s.id === old.id);
+    assert.deepEqual(current, old); // Assigning demo doctors intentionally marks their specialties as used.
+  }
   for (const item of doctors) {
     const user = repeated.users.find((u) => u.username === item.email);
     const profiles = repeated.doctors.filter((d) => d.userId === user.id);

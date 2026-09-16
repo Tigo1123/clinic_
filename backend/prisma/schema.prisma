@@ -64,7 +64,7 @@ model Doctor {
   specialtyAr        String
   specialtyEn        String
   specialtyId        String?
-  specialty          Specialty?                @relation(fields: [specialtyId], references: [id])
+  specialty          Specialty?                @relation(fields: [specialtyId], references: [id], onDelete: Restrict)
   consultationFee    Decimal
   weeklySchedule     String // JSON config of slots & hours
   status             String                    @default("ACTIVE") // ACTIVE, INACTIVE
@@ -152,6 +152,7 @@ model DoctorScheduleExceptionPeriod {
 }
 
 model Specialty {
+  deletionProtected Boolean @default(false)
   id        String   @id @default(uuid())
   code      String   @unique
   nameAr    String

@@ -34,4 +34,32 @@ router.patch('/:id', authenticate, checkRoles('ADMIN'), validate(specialtyUpdate
   } catch (error) { if (error.code === 'P2025') return sendError(res, 404, 'SPECIALTY_NOT_FOUND', 'Specialty not found.'); if (error.code === 'P2002') return sendError(res, 409, 'SPECIALTY_CODE_EXISTS', 'A specialty with this code already exists.'); next(error); }
 });
 
+router.delete('/:id', authenticate, checkRoles('ADMIN'), validate(z.object({ id: z.string().uuid() }), 'params'), async (req, res, next) => {
+  const referenced = () => sendError(res, 409, 'SPECIALTY_REFERENCED', 'This specialty cannot be deleted because it is referenced by existing data. You can deactivate it instead.');
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Specialty" WHERE "id" = ${req.params.id} FOR UPDATE`;
+      const specialty = await tx.specialty.findUnique({ where: { id: req.params.id } });
+      if (!specialty) return 'missing';
+      // Clinical records, appointments, and schedules all depend on Doctor.
+      // Keep former assignments protected even after a doctor changes specialty.
+      const doctor = await tx.doctor.findFirst({ where: { OR: [
+        { specialtyId: specialty.id },
+        { specialtyId: null, OR: [{ specialtyEn: { equals: specialty.nameEn, mode: 'insensitive' } }, { specialtyAr: specialty.nameAr }] }
+      ] }, select: { id: true } });
+      if (specialty.deletionProtected || doctor) return 'referenced';
+      await tx.specialty.delete({ where: { id: specialty.id } });
+      await tx.tenantAuditLog.create({ data: { userId: req.user.id, action: 'SPECIALTY_DELETED', details: JSON.stringify({ specialtyId: specialty.id, code: specialty.code }), ipAddress: req.ip || 'unknown' } });
+      return 'deleted';
+    });
+    if (result === 'missing') return sendError(res, 404, 'SPECIALTY_NOT_FOUND', 'Specialty not found.');
+    if (result === 'referenced') return referenced();
+    return res.status(204).end();
+  } catch (error) {
+    if (['P2003', 'P2014', 'P2034'].includes(error.code)) return referenced();
+    if (error.code === 'P2025') return sendError(res, 404, 'SPECIALTY_NOT_FOUND', 'Specialty not found.');
+    return next(error);
+  }
+});
+
 export default router;

@@ -182,9 +182,9 @@ test('exception deactivation rejects conflicts and safely restores recurring ava
   await prisma.patient.delete({ where: { id: patient.id } });
 });
 
-test('Admin mutation conflict checks use clinic-local time when process TZ differs', async () => {
+test('Admin mutation conflict checks use clinic-local time when process TZ differs', async (t) => {
   const originalTZ = process.env.TZ; const originalClinic = process.env.CLINIC_TIME_ZONE; const originalNow = Date.now;
-  process.env.TZ = 'UTC'; process.env.CLINIC_TIME_ZONE = 'Africa/Khartoum'; Date.now = () => Date.parse('2026-09-15T08:00:00.000Z');
+  process.env.TZ = 'UTC'; process.env.CLINIC_TIME_ZONE = 'Africa/Khartoum'; t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-15T08:00:00.000Z') });
   try {
     await prisma.doctorSchedule.deleteMany({ where: { doctorId } });
     const state = await prisma.state.findFirst(); const patient = await prisma.patient.create({ data: { fullNameAr: 'اختبار', fullNameEn: 'Test', gender: 'MALE', dateOfBirth: '1990-01-01', phone: `+2507${Date.now().toString().slice(-8)}`, addressStateId: state.id, emergencyContact: 'None' } });

@@ -31,6 +31,12 @@ export default function AdminDashboard({ user, lang, t }) {
   const [newSpecialtyId, setNewSpecialtyId] = useState('');
   const [specialtyDraft, setSpecialtyDraft] = useState({ code: '', nameAr: '', nameEn: '' });
   const [specialtyError, setSpecialtyError] = useState('');
+  const [specialtyFeedback, setSpecialtyFeedback] = useState(null);
+  const specialtyDeleted = (id) => {
+    setSpecialties((current) => current.filter((item) => item.id !== id));
+    setNewSpecialtyId((current) => current === id ? '' : current);
+  };
+  const showSpecialtyFeedback = (feedback) => { setSpecialtyError(''); setSpecialtyFeedback(feedback); };
   const [newConsultationFee, setNewConsultationFee] = useState('20000');
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -51,13 +57,13 @@ export default function AdminDashboard({ user, lang, t }) {
   }, []);
   const reloadSpecialties = () => fetchWithAuth('/api/specialties').then((response) => response.ok ? response.json() : []).then(setSpecialties);
   const createSpecialty = async (event) => {
-    event.preventDefault(); setSpecialtyError('');
+    event.preventDefault(); setSpecialtyError(''); setSpecialtyFeedback(null);
     const response = await fetchWithAuth('/api/specialties', { method: 'POST', body: JSON.stringify({ ...specialtyDraft, active: true }) });
     if (!response.ok) { setSpecialtyError(apiErrorMessage(await response.json().catch(() => ({})), lang === 'ar' ? 'تعذر إنشاء التخصص.' : 'Unable to create specialty.')); return; }
     setSpecialtyDraft({ code: '', nameAr: '', nameEn: '' }); await reloadSpecialties();
   };
   const saveSpecialty = async (specialty) => {
-    setSpecialtyError('');
+    setSpecialtyError(''); setSpecialtyFeedback(null);
     const response = await fetchWithAuth(`/api/specialties/${specialty.id}`, { method: 'PATCH', body: JSON.stringify({ code: specialty.code, nameAr: specialty.nameAr, nameEn: specialty.nameEn, active: specialty.active }) });
     if (!response.ok) { setSpecialtyError(apiErrorMessage(await response.json().catch(() => ({})), lang === 'ar' ? 'تعذر حفظ التخصص.' : 'Unable to save specialty.')); return; }
     await reloadSpecialties();
@@ -630,7 +636,7 @@ export default function AdminDashboard({ user, lang, t }) {
           </div>
         )}
 
-        {activeTab === 'specialties' && <div className="glass-panel" style={{ padding: '1.5rem' }}><h3>{lang === 'ar' ? 'إدارة التخصصات' : 'Specialty management'}</h3>{specialtyError && <div className="badge badge-danger">{specialtyError}</div>}<form onSubmit={createSpecialty} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem', margin: '1rem 0' }}><input required className="form-input" placeholder={lang === 'ar' ? 'رمز التخصص' : 'Specialty code'} value={specialtyDraft.code} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, code: e.target.value }))}/><input required className="form-input" placeholder={lang === 'ar' ? 'الاسم بالعربية' : 'Arabic name'} value={specialtyDraft.nameAr} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, nameAr: e.target.value }))}/><input required className="form-input" placeholder={lang === 'ar' ? 'الاسم بالإنجليزية' : 'English name'} value={specialtyDraft.nameEn} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, nameEn: e.target.value }))}/><button className="btn btn-primary">{lang === 'ar' ? 'إضافة' : 'Add'}</button></form><div className="table-wrap"><table><thead><tr><th>{lang === 'ar' ? 'الرمز' : 'Code'}</th><th>{lang === 'ar' ? 'العربية' : 'Arabic'}</th><th>{lang === 'ar' ? 'الإنجليزية' : 'English'}</th><th>{lang === 'ar' ? 'الحالة' : 'Status'}</th><th>{lang === 'ar' ? 'حفظ' : 'Save'}</th></tr></thead><tbody>{specialties.map((specialty) => <SpecialtyRow key={specialty.id} specialty={specialty} lang={lang} onSave={saveSpecialty}/>)}</tbody></table></div></div>}
+        {activeTab === 'specialties' && <div className="glass-panel" style={{ padding: '1.5rem' }}><h3>{lang === 'ar' ? 'إدارة التخصصات' : 'Specialty management'}</h3>{specialtyError && <div role="alert" className="badge badge-danger">{specialtyError}</div>}{specialtyFeedback && <div role={specialtyFeedback.type === 'error' ? 'alert' : 'status'} className={`badge ${specialtyFeedback.type === 'error' ? 'badge-danger' : 'badge-success'}`}>{specialtyFeedback.message}</div>}<form onSubmit={createSpecialty} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem', margin: '1rem 0' }}><input required className="form-input" placeholder={lang === 'ar' ? 'رمز التخصص' : 'Specialty code'} value={specialtyDraft.code} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, code: e.target.value }))}/><input required className="form-input" placeholder={lang === 'ar' ? 'الاسم بالعربية' : 'Arabic name'} value={specialtyDraft.nameAr} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, nameAr: e.target.value }))}/><input required className="form-input" placeholder={lang === 'ar' ? 'الاسم بالإنجليزية' : 'English name'} value={specialtyDraft.nameEn} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, nameEn: e.target.value }))}/><button className="btn btn-primary">{lang === 'ar' ? 'إضافة' : 'Add'}</button></form><div className="table-wrap"><table><thead><tr><th>{lang === 'ar' ? 'الرمز' : 'Code'}</th><th>{lang === 'ar' ? 'العربية' : 'Arabic'}</th><th>{lang === 'ar' ? 'الإنجليزية' : 'English'}</th><th>{lang === 'ar' ? 'الحالة' : 'Status'}</th><th>{lang === 'ar' ? 'الإجراءات' : 'Actions'}</th></tr></thead><tbody>{specialties.map((specialty) => <SpecialtyRow key={specialty.id} specialty={specialty} lang={lang} onSave={saveSpecialty} isAdmin={user?.role === 'ADMIN'} request={fetchWithAuth} onDeleted={specialtyDeleted} onFeedback={showSpecialtyFeedback}/>)}</tbody></table></div></div>}
         {activeTab === 'scheduling' && user?.role === 'ADMIN' && <AdminSchedulePanel lang={lang} t={t} />}
 
         {activeTab === 'analytics' && (

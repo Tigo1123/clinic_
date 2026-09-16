@@ -37,7 +37,7 @@ unset DEMO_STAFF_PASSWORD
 The command prepares 13 active users: reception.demo, lab.demo, pharmacy.demo,
 doctor.ortho1/2, doctor.dentist1/2, doctor.internal1/2, doctor.surgery1/2, and
 doctor.neuro1/2, all at `cms.local`. Ten one-to-one Doctor profiles use the five
-requested specialties and the schedules listed in `staging-demo-staff.js`.
+original specialties and the schedules listed in `staging-demo-staff.js`.
 Schedules begin on the clinic-local execution date, have no end date, use
 30-minute slots, and contain 21 weekday periods. New profiles use a nominal
 100 SDG consultation fee; existing fees are preserved. Set appropriate demo
@@ -68,3 +68,20 @@ TEST_DATABASE_URL='postgresql://USER@127.0.0.1:PORT/clinic_demo_test' \
 
 The test runner applies migrations and general test fixtures to a unique test
 schema. Test passwords are generated in memory and never logged.
+
+Five additional active specialties are created or reused without adding doctors:
+PED — Pediatrics (الأطفال), OBG — Obstetrics & Gynecology (النساء والتوليد),
+ENT — ENT (الأنف والأذن والحنجرة), DERM — Dermatology (الجلدية),
+and OPH — Ophthalmology (العيون). Total: 10 specialties and 10 doctors.
+These additions run only through this explicitly gated staging demo command.
+
+## Safe specialty deletion
+
+Admin specialty management supports DELETE `/api/specialties/:id`. Only new,
+never-used specialties can be permanently deleted. Migration
+`20260916000000_specialty_safe_deletion` conservatively protects all pre-existing
+specialties because their full assignment history was not recorded. Database
+triggers permanently protect new specialties once assigned, including legacy
+name matches. Changing a doctor’s specialty does not clear protection.
+Protected entries return 409 with guidance to deactivate instead; activation
+and deactivation remain available. No clinical records or schedules are deleted.
