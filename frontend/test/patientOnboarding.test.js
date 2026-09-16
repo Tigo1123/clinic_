@@ -91,5 +91,11 @@ test('registration page renders the stepper, keeps RTL/LTR inputs explicit, and 
   assert.match(page, /verification\/resend/);
   assert.match(page, /inputMode="numeric" maxLength=\{6\} dir="ltr"/);
   assert.match(page, /patient-auth-doctor\.webp/);
-  assert.match(page, /patient-auth-trust/);
+  assert.match(page, /patient-auth-hero-copy/);
+  assert.match(page, /alreadyHaveAccount/);
+  assert.match(page, /to="\/patient-login"/);
+  assert.match(page, /dontHaveAccount/);
+  assert.match(page, /to="\/register"/);
+  assert.match(i18n.t('alreadyHaveAccount'), /حساب|account/i);
+  assert.match(i18n.t('signIn'), /تسجيل الدخول|Sign in/);
 });
