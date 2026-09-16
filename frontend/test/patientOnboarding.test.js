@@ -33,6 +33,20 @@ test('country-aware phone validation accepts supported African and Arab numbers 
   assert.equal(validateOnboardingStep({ ...complete, phoneCountry:'SD', phone:'123' }, 3, messages).phone, 'phone');
 });
 
+test('phone country selector keeps a readable gap without changing its value contract', () => {
+  const styles = readFileSync(new URL('../src/layouts/patient.css', import.meta.url), 'utf8');
+  assert.match(styles, /\.patient-phone-control\{[^}]*gap:\.75rem/);
+  assert.match(styles, /\.patient-phone-control\{[^}]*width:100%;min-width:0;box-sizing:border-box/);
+  assert.match(styles, /\.patient-phone-control select,\.patient-phone-control input\{width:100%;min-width:0;box-sizing:border-box\}/);
+  assert.match(styles, /\.onboarding-contact-grid\{grid-template-columns:minmax\(0,1\.45fr\) minmax\(220px,1fr\)\}/);
+  assert.match(styles, /\.onboarding-contact-grid>\*\{min-width:0\}/);
+  assert.match(styles, /\.onboarding-contact-phone\{min-width:0\}/);
+  assert.match(styles, /@media\(max-width:900px\)\{\.patient-auth-shell--onboarding \.onboarding-contact-grid\{grid-template-columns:1fr\}\}/);
+  const page = readFileSync(new URL('../src/features/patient-auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
+  assert.match(page, /onboarding-contact-phone/);
+  assert.equal(registrationPayload({ ...complete, phoneCountry:'SD', phone:'912345678' }).phone, '+249912345678');
+});
+
 test('a selected country stays in onboarding form state across step and language changes', () => {
   const selected = normaliseOnboardingForm({ ...complete, phoneCountry:'SA', phone:' 501234567 ' });
   assert.equal(selected.phoneCountry, 'SA');
@@ -92,10 +106,32 @@ test('registration page renders the stepper, keeps RTL/LTR inputs explicit, and 
   assert.match(page, /inputMode="numeric" maxLength=\{6\} dir="ltr"/);
   assert.match(page, /patient-auth-doctor-v2\.webp/);
   assert.match(page, /patient-auth-hero-copy/);
+  assert.match(page, /PatientRegisterIllustration/);
+  assert.match(page, /patient-auth-registration-nav/);
+  assert.match(page, /patient-auth-secondary-button/);
+  assert.doesNotMatch(page, /className="auth-account-switch"/);
   assert.match(page, /alreadyHaveAccount/);
   assert.match(page, /to="\/patient-login"/);
   assert.match(page, /dontHaveAccount/);
   assert.match(page, /to="\/register"/);
   assert.match(i18n.t('alreadyHaveAccount'), /حساب|account/i);
   assert.match(i18n.t('signIn'), /تسجيل الدخول|Sign in/);
+});
+
+test('patient login presents a visible illustration and clear registration action', async () => {
+  const page = readFileSync(new URL('../src/features/patient-auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
+  assert.match(page, /patient-login-illustration/);
+  assert.match(page, /PatientLoginIllustration/);
+  assert.match(page, /patient-auth-divider/);
+  assert.match(page, /patient-auth-secondary-button/);
+  assert.match(page, /to="\/register"/);
+  assert.match(page, /to="\/forgot-password"/);
+  await i18n.changeLanguage('ar');
+  assert.equal(i18n.t('patientPortal'), 'بوابة حجز المرضى');
+  assert.equal(i18n.t('patientLogin'), 'دخول المريض');
+  assert.equal(i18n.t('authOr'), 'أو');
+  await i18n.changeLanguage('en');
+  assert.equal(i18n.t('patientPortal'), 'Patient Booking Portal');
+  assert.equal(i18n.t('patientLogin'), 'Patient Login');
+  assert.equal(i18n.t('authOr'), 'OR');
 });

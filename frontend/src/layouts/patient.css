@@ -208,8 +208,12 @@
 .patient-auth-shell--onboarding{grid-template-columns:minmax(420px,.95fr) 1.05fr}.patient-auth-shell--onboarding .patient-auth-aside{padding:clamp(2.25rem,5vw,4.75rem);background:radial-gradient(circle at 82% 18%,rgba(161,222,255,.35),transparent 28%),linear-gradient(145deg,#0756b9,#097be6 52%,#25a4f5);isolation:isolate}.patient-auth-shell--onboarding .patient-auth-aside>div{margin-block:auto 1.5rem}.patient-auth-shell--onboarding .patient-auth-aside h2{font-size:clamp(2.25rem,4vw,3.7rem);line-height:1.12;letter-spacing:-.035em}.onboarding-illustration{position:relative!important;z-index:1;width:min(390px,88%);height:260px;margin-inline:auto;filter:drop-shadow(0 22px 28px rgba(0,51,125,.25))}.patient-auth-shell--onboarding .patient-auth{width:min(720px,100%);padding:clamp(1.5rem,3vw,3rem)}.patient-auth-shell--onboarding .patient-auth h1{margin:1.2rem 0 .45rem;font-size:clamp(1.8rem,3vw,2.45rem);letter-spacing:-.03em}.onboarding-language{display:inline-flex;gap:.2rem;padding:.25rem;background:#edf5ff;border:1px solid #d5e7fb;border-radius:999px}.onboarding-language button{min-height:34px;padding:.35rem .8rem;border:0;border-radius:999px;background:transparent;color:var(--color-text-secondary);font-weight:750;cursor:pointer}.onboarding-language button.active{background:#fff;color:var(--color-primary-strong);box-shadow:0 2px 8px rgba(20,88,160,.15)}.onboarding-language button:focus-visible,.onboarding-progress button:focus-visible{outline:3px solid rgba(20,121,238,.35);outline-offset:2px}.patient-auth-shell--onboarding .onboarding-progress{position:relative;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:.75rem;margin:2rem 0 2.2rem;overflow:visible}.patient-auth-shell--onboarding .onboarding-progress::before{content:'';position:absolute;inset-inline:7% 7%;top:17px;height:2px;background:#dce9f6}.patient-auth-shell--onboarding .onboarding-progress li{min-width:0;position:relative;z-index:1}.patient-auth-shell--onboarding .onboarding-progress button{gap:.55rem;font-size:.76rem;font-weight:750}.patient-auth-shell--onboarding .onboarding-progress button::first-line{display:grid;place-items:center;width:36px;height:36px;padding:0;color:#71839a;background:#f1f6fb;border:2px solid #dce9f6;border-radius:50%;font-size:.85rem}.patient-auth-shell--onboarding .onboarding-progress li.active button::first-line{color:#fff;background:var(--color-primary);border-color:var(--color-primary);box-shadow:0 0 0 5px #e4f2ff}.patient-auth-shell--onboarding .onboarding-progress li.complete button::first-line{color:#fff;background:var(--color-success);border-color:var(--color-success)}.patient-auth-shell--onboarding .onboarding-caption{margin:.15rem 0 1.7rem;font-size:.96rem;line-height:1.6}.patient-auth-shell--onboarding .patient-field{gap:.55rem;margin-bottom:1.25rem;font-size:.9rem}.patient-auth-shell--onboarding .patient-field input,.patient-auth-shell--onboarding .patient-field select{min-height:54px}.patient-auth-shell--onboarding .onboarding-grid{gap:.15rem 1.2rem}.patient-auth-shell--onboarding .onboarding-actions{margin-top:2rem}.patient-auth-shell--onboarding .field-error{margin-top:-.85rem;margin-bottom:1rem}
 @media(max-width:900px){.patient-auth-shell--onboarding .patient-auth-aside{min-height:265px}.patient-auth-shell--onboarding .onboarding-illustration{position:absolute!important;inset-inline-end:1rem;inset-block-end:-1rem;width:220px;height:150px;opacity:.75}.patient-auth-shell--onboarding .patient-auth-aside>div{max-width:60%;margin:auto 0}.patient-auth-shell--onboarding .patient-auth-aside h2{font-size:2rem}.patient-auth-shell--onboarding .patient-auth{margin-top:-1.75rem}.patient-auth-shell--onboarding .onboarding-progress{gap:.35rem}}
 @media(max-width:600px){.patient-auth-shell--onboarding .patient-auth-aside{min-height:178px;padding:1.25rem}.patient-auth-shell--onboarding .onboarding-illustration{display:none}.patient-auth-shell--onboarding .patient-auth-aside>div{max-width:100%}.patient-auth-shell--onboarding .patient-auth-aside h2{font-size:1.65rem}.patient-auth-shell--onboarding .onboarding-progress{grid-template-columns:repeat(4,1fr);margin:1.5rem 0}.patient-auth-shell--onboarding .onboarding-progress::before{display:none}.patient-auth-shell--onboarding .onboarding-progress button span{display:block;overflow:hidden;text-overflow:ellipsis;max-width:72px}.patient-auth-shell--onboarding .onboarding-progress button{font-size:.66rem}.patient-auth-shell--onboarding .onboarding-progress button::first-line{width:32px;height:32px}.patient-auth-shell--onboarding .onboarding-grid{gap:0}.patient-auth-shell--onboarding .patient-auth{padding:1.35rem}.onboarding-language{width:100%;justify-content:center}}
-.patient-phone-control{display:grid;grid-template-columns:minmax(150px,1fr) minmax(0,1fr);gap:.55rem}.patient-phone-control select{min-width:0;font-size:.88rem}.patient-phone-control input{min-width:0;direction:ltr;text-align:left}.patient-phone-control select:focus-visible,.patient-phone-control input:focus-visible{outline:3px solid rgba(20,121,238,.35);outline-offset:2px}
+.patient-phone-control{display:grid;grid-template-columns:minmax(132px,.72fr) minmax(0,1.28fr);gap:.75rem;width:100%;min-width:0;box-sizing:border-box}.patient-phone-control select,.patient-phone-control input{width:100%;min-width:0;box-sizing:border-box}.patient-phone-control select{font-size:.88rem}.patient-phone-control input{direction:ltr;text-align:left}.patient-phone-control select:focus-visible,.patient-phone-control input:focus-visible{outline:3px solid rgba(20,121,238,.35);outline-offset:2px}
 @media(max-width:420px){.patient-phone-control{grid-template-columns:1fr}.patient-phone-control select{min-height:48px!important}}
+.patient-auth-shell--onboarding .onboarding-contact-grid{grid-template-columns:minmax(0,1.45fr) minmax(220px,1fr)}
+.patient-auth-shell--onboarding .onboarding-contact-grid>*{min-width:0}
+.patient-auth-shell--onboarding .onboarding-contact-phone{min-width:0}
+@media(max-width:900px){.patient-auth-shell--onboarding .onboarding-contact-grid{grid-template-columns:1fr}}
 
 /* Onboarding registration and OTP: compact, touch-friendly mobile treatment. */
 .onboarding-step-summary{display:none}.onboarding-verification{width:min(460px,100%)}.onboarding-verification .patient-field input{font-variant-numeric:tabular-nums;letter-spacing:.16em;text-align:center}.onboarding-resend{display:grid;justify-items:center;gap:.25rem;margin-top:1.35rem;padding-top:1.15rem;border-top:1px solid var(--color-border);text-align:center}.onboarding-resend p{margin:0;color:var(--color-text-secondary);font-size:.9rem}.onboarding-resend-button{min-height:44px;padding:.55rem .75rem;border:0;background:transparent;color:var(--color-primary-strong);font:inherit;font-weight:800;cursor:pointer;text-decoration:underline;text-underline-offset:3px}.onboarding-resend-button:disabled{color:var(--color-text-muted);cursor:not-allowed;text-decoration:none}.onboarding-resend-button:focus-visible{outline:3px solid rgba(20,121,238,.35);outline-offset:3px;border-radius:8px}
@@ -270,6 +274,43 @@
 @media(max-width:600px){
   .patient-auth-shell--onboarding .onboarding-step-summary{display:none}
   .patient-auth-shell--onboarding .patient-auth-aside .patient-auth-hero-copy{max-width:58%}
+}
+
+/* Patient login card: make the two authentication paths unmistakable without changing auth behavior. */
+.patient-auth-shell--login .patient-auth{width:min(520px,100%)}
+.patient-login-illustration,.patient-register-illustration{display:block;width:116px;height:116px;margin:0 auto 1.05rem;filter:drop-shadow(0 10px 18px rgba(22,111,183,.13))}
+.patient-auth-shell--login .patient-auth-card-header{gap:.45rem;text-align:center}
+.patient-auth-shell--login .patient-auth-language{justify-self:center}
+.patient-auth-shell--login .patient-auth-card-kicker{justify-content:center;color:#6b8298;font-size:.78rem;font-weight:700;letter-spacing:0;text-transform:none}
+.patient-auth-shell--login .patient-auth h1{font-size:clamp(1.85rem,3vw,2.35rem)}
+.patient-auth-shell--login .patient-auth form{margin-top:1.45rem}
+.patient-auth-divider{display:flex;align-items:center;gap:.9rem;margin:1.5rem 0 1.15rem;color:#7890a5;font-size:.78rem;font-weight:700}
+.patient-auth-divider::before,.patient-auth-divider::after{content:'';height:1px;flex:1;background:#dbe7f0}
+.patient-auth-create-account{display:grid;gap:.65rem;text-align:center}
+.patient-auth-create-account p{margin:0;color:#657d93;font-size:.85rem}
+.patient-auth-secondary-button{display:grid;place-items:center;min-height:48px;padding:.7rem 1rem;color:#176fbe;background:#fff;border:1px solid #7fb7dc;border-radius:11px;font-weight:800;text-decoration:none;transition:background-color .18s ease,border-color .18s ease,box-shadow .18s ease,transform .18s ease}
+.patient-auth-secondary-button:hover{background:#f1f8fe;border-color:#176fbe;box-shadow:0 5px 14px rgba(20,105,190,.12);transform:translateY(-1px)}
+.patient-auth-secondary-button:focus-visible,.patient-auth-forgot:focus-visible{outline:3px solid rgba(38,136,220,.28);outline-offset:3px}
+.patient-auth-forgot{display:block;width:max-content;max-width:100%;margin:1.1rem auto 0;color:#176db4;font-size:.82rem;font-weight:700;text-underline-offset:3px}
+.patient-auth-registration-nav{margin-top:1.5rem;text-align:center}
+.patient-auth-registration-nav .patient-auth-divider{margin:0 0 1.05rem}
+.patient-auth-registration-nav p{margin:0 0 .65rem;color:#657d93;font-size:.85rem}
+.patient-auth-registration-nav .patient-auth-secondary-button{width:100%}
+.patient-auth-shell--registration .patient-auth-card-header{text-align:center;gap:.45rem}
+.patient-auth-shell--registration .onboarding-language{justify-self:center}
+@media(max-width:600px){
+  .patient-auth-shell--login .patient-auth{padding:1.15rem}
+  .patient-login-illustration,.patient-register-illustration{width:104px;height:104px;margin-bottom:.8rem}
+  .patient-auth-shell--login .patient-auth form{margin-top:1.15rem}
+  .patient-auth-divider{margin:1.2rem 0 .95rem}
+  .patient-auth-secondary-button{min-height:50px}
+}
+@media(max-width:380px){
+  .patient-login-illustration,.patient-register-illustration{width:94px;height:94px;margin-bottom:.65rem}
+  .patient-auth-shell--login .patient-auth-card-header{gap:.35rem}
+  .patient-auth-shell--login .patient-auth form{margin-top:1rem}
+  .patient-auth-divider{margin:1rem 0 .8rem}
+  .patient-auth-forgot{margin-top:.85rem}
 }
 
 /* Patient auth visual redesign v2: calm split layout, integrated medical portrait, responsive-first spacing. */
