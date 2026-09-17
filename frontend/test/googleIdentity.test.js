@@ -14,6 +14,10 @@ test('GIS foundation uses one direct, reusable script loader and official button
   assert.match(component, /VITE_GOOGLE_CLIENT_ID/);
   assert.match(component, /renderButton/);
   assert.match(component, /initialize/);
+  assert.match(component, /let initializedClientId/);
+  assert.match(component, /activeCredentialConsumer/);
+  assert.match(component, /initializedClientId !== clientId/);
+  assert.match(component, /activeCredentialConsumer\?\.callback/);
   assert.match(component, /google-identity-services-script/);
   assert.doesNotMatch(component, /sessionStorage|localStorage|console\.log|fetch\(/);
 });
