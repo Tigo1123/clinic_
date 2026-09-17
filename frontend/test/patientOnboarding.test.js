@@ -135,3 +135,13 @@ test('patient login presents a visible illustration and clear registration actio
   assert.equal(i18n.t('patientLogin'), 'Patient Login');
   assert.equal(i18n.t('authOr'), 'OR');
 });
+
+test('patient login identifier uses explicit visible LTR text styling without changing password styling', () => {
+  const page = readFileSync(new URL('../src/features/patient-auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
+  const styles = readFileSync(new URL('../src/layouts/patient.css', import.meta.url), 'utf8');
+  assert.match(page, /autoComplete="username"[\s\S]*className="patient-auth-identifier"[\s\S]*dir="ltr"/);
+  assert.match(styles, /\.patient-auth \.patient-auth-identifier\{[^}]*color:#142033;[^}]*-webkit-text-fill-color:#142033;[^}]*opacity:1;[^}]*caret-color:#142033/);
+  assert.match(styles, /\.patient-auth \.patient-auth-identifier::placeholder\{[^}]*color:#52677d/);
+  assert.match(styles, /\.patient-auth \.patient-auth-identifier:-webkit-autofill/);
+  assert.match(page, /type=\{showPassword\?'text':'password'\}/);
+});
