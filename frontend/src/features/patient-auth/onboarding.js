@@ -42,7 +42,7 @@ export function isValidPastDate(value, today = new Date().toISOString().slice(0,
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
-export function validateOnboardingStep(form, step, messages, today) {
+export function validateOnboardingStep(form, step, messages, today, options = {}) {
   const value = normaliseOnboardingForm(form);
   const errors = {};
   const required = (field) => { if (!value[field]) errors[field] = messages.required; };
@@ -52,7 +52,7 @@ export function validateOnboardingStep(form, step, messages, today) {
     if (value[field] && (value[field].length > NAME_MAX || /[\u0000-\u001F\u007F]/u.test(value[field]))) errors[field] = messages.nameInvalid;
   }
   if (step === 2) { required('gender'); if (!isValidPastDate(value.dateOfBirth, today)) errors.dateOfBirth = messages.dateInvalid; }
-  if (step === 3) { if (!normalisePatientPhone(value.phone, value.phoneCountry)) errors.phone = messages.phoneInvalid; if (!emailPattern.test(value.email)) errors.email = messages.emailInvalid; }
+  if (step === 3) { if (!normalisePatientPhone(value.phone, value.phoneCountry)) errors.phone = messages.phoneInvalid; if (options.requireEmail !== false && !emailPattern.test(value.email)) errors.email = messages.emailInvalid; }
   if (step === 4) required('addressStateId');
   if (step === 5) {
     if (!Object.values(passwordChecks(value.password)).every(Boolean)) errors.password = messages.passwordInvalid;
@@ -67,6 +67,17 @@ export function registrationPayload(form) {
     ...NAME_FIELDS.map((field) => [field, value[field]]),
     ['phone', normalisePatientPhone(value.phone, value.phoneCountry)], ['email', value.email], ['dateOfBirth', value.dateOfBirth],
     ['gender', value.gender], ['addressStateId', Number(value.addressStateId)], ['password', value.password]
+  ]);
+}
+
+export function googleRegistrationPayload(form, onboardingToken) {
+  const value = normaliseOnboardingForm(form);
+  return Object.fromEntries([
+    ['onboardingToken', onboardingToken],
+    ...NAME_FIELDS.map((field) => [field, value[field]]),
+    ['phone', normalisePatientPhone(value.phone, value.phoneCountry)],
+    ['dateOfBirth', value.dateOfBirth], ['gender', value.gender],
+    ['addressStateId', Number(value.addressStateId)], ['password', value.password]
   ]);
 }
 
