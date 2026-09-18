@@ -115,6 +115,11 @@
   width: 100%;
 }
 
+/* Staff authentication is unified with the Al-Shifa Patient Auth visual system */
+.patient-auth-shell--staff {
+  background: #fbfbfc;
+}
+
 .staff-mfa-icon {
   width: 56px;
   height: 56px;
