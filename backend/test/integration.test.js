@@ -7038,7 +7038,33 @@ test('emergency override and transfer cannot reopen terminal appointments', asyn
 
 test('concurrent booking allows exactly one reservation per active doctor slot', async () => {
   const date = '2030-01-13';
-  const payload = await bookingPayload(date, '10:00', '0991000011');
+  const phone = `+24994${String(++fixtureCounter).padStart(7, '0').slice(-7)}`;
+  const nationalId = `PUBLIC-${String(++fixtureCounter).padStart(7, '0').slice(-7)}`;
+  const patientNames = structuredPatientName('slotconcurrency');
+  const existing = await prisma.patient.create({ data: {
+    ...patientNames,
+    fullNameAr: `${patientNames.firstNameAr} ${patientNames.fatherNameAr} ${patientNames.grandfatherNameAr} ${patientNames.familyNameAr}`,
+    fullNameEn: `${patientNames.firstNameEn} ${patientNames.fatherNameEn} ${patientNames.grandfatherNameEn} ${patientNames.familyNameEn}`,
+    gender: 'MALE',
+    dateOfBirth: '1987-07-07',
+    nationalId,
+    phone,
+    addressStateId: 1,
+    emergencyContact: 'Self'
+  } });
+  const otp = await api.post('/api/appointments/otp/request').send({ phone });
+  const payload = {
+    doctorId: doctor1.id,
+    appointmentDate: date,
+    appointmentTime: '10:00',
+    ...patientNames,
+    gender: existing.gender,
+    dateOfBirth: existing.dateOfBirth,
+    nationalId: nationalId.toLowerCase(),
+    phone,
+    addressStateId: 1,
+    otpCode: otp.body.developmentCode
+  };
   const responses = await Promise.all([api.post('/api/appointments/book').send(payload), api.post('/api/appointments/book').send(payload)]);
   assert.deepEqual(responses.map((r) => r.status).sort(), [201, 409]);
   const conflict = responses.find((response) => response.status === 409);
