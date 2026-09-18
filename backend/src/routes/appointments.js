@@ -6,14 +6,18 @@ import { sendNotification } from './notifications.js';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { allowRoles, ROLES } from '../middleware/policies.js';
-import { sendError } from '../utils/apiError.js';
+import { ApiError, sendError } from '../utils/apiError.js';
 import rateLimit from 'express-rate-limit';
 import { rateLimits } from '../config.js';
 import crypto from 'crypto';
 import { emitQueueUpdate } from '../utils/socketEvents.js';
 import { markSensitiveResponse } from '../utils/edgeSecurity.js';
-import { configuredSlots, DATE_PATTERN, TIME_PATTERN, todayString } from '../utils/scheduling.js';
+import { getAvailableSlots, getConfiguredSlots, validateBookableSlot, DATE_PATTERN, TIME_PATTERN, todayString } from '../utils/scheduling.js';
 import { findPossiblePatientDuplicates, normalizeNationalId, normalizePatientPhone, safeDuplicateCandidates } from '../utils/patientIdentity.js';
+import { publicDoctorSelect, toPublicBookingConfirmation, toPublicDoctor } from '../utils/publicDto.js';
+import { structuredPatientName, structuredPatientNameSchema } from '../utils/patientName.js';
+
+import { lockPatientIdentity, patientDateOfBirthSchema } from '../utils/patientOnboarding.js';
 
 const router = express.Router();
 const otpLimiter = rateLimit({ windowMs: rateLimits.windowMs, limit: rateLimits.verification, standardHeaders: 'draft-7', legacyHeaders: false });
@@ -67,11 +71,9 @@ function isEmergencyOverrideConflict(error) {
     && String(error.message || '').includes('EmergencyOverride_appointmentId_key');
 }
 
-const walkInPatientSchema = z.object({
-  fullNameAr: z.string().trim().min(2).max(150),
-  fullNameEn: z.string().trim().min(2).max(150),
+const walkInPatientSchema = structuredPatientNameSchema.extend({
   gender: z.enum(['MALE', 'FEMALE']),
-  dateOfBirth: z.string().regex(DATE_PATTERN),
+  dateOfBirth: patientDateOfBirthSchema,
   nationalId: z.string().trim().max(30).optional(),
   phone: z.string().trim().min(7).max(30),
   addressStateId: z.coerce.number().int().min(1).max(18),
@@ -96,6 +98,7 @@ const walkInSchema = z.object({
 }).strict();
 
 router.get('/slots', validate(z.object({ doctorId: z.string().uuid(), date: z.string().regex(DATE_PATTERN) }), 'query'), async (req, res) => {
+  markSensitiveResponse(res);
   const { doctorId, date } = req.query;
 
   if (date < todayString()) return sendError(res, 422, 'APPOINTMENT_DATE_IN_PAST', 'Past appointment dates are not allowed.');
@@ -103,7 +106,7 @@ router.get('/slots', validate(z.object({ doctorId: z.string().uuid(), date: z.st
   try {
     // 1. Fetch Doctor
     const doctor = await prisma.doctor.findUnique({
-      where: { id: doctorId }
+      where: { id: doctorId, status: 'ACTIVE', OR: [{ specialtyId: null }, { specialty: { active: true } }] }
     });
 
     if (!doctor || doctor.status !== 'ACTIVE') {
@@ -111,24 +114,10 @@ router.get('/slots', validate(z.object({ doctorId: z.string().uuid(), date: z.st
     }
 
     // 2. Parse schedule configuration
-    const slots = configuredSlots(doctor, date);
+    const slots = await getAvailableSlots(doctor, date);
 
     // 4. Fetch already booked slots for this doctor on this day
-    const bookings = await prisma.appointment.findMany({
-      where: {
-        doctorId,
-        appointmentDate: date,
-        status: { notIn: ['CANCELLED', 'NO_SHOW'] }
-      },
-      select: { appointmentTime: true }
-    });
-
-    const bookedTimes = bookings.map((b) => b.appointmentTime);
-
-    // 5. Filter out booked slots
-    const availableSlots = slots.filter((slot) => !bookedTimes.includes(slot));
-
-    return res.json(availableSlots);
+    return res.json(slots);
 
   } catch (error) {
     console.error('Slot calculation error:', error);
@@ -154,19 +143,17 @@ router.post('/otp/request', otpLimiter, async (req, res) => {
  * POST /api/appointments/book
  * Public patient booking submission. Handles verification check & rate limit check (2 per day per phone).
  */
-router.post('/book', validate(z.object({
+router.post('/book', validate(structuredPatientNameSchema.extend({
   doctorId: z.string().uuid(), appointmentDate: z.string().regex(DATE_PATTERN), appointmentTime: z.string().regex(TIME_PATTERN),
-  fullNameAr: z.string().trim().min(2).max(150), fullNameEn: z.string().trim().min(2).max(150),
-  gender: z.enum(['MALE', 'FEMALE']), dateOfBirth: z.string().regex(DATE_PATTERN), nationalId: z.string().trim().max(30).optional(),
+  gender: z.enum(['MALE', 'FEMALE']), dateOfBirth: patientDateOfBirthSchema, nationalId: z.string().trim().max(30).optional(),
   phone: z.string().trim().min(7).max(30), addressStateId: z.coerce.number().int().min(1).max(18), otpCode: z.string().length(6)
 }).strict()), async (req, res) => {
+  markSensitiveResponse(res);
   if (process.env.NODE_ENV === 'production') return sendError(res, 503, 'PUBLIC_BOOKING_VERIFICATION_UNAVAILABLE', 'Public OTP booking is unavailable. Use an authenticated patient account to book.');
   const {
     doctorId,
     appointmentDate,
     appointmentTime,
-    fullNameAr,
-    fullNameEn,
     gender,
     dateOfBirth,
     nationalId,
@@ -187,9 +174,9 @@ router.post('/book', validate(z.object({
   try {
     if (appointmentDate < todayString()) return sendError(res, 422, 'APPOINTMENT_DATE_IN_PAST', 'Past appointment dates are not allowed.');
     if (dateOfBirth >= todayString()) return sendError(res, 422, 'INVALID_DATE_OF_BIRTH', 'Date of birth must be in the past.');
-    const doctor = await prisma.doctor.findFirst({ where: { id: doctorId, status: 'ACTIVE' } });
+    const doctor = await prisma.doctor.findFirst({ where: { id: doctorId, status: 'ACTIVE', OR: [{ specialtyId: null }, { specialty: { active: true } }] } });
     if (!doctor) return sendError(res, 404, 'DOCTOR_NOT_FOUND', 'Active doctor not found.');
-    if (!configuredSlots(doctor, appointmentDate).includes(appointmentTime)) {
+    if (!(await getConfiguredSlots(doctor, appointmentDate)).includes(appointmentTime)) {
       return sendError(res, 422, 'INVALID_APPOINTMENT_SLOT', 'The selected time is not in the doctor schedule.');
     }
     // 1. Rate Limit check: max 2 bookings per day per phone number
@@ -216,36 +203,28 @@ router.post('/book', validate(z.object({
         const identityMatches = normalizePatientPhone(patient.phone) === normalizedPhone
           && patient.dateOfBirth === dateOfBirth
           && patient.gender === gender
-          && patient.fullNameAr.trim() === fullNameAr.trim()
-          && patient.fullNameEn.trim().toLocaleLowerCase('en') === fullNameEn.trim().toLocaleLowerCase('en');
+          && patient.fullNameAr.trim() === structuredPatientName(req.body).fullNameAr
+          && patient.fullNameEn.trim().toLocaleLowerCase('en') === structuredPatientName(req.body).fullNameEn.toLocaleLowerCase('en');
         if (!identityMatches) return sendError(res, 409, 'PATIENT_IDENTITY_REVIEW_REQUIRED', 'The booking could not be linked automatically. Contact reception for identity review.');
       }
     }
 
     if (!patient) {
-      patient = await prisma.patient.create({
-        data: {
-          fullNameAr,
-          fullNameEn,
-          gender,
-          dateOfBirth,
-          nationalId: normalizedNationalId,
-          phone: normalizedPhone,
-          addressStateId: parseInt(addressStateId),
-          emergencyContact: 'Self',
-          status: 'ACTIVE'
-        }
-      });
-      try {
-        await prisma.tenantAuditLog.create({ data: {
-          userId: null,
-          action: 'PATIENT_FILE_CREATED',
-          details: JSON.stringify({ patientId: patient.id, fileNumber: patient.fileNumber, context: 'PUBLIC_BOOKING' }),
+      patient = await prisma.$transaction(async (tx) => {
+        await lockPatientIdentity(tx, { phone: normalizedPhone, dateOfBirth, nationalId: normalizedNationalId });
+        const candidates = await findPossiblePatientDuplicates(tx, { phone: normalizedPhone, dateOfBirth, nationalId: normalizedNationalId });
+        if (candidates.length) throw new ApiError(409, 'PATIENT_IDENTITY_REVIEW_REQUIRED', 'The booking could not be linked automatically. Contact reception for identity review.');
+        const created = await tx.patient.create({ data: {
+          ...structuredPatientName(req.body), gender, dateOfBirth, nationalId: normalizedNationalId,
+          phone: normalizedPhone, addressStateId: parseInt(addressStateId), emergencyContact: 'Self', status: 'ACTIVE'
+        } });
+        await tx.tenantAuditLog.create({ data: {
+          userId: null, action: 'PATIENT_FILE_CREATED',
+          details: JSON.stringify({ patientId: created.id, fileNumber: created.fileNumber, context: 'PUBLIC_BOOKING' }),
           ipAddress: req.ip || 'unknown'
         } });
-      } catch (auditError) {
-        console.error('Patient file creation audit error:', auditError);
-      }
+        return created;
+      });
     }
 
     // 3. Friendly pre-check; the database unique index is the final concurrency guard.
@@ -278,7 +257,7 @@ router.post('/book', validate(z.object({
     });
 
     // 5. Send Multi-Channel Notifications & Get WhatsApp Links
-    const notifResult = await sendBookingConfirmation(appointment);
+    await sendBookingConfirmation(appointment);
 
     // Emit WebSocket update & notify receptionists in real-time
     const io = req.app.get('io');
@@ -310,13 +289,10 @@ router.post('/book', validate(z.object({
       console.error('Failed to dispatch receptionist notifications:', notifErr);
     }
 
-    return res.status(201).json({
-      ...appointment,
-      whatsAppLinkAr: notifResult?.whatsAppLinkAr,
-      whatsAppLinkEn: notifResult?.whatsAppLinkEn
-    });
+    return res.status(201).json(toPublicBookingConfirmation(appointment));
 
   } catch (error) {
+    if (error instanceof ApiError) return sendError(res, error.status, error.code, error.message);
     if (isPatientNationalIdConflict(error)) return sendError(res, 409, 'PATIENT_IDENTITY_REVIEW_REQUIRED', 'The booking could not be linked automatically. Contact reception for identity review.');
     if (isAppointmentSlotConflict(error)) {
       return sendError(res, 409, 'APPOINTMENT_SLOT_UNAVAILABLE', 'This appointment slot was booked in the meantime. Please select another slot.');
@@ -364,9 +340,9 @@ router.post('/walk-in', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
   }
 
   try {
-    const doctor = await prisma.doctor.findFirst({ where: { id: doctorId, status: 'ACTIVE' } });
+    const doctor = await prisma.doctor.findFirst({ where: { id: doctorId, status: 'ACTIVE', OR: [{ specialtyId: null }, { specialty: { active: true } }] } });
     if (!doctor) return sendError(res, 404, 'DOCTOR_NOT_FOUND', 'Active doctor not found.');
-    if (!configuredSlots(doctor, appointmentDate).includes(appointmentTime)) {
+    if (!(await getConfiguredSlots(doctor, appointmentDate)).includes(appointmentTime)) {
       return sendError(res, 422, 'INVALID_APPOINTMENT_SLOT', 'The selected time is not in the doctor schedule.');
     }
     if (mode === 'NEW' && patient.dateOfBirth >= todayString()) {
@@ -385,12 +361,12 @@ router.post('/walk-in', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
         const normalizedNationalId = normalizeNationalId(patient.nationalId);
         if (!normalizedPhone) throw Object.assign(new Error('Phone number is invalid.'), { status: 422, code: 'PHONE_INVALID' });
         if (patient.nationalId && !normalizedNationalId) throw Object.assign(new Error('National ID is invalid.'), { status: 422, code: 'NATIONAL_ID_INVALID' });
+        await lockPatientIdentity(tx, { phone: normalizedPhone, dateOfBirth: patient.dateOfBirth, nationalId: normalizedNationalId });
         const candidates = await findPossiblePatientDuplicates(tx, { phone: normalizedPhone, dateOfBirth: patient.dateOfBirth, nationalId: normalizedNationalId });
         if (candidates.length) throw Object.assign(new Error('A possible existing patient was found. Search and select the existing patient before creating a new walk-in record.'), { status: 409, code: 'POSSIBLE_PATIENT_DUPLICATE', details: safeDuplicateCandidates(candidates) });
         targetPatient = await tx.patient.create({
           data: {
-            fullNameAr: patient.fullNameAr,
-            fullNameEn: patient.fullNameEn,
+            ...structuredPatientName(patient),
             gender: patient.gender,
             dateOfBirth: patient.dateOfBirth,
             nationalId: normalizedNationalId,
@@ -713,12 +689,12 @@ router.post('/:id/transfer', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTI
   try {
     const [appointment, targetDoctor] = await Promise.all([
       prisma.appointment.findUnique({ where: { id: req.params.id } }),
-      prisma.doctor.findFirst({ where: { id: targetDoctorId, status: 'ACTIVE' } })
+      prisma.doctor.findFirst({ where: { id: targetDoctorId, status: 'ACTIVE', OR: [{ specialtyId: null }, { specialty: { active: true } }] } })
     ]);
     if (!appointment) return sendError(res, 404, 'APPOINTMENT_NOT_FOUND', 'Appointment not found.');
     if (!targetDoctor) return sendError(res, 404, 'DOCTOR_NOT_FOUND', 'Target doctor is not active.');
     if (appointment.status !== 'CHECKED_IN') return sendError(res, 409, 'TRANSFER_INVALID_STATE', 'Only checked-in appointments can be transferred.');
-    if (!configuredSlots(targetDoctor, appointment.appointmentDate).includes(appointment.appointmentTime)) {
+    if (!(await getConfiguredSlots(targetDoctor, appointment.appointmentDate)).includes(appointment.appointmentTime)) {
       return sendError(res, 409, 'TARGET_DOCTOR_UNAVAILABLE', 'Target doctor is not scheduled for this appointment slot.');
     }
     const conflict = await prisma.appointment.findFirst({ where: {
@@ -765,9 +741,11 @@ router.post('/:id/transfer', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTI
 router.get('/doctors', async (req, res) => {
   try {
     const doctors = await prisma.doctor.findMany({
-      where: { status: 'ACTIVE' }
+      where: { status: 'ACTIVE', OR: [{ specialtyId: null }, { specialty: { active: true } }] },
+      select: publicDoctorSelect,
+      orderBy: { fullNameEn: 'asc' }
     });
-    return res.json(doctors);
+    return res.json(doctors.map(toPublicDoctor));
   } catch (error) {
     console.error('Fetch doctors error:', error);
     return res.status(500).json({ error: 'Failed to retrieve doctors.' });

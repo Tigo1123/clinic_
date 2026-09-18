@@ -1,0 +1,17 @@
+[Unit]
+Description=Al-Shifa LAN encrypted backup (installation template)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=clinic-backup
+Group=clinic-backup
+WorkingDirectory=/opt/clinic-lan
+EnvironmentFile=/etc/clinic-lan/backup.env
+# Deliberately references a file not supplied by this repository. A reviewed
+# site wrapper must block new writes, drain in-flight writes, prove the pause,
+# set BACKUP_QUIESCE_CONFIRMED=true only for the child backup process, and
+# resume writes in an EXIT trap. Do not replace this with a direct compose call.
+ConditionPathIsExecutable=/usr/local/sbin/clinic-lan-consistent-backup
+ExecStart=/usr/local/sbin/clinic-lan-consistent-backup

@@ -1,4 +1,4 @@
-import test, { before, after } from 'node:test';
+import test, { before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -55,6 +55,27 @@ let service;
 let drug;
 let fixtureCounter = 0;
 let pharmacyApiPatientToken;
+let activeSpecialtyId;
+const walkInClockOriginalNow = Date.now.bind(Date);
+const walkInClockOriginalTZ = process.env.TZ;
+let walkInClockActive = false;
+let walkInClockRealStart = 0;
+const WALK_IN_FROZEN_INSTANT = Date.parse('2026-09-15T06:00:00.000Z');
+afterEach(() => {
+  if (!walkInClockActive) return;
+  Date.now = walkInClockOriginalNow;
+  if (walkInClockOriginalTZ === undefined) delete process.env.TZ;
+  else process.env.TZ = walkInClockOriginalTZ;
+  walkInClockActive = false;
+});
+
+function structuredPatientName(label = 'Patient') {
+  const suffix = String(label).replace(/[^A-Za-z0-9]/g, '').slice(-24) || 'Patient';
+  return {
+    firstNameAr: 'مريض', fatherNameAr: 'اختبار', grandfatherNameAr: 'أحمد', familyNameAr: `أسرة${suffix}`,
+    firstNameEn: 'Patient', fatherNameEn: 'Test', grandfatherNameEn: 'Ahmed', familyNameEn: `Family${suffix}`
+  };
+}
 
 async function login(username, password) {
   const response = await api.post('/api/auth/login').send({ username, password });
@@ -309,10 +330,16 @@ async function findAvailableAppointmentSlot(doctorId) {
 }
 
 async function findTodayWalkInSlot(doctorId) {
+  if (!walkInClockActive) {
+    walkInClockActive = true;
+    walkInClockRealStart = Date.now();
+    process.env.TZ = 'UTC';
+    Date.now = () => WALK_IN_FROZEN_INSTANT + (walkInClockOriginalNow() - walkInClockRealStart);
+  }
   const response = await api.get('/api/appointments/slots').query({ doctorId, date: getClinicDateString() });
   assert.equal(response.status, 200);
   assert.ok(response.body.length > 0, 'A configured clinic slot is required for walk-in tests.');
-  return response.body[0];
+  return { appointmentDate: getClinicDateString(), appointmentTime: response.body[0] };
 }
 
 async function createStandaloneTestPatient(label = 'C1') {
@@ -523,6 +550,7 @@ before(async () => {
   tokens.pharmacy = await login('pharma@cms.com', 'Pharmacist@123');
   doctor1 = await prisma.doctor.findFirst({ where: { user: { username: 'doctor@cms.com' } } });
   doctor2 = await prisma.doctor.findFirst({ where: { user: { username: 'doctor_cardio@cms.com' } } });
+  activeSpecialtyId = (await prisma.specialty.findFirst({ where: { active: true }, select: { id: true } })).id;
   const clinicWeekday = new Date(`${getClinicDateString()}T12:00:00.000Z`).toLocaleDateString('en-US', {
     weekday: 'long', timeZone: 'UTC'
   });
@@ -1088,12 +1116,12 @@ test('normal receptionist transitions work and terminal appointment states remai
 });
 
 test('receptionist can create a new walk-in atomically and place it in the doctor queue', async () => {
-  const slot = await findTodayWalkInSlot(doctor1.id);
+  const { appointmentDate, appointmentTime: slot } = await findTodayWalkInSlot(doctor1.id);
   const nationalId = `WALKIN-${Date.now()}-${++fixtureCounter}`;
   const payload = {
-    mode: 'NEW', doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot,
+    mode: 'NEW', doctorId: doctor1.id, appointmentDate, appointmentTime: slot,
     patient: {
-      fullNameAr: 'مريض حضور مباشر', fullNameEn: `Walk-in ${fixtureCounter}`, gender: 'MALE',
+      ...structuredPatientName(`walkin${fixtureCounter}`), gender: 'MALE',
       dateOfBirth: '1990-01-01', nationalId, phone: `0999${String(fixtureCounter).padStart(6, '0')}`,
       addressStateId: 1, emergencyContact: 'Self'
     }
@@ -1102,17 +1130,18 @@ test('receptionist can create a new walk-in atomically and place it in the docto
   assert.equal(response.status, 201);
   assert.equal(response.body.status, 'CHECKED_IN');
   assert.equal(response.body.doctorId, doctor1.id);
-  assert.equal(response.body.appointmentDate, getClinicDateString());
+  assert.equal(response.body.appointmentDate, appointmentDate);
   const patient = await prisma.patient.findUnique({ where: { nationalId } });
   assert.ok(patient);
   const persisted = await prisma.appointment.findUnique({ where: { id: response.body.id } });
   assert.equal(persisted.patientId, patient.id);
-  assert.equal((await api.get(`/api/appointments/queue/${doctor1.id}`).query({ date: getClinicDateString() }).set(auth('doctor'))).body.some((item) => item.id === response.body.id), true);
+  assert.equal((await api.get(`/api/appointments/queue/${doctor1.id}`).query({ date: appointmentDate }).set(auth('doctor'))).body.some((item) => item.id === response.body.id), true);
   assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'WALK_IN_APPOINTMENT_CREATED', details: { contains: response.body.id } } }), 1);
 });
 
 test('walk-in role authorization and validation are enforced', async () => {
-  const body = { mode: 'EXISTING', patientId: patient1.id, doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: '09:00' };
+  const { appointmentDate, appointmentTime: validSlot } = await findTodayWalkInSlot(doctor1.id);
+  const body = { mode: 'EXISTING', patientId: patient1.id, doctorId: doctor1.id, appointmentDate, appointmentTime: validSlot };
   for (const role of ['doctor', 'pharmacy', 'lab']) {
     const response = await api.post('/api/appointments/walk-in').set(auth(role)).send(body);
     assert.equal(response.status, 403);
@@ -1124,18 +1153,18 @@ test('walk-in role authorization and validation are enforced', async () => {
   assert.equal((await api.post('/api/appointments/walk-in').set(auth('reception')).send({ ...body, appointmentTime: '23:59' })).status, 422);
   assert.equal((await api.post('/api/appointments/walk-in').set(auth('reception')).send({ ...body, status: 'CHECKED_IN' })).status, 422);
   assert.equal((await api.post('/api/appointments/walk-in').set(auth('reception')).send({ ...body, patientId: crypto.randomUUID() })).status, 404);
-  const adminSlot = await findTodayWalkInSlot(doctor1.id);
+  const { appointmentDate: adminDate, appointmentTime: adminSlot } = await findTodayWalkInSlot(doctor1.id);
   const adminPatient = await prisma.patient.create({ data: {
     fullNameAr: `مريض مدير مباشر ${fixtureCounter + 1}`, fullNameEn: `Admin walk-in ${fixtureCounter + 1}`,
     gender: 'FEMALE', dateOfBirth: '1991-01-01', phone: `0966${String(++fixtureCounter).padStart(6, '0')}`,
     addressStateId: 1, emergencyContact: 'Self'
   } });
-  assert.equal((await api.post('/api/appointments/walk-in').set(auth('admin')).send({ ...body, patientId: adminPatient.id, appointmentTime: adminSlot })).status, 201);
+  assert.equal((await api.post('/api/appointments/walk-in').set(auth('admin')).send({ ...body, patientId: adminPatient.id, appointmentDate: adminDate, appointmentTime: adminSlot })).status, 201);
 });
 
 test('existing patient walk-in prevents duplicate same-day intake and preserves billing gate', async () => {
-  const slot = await findTodayWalkInSlot(doctor1.id);
-  const body = { mode: 'EXISTING', patientId: patient1.id, doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot };
+  const { appointmentDate, appointmentTime: slot } = await findTodayWalkInSlot(doctor1.id);
+  const body = { mode: 'EXISTING', patientId: patient1.id, doctorId: doctor1.id, appointmentDate, appointmentTime: slot };
   const first = await api.post('/api/appointments/walk-in').set(auth('reception')).send(body);
   assert.equal(first.status, 201);
   assert.equal(await prisma.patient.count({ where: { id: patient1.id } }), 1);
@@ -1148,20 +1177,20 @@ test('existing patient walk-in prevents duplicate same-day intake and preserves 
 });
 
 test('walk-in slot conflicts roll back a newly created patient', async () => {
-  const slot = await findTodayWalkInSlot(doctor1.id);
+  const { appointmentDate, appointmentTime: slot } = await findTodayWalkInSlot(doctor1.id);
   const existingPatient = await prisma.patient.create({ data: {
     fullNameAr: `مريض تعارض قائم ${fixtureCounter + 1}`, fullNameEn: `Existing conflict patient ${fixtureCounter + 1}`,
     gender: 'MALE', dateOfBirth: '1989-01-01', phone: `0955${String(++fixtureCounter).padStart(6, '0')}`,
     addressStateId: 1, emergencyContact: 'Self'
   } });
   const existing = await api.post('/api/appointments/walk-in').set(auth('reception')).send({
-    mode: 'EXISTING', patientId: existingPatient.id, doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot
+    mode: 'EXISTING', patientId: existingPatient.id, doctorId: doctor1.id, appointmentDate, appointmentTime: slot
   });
   assert.equal(existing.status, 201);
   const nationalId = `WALKIN-CONFLICT-${Date.now()}`;
   const response = await api.post('/api/appointments/walk-in').set(auth('reception')).send({
-    mode: 'NEW', doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot,
-    patient: { fullNameAr: 'مريض تعارض', fullNameEn: 'Conflict Walk-in', gender: 'FEMALE', dateOfBirth: '1991-01-01', nationalId, phone: `0988${Date.now().toString().slice(-6)}`, addressStateId: 1 }
+    mode: 'NEW', doctorId: doctor1.id, appointmentDate, appointmentTime: slot,
+    patient: { ...structuredPatientName('conflictwalkin'), gender: 'FEMALE', dateOfBirth: '1991-01-01', nationalId, phone: `0988${Date.now().toString().slice(-6)}`, addressStateId: 1 }
   });
   assert.equal(response.status, 409);
   assert.equal(response.body.error.code, 'APPOINTMENT_SLOT_UNAVAILABLE');
@@ -1169,43 +1198,43 @@ test('walk-in slot conflicts roll back a newly created patient', async () => {
 });
 
 test('concurrent walk-in requests claim one slot and one same-patient appointment', async () => {
-  const slot = await findTodayWalkInSlot(doctor1.id);
+  const { appointmentDate, appointmentTime: slot } = await findTodayWalkInSlot(doctor1.id);
   const concurrentPatient = await prisma.patient.create({ data: {
     fullNameAr: `مريض تزامن مباشر ${fixtureCounter + 1}`,
     fullNameEn: `Concurrent walk-in ${fixtureCounter + 1}`,
     gender: 'MALE', dateOfBirth: '1990-01-01', phone: `0977${String(++fixtureCounter).padStart(6, '0')}`,
     addressStateId: 1, emergencyContact: 'Self'
   } });
-  const makeBody = (patientId) => ({ mode: 'EXISTING', patientId, doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot });
+  const makeBody = (patientId) => ({ mode: 'EXISTING', patientId, doctorId: doctor1.id, appointmentDate, appointmentTime: slot });
   const responses = await Promise.all([
     api.post('/api/appointments/walk-in').set(auth('reception')).send(makeBody(concurrentPatient.id)),
     api.post('/api/appointments/walk-in').set(auth('reception')).send(makeBody(concurrentPatient.id))
   ]);
   assert.deepEqual(responses.map((response) => response.status).sort(), [201, 409]);
   assert.equal(responses.find((response) => response.status === 409).body.error.code, 'WALK_IN_ALREADY_EXISTS');
-  assert.equal(await prisma.appointment.count({ where: { patientId: concurrentPatient.id, appointmentDate: getClinicDateString(), status: 'CHECKED_IN' } }), 1);
+  assert.equal(await prisma.appointment.count({ where: { patientId: concurrentPatient.id, appointmentDate, status: 'CHECKED_IN' } }), 1);
 });
 
 test('concurrent walk-ins from different patients claim one doctor slot', async () => {
-  const slot = await findTodayWalkInSlot(doctor1.id);
+  const { appointmentDate, appointmentTime: slot } = await findTodayWalkInSlot(doctor1.id);
   const firstPatient = await createStandaloneTestPatient('Different A');
   const secondPatient = await createStandaloneTestPatient('Different B');
   const request = (patientId) => api.post('/api/appointments/walk-in').set(auth('reception')).send({
-    mode: 'EXISTING', patientId, doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot
+    mode: 'EXISTING', patientId, doctorId: doctor1.id, appointmentDate, appointmentTime: slot
   });
   const responses = await Promise.all([request(firstPatient.id), request(secondPatient.id)]);
   assert.deepEqual(responses.map((response) => response.status).sort(), [201, 409]);
   assert.equal(responses.find((response) => response.status === 409).body.error.code, 'APPOINTMENT_SLOT_UNAVAILABLE');
-  assert.equal(await prisma.appointment.count({ where: { doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot, status: { notIn: ['CANCELLED', 'NO_SHOW'] } } }), 1);
+  assert.equal(await prisma.appointment.count({ where: { doctorId: doctor1.id, appointmentDate, appointmentTime: slot, status: { notIn: ['CANCELLED', 'NO_SHOW'] } } }), 1);
 });
 
 test('concurrent new walk-ins roll back the losing Patient atomically', async () => {
-  const slot = await findTodayWalkInSlot(doctor1.id);
+  const { appointmentDate, appointmentTime: slot } = await findTodayWalkInSlot(doctor1.id);
   const suffix = String(++fixtureCounter).padStart(6, '0').slice(-6);
   const makeRequest = (label) => api.post('/api/appointments/walk-in').set(auth('reception')).send({
-    mode: 'NEW', doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot,
+    mode: 'NEW', doctorId: doctor1.id, appointmentDate, appointmentTime: slot,
     patient: {
-      fullNameAr: `مريض جديد ${label}`, fullNameEn: `New walk-in ${label}`, gender: 'FEMALE', dateOfBirth: '1991-01-01',
+      ...structuredPatientName(`newwalkin${label}`), gender: 'FEMALE', dateOfBirth: '1991-01-01',
       nationalId: `C1-${suffix}-${label}`, phone: `+24995${suffix}${label === 'A' ? '1' : '2'}`, addressStateId: 1
     }
   });
@@ -1216,7 +1245,7 @@ test('concurrent new walk-ins roll back the losing Patient atomically', async ()
   assert.equal(loser.body.error.code, 'APPOINTMENT_SLOT_UNAVAILABLE');
   const nationalIds = [`C1-${suffix}-A`, `C1-${suffix}-B`];
   assert.equal(await prisma.patient.count({ where: { nationalId: { in: nationalIds } } }), 1);
-  assert.equal(await prisma.appointment.count({ where: { doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot, status: { notIn: ['CANCELLED', 'NO_SHOW'] } } }), 1);
+  assert.equal(await prisma.appointment.count({ where: { doctorId: doctor1.id, appointmentDate, appointmentTime: slot, status: { notIn: ['CANCELLED', 'NO_SHOW'] } } }), 1);
   assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'WALK_IN_APPOINTMENT_CREATED', details: { contains: winner.body.id } } }), 1);
 });
 
@@ -1483,6 +1512,8 @@ test('staff MFA enrollment, enforced login, recovery, challenge, and disable lif
     .set({ Authorization: `Bearer ${staffToken}` }).send({ code: totpFor(secondEnrollment.body.secret).generate() });
   assert.equal(confirmation.status, 200);
   assert.equal(confirmation.body.state, 'ENABLED');
+  staff.authVersion += 1;
+  assert.equal((await api.get('/api/patients').set({ Authorization: `Bearer ${staffToken}` })).status, 401);
   assert.equal(confirmation.body.recoveryCodes.length, 10);
   assert.equal(Object.hasOwn(confirmation.body, 'secret'), false);
   configuration = await prisma.mfaConfiguration.findUnique({ where: { userId: staff.id } });
@@ -1836,6 +1867,12 @@ test('staff MFA enrollment, enforced login, recovery, challenge, and disable lif
   assert.match(regenerate.headers['cache-control'], /(?:^|,)\s*no-store(?:,|$)/);
   assert.equal(regenerate.body.recoveryCodes.length, 10);
 
+  assert.equal((await api.get('/api/patients').set({ Authorization: `Bearer ${staffToken}` })).status, 401);
+  const regeneratedLogin = await recoveryChallengeFor();
+  const regeneratedSession = await verifyRecovery(regeneratedLogin, regenerate.body.recoveryCodes[9]);
+  assert.equal(regeneratedSession.status, 200);
+  staffToken = regeneratedSession.body.token;
+
   const beforeDisable = await prisma.user.findUnique({ where: { id: staff.id }, select: { authVersion: true } });
 
   const invalidatedRecoveryLogin = await recoveryChallengeFor();
@@ -2045,7 +2082,7 @@ test('staff creation canonicalizes email usernames for every supported staff rol
       username: suppliedUsername,
       password: 'CanonicalStaff1',
       role,
-      ...(role === 'DOCTOR' ? { consultationFee: 25000 } : {})
+      ...(role === 'DOCTOR' ? { consultationFee: 25000, specialtyId: activeSpecialtyId, fullNameAr: 'د. طبيب اختبار', fullNameEn: 'Dr. Test Doctor' } : {})
     });
     assert.equal(response.status, 201);
     assert.equal(response.body.user.username, expectedUsername);
@@ -2064,7 +2101,7 @@ test('new mixed-case Doctor authenticates using canonical or supplied email casi
     username: suppliedUsername,
     password,
     role: 'DOCTOR',
-    consultationFee: 25000
+    consultationFee: 25000, specialtyId: activeSpecialtyId, fullNameAr: 'د. طبيب حالة', fullNameEn: 'Dr. Case Doctor'
   });
   assert.equal(created.status, 201);
   assert.equal(created.body.user.username, username);
@@ -2229,8 +2266,7 @@ test('doctor creation rejects empty doctor profile fields with field-specific va
     role: 'DOCTOR',
     fullNameAr: '',
     fullNameEn: '',
-    specialtyAr: 'طب عام',
-    specialtyEn: 'General Medicine',
+    specialtyId: activeSpecialtyId,
     consultationFee: 25000
   });
   assert.equal(response.status, 422);
@@ -2247,7 +2283,7 @@ test('doctor creation requires a valid consultation fee', async () => {
     role: 'DOCTOR'
   });
   assert.equal(response.status, 422);
-  assert.equal(response.body.error.code, 'CONSULTATION_FEE_REQUIRED');
+  assert.equal(response.body.error.code, 'DOCTOR_CONFIGURATION_REQUIRED');
   assert.equal(await prisma.user.count({ where: { username: 'doctor-no-fee@cms.com' } }), 0);
 });
 
@@ -2259,8 +2295,7 @@ test('valid doctor creation atomically creates the user, profile, and audit entr
     role: 'DOCTOR',
     fullNameAr: 'د. طبيب الاختبار',
     fullNameEn: 'Dr. Integration Test',
-    specialtyAr: 'طب عام',
-    specialtyEn: 'General Medicine',
+    specialtyId: activeSpecialtyId,
     consultationFee: 25000
   });
   assert.equal(response.status, 201);
@@ -2305,7 +2340,7 @@ test('an unrelated P2002 is not mislabeled as a duplicate username and rolls bac
       username: existingUsername,
       password: 'StrongUniqueOwner1',
       role: 'DOCTOR',
-      fullNameEn,
+      fullNameAr: 'د. فشل فريد', fullNameEn, specialtyId: activeSpecialtyId,
       consultationFee: 25000
     });
     assert.equal(existing.status, 201);
@@ -2314,7 +2349,7 @@ test('an unrelated P2002 is not mislabeled as a duplicate username and rolls bac
       username: attemptedUsername,
       password: 'StrongUniqueAttempt1',
       role: 'DOCTOR',
-      fullNameEn,
+      fullNameAr: 'د. فشل فريد', fullNameEn, specialtyId: activeSpecialtyId,
       consultationFee: 25000
     });
     assert.equal(response.status, 500);
@@ -2346,7 +2381,7 @@ test('forced doctor-profile failure rolls back the staff user', async () => {
       username,
       password: 'StrongDoctor1',
       role: 'DOCTOR',
-      fullNameEn: 'Force Doctor Failure',
+      fullNameAr: 'د. فشل', fullNameEn: 'Force Doctor Failure', specialtyId: activeSpecialtyId,
       consultationFee: 25000
     });
     assert.equal(response.status, 500);
@@ -2381,8 +2416,7 @@ test('forced audit-log failure rolls back the entire staff account', async () =>
       role: 'DOCTOR',
       fullNameAr: 'د. اختبار تراجع التدقيق',
       fullNameEn,
-      specialtyAr: 'طب عام',
-      specialtyEn: 'General Medicine',
+      specialtyId: activeSpecialtyId,
       consultationFee: 25000
     });
     assert.equal(response.status, 500);
@@ -2463,8 +2497,7 @@ test('ADMIN reset preserves Doctor identity, replaces the hash, and revokes prio
     role: 'DOCTOR',
     fullNameAr: 'د. اختبار إعادة التعيين',
     fullNameEn: 'Dr. Password Reset Test',
-    specialtyAr: 'طب عام',
-    specialtyEn: 'General Medicine',
+    specialtyId: activeSpecialtyId,
     consultationFee: 25000
   });
   assert.equal(creation.status, 201);
@@ -3002,22 +3035,163 @@ test('production CORS accepts canonical HTTPS origins and rejects malformed valu
   }
 });
 
-test('material Helmet headers and production HSTS are maintained', async () => {
+test('material API security headers are maintained and HSTS is owned by the TLS edge', async () => {
   const response = await api.get('/api/health/live');
   assert.equal(response.headers['x-powered-by'], undefined);
   assert.equal(response.headers['x-content-type-options'], 'nosniff');
   assert.equal(response.headers['referrer-policy'], 'no-referrer');
-  assert.equal(response.headers['x-frame-options'], 'SAMEORIGIN');
+  assert.equal(response.headers['x-frame-options'], 'DENY');
   assert.equal(response.headers['cross-origin-resource-policy'], 'same-site');
+  assert.match(response.headers['permissions-policy'], /camera=\(\)/);
 
   const productionApp = express();
   productionApp.disable('x-powered-by');
   productionApp.use(securityHeadersMiddleware(true));
   productionApp.get('/probe', (req, res) => res.json({ ok: true }));
   const production = await request(productionApp).get('/probe');
-  assert.match(production.headers['strict-transport-security'], /max-age=31536000/i);
-  assert.match(production.headers['strict-transport-security'], /includeSubDomains/i);
+  assert.equal(production.headers['strict-transport-security'], undefined);
+  assert.match(production.headers['content-security-policy'], /script-src 'self'/);
   assert.equal(production.headers['x-powered-by'], undefined);
+});
+
+test('public directory and catalog responses use allowlisted DTOs', async () => {
+  const inactiveService = await prisma.clinicalService.create({ data: {
+    labelAr: `خدمة غير عامة ${fixtureCounter}`,
+    labelEn: `Private inactive service ${fixtureCounter}`,
+    baseFeeSdg: 500,
+    category: 'LABORATORY',
+    status: 'INACTIVE'
+  } });
+  const insuranceCompany = await prisma.insuranceCompany.create({ data: {
+    labelAr: `تأمين اختبار ${fixtureCounter}`,
+    labelEn: `Test insurer ${fixtureCounter}`,
+    copayPercentage: 15,
+    billingCycleDays: 45
+  } });
+
+  const doctors = await api.get('/api/appointments/doctors');
+  assert.equal(doctors.status, 200);
+  assert.ok(doctors.body.length > 0);
+  assert.equal(doctors.headers['cache-control'], undefined);
+  for (const doctor of doctors.body) {
+    assert.deepEqual(Object.keys(doctor).sort(), [
+      'consultationFee', 'fullNameAr', 'fullNameEn', 'id', 'specialty', 'specialtyAr', 'specialtyEn'
+    ]);
+    assert.equal(Object.hasOwn(doctor, 'userId'), false);
+    assert.equal(Object.hasOwn(doctor, 'specialtyId'), false);
+    assert.equal(Object.hasOwn(doctor, 'weeklySchedule'), false);
+    assert.equal(Object.hasOwn(doctor, 'status'), false);
+    assert.equal(Object.hasOwn(doctor, 'updatedAt'), false);
+    if (doctor.specialty) assert.deepEqual(Object.keys(doctor.specialty).sort(), ['id', 'nameAr', 'nameEn']);
+  }
+
+  const services = await api.get('/api/billing/services');
+  assert.equal(services.status, 200);
+  assert.ok(services.body.length > 0);
+  assert.equal(services.headers['cache-control'], undefined);
+  assert.equal(services.body.some((item) => item.id === inactiveService.id), false);
+  for (const item of services.body) {
+    assert.deepEqual(Object.keys(item).sort(), [
+      'baseFeeSdg', 'baseFeeUsd', 'category', 'id', 'labelAr', 'labelEn'
+    ]);
+    assert.equal(Object.hasOwn(item, 'status'), false);
+    assert.equal(Object.hasOwn(item, 'updatedAt'), false);
+  }
+
+  assert.equal((await api.get('/api/billing/insurance-companies')).status, 401);
+  assert.equal((await api.get('/api/billing/insurance-companies').set(auth('doctor'))).status, 403);
+  const companies = await api.get('/api/billing/insurance-companies').set(auth('reception'));
+  assert.equal(companies.status, 200);
+  const returnedCompany = companies.body.find((item) => item.id === insuranceCompany.id);
+  assert.deepEqual(Object.keys(returnedCompany).sort(), ['copayPercentage', 'id', 'labelAr', 'labelEn']);
+  assert.equal(Object.hasOwn(returnedCompany, 'billingCycleDays'), false);
+
+  const slots = await api.get('/api/appointments/slots').query({ doctorId: doctor1.id, date: getClinicDateString() });
+  assert.equal(slots.status, 200);
+  assert.ok(slots.body.every((slot) => /^\d{2}:\d{2}$/.test(slot)));
+  assert.match(slots.headers['cache-control'], /(?:^|,)\s*no-store(?:,|$)/);
+
+  const health = await api.get('/api/health/ready');
+  assert.deepEqual(Object.keys(health.body), ['status']);
+  assert.ok(['healthy', 'unhealthy'].includes(health.body.status));
+
+  const slot = await findAvailableAppointmentSlot(doctor1.id);
+  const booking = await api.post('/api/appointments/book').send(
+    await bookingPayload(slot.appointmentDate, slot.appointmentTime, `0977${String(++fixtureCounter).padStart(6, '0')}`)
+  );
+  assert.equal(booking.status, 201);
+  assert.match(booking.headers['cache-control'], /(?:^|,)\s*no-store(?:,|$)/);
+  assert.deepEqual(Object.keys(booking.body).sort(), [
+    'appointmentDate', 'appointmentTime', 'bookingReference', 'doctor', 'id', 'status'
+  ]);
+  assert.deepEqual(Object.keys(booking.body.doctor).sort(), [
+    'consultationFee', 'fullNameAr', 'fullNameEn', 'id', 'specialty', 'specialtyAr', 'specialtyEn'
+  ]);
+  if (booking.body.doctor.specialty) assert.deepEqual(Object.keys(booking.body.doctor.specialty).sort(), ['id', 'nameAr', 'nameEn']);
+  assert.match(booking.body.bookingReference, /^[0-9A-F]{8}$/);
+  for (const field of ['patient', 'patientId', 'userId', 'weeklySchedule', 'whatsAppLinkAr', 'whatsAppLinkEn']) {
+    assert.equal(Object.hasOwn(booking.body, field), false);
+  }
+  for (const response of [doctors, services, booking]) {
+    assert.doesNotMatch(JSON.stringify(response.body), /passwordHash|authVersion|mustChangePassword|mfaSecret|recoveryCode|weeklySchedule/i);
+  }
+});
+
+test('authenticated clinical, operational, and security responses are not cacheable', async () => {
+  fixtureCounter += 1;
+  const patientUser = await prisma.user.create({ data: {
+    username: `cache-patient-${fixtureCounter}@example.test`,
+    passwordHash: 'not-used-for-cache-test',
+    role: 'PATIENT',
+    status: 'ACTIVE'
+  } });
+  const patient = await prisma.patient.create({ data: {
+    userId: patientUser.id,
+    fullNameAr: `مريض ذاكرة ${fixtureCounter}`,
+    fullNameEn: `Cache Patient ${fixtureCounter}`,
+    gender: 'MALE',
+    dateOfBirth: '1990-01-01',
+    phone: `0968${String(fixtureCounter).padStart(6, '0')}`,
+    addressStateId: 1,
+    emergencyContact: 'Self'
+  } });
+  const appointment = await prisma.appointment.create({ data: {
+    patientId: patient.id,
+    doctorId: doctor1.id,
+    appointmentDate: `2049-11-${String((fixtureCounter % 27) + 1).padStart(2, '0')}`,
+    appointmentTime: '16:00',
+    status: 'COMPLETED'
+  } });
+  await prisma.medicalRecord.create({ data: {
+    patientId: patient.id,
+    doctorId: doctor1.id,
+    appointmentId: appointment.id,
+    symptomsEncrypted: '', diagnosisEncrypted: '', treatmentEncrypted: '', vitalSignsJson: '{}', clinicalNotesEncrypted: ''
+  } });
+  const patientToken = signAccessToken({
+    id: patientUser.id,
+    username: patientUser.username,
+    role: patientUser.role,
+    authVersion: patientUser.authVersion
+  });
+  const responses = await Promise.all([
+    api.get('/api/patients/search?q=Test').set(auth('reception')),
+    api.get(`/api/appointments/queue/${doctor1.id}`).query({ date: getClinicDateString() }).set(auth('doctor')),
+    api.get('/api/records/drugs').set(auth('doctor')),
+    api.get('/api/records/lab-orders/pending').set(auth('lab')),
+    api.get('/api/pharmacy/formulary').set(auth('pharmacy')),
+    api.get('/api/billing/lab-orders/pending').set(auth('reception')),
+    api.get('/api/auth/users').set(auth('admin')),
+    api.get('/api/patient/medical-records').set({ Authorization: `Bearer ${patientToken}` }),
+    api.post('/api/auth/mfa/verify').send({ challengeToken: 'x'.repeat(40), code: '000000' })
+  ]);
+
+  for (const response of responses.slice(0, -1)) assert.equal(response.status, 200);
+  assert.equal(responses.at(-1).status, 401);
+  for (const response of responses) {
+    assert.match(response.headers['cache-control'] || '', /(?:^|,)\s*no-store(?:,|$)/);
+    assert.match(response.headers.pragma || '', /no-cache/);
+  }
 });
 
 test('representative login limiter returns a safe draft-7 429 response', async () => {
@@ -3115,7 +3289,7 @@ test('operational patient search is exact for national ID, bounded, and safely p
 test('patient file numbers are server-assigned, searchable, and immutable', async () => {
   const suffix = String(++fixtureCounter).padStart(7, '0').slice(-7);
   const response = await api.post('/api/patients').set(auth('reception')).send({
-    fullNameAr: 'مريض رقم الملف', fullNameEn: 'File Number Patient', gender: 'MALE', dateOfBirth: '1971-07-07',
+    ...structuredPatientName('filenumber'), gender: 'MALE', dateOfBirth: '1971-07-07',
     phone: `+24998${suffix}`, addressStateId: 1
   });
   assert.equal(response.status, 201);
@@ -3124,7 +3298,7 @@ test('patient file numbers are server-assigned, searchable, and immutable', asyn
   assert.equal(patient.fileNumber, response.body.fileNumber);
   assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'PATIENT_FILE_CREATED', details: { contains: response.body.fileNumber } } }), 1);
   const injected = await api.post('/api/patients').set(auth('reception')).send({
-    fullNameAr: 'مريض حقول محظورة', fullNameEn: 'Forbidden Fields Patient', gender: 'FEMALE', dateOfBirth: '1972-08-08',
+    ...structuredPatientName('forbiddenfields'), gender: 'FEMALE', dateOfBirth: '1972-08-08',
     phone: `+24998${String(++fixtureCounter).padStart(7, '0').slice(-7)}`, addressStateId: 1, fileNumber: 'SHF-999999', mrn: 'SHF-999999'
   });
   assert.equal(injected.status, 422);
@@ -3188,7 +3362,7 @@ test('receptionist new-patient creation warns without merging and existing selec
   } });
   const before = await prisma.patient.count();
   const response = await api.post('/api/patients').set(auth('reception')).send({
-    fullNameAr: 'اسم جديد مشابه', fullNameEn: 'Similar New Name', gender: 'FEMALE', dateOfBirth: '1993-05-04',
+    ...structuredPatientName('similarnew'), gender: 'FEMALE', dateOfBirth: '1993-05-04',
     phone: '092 ' + phone.slice(-7), addressStateId: 1
   });
   assert.equal(response.status, 409);
@@ -3200,7 +3374,7 @@ test('receptionist new-patient creation warns without merging and existing selec
 });
 
 test('walk-in NEW mode warns on a possible patient duplicate before creating either record', async () => {
-  const slot = await findTodayWalkInSlot(doctor1.id);
+  const { appointmentDate, appointmentTime: slot } = await findTodayWalkInSlot(doctor1.id);
   const suffix = String(++fixtureCounter).padStart(7, '0').slice(-7);
   const phone = `+24996${suffix}`;
   const existing = await prisma.patient.create({ data: {
@@ -3209,9 +3383,9 @@ test('walk-in NEW mode warns on a possible patient duplicate before creating eit
   } });
   const beforePatients = await prisma.patient.count();
   const response = await api.post('/api/appointments/walk-in').set(auth('reception')).send({
-    mode: 'NEW', doctorId: doctor1.id, appointmentDate: getClinicDateString(), appointmentTime: slot,
+    mode: 'NEW', doctorId: doctor1.id, appointmentDate, appointmentTime: slot,
     patient: {
-      fullNameAr: 'اسم مشابه للدخول', fullNameEn: 'Similar Walk-in Name', gender: 'MALE',
+      ...structuredPatientName('similarwalkin'), gender: 'MALE',
       dateOfBirth: '1986-06-06', phone, addressStateId: 1
     }
   });
@@ -3219,14 +3393,14 @@ test('walk-in NEW mode warns on a possible patient duplicate before creating eit
   assert.equal(response.body.error.code, 'POSSIBLE_PATIENT_DUPLICATE');
   assert.equal(response.body.error.details[0].id, existing.id);
   assert.equal(await prisma.patient.count(), beforePatients);
-  assert.equal(await prisma.appointment.count({ where: { patientId: existing.id, appointmentDate: getClinicDateString(), appointmentTime: slot } }), 0);
+  assert.equal(await prisma.appointment.count({ where: { patientId: existing.id, appointmentDate, appointmentTime: slot } }), 0);
 });
 
 test('concurrent receptionist registration preserves database-enforced national-ID uniqueness', async () => {
   const suffix = String(++fixtureCounter).padStart(7, '0').slice(-7);
   const nationalId = `CONCURRENT-${suffix}`;
   const create = (label) => api.post('/api/patients').set(auth('reception')).send({
-    fullNameAr: `مريض متزامن ${label}`, fullNameEn: `Concurrent Patient ${label}`, gender: 'FEMALE',
+    ...structuredPatientName(`concurrent${label}`), gender: 'FEMALE',
     dateOfBirth: label === 'A' ? '1981-01-01' : '1982-02-02', nationalId,
     phone: `+24997${suffix.slice(0, -1)}${label === 'A' ? '1' : '2'}`, addressStateId: 1
   });
@@ -3565,16 +3739,16 @@ test('patient booking and rescheduling derive identity and workflow fields on th
   assert.equal(created.doctorId, firstSlot.doctorId);
   assert.equal(created.status, 'PENDING');
 
-  const walkInSlot = await findTodayWalkInSlot(doctor1.id);
+  const { appointmentDate: walkInDate, appointmentTime: walkInSlot } = await findTodayWalkInSlot(doctor1.id);
   const beforeWalkIns = await prisma.appointment.count({ where: {
     patientId: victim.patient.id,
-    appointmentDate: getClinicDateString()
+    appointmentDate: walkInDate
   } });
   const walkInAttempt = await api.post('/api/appointments/walk-in').set(auth('reception')).send({
     mode: 'EXISTING',
     patientId: victim.patient.id,
     doctorId: doctor1.id,
-    appointmentDate: getClinicDateString(),
+    appointmentDate: walkInDate,
     appointmentTime: walkInSlot,
     status: 'COMPLETED',
     queuePosition: -999,
@@ -3584,7 +3758,7 @@ test('patient booking and rescheduling derive identity and workflow fields on th
   assertSafeAuthorizationDenial(walkInAttempt, 422);
   assert.equal(await prisma.appointment.count({ where: {
     patientId: victim.patient.id,
-    appointmentDate: getClinicDateString()
+    appointmentDate: walkInDate
   } }), beforeWalkIns);
 
   const secondSlot = await findAvailableAppointmentSlot(doctor2.id);
@@ -3677,7 +3851,7 @@ test('lab result CAS ignores hidden release, workflow, version, and actor fields
   assert.equal(storedAppointment.status, 'WAITING_LAB');
 });
 
-test('patient profile writes strip identity, verification, role, and financial fields', async () => {
+test('patient profile writes reject identity, verification, role, and financial fields', async () => {
   const actor = await createAppointmentConcurrencyPatient();
   const victim = await createAppointmentConcurrencyPatient();
   const beforeUser = await prisma.user.findUnique({ where: { id: actor.user.id } });
@@ -3696,13 +3870,13 @@ test('patient profile writes strip identity, verification, role, and financial f
       invoiceStatus: 'PAID',
       paymentStatus: 'PAID'
     });
-  assert.equal(response.status, 200);
+  assert.equal(response.status, 422);
   const [afterPatient, afterUser, victimPatient] = await Promise.all([
     prisma.patient.findUnique({ where: { id: actor.patient.id } }),
     prisma.user.findUnique({ where: { id: actor.user.id } }),
     prisma.patient.findUnique({ where: { id: victim.patient.id } })
   ]);
-  assert.equal(afterPatient.emergencyContact, 'Mass Assignment Test Contact');
+  assert.equal(afterPatient.emergencyContact, actor.patient.emergencyContact);
   assert.equal(afterPatient.userId, actor.user.id);
   assert.equal(victimPatient.userId, victim.user.id);
   assert.deepEqual(
@@ -6812,11 +6986,12 @@ test('public booking never attaches an appointment by phone alone', async () => 
   const otp = await api.post('/api/appointments/otp/request').send({ phone: `093 ${phone.slice(-7)}` });
   assert.equal(otp.status, 200);
   const response = await api.post('/api/appointments/book').send({
-    ...slot, fullNameAr: 'مريض آخر بنفس الهاتف', fullNameEn: 'Different Shared Phone Patient', gender: 'FEMALE',
+    ...slot, ...structuredPatientName('phoneonly'), gender: 'FEMALE',
     dateOfBirth: '1995-05-05', phone, addressStateId: 1, otpCode: otp.body.developmentCode
   });
   assert.equal(response.status, 201);
-  assert.notEqual(response.body.patientId, victim.id);
+  assert.equal(Object.hasOwn(response.body, 'patientId'), false);
+  assert.equal(Object.hasOwn(response.body, 'patient'), false);
   assert.equal(await prisma.appointment.count({ where: { id: response.body.id, patientId: victim.id } }), 0);
   assert.equal(await prisma.patient.count({ where: { phone: normalizePatientPhone(phone) } }), 2);
 });
@@ -6826,22 +7001,23 @@ test('public booking reuses only a strong exact identity and rejects mismatched 
   const phone = `+24994${String(++fixtureCounter).padStart(7, '0').slice(-7)}`;
   const nationalId = `PUBLIC-${String(++fixtureCounter).padStart(7, '0').slice(-7)}`;
   const existing = await prisma.patient.create({ data: {
-    fullNameAr: 'مريض تطابق قوي', fullNameEn: 'Strong Match Patient', gender: 'MALE', dateOfBirth: '1987-07-07',
+    ...structuredPatientName('strongmatch'), fullNameAr: 'مريض اختبار أحمد أسرةstrongmatch', fullNameEn: 'Patient Test Ahmed Familystrongmatch', gender: 'MALE', dateOfBirth: '1987-07-07',
     nationalId, phone, addressStateId: 1, emergencyContact: 'Self'
   } });
   const otp = await api.post('/api/appointments/otp/request').send({ phone });
   const matched = await api.post('/api/appointments/book').send({
-    ...firstSlot, fullNameAr: existing.fullNameAr, fullNameEn: existing.fullNameEn, gender: existing.gender,
+    ...firstSlot, ...structuredPatientName('strongmatch'), gender: existing.gender,
     dateOfBirth: existing.dateOfBirth, nationalId: nationalId.toLowerCase(), phone, addressStateId: 1, otpCode: otp.body.developmentCode
   });
   assert.equal(matched.status, 201);
-  assert.equal(matched.body.patientId, existing.id);
+  assert.equal(Object.hasOwn(matched.body, 'patientId'), false);
+  assert.equal((await prisma.appointment.findUnique({ where: { id: matched.body.id } })).patientId, existing.id);
   assert.equal(await prisma.patient.count({ where: { nationalId } }), 1);
 
   const secondSlot = await findAvailableAppointmentSlot(doctor1.id);
   const otp2 = await api.post('/api/appointments/otp/request').send({ phone });
   const mismatched = await api.post('/api/appointments/book').send({
-    ...secondSlot, fullNameAr: 'هوية مختلفة', fullNameEn: 'Different Identity', gender: 'FEMALE',
+    ...secondSlot, ...structuredPatientName('mismatch'), gender: 'FEMALE',
     dateOfBirth: '1999-09-09', nationalId, phone, addressStateId: 1, otpCode: otp2.body.developmentCode
   });
   assert.equal(mismatched.status, 409);
@@ -6862,7 +7038,33 @@ test('emergency override and transfer cannot reopen terminal appointments', asyn
 
 test('concurrent booking allows exactly one reservation per active doctor slot', async () => {
   const date = '2030-01-13';
-  const payload = await bookingPayload(date, '10:00', '0991000011');
+  const phone = `+24994${String(++fixtureCounter).padStart(7, '0').slice(-7)}`;
+  const nationalId = `PUBLIC-${String(++fixtureCounter).padStart(7, '0').slice(-7)}`;
+  const patientNames = structuredPatientName('slotconcurrency');
+  const existing = await prisma.patient.create({ data: {
+    ...patientNames,
+    fullNameAr: `${patientNames.firstNameAr} ${patientNames.fatherNameAr} ${patientNames.grandfatherNameAr} ${patientNames.familyNameAr}`,
+    fullNameEn: `${patientNames.firstNameEn} ${patientNames.fatherNameEn} ${patientNames.grandfatherNameEn} ${patientNames.familyNameEn}`,
+    gender: 'MALE',
+    dateOfBirth: '1987-07-07',
+    nationalId,
+    phone,
+    addressStateId: 1,
+    emergencyContact: 'Self'
+  } });
+  const otp = await api.post('/api/appointments/otp/request').send({ phone });
+  const payload = {
+    doctorId: doctor1.id,
+    appointmentDate: date,
+    appointmentTime: '10:00',
+    ...patientNames,
+    gender: existing.gender,
+    dateOfBirth: existing.dateOfBirth,
+    nationalId: nationalId.toLowerCase(),
+    phone,
+    addressStateId: 1,
+    otpCode: otp.body.developmentCode
+  };
   const responses = await Promise.all([api.post('/api/appointments/book').send(payload), api.post('/api/appointments/book').send(payload)]);
   assert.deepEqual(responses.map((r) => r.status).sort(), [201, 409]);
   const conflict = responses.find((response) => response.status === 409);
@@ -6905,7 +7107,7 @@ test('cancellation racing with a competing booking preserves one active slot', a
   assert.equal(otp.status, 200);
   const [cancel, booking] = await Promise.all([
     api.post(`/api/patient/appointments/${appointment.id}/cancel`).set({ Authorization: `Bearer ${owner.token}` }),
-    api.post('/api/appointments/book').send({ doctorId: doctor1.id, appointmentDate: slot.appointmentDate, appointmentTime: slot.appointmentTime, fullNameAr: 'مريض حجز متنافس', fullNameEn: 'Race Booking Patient', gender: 'FEMALE', dateOfBirth: '1991-01-01', phone, addressStateId: 1, otpCode: otp.body.developmentCode })
+    api.post('/api/appointments/book').send({ doctorId: doctor1.id, appointmentDate: slot.appointmentDate, appointmentTime: slot.appointmentTime, ...structuredPatientName('racebooking'), gender: 'FEMALE', dateOfBirth: '1991-01-01', phone, addressStateId: 1, otpCode: otp.body.developmentCode })
   ]);
   assert.ok([200, 409].includes(cancel.status));
   assert.ok([201, 409].includes(booking.status));
@@ -6955,9 +7157,7 @@ test('patient login reports whether the medical record is linked', async () => {
   const register = await api
     .post('/api/patient-auth/register')
     .send({
-      fullName: 'Patient Linkage Test',
-      fullNameAr: 'مريض اختبار الربط',
-      fullNameEn: 'Patient Linkage Test',
+      ...structuredPatientName('patientlinkage'),
       phone,
       email,
       dateOfBirth: '1994-04-15',
@@ -8051,7 +8251,7 @@ async function createAdditionalPaidPrescriptionForDrug({ drugId, patientId = pat
 async function bookingPayload(date, time, phone) {
   const otp = await api.post('/api/appointments/otp/request').send({ phone });
   assert.equal(otp.status, 200);
-  return { doctorId: doctor1.id, appointmentDate: date, appointmentTime: time, fullNameAr: 'مريض حجز', fullNameEn: 'Booking Patient', gender: 'MALE', dateOfBirth: '1990-01-01', phone, addressStateId: 1, otpCode: otp.body.developmentCode };
+  return { doctorId: doctor1.id, appointmentDate: date, appointmentTime: time, ...structuredPatientName(`booking${phone}`), gender: 'MALE', dateOfBirth: '1990-01-01', phone, addressStateId: 1, otpCode: otp.body.developmentCode };
 }
 
 
@@ -8065,9 +8265,7 @@ test('patient can securely change verified email', async () => {
   const register = await api
     .post('/api/patient-auth/register')
     .send({
-      fullName: 'Profile Email Test',
-      fullNameAr: 'اختبار تغيير البريد',
-      fullNameEn: 'Profile Email Test',
+      ...structuredPatientName('profileemail'),
       phone,
       email: currentEmail,
       dateOfBirth: '1994-04-15',
@@ -8103,7 +8301,8 @@ test('patient can securely change verified email', async () => {
     .post('/api/patient/me/email-change/request')
     .set('Authorization', `Bearer ${token}`)
     .send({
-      email: newEmail
+      email: newEmail,
+      currentPassword: password
     });
 
   assert.equal(requestChange.status, 201);
@@ -8115,12 +8314,13 @@ test('patient can securely change verified email', async () => {
     .set('Authorization', `Bearer ${token}`)
     .send({
       challengeId: requestChange.body.challengeId,
-      code: requestChange.body.developmentCode
+      code: requestChange.body.developmentCode,
+      currentPassword: password
     });
 
   assert.equal(confirmChange.status, 200);
-  assert.equal(confirmChange.body.email, newEmail);
-  assert.equal(confirmChange.body.emailVerified, true);
+  assert.equal(confirmChange.body.reauthenticationRequired, true);
+  assert.equal((await api.get('/api/patient/me').set('Authorization', `Bearer ${token}`)).status, 401);
 
   const user = await prisma.user.findUnique({
     where: {
@@ -8161,9 +8361,7 @@ test('patient phone change updates account and patient but remains unverified', 
   const register = await api
     .post('/api/patient-auth/register')
     .send({
-      fullName: 'Profile Phone Test',
-      fullNameAr: 'اختبار تغيير الهاتف',
-      fullNameEn: 'Profile Phone Test',
+      ...structuredPatientName('profilephone'),
       phone,
       email,
       dateOfBirth: '1993-03-12',
@@ -8226,7 +8424,8 @@ test('patient phone change updates account and patient but remains unverified', 
     });
 
   assert.equal(confirmChange.status, 200);
-  assert.equal(confirmChange.body.phone, newPhone);
+  assert.equal(confirmChange.body.reauthenticationRequired, true);
+  assert.equal((await api.get('/api/patient/me').set('Authorization', `Bearer ${token}`)).status, 401);
   assert.equal(confirmChange.body.phoneVerified, false);
 
   const updatedUser = await prisma.user.findUnique({
@@ -8256,9 +8455,7 @@ test('patient profile persists blood type', async () => {
   const register = await api
     .post('/api/patient-auth/register')
     .send({
-      fullName: 'Profile Blood Type Test',
-      fullNameAr: 'اختبار فصيلة الدم',
-      fullNameEn: 'Profile Blood Type Test',
+      ...structuredPatientName('profileblood'),
       phone,
       email,
       dateOfBirth: '1992-02-10',
@@ -8329,9 +8526,7 @@ test('patient lab results stay hidden until released and expose released standar
   const register = await api
     .post('/api/patient-auth/register')
     .send({
-      fullName: 'Laboratory Patient Test',
-      fullNameAr: 'مريض اختبار المختبر',
-      fullNameEn: 'Laboratory Patient Test',
+      ...structuredPatientName('laboratorypatient'),
       phone,
       email,
       dateOfBirth: '1991-05-17',
@@ -8616,9 +8811,7 @@ test('login self-heals orphan patient account by creating missing patient record
   const register = await api
     .post('/api/patient-auth/register')
     .send({
-      fullName: 'Orphan Create Test',
-      fullNameAr: 'اختبار إصلاح الحساب',
-      fullNameEn: 'Orphan Create Test',
+      ...structuredPatientName('orphancreate'),
       phone,
       email,
       dateOfBirth,
@@ -8687,7 +8880,7 @@ test('login self-heals orphan patient account by creating missing patient record
 
   assert.ok(healedPatient);
   assert.match(healedPatient.fileNumber, /^SHF-\d+$/);
-  assert.equal(healedPatient.fullNameEn, 'Orphan Create Test');
+  assert.equal(healedPatient.fullNameEn, 'Patient Test Ahmed Familyorphancreate');
   assert.equal(healedPatient.dateOfBirth, dateOfBirth);
   assert.equal(healedPatient.phone, phone);
 
@@ -8716,9 +8909,7 @@ test('login self-heals orphan account by linking exactly one existing unclaimed 
   const register = await api
     .post('/api/patient-auth/register')
     .send({
-      fullName: 'Orphan Link Test',
-      fullNameAr: 'اختبار ربط الحساب',
-      fullNameEn: 'Orphan Link Test',
+      ...structuredPatientName('orphanlink'),
       phone,
       email,
       dateOfBirth,
@@ -8816,9 +9007,7 @@ test('login does not auto-link orphan account when multiple patient records matc
   const register = await api
     .post('/api/patient-auth/register')
     .send({
-      fullName: 'Orphan Ambiguous Test',
-      fullNameAr: 'اختبار التطابق المتعدد',
-      fullNameEn: 'Orphan Ambiguous Test',
+      ...structuredPatientName('orphanambiguous'),
       phone,
       email,
       dateOfBirth,
@@ -8923,9 +9112,7 @@ test('email-only verification never auto-links an existing medical record', asyn
   const register = await api
     .post('/api/patient-auth/register')
     .send({
-      fullName: 'Email Only Security Test',
-      fullNameAr: 'اختبار أمان البريد فقط',
-      fullNameEn: 'Email Only Security Test',
+      ...structuredPatientName('emailonly'),
       phone,
       email,
       dateOfBirth,
@@ -8948,7 +9135,7 @@ test('email-only verification never auto-links an existing medical record', asyn
       id: register.body.challengeId
     },
     data: {
-      type: 'EMAIL',
+      type: 'REGISTRATION_EMAIL',
       targetNormalized: email
     }
   });
@@ -8970,12 +9157,17 @@ test('email-only verification never auto-links an existing medical record', asyn
     }
   });
 
-  const verify = await api
+  const previousProvider = process.env.VERIFICATION_PROVIDER;
+  process.env.VERIFICATION_PROVIDER = 'email';
+  let verify;
+  try {
+    verify = await api
     .post('/api/patient-auth/verify')
     .send({
       challengeId: register.body.challengeId,
       code: register.body.developmentCode
     });
+  } finally { process.env.VERIFICATION_PROVIDER = previousProvider; }
 
   assert.equal(verify.status, 200);
 

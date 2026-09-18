@@ -1,3 +1,4 @@
+import { clearPatientSession } from '../../services/authStorage.js';
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -984,6 +985,7 @@ export function Profile() {
 
   const [emailChangeOpen, setEmailChangeOpen] = useState(false);
   const [newEmail, setNewEmail] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
   const [emailChallengeId, setEmailChallengeId] = useState('');
   const [emailCode, setEmailCode] = useState('');
   const [emailChanging, setEmailChanging] = useState(false);
@@ -997,6 +999,9 @@ export function Profile() {
   const [phoneChanging, setPhoneChanging] = useState(false);
   const [phoneChangeError, setPhoneChangeError] = useState('');
   const [phoneChangeMessage, setPhoneChangeMessage] = useState('');
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [passwordChanging, setPasswordChanging] = useState(false);
+  const [passwordChangeError, setPasswordChangeError] = useState('');
 
   useEffect(() => {
     if (!data) return;
@@ -1058,6 +1063,20 @@ export function Profile() {
     }
   }
 
+  async function changePassword(event) {
+    event.preventDefault();
+    setPasswordChangeError('');
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) return setPasswordChangeError(t('passwordsDoNotMatch'));
+    setPasswordChanging(true);
+    try {
+      await apiRequest('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword: passwordForm.currentPassword, newPassword: passwordForm.newPassword }) });
+      clearPatientSession();
+      window.location.replace('/patient-login');
+    } catch (requestError) {
+      setPasswordChangeError(requestError?.message || t('passwordChangeFailed'));
+    } finally { setPasswordChanging(false); }
+  }
+
   async function requestEmailChange(event) {
     event.preventDefault();
 
@@ -1071,7 +1090,7 @@ export function Profile() {
         {
           method: 'POST',
           body: JSON.stringify({
-            email: newEmail.trim()
+            email: newEmail.trim(), currentPassword
           })
         }
       );
@@ -1110,7 +1129,7 @@ export function Profile() {
           method: 'POST',
           body: JSON.stringify({
             challengeId: emailChallengeId,
-            code: emailCode
+            code: emailCode, currentPassword
           })
         }
       );
@@ -1126,11 +1145,9 @@ export function Profile() {
       setEmailCode('');
       setNewEmail('');
 
-      try {
-        await reload();
-      } catch (reloadError) {
-        console.error('Patient profile reload error:', reloadError);
-      }
+      setCurrentPassword('');
+      clearPatientSession();
+      window.location.replace('/patient-login');
     } catch (requestError) {
       setEmailChangeError(
         requestError?.message ||
@@ -1213,11 +1230,8 @@ export function Profile() {
       setPhoneCode('');
       setNewPhone('');
 
-      try {
-        await reload();
-      } catch (reloadError) {
-        console.error('Patient profile reload error:', reloadError);
-      }
+      clearPatientSession();
+      window.location.replace('/patient-login');
     } catch (requestError) {
       setPhoneChangeError(
         requestError?.message ||
@@ -1415,6 +1429,17 @@ export function Profile() {
           <section className="patient-card">
             <h2>{t('accountSecurity')}</h2>
 
+            <div style={{ padding: '0 0 1rem', borderBottom: '1px solid var(--border-color)' }}>
+              <strong>{t('changePassword')}</strong><p style={{ margin: '.3rem 0 1rem' }}>{t('passwordChangeSignInAgain')}</p>
+              <form onSubmit={changePassword} style={{ display: 'grid', gap: '.7rem', maxWidth: 420 }}>
+                <input type="password" autoComplete="current-password" placeholder={t('currentPassword')} value={passwordForm.currentPassword} onChange={(event) => setPasswordForm({ ...passwordForm, currentPassword: event.target.value })} required />
+                <input type="password" autoComplete="new-password" placeholder={t('newPassword')} value={passwordForm.newPassword} onChange={(event) => setPasswordForm({ ...passwordForm, newPassword: event.target.value })} required minLength={10} maxLength={200} />
+                <input type="password" autoComplete="new-password" placeholder={t('confirmNewPassword')} value={passwordForm.confirmPassword} onChange={(event) => setPasswordForm({ ...passwordForm, confirmPassword: event.target.value })} required />
+                {passwordChangeError && <div className="patient-alert error" role="alert">{passwordChangeError}</div>}
+                <button className="patient-button" disabled={passwordChanging}>{passwordChanging ? t('loading') : t('changePassword')}</button>
+              </form>
+            </div>
+
             {/* Email */}
             <div
               style={{
@@ -1470,6 +1495,9 @@ export function Profile() {
                 <div style={{ marginTop: '1rem' }}>
                   {!emailChallengeId ? (
                     <form onSubmit={requestEmailChange}>
+                      <label className="patient-field">{lang === 'ar' ? 'كلمة المرور الحالية' : 'Current password'}
+                        <input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
+                      </label>
                       <label className="patient-field">
                         {lang === 'ar'
                           ? 'البريد الإلكتروني الجديد'

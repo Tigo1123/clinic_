@@ -31,8 +31,7 @@ export default function ReceptionDashboard({ lang, t }) {
   const [patientDirectoryLoaded, setPatientDirectoryLoaded] = useState(false);
 
   // Registration Form States
-  const [fullNameAr, setFullNameAr] = useState('');
-  const [fullNameEn, setFullNameEn] = useState('');
+  const [patientName, setPatientName] = useState({ firstNameAr: '', fatherNameAr: '', grandfatherNameAr: '', familyNameAr: '', firstNameEn: '', fatherNameEn: '', grandfatherNameEn: '', familyNameEn: '' });
   const [gender, setGender] = useState('MALE');
   const [dob, setDob] = useState('');
   const [phone, setPhone] = useState('');
@@ -271,7 +270,7 @@ export default function ReceptionDashboard({ lang, t }) {
         fetchPendingAppointments();
         refreshDoctorQueue();
         if (data.whatsAppLinkAr) {
-          window.open(data.whatsAppLinkAr, '_blank');
+          window.open(data.whatsAppLinkAr, '_blank', 'noopener,noreferrer');
         }
       } else {
         setErrorMsg(
@@ -426,7 +425,7 @@ export default function ReceptionDashboard({ lang, t }) {
 
   useEffect(() => {
     if (!selectedDoctor && doctors.length) {
-      setSelectedDoctor(doctors.find((doctor) => doctor.status === 'ACTIVE') || doctors[0]);
+      setSelectedDoctor(doctors[0]);
     }
   }, [doctors, selectedDoctor]);
 
@@ -567,8 +566,7 @@ export default function ReceptionDashboard({ lang, t }) {
       const res = await fetchWithAuth('/api/patients', {
         method: 'POST',
         body: JSON.stringify({
-          fullNameAr,
-          fullNameEn,
+          ...patientName,
           gender,
           dateOfBirth: dob,
           nationalId: nationalId || undefined,
@@ -584,8 +582,7 @@ export default function ReceptionDashboard({ lang, t }) {
         setBillingPatient(data);
         setActiveTab('billing'); // Redirect to billing tab
         // Clear fields
-        setFullNameAr('');
-        setFullNameEn('');
+        setPatientName({ firstNameAr: '', fatherNameAr: '', grandfatherNameAr: '', familyNameAr: '', firstNameEn: '', fatherNameEn: '', grandfatherNameEn: '', familyNameEn: '' });
         setPhone('');
         setDob('');
         setNationalId('');
@@ -673,8 +670,7 @@ export default function ReceptionDashboard({ lang, t }) {
       body.patientId = walkInPatient.id;
     } else {
       body.patient = {
-        fullNameAr,
-        fullNameEn,
+        ...patientName,
         gender,
         dateOfBirth: dob,
         nationalId: nationalId || undefined,
@@ -708,7 +704,7 @@ export default function ReceptionDashboard({ lang, t }) {
       setWalkInTime('');
       setWalkInSlots([]);
       if (walkInMode === 'NEW') {
-        setFullNameAr(''); setFullNameEn(''); setPhone(''); setDob(''); setNationalId(''); setAddressDetails(''); setEmergencyContact('');
+        setPatientName({ firstNameAr: '', fatherNameAr: '', grandfatherNameAr: '', familyNameAr: '', firstNameEn: '', fatherNameEn: '', grandfatherNameEn: '', familyNameEn: '' }); setPhone(''); setDob(''); setNationalId(''); setAddressDetails(''); setEmergencyContact('');
       }
     } catch {
       setErrorMsg(lang === 'ar' ? 'تعذر الاتصال بالخادم. تحقق من الاتصال وحاول مرة أخرى.' : 'Unable to reach the server. Check your connection and try again.');
@@ -1112,7 +1108,7 @@ export default function ReceptionDashboard({ lang, t }) {
   };
 
   const queueMetrics = [
-    { key: 'doctors', icon: Stethoscope, value: doctors.filter((doctor) => doctor.status === 'ACTIVE').length, ar: 'الأطباء المناوبون', en: 'On-duty doctors' },
+    { key: 'doctors', icon: Stethoscope, value: doctors.length, ar: 'الأطباء المناوبون', en: 'On-duty doctors' },
     { key: 'appointments', icon: CalendarDays, value: appointments.length, ar: 'مواعيد الطبيب', en: 'Doctor appointments' },
     { key: 'waiting', icon: Clock, value: appointments.filter((appointment) => appointment.status === 'CHECKED_IN').length, ar: 'بانتظار الطبيب', en: 'Waiting' },
     { key: 'pending', icon: AlertCircle, value: pendingAppointments.length, ar: 'بانتظار التأكيد', en: 'Pending approval' },
@@ -1486,24 +1482,7 @@ export default function ReceptionDashboard({ lang, t }) {
             {activeTab === 'register' && (
               <form onSubmit={handleRegisterPatient} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', overflowY: 'auto' }}>
                 <div className="form-group">
-                  <label className="form-label">{t('fullNameAr')} *</label>
-                  <input
-                    type="text"
-                    required
-                    className="form-input"
-                    value={fullNameAr}
-                    onChange={(e) => setFullNameAr(e.target.value)}
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">{t('fullNameEn')} *</label>
-                  <input
-                    type="text"
-                    required
-                    className="form-input"
-                    value={fullNameEn}
-                    onChange={(e) => setFullNameEn(e.target.value)}
-                  />
+                  {['firstNameAr','fatherNameAr','grandfatherNameAr','familyNameAr','firstNameEn','fatherNameEn','grandfatherNameEn','familyNameEn'].map((field) => <div className="form-group" key={field}><label className="form-label">{t(field)} *</label><input type="text" required className="form-input" value={patientName[field]} onChange={(e) => setPatientName((current) => ({ ...current, [field]: e.target.value }))} /></div>)}
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('phone')} *</label>
@@ -1575,15 +1554,14 @@ export default function ReceptionDashboard({ lang, t }) {
                   </div>
                 ) : (
                   <>
-                    <div className="form-group"><label className="form-label">{t('fullNameAr')} *</label><input required className="form-input" value={fullNameAr} onChange={(e) => setFullNameAr(e.target.value)} /></div>
-                    <div className="form-group"><label className="form-label">{t('fullNameEn')} *</label><input required className="form-input" value={fullNameEn} onChange={(e) => setFullNameEn(e.target.value)} /></div>
+                    {['firstNameAr','fatherNameAr','grandfatherNameAr','familyNameAr','firstNameEn','fatherNameEn','grandfatherNameEn','familyNameEn'].map((field) => <div className="form-group" key={field}><label className="form-label">{t(field)} *</label><input required className="form-input" value={patientName[field]} onChange={(e) => setPatientName((current) => ({ ...current, [field]: e.target.value }))} /></div>)}
                     <div className="form-group"><label className="form-label">{t('phone')} *</label><input required className="form-input" value={phone} onChange={(e) => setPhone(e.target.value)} /></div>
                     <div className="form-group"><label className="form-label">{lang === 'ar' ? 'تاريخ الميلاد' : 'Date of Birth'} *</label><input required type="date" className="form-input" value={dob} onChange={(e) => setDob(e.target.value)} /></div>
                     <div className="form-group"><label className="form-label">{t('gender')}</label><select className="form-input" value={gender} onChange={(e) => setGender(e.target.value)}><option value="MALE">{t('male')}</option><option value="FEMALE">{t('female')}</option></select></div>
                     <div className="form-group"><label className="form-label">{t('addressState')}</label><select className="form-input" value={addressStateId} onChange={(e) => setAddressStateId(e.target.value)}>{SUDANESE_STATES.map((st) => <option key={st.id} value={st.id}>{lang === 'ar' ? st.labelAr : st.labelEn}</option>)}</select></div>
                   </>
                 )}
-                <div className="form-group"><label className="form-label">{lang === 'ar' ? 'الطبيب' : 'Doctor'} *</label><select required className="form-input" value={walkInDoctorId} onChange={(e) => handleWalkInDoctorChange(e.target.value)}><option value="">{lang === 'ar' ? 'اختر الطبيب' : 'Select doctor'}</option>{doctors.filter((doctor) => doctor.status === 'ACTIVE').map((doctor) => <option key={doctor.id} value={doctor.id}>{lang === 'ar' ? doctor.fullNameAr : doctor.fullNameEn}</option>)}</select></div>
+                <div className="form-group"><label className="form-label">{lang === 'ar' ? 'الطبيب' : 'Doctor'} *</label><select required className="form-input" value={walkInDoctorId} onChange={(e) => handleWalkInDoctorChange(e.target.value)}><option value="">{lang === 'ar' ? 'اختر الطبيب' : 'Select doctor'}</option>{doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{lang === 'ar' ? doctor.fullNameAr : doctor.fullNameEn}</option>)}</select></div>
                 <div className="form-group"><label className="form-label">{lang === 'ar' ? 'موعد اليوم' : "Today's slot"} *</label><select required className="form-input" value={walkInTime} onChange={(e) => setWalkInTime(e.target.value)} disabled={!walkInDoctorId}><option value="">{walkInSlots.length ? (lang === 'ar' ? 'اختر الوقت' : 'Select time') : (lang === 'ar' ? 'لا توجد أوقات متاحة' : 'No available slots')}</option>{walkInSlots.map((slot) => <option key={slot} value={slot}>{slot}</option>)}</select></div>
                 <div className="badge badge-info">{lang === 'ar' ? 'سيتم تسجيل الحضور فورًا مع الالتزام ببوابة دفع الكشف.' : 'The patient will be checked in immediately; the consultation payment gate still applies.'}</div>
                 <button type="submit" className="btn btn-primary" disabled={walkInSubmitting || !walkInDoctorId || !walkInTime || (walkInMode === 'EXISTING' && !walkInPatient)}>{walkInSubmitting ? (lang === 'ar' ? 'جارٍ التسجيل...' : 'Registering...') : (lang === 'ar' ? 'تسجيل الحضور وإرسال المريض للطبيب' : 'Check in and send to doctor')}</button>

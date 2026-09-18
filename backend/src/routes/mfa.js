@@ -24,6 +24,7 @@ import { logger } from '../utils/logger.js';
 import { markSensitiveResponse } from '../utils/edgeSecurity.js';
 
 const router = express.Router();
+router.use((req, res, next) => { markSensitiveResponse(res); next(); });
 const STAFF_ROLES = [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.DOCTOR, ROLES.LAB_TECH, ROLES.PHARMACIST];
 const mfaLimiter = rateLimit({
   windowMs: rateLimits.windowMs,
@@ -67,8 +68,9 @@ async function loadStaffUser(req) {
       role: true,
       status: true,
       passwordHash: true,
+      authVersion: true,
       mfaEnabled: true,
-      mfaConfiguration: { select: { state: true } }
+      mfaConfiguration: { select: { state: true, updatedAt: true } }
     }
   });
 }
@@ -112,6 +114,7 @@ router.post('/verify', mfaLimiter, validate(loginVerificationSchema), async (req
         role: user.role,
         preferredLanguage: user.preferredLanguage,
         mfaEnabled: true,
+        mustChangePassword: user.mustChangePassword,
         doctorId: user.doctor?.id || null,
         doctorName: user.doctor?.fullNameEn || null,
         patientLinked: null,
@@ -120,7 +123,7 @@ router.post('/verify', mfaLimiter, validate(loginVerificationSchema), async (req
         phone: user.phoneNormalized
       }
     });
-  } catch (error) { next(error); }
+  } catch (error) { if (error instanceof MfaError) return handleMfaError(res, error); next(error); }
 });
 
 router.post('/recovery/verify', mfaLimiter, validate(recoveryLoginSchema), async (req, res, next) => {
@@ -165,11 +168,12 @@ router.post('/recovery/verify', mfaLimiter, validate(recoveryLoginSchema), async
       user: {
         id: user.id, username: user.username, role: user.role,
         preferredLanguage: user.preferredLanguage, mfaEnabled: true,
+        mustChangePassword: user.mustChangePassword,
         doctorId: user.doctor?.id || null, doctorName: user.doctor?.fullNameEn || null,
         patientLinked: null, patientId: null, email: user.email, phone: user.phoneNormalized
       }
     });
-  } catch (error) { next(error); }
+  } catch (error) { if (error instanceof MfaError) return handleMfaError(res, error); next(error); }
 });
 
 router.use(authenticate, allowRoles(...STAFF_ROLES), mfaLimiter);
@@ -177,7 +181,7 @@ router.use(authenticate, allowRoles(...STAFF_ROLES), mfaLimiter);
 router.post('/enroll', validate(z.object({ currentPassword: currentPasswordSchema }).strict()), async (req, res, next) => {
   try {
     const user = await loadStaffUser(req);
-    if (!user || user.status !== 'ACTIVE') return sendError(res, 401, 'SESSION_REVOKED', 'This session is no longer active.');
+    if (!user || user.status !== 'ACTIVE' || user.authVersion !== req.user.av) return sendError(res, 401, 'SESSION_REVOKED', 'This session is no longer active.');
     if (!await bcrypt.compare(req.body.currentPassword, user.passwordHash)) {
       return sendError(res, 401, 'MFA_REAUTH_FAILED', 'Current credentials are invalid.');
     }
@@ -199,7 +203,7 @@ router.post('/enroll', validate(z.object({ currentPassword: currentPasswordSchem
 
 router.post('/enroll/confirm', validate(z.object({ code: codeSchema }).strict()), async (req, res, next) => {
   try {
-    const recoveryCodes = await confirmMfaEnrollment(req.user.id, req.body.code, Date.now(), req.ip || 'unknown');
+    const recoveryCodes = await confirmMfaEnrollment(req.user.id, req.body.code, Date.now(), req.ip || 'unknown', req.user.av);
     return markSensitiveResponse(res).json({ state: 'ENABLED', recoveryCodes });
   } catch (error) {
     if (error instanceof MfaError) {
@@ -224,7 +228,7 @@ router.post('/enroll/confirm', validate(z.object({ code: codeSchema }).strict())
 router.post('/recovery/regenerate', validate(proofSchema), async (req, res, next) => {
   try {
     const user = await loadStaffUser(req);
-    if (!user?.mfaEnabled || user.mfaConfiguration?.state !== 'ACTIVE') {
+    if (!user?.mfaEnabled || user.authVersion !== req.user.av || user.mfaConfiguration?.state !== 'ACTIVE') {
       return sendError(res, 409, 'MFA_NOT_ENABLED', 'MFA is not enabled.');
     }
     if (!await verifyManagementProof(user, req.body)) {
@@ -233,6 +237,10 @@ router.post('/recovery/regenerate', validate(proofSchema), async (req, res, next
     const recoveryCodes = generateRecoveryCodes();
     const recoveryHashes = await hashRecoveryCodes(recoveryCodes);
     await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${user.id} FOR UPDATE`;
+      const current = await tx.user.findUnique({ where: { id: user.id } });
+      if (!current || current.status !== 'ACTIVE' || current.authVersion !== user.authVersion) throw new MfaError(401, 'MFA_CREDENTIALS_CHANGED', 'Credentials changed. Sign in again.');
+      await tx.user.update({ where: { id: user.id }, data: { authVersion: { increment: 1 } } });
       await tx.mfaRecoveryCode.deleteMany({ where: { userId: user.id } });
       await tx.mfaRecoveryCode.createMany({ data: recoveryHashes.map((codeHash) => ({ userId: user.id, codeHash })) });
       await tx.tenantAuditLog.create({
@@ -240,19 +248,22 @@ router.post('/recovery/regenerate', validate(proofSchema), async (req, res, next
       });
     });
     return markSensitiveResponse(res).json({ recoveryCodes });
-  } catch (error) { next(error); }
+  } catch (error) { if (error instanceof MfaError) return handleMfaError(res, error); next(error); }
 });
 
 router.delete('/', validate(proofSchema), async (req, res, next) => {
   try {
     const user = await loadStaffUser(req);
-    if (!user?.mfaEnabled || user.mfaConfiguration?.state !== 'ACTIVE') {
+    if (!user?.mfaEnabled || user.authVersion !== req.user.av || user.mfaConfiguration?.state !== 'ACTIVE') {
       return sendError(res, 409, 'MFA_NOT_ENABLED', 'MFA is not enabled.');
     }
     if (!await verifyManagementProof(user, req.body)) {
       return sendError(res, 401, 'MFA_REAUTH_FAILED', 'Current credentials or MFA proof are invalid.');
     }
     await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${user.id} FOR UPDATE`;
+      const current = await tx.user.findUnique({ where: { id: user.id } });
+      if (!current || current.status !== 'ACTIVE' || current.authVersion !== user.authVersion) throw new MfaError(401, 'MFA_CREDENTIALS_CHANGED', 'Credentials changed. Sign in again.');
       await tx.mfaChallenge.deleteMany({ where: { userId: user.id } });
       await tx.mfaRecoveryCode.deleteMany({ where: { userId: user.id } });
       await tx.mfaConfiguration.delete({ where: { userId: user.id } });
@@ -265,7 +276,7 @@ router.delete('/', validate(proofSchema), async (req, res, next) => {
       });
     });
     return res.json({ state: 'DISABLED' });
-  } catch (error) { next(error); }
+  } catch (error) { if (error instanceof MfaError) return handleMfaError(res, error); next(error); }
 });
 
 export default router;

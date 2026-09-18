@@ -1,18 +1,23 @@
+import { logoutAccount } from './services/logout.js';
 import React, { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   LogOut,
   HeartPulse,
   ShieldCheck,
-  Sun,
-  Moon
+  Eye,
+  EyeOff
 } from 'lucide-react';
+import ThemeToggle from './components/ui/ThemeToggle';
+import staff3dScene from './assets/alshifa-staff-3d.webp';
+import './features/patient-auth/patientAuth.css';
 
 import NotificationDropdown from './components/NotificationDropdown';
 import StaffSecurityDialog from './components/StaffSecurityDialog';
 import MfaCodeInput from './components/MfaCodeInput';
 import { clearStaffSession, readStaffSession, writeStaffSession } from './services/authStorage';
 import { completeStaffMfa, completeStaffMfaRecovery, isTerminalMfaError, startStaffLogin } from './services/staffLogin';
+import { fetchWithAuth } from './services/staffApi';
 import {
   configureStaffSocketSessionRevocation,
   connectStaffSocket,
@@ -37,7 +42,6 @@ export default function App({ initialView = 'login' }) {
   const [view, setView] = useState(initialView); // 'portal', 'login', 'dashboard'
   const lang = (i18n.resolvedLanguage || i18n.language || 'ar')
     .split('-')[0];
-  const [theme, setTheme] = useState('light');
   const [securityOpen, setSecurityOpen] = useState(false);
   const [recoveryLoginNotice, setRecoveryLoginNotice] = useState(false);
   const [sessionRevokedNotice, setSessionRevokedNotice] = useState(false);
@@ -45,27 +49,16 @@ export default function App({ initialView = 'login' }) {
   // Load state on mount
   useEffect(() => {
     const staffSession = readStaffSession();
-    const savedTheme = localStorage.getItem('cms_theme') || 'light';
 
     if (staffSession) {
       setUser(staffSession.user);
       setView('dashboard');
     }
-    setTheme(savedTheme);
-    document.documentElement.setAttribute('data-theme', savedTheme);
-
   }, []);
 
   const toggleLanguage = () => {
     const nextLang = lang === 'ar' ? 'en' : 'ar';
     i18n.changeLanguage(nextLang);
-  };
-
-  const toggleTheme = () => {
-    const nextTheme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(nextTheme);
-    localStorage.setItem('cms_theme', nextTheme);
-    document.documentElement.setAttribute('data-theme', nextTheme);
   };
 
   const handleLogin = (userData, token, context = {}) => {
@@ -76,7 +69,8 @@ export default function App({ initialView = 'login' }) {
     setView('dashboard');
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await logoutAccount('staff');
     setSecurityOpen(false);
     setRecoveryLoginNotice(false);
     clearStaffSession();
@@ -106,6 +100,60 @@ export default function App({ initialView = 'login' }) {
     setSessionRevokedNotice(true);
   }), []);
 
+  if (view === 'login') {
+    return (
+      <div className="patient-auth-shell patient-auth-shell--staff">
+        <header className="patient-auth-topbar">
+          <div className="patient-auth-topbar-inner">
+            <a className="patient-auth-brand" href="/" aria-label={t('brandName')}>
+              <span className="patient-auth-brand-mark"><HeartPulse size={20} aria-hidden="true" /></span>
+              <span>{t('brandName')}</span>
+            </a>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+              <a
+                className="staff-topbar-patient-link"
+                href="/patient-login"
+              >
+                {t('patientPortal')}
+              </a>
+              <ThemeToggle
+                className="staff-theme-toggle-btn"
+                size={15}
+              />
+              <div className="patient-auth-language" role="group" aria-label="Language">
+                <button type="button" className={lang === 'ar' ? 'active' : ''} onClick={() => i18n.changeLanguage('ar')} lang="ar" aria-pressed={lang === 'ar'}>العربية</button>
+                <button type="button" className={lang !== 'ar' ? 'active' : ''} onClick={() => i18n.changeLanguage('en')} lang="en" aria-pressed={lang !== 'ar'}>English</button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {sessionRevokedNotice && (
+          <div style={{ width: 'min(960px, calc(100% - 64px))', margin: '10px auto -10px' }}>
+            <div role="alert" className="patient-alert error">{t('sessionNoLongerValid')}</div>
+          </div>
+        )}
+
+        <div className="patient-auth-stage">
+          <aside className="patient-auth-aside" aria-hidden="true">
+            <img
+              className="patient-auth-illustration patient-auth-illustration--3d patient-auth-illustration--staff"
+              src={staff3dScene}
+              alt=""
+              width="500"
+              height="373"
+              decoding="async"
+              fetchPriority="high"
+            />
+          </aside>
+          <div className="patient-auth-content">
+            <LoginView onLogin={handleLogin} t={t} lang={lang} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app-layout">
       {/* Global Navbar */}
@@ -118,20 +166,18 @@ export default function App({ initialView = 'login' }) {
           <button className="lang-toggle-btn" onClick={toggleLanguage}>
             {lang === 'ar' ? 'English' : 'العربية'}
           </button>
-          <button className="lang-toggle-btn" style={{ padding: '0.5rem' }} onClick={toggleTheme}>
-            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
+          <ThemeToggle className="lang-toggle-btn" style={{ padding: '0.5rem' }} size={18} />
 
           {user ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              <NotificationDropdown userId={user?.id} lang={lang} />
+              {!user.mustChangePassword && <NotificationDropdown userId={user?.id} lang={lang} />}
               <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
                 {user.username} ({user.role})
               </span>
-              <button className="btn btn-secondary" onClick={() => setSecurityOpen(true)}>
+              {!user.mustChangePassword && <button className="btn btn-secondary" onClick={() => setSecurityOpen(true)}>
                 <ShieldCheck size={16} />
                 {t('securitySettings')}
-              </button>
+              </button>}
               <button className="btn btn-secondary" onClick={handleLogout}>
                 <LogOut size={16} />
                 {t('logout')}
@@ -144,25 +190,57 @@ export default function App({ initialView = 'login' }) {
       {/* Main Container */}
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         {recoveryLoginNotice && user && <div role="status" className="badge badge-warning recovery-login-notice">{t('recoveryLoginNotice')}</div>}
-        {sessionRevokedNotice && view === 'login' && (
+        {sessionRevokedNotice && (
           <div role="alert" className="badge badge-danger staff-login-error">{t('sessionNoLongerValid')}</div>
         )}
-        {view === 'login' && <LoginView onLogin={handleLogin} t={t} />}
-        {view === 'dashboard' && user && (
-          <DashboardContainer user={user} lang={lang} t={t} />
-        )}
+        {view === 'dashboard' && user && (user.mustChangePassword
+          ? <RequiredPasswordChange t={t} onComplete={handleLogout} />
+          : <DashboardContainer user={user} lang={lang} t={t} />)}
       </main>
       {securityOpen && user && <StaffSecurityDialog user={user} onUserChange={handleUserChange} onClose={() => setSecurityOpen(false)} t={t} />}
     </div>
   );
 }
 
+function RequiredPasswordChange({ t, onComplete }) {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const submit = async (event) => {
+    event.preventDefault();
+    setError('');
+    if (newPassword !== confirmPassword) return setError(t('passwordsDoNotMatch'));
+    setSaving(true);
+    try {
+      const response = await fetchWithAuth('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body?.error?.message || body?.error || t('passwordChangeFailed'));
+      await onComplete();
+    } catch (requestError) { setError(requestError.message); }
+    finally { setSaving(false); }
+  };
+  return <section className="staff-login-card" style={{ maxWidth: 460, margin: '3rem auto' }}>
+    <div className="staff-mfa-icon"><ShieldCheck size={30} /></div>
+    <h2>{t('passwordChangeRequired')}</h2><p>{t('passwordChangeRequiredDescription')}</p>
+    <form onSubmit={submit} className="staff-login-form">
+      <input className="form-input" type="password" autoComplete="current-password" placeholder={t('currentPassword')} value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
+      <input className="form-input" type="password" autoComplete="new-password" placeholder={t('newPassword')} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required minLength={10} maxLength={200} />
+      <input className="form-input" type="password" autoComplete="new-password" placeholder={t('confirmNewPassword')} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required />
+      {error && <div role="alert" className="badge badge-danger">{error}</div>}
+      <button className="btn btn-primary" disabled={saving}>{saving ? t('loading') : t('savePassword')}</button>
+    </form>
+  </section>;
+}
+
 /* ==========================================
    PATIENT PUBLIC BOOKING PORTAL
    ========================================== */
-function LoginView({ onLogin, t }) {
+function LoginView({ onLogin, t, lang }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [mfaChallenge, setMfaChallenge] = useState(null);
   const [mfaMethod, setMfaMethod] = useState('totp');
   const [errorMsg, setErrorMsg] = useState('');
@@ -262,78 +340,138 @@ function LoginView({ onLogin, t }) {
   };
 
   if (mfaChallenge) return (
-    <div className="portal-container glass-panel staff-login-card">
-      <div className="staff-mfa-icon" aria-hidden="true"><ShieldCheck size={30} /></div>
-      <h3 className="staff-login-title">{mfaMethod === 'totp' ? t('twoFactorAuthentication') : t('recoveryCodeTitle')}</h3>
-      <p className="staff-login-description">{mfaMethod === 'totp' ? t('mfaCodeInstructions') : t('recoveryCodeLoginDescription')}</p>
-      {errorMsg && <div role="alert" className="badge badge-danger staff-login-error">{errorMsg}</div>}
-      <form onSubmit={handleMfaSubmit} className="staff-login-form">
-        {mfaMethod === 'totp' ? <div className="form-group">
-          <label className="form-label" htmlFor="staff-mfa-code">{t('authenticatorCode')}</label>
-          <MfaCodeInput
-            ref={mfaCodeRef}
-            id="staff-mfa-code"
-            required
-            autoFocus
-            className="form-input staff-mfa-code"
-          />
-        </div> : <div className="form-group">
-          <label className="form-label" htmlFor="staff-recovery-code">{t('recoveryCodeTitle')}</label>
-          <input ref={recoveryCodeRef} id="staff-recovery-code" type="text" autoComplete="off" required className="form-input" />
-        </div>}
-        <button type="submit" disabled={submitting} className="btn btn-primary staff-login-submit">
+    <section className="patient-auth" aria-labelledby="staff-mfa-title">
+      <header className="patient-auth-heading">
+        <div className="patient-auth-brand-mark" style={{ marginBottom: '12px', width: '40px', height: '40px' }}>
+          <ShieldCheck size={22} aria-hidden="true" />
+        </div>
+        <h1 id="staff-mfa-title">{mfaMethod === 'totp' ? t('twoFactorAuthentication') : t('recoveryCodeTitle')}</h1>
+        <p className="patient-auth-intro">{mfaMethod === 'totp' ? t('mfaCodeInstructions') : t('recoveryCodeLoginDescription')}</p>
+      </header>
+
+      {errorMsg && <div role="alert" className="patient-alert error">{errorMsg}</div>}
+
+      <form onSubmit={handleMfaSubmit}>
+        {mfaMethod === 'totp' ? (
+          <label className="patient-field">
+            {t('authenticatorCode')}
+            <MfaCodeInput
+              ref={mfaCodeRef}
+              id="staff-mfa-code"
+              required
+              autoFocus
+              className="form-input staff-mfa-code"
+            />
+          </label>
+        ) : (
+          <label className="patient-field">
+            {t('recoveryCodeTitle')}
+            <input ref={recoveryCodeRef} id="staff-recovery-code" type="text" autoComplete="off" required dir="ltr" />
+          </label>
+        )}
+
+        <button type="submit" disabled={submitting} className="patient-button" style={{ marginTop: '10px' }}>
           {submitting ? t('verifying') : mfaMethod === 'totp' ? t('verify') : t('verifyRecoveryCode')}
         </button>
-        <button type="button" disabled={submitting} className="btn btn-secondary staff-login-submit" onClick={() => { clearMfaCode(); setErrorMsg(''); setMfaMethod(mfaMethod === 'totp' ? 'recovery' : 'totp'); }}>
+
+        <button
+          type="button"
+          disabled={submitting}
+          className="patient-button secondary"
+          style={{ marginTop: '10px' }}
+          onClick={() => { clearMfaCode(); setErrorMsg(''); setMfaMethod(mfaMethod === 'totp' ? 'recovery' : 'totp'); }}
+        >
           {mfaMethod === 'totp' ? <>{t('lostYourPhone')} {t('useRecoveryCode')}</> : t('useAuthenticatorInstead')}
         </button>
-        <button type="button" disabled={submitting} className="btn btn-secondary staff-login-submit" onClick={cancelMfa}>
+
+        <button
+          type="button"
+          disabled={submitting}
+          className="patient-button secondary"
+          style={{ marginTop: '10px' }}
+          onClick={cancelMfa}
+        >
           {t('backToLogin')}
         </button>
       </form>
-    </div>
+    </section>
   );
 
   return (
-    <div className="portal-container glass-panel staff-login-card">
-      <h3 className="staff-login-title">{t('login')}</h3>
+    <section className="patient-auth" aria-labelledby="staff-auth-title">
+      <header className="patient-auth-heading">
+        <p className="patient-auth-welcome">{t('staffPortal') || 'بوابة الموظفين'}</p>
+        <h1 id="staff-auth-title">{t('signIn') || 'تسجيل الدخول'}</h1>
+        <p className="patient-auth-intro">
+          {lang === 'ar'
+            ? 'دخول آمن للكوادر الطبية والإدارية'
+            : 'Secure access for medical and administrative staff'}
+        </p>
+      </header>
+
       {errorMsg && (
-        <div role="alert" className="badge badge-danger staff-login-error">
+        <div role="alert" className="patient-alert error">
           {errorMsg}
         </div>
       )}
-      <form onSubmit={handleSubmit} className="staff-login-form">
-        <div className="form-group">
-          <label className="form-label" htmlFor="staff-username">{t('username')}</label>
+
+      <form onSubmit={handleSubmit}>
+        <label className="patient-field">
+          {t('username')}
           <input
             id="staff-username"
+            className="patient-auth-identifier"
             type="email"
             required
             autoComplete="username"
-            className="form-input"
             placeholder="staff@cms.com"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
+            dir="ltr"
           />
-        </div>
-        <div className="form-group">
-          <label className="form-label" htmlFor="staff-password">{t('password')}</label>
-          <input
-            id="staff-password"
-            type="password"
-            required
-            autoComplete="current-password"
-            className="form-input"
-            placeholder="••••••••"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </div>
-        <button type="submit" disabled={submitting} className="btn btn-primary staff-login-submit">
-          {submitting ? t('loading') : t('login')}
+        </label>
+
+        <label className="patient-field">
+          {t('password')}
+          <span className="patient-field__password-wrap">
+            <input
+              id="staff-password"
+              className="patient-field__password-input"
+              type={showPassword ? 'text' : 'password'}
+              required
+              autoComplete="current-password"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            <button
+              type="button"
+              className="patient-field__password-toggle"
+              aria-label={showPassword ? t('hidePassword') : t('showPassword')}
+              onClick={() => setShowPassword(!showPassword)}
+            >
+              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </span>
+        </label>
+
+        <button
+          type="submit"
+          disabled={submitting}
+          className="patient-button"
+          style={{ marginTop: '6px' }}
+        >
+          {submitting ? t('loading') : (t('signIn') || t('login'))}
         </button>
+
+        <div className="patient-auth-create-account">
+          <p>{lang === 'ar' ? 'هل تبحث عن خدمات المرضى؟' : 'Looking for patient services?'}</p>
+          <a href="/patient-login" className="patient-auth-secondary-button">
+            {t('patientPortal')}
+          </a>
+        </div>
       </form>
-    </div>
+    </section>
   );
 }
 

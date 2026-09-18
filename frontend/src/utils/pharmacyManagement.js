@@ -1,3 +1,5 @@
+import { clinicDateString } from './clinicTime.js';
+
 const metadataFields = ['brandName', 'labelAr', 'labelEn', 'genericName', 'strength', 'dosageForm'];
 const pharmacyReviewRequiredCodes = new Set([
   'PHARMACY_REFUNDED_INVOICE_REVIEW_REQUIRED',
@@ -206,7 +208,7 @@ export function validateBatchForm(form, lang = 'en') {
   const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(form.expiryDate || '');
   const parsedDate = dateMatch ? new Date(Date.UTC(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]))) : null;
   const isRealDate = parsedDate && parsedDate.getUTCFullYear() === Number(dateMatch[1]) && parsedDate.getUTCMonth() === Number(dateMatch[2]) - 1 && parsedDate.getUTCDate() === Number(dateMatch[3]);
-  const clinicToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Kigali', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const clinicToday = clinicDateString();
   if (!isRealDate) errors.expiryDate = ar ? 'أدخل تاريخ صلاحية صحيحًا.' : 'Enter a valid expiry date.';
   else if (form.expiryDate <= clinicToday) errors.expiryDate = ar ? 'يجب أن يكون تاريخ الصلاحية بعد اليوم.' : 'Expiry date must be after today.';
   const quantity = Number(form.receivedQuantity);

@@ -1,0 +1,12 @@
+[Unit]
+Description=Twenty-minute LAN backup scheduling foundation (not enabled)
+ConditionPathIsExecutable=/usr/local/sbin/clinic-lan-consistent-backup
+
+[Timer]
+OnCalendar=*:0/20
+Persistent=true
+RandomizedDelaySec=60
+Unit=clinic-lan-backup.service
+
+[Install]
+WantedBy=timers.target

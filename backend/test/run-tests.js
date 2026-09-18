@@ -3,6 +3,8 @@ import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const backendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const focusedFiles = process.argv.slice(2);
+if (focusedFiles.some((file) => !/^test\/[a-z0-9-]+\.test\.js$/.test(file))) throw new Error('Invalid focused test path');
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!testDatabaseUrl) throw new Error('TEST_DATABASE_URL is required for the isolated PostgreSQL test database.');
 const parsedTestUrl = new URL(testDatabaseUrl);
@@ -30,7 +32,7 @@ for (const [command, args] of [
   ['npx', ['prisma', 'generate']],
   ['npx', ['prisma', 'migrate', 'deploy']],
   ['node', ['prisma/seed.js']],
-  ['node', ['--test', '--test-concurrency=1', 'test/access-token.test.js', 'test/clinic-time.test.js', 'test/integration.test.js', 'test/medicine-management.test.js', 'test/medicine-migration.test.js', 'test/mfa.test.js', 'test/mrn-sequence-provisioning.test.js', 'test/password-policy.test.js', 'test/patient-file-projection.test.js', 'test/patient.test.js', 'test/reference-bootstrap.test.js', 'test/seed-security.test.js', 'test/smtp-config.test.js', 'test/socket-revocation.test.js']]
+  ['node', ['--test', '--test-concurrency=1', ...(focusedFiles.length ? focusedFiles : ['test/auth-foundations.test.js', 'test/access-token.test.js', 'test/clinic-time.test.js', 'test/integration.test.js', 'test/medicine-management.test.js', 'test/medicine-migration.test.js', 'test/mfa.test.js', 'test/mrn-sequence-provisioning.test.js', 'test/offline-patient-activation.test.js', 'test/password-policy.test.js', 'test/patient-file-projection.test.js', 'test/patient.test.js', 'test/patient-onboarding.test.js', 'test/reference-bootstrap.test.js', 'test/seed-security.test.js', 'test/smtp-config.test.js', 'test/socket-revocation.test.js'])]]
 ]) {
   const result = spawnSync(command, args, { cwd: backendDir, env, stdio: 'inherit' });
   if (result.status !== 0) process.exit(result.status || 1);

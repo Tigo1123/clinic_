@@ -81,8 +81,19 @@ MFA enforcement is not implemented and must not be represented as active.
 6. Start the backend and frontend immutable images; do not run the seed script in production.
 7. Execute `PRODUCTION_CHECKLIST.md` and the non-destructive smoke tests.
 
-Production and normal staging startup run migrations and start the server only. They never seed:
-`npm run start:container` or `npm run start:staging`. If a brand-new non-production staging
+Production startup and normal staging startup never seed. The production Docker command remains
+`npm run start:container`. For the existing Render staging backend service, keep the Docker
+Command permanently set to `npm run start:staging:migrate`; it runs `prisma migrate deploy` and,
+only on success, starts the long-running `npm run start:staging` process. If there are no pending
+migrations, Prisma exits successfully and the server starts normally. If a migration fails, the
+server does not start.
+
+Feature branches are developed and tested locally, then approved changes are merged into the
+permanent `staging` branch. Keep Render staging services connected to `staging`. This repository
+does not contain a Render Blueprint for the existing services, so set that branch once in the
+Render Dashboard; this workflow does not change production services or branches.
+
+If a brand-new non-production staging
 database deliberately needs demo fixtures, run `DEPLOYMENT_ENV=staging ALLOW_STAGING_SEED=true
 npm run seed:staging` once as a separate manual job, then remove `ALLOW_STAGING_SEED`. Never put
 that flag in a persistent Render environment group. Create the first production administrator

@@ -1,0 +1,20 @@
+.admin-schedule-panel { display:flex; flex-direction:column; gap:1rem; }
+.admin-schedule-header { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; padding:1.25rem; border-radius:16px; background:linear-gradient(135deg, var(--color-primary, #0f766e), #164e63); color:#fff; }
+.admin-schedule-eyebrow { display:flex; align-items:center; gap:.45rem; font-size:.8rem; opacity:.9; }
+.admin-schedule-header h2 { margin:.4rem 0; }
+.admin-schedule-header p { margin:0; opacity:.9; }
+.admin-schedule-doctor { margin:0; color:var(--text-secondary, #64748b); }
+.admin-schedule-notice { padding:.75rem 1rem; border-inline-start:4px solid var(--color-primary, #0f766e); border-radius:8px; background:var(--surface-muted, #f0fdfa); color:var(--text-primary, #134e4a); }
+.admin-schedule-empty { padding:1rem; border:1px dashed var(--border-color, #cbd5e1); border-radius:12px; color:var(--text-secondary, #64748b); }
+.admin-period-list { display:grid; gap:1rem; margin-top:1rem; }
+.admin-period { border:1px solid var(--border-color, #e2e8f0); border-radius:12px; padding:1rem; min-width:0; }
+.admin-period legend { padding:0 .4rem; font-weight:700; }
+.admin-period-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; align-items:end; }
+.admin-period-grid label, .admin-break { display:flex; flex-direction:column; gap:.35rem; }
+.admin-breaks { display:flex; flex-direction:column; gap:.6rem; margin-top:1rem; }
+.admin-break { display:grid; grid-template-columns:1fr 1fr auto; align-items:end; gap:.5rem; }
+.admin-schedule-actions { display:flex; flex-wrap:wrap; gap:.75rem; margin-top:1rem; }
+.admin-exception-form { margin-top:1.5rem; padding-top:1.5rem; border-top:1px solid var(--border-color, #e2e8f0); }
+.admin-exception-form h3 { margin-top:0; }
+.admin-exception { display:flex; justify-content:space-between; align-items:center; gap:.75rem; padding:.75rem 0; border-bottom:1px solid var(--border-color, #e2e8f0); }
+@media (max-width: 700px) { .admin-period-grid { grid-template-columns:1fr; } .admin-break { grid-template-columns:1fr 1fr auto; } .admin-exception { align-items:flex-start; flex-direction:column; } }

@@ -9,6 +9,16 @@ generator client {
   binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
+enum ScheduleDayOfWeek {
+  SUNDAY
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+}
+
 model User {
   id                         String                  @id @default(uuid())
   username                   String                  @unique
@@ -17,6 +27,7 @@ model User {
   status                     String                  @default("ACTIVE") // ACTIVE, INACTIVE
   lastPasswordChange         DateTime?
   authVersion                Int                     @default(0)
+  mustChangePassword         Boolean                 @default(false)
   mfaSecret                  String?
   mfaEnabled                 Boolean                 @default(false)
   mfaConfiguration           MfaConfiguration?
@@ -30,6 +41,7 @@ model User {
   emailVerifiedAt            DateTime?
   phoneVerifiedAt            DateTime?
   patient                    Patient?
+  externalIdentities         UserExternalIdentity[]
   verificationChallenges     VerificationChallenge[]
   issuedClaimCodes           PatientClaimCode[]      @relation("ClaimCodeIssuer")
   pendingPatientRegistration PatientRegistration?
@@ -45,21 +57,111 @@ model State {
 }
 
 model Doctor {
-  id              String          @id @default(uuid())
-  userId          String          @unique
-  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  fullNameAr      String
-  fullNameEn      String
-  specialtyAr     String
-  specialtyEn     String
-  consultationFee Decimal
-  weeklySchedule  String // JSON config of slots & hours
-  status          String          @default("ACTIVE") // ACTIVE, INACTIVE
-  updatedAt       DateTime        @updatedAt
-  appointments    Appointment[]
-  medicalRecords  MedicalRecord[]
-  prescriptions   Prescription[]
-  labOrders       LabOrder[]
+  id                 String                    @id @default(uuid())
+  userId             String                    @unique
+  user               User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullNameAr         String
+  fullNameEn         String
+  specialtyAr        String
+  specialtyEn        String
+  specialtyId        String?
+  specialty          Specialty?                @relation(fields: [specialtyId], references: [id], onDelete: Restrict)
+  consultationFee    Decimal
+  weeklySchedule     String // JSON config of slots & hours
+  status             String                    @default("ACTIVE") // ACTIVE, INACTIVE
+  updatedAt          DateTime                  @updatedAt
+  appointments       Appointment[]
+  medicalRecords     MedicalRecord[]
+  prescriptions      Prescription[]
+  labOrders          LabOrder[]
+  schedules          DoctorSchedule[]
+  scheduleExceptions DoctorScheduleException[]
+}
+
+model DoctorSchedule {
+  id            String                 @id @default(uuid())
+  doctorId      String
+  doctor        Doctor                 @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  effectiveFrom String
+  effectiveTo   String?
+  active        Boolean                @default(true)
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  periods       DoctorSchedulePeriod[]
+
+  @@index([doctorId, effectiveFrom, effectiveTo])
+  @@index([doctorId, active])
+}
+
+model DoctorSchedulePeriod {
+  id                  String                @id @default(uuid())
+  scheduleId          String
+  schedule            DoctorSchedule        @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  dayOfWeek           ScheduleDayOfWeek
+  startTime           String
+  endTime             String
+  slotDurationMinutes Int
+  active              Boolean               @default(true)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  breaks              DoctorScheduleBreak[]
+
+  @@index([scheduleId, dayOfWeek, active])
+}
+
+model DoctorScheduleBreak {
+  id        String               @id @default(uuid())
+  periodId  String
+  period    DoctorSchedulePeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  startTime String
+  endTime   String
+  active    Boolean              @default(true)
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  @@index([periodId, active])
+}
+
+model DoctorScheduleException {
+  id        String                          @id @default(uuid())
+  doctorId  String
+  doctor    Doctor                          @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  date      String
+  type      String
+  reason    String?
+  active    Boolean                         @default(true)
+  createdAt DateTime                        @default(now())
+  updatedAt DateTime                        @updatedAt
+  periods   DoctorScheduleExceptionPeriod[]
+
+  @@unique([doctorId, date])
+  @@index([doctorId, date, active])
+}
+
+model DoctorScheduleExceptionPeriod {
+  id                  String                  @id @default(uuid())
+  exceptionId         String
+  exception           DoctorScheduleException @relation(fields: [exceptionId], references: [id], onDelete: Cascade)
+  startTime           String
+  endTime             String
+  slotDurationMinutes Int
+  active              Boolean                 @default(true)
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+
+  @@index([exceptionId, active])
+}
+
+model Specialty {
+  deletionProtected Boolean @default(false)
+  id        String   @id @default(uuid())
+  code      String   @unique
+  nameAr    String
+  nameEn    String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  doctors   Doctor[]
 }
 
 model Patient {
@@ -67,6 +169,14 @@ model Patient {
   fileNumber               String             @unique @default(dbgenerated("('SHF-'::text || lpad(nextval('patient_file_number_seq'::regclass)::text, 6, '0'::text))"))
   fullNameAr               String
   fullNameEn               String
+  firstNameAr              String?
+  fatherNameAr             String?
+  grandfatherNameAr        String?
+  familyNameAr             String?
+  firstNameEn              String?
+  fatherNameEn             String?
+  grandfatherNameEn        String?
+  familyNameEn             String?
   gender                   String // MALE, FEMALE
   dateOfBirth              String // YYYY-MM-DD
   nationalId               String?            @unique
@@ -281,7 +391,40 @@ model LabOrder {
   releasedToPatientAt DateTime?
 }
 
+model UserExternalIdentity {
+  id                   String   @id @default(uuid())
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider             String
+  providerSubject      String
+  normalizedEmailAtLink String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([provider, providerSubject])
+  @@unique([userId, provider])
+  @@index([userId])
+}
+
+model PendingExternalAuth {
+  id              String   @id @default(uuid())
+  provider        String
+  providerSubject String
+  verifiedEmail   String
+  capabilityHash  String   @unique
+  expiresAt       DateTime
+  consumedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // One row per provider identity is deliberately retained across expiry and
+  // consumption; a later attempt refreshes the same short-lived state.
+  @@unique([provider, providerSubject])
+  @@index([expiresAt, consumedAt])
+}
+
 model VerificationChallenge {
+  authVersion      Int?
   id               String    @id @default(uuid())
   userId           String
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -336,28 +479,40 @@ model MfaChallenge {
 }
 
 model PatientClaimCode {
-  id          String    @id @default(uuid())
-  patientId   String
-  patient     Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  codeHash    String
-  expiresAt   DateTime
-  usedAt      DateTime?
-  createdById String
-  createdBy   User      @relation("ClaimCodeIssuer", fields: [createdById], references: [id])
-  createdAt   DateTime  @default(now())
+  id                String    @id @default(uuid())
+  patientId         String
+  patient           Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  codeHash          String
+  publicId          String?   @unique
+  expiresAt         DateTime
+  attemptCount      Int       @default(0)
+  maxAttempts       Int       @default(5)
+  usedAt            DateTime?
+  createdById       String
+  createdBy         User      @relation("ClaimCodeIssuer", fields: [createdById], references: [id])
+  issuerAuthVersion Int?
+  createdAt         DateTime  @default(now())
 
   @@index([patientId, createdAt])
 }
 
 model PatientRegistration {
-  userId         String   @id
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  fullNameAr     String
-  fullNameEn     String
-  gender         String
-  dateOfBirth    String
-  addressStateId Int
-  createdAt      DateTime @default(now())
+  userId            String   @id
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullNameAr        String
+  fullNameEn        String
+  firstNameAr       String?
+  fatherNameAr      String?
+  grandfatherNameAr String?
+  familyNameAr      String?
+  firstNameEn       String?
+  fatherNameEn      String?
+  grandfatherNameEn String?
+  familyNameEn      String?
+  gender            String
+  dateOfBirth       String
+  addressStateId    Int
+  createdAt         DateTime @default(now())
 }
 
 model LabOrderItem {

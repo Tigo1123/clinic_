@@ -16,6 +16,9 @@ import patientAuthRoutes from './routes/patientAuth.js';
 import patientSelfRoutes from './routes/patient.js';
 import mfaRoutes from './routes/mfa.js';
 import pharmacyRoutes from './routes/pharmacy.js';
+import specialtyRoutes from './routes/specialties.js';
+import adminSchedulingRoutes from './routes/adminScheduling.js';
+import adminDoctorRoutes from './routes/adminDoctors.js';
 import { errorHandler, notFoundHandler } from './utils/apiError.js';
 import { fileURLToPath } from 'url';
 import { validateEnvironment } from './config.js';
@@ -90,19 +93,15 @@ app.get(['/api/health', '/api/health/ready'], async (req, res) => {
   try {
     // Basic DB ping to ensure connection works
     await prisma.$queryRaw`SELECT 1`;
-    return res.json({
-      status: 'healthy',
-      database: 'connected',
-      timestamp: new Date().toISOString()
-    });
+    if (!socketRevocation.isReady()) return res.status(503).json({ status: 'unhealthy' });
+    return res.json({ status: 'healthy' });
   } catch (error) {
     logger.error('health.database_failed', { requestId: req.id, error });
-    return res.status(503).json({
-      status: 'unhealthy',
-      database: 'disconnected'
-    });
+    return res.status(503).json({ status: 'unhealthy' });
   }
 });
+
+app.get('/api/public-config', (req, res) => res.json({ clinicTimeZone: environment.clinicTimeZone }));
 
 // Mount modular API routes
 app.use('/api/auth', authRoutes);
@@ -113,10 +112,13 @@ app.use('/api/records', recordRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/admin', adminSchedulingRoutes);
+app.use('/api/admin', adminDoctorRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/patient-auth', patientAuthRoutes);
 app.use('/api/patient', patientSelfRoutes);
 app.use('/api/pharmacy', pharmacyRoutes);
+app.use('/api/specialties', specialtyRoutes);
 
 // Fallback handler for unmatched API endpoints to ensure JSON response instead of HTML
 app.use('/api', notFoundHandler);

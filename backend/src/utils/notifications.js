@@ -18,7 +18,10 @@ export function smtpTransport(config = readSmtpConfig()) {
  * Sends a real or mock email.
  */
 export async function sendEmail({ to, subject, text, html }) {
-  if (process.env.NOTIFICATIONS_DISABLED === 'true') return { messageId: 'notifications-disabled' };
+  if (process.env.NOTIFICATIONS_DISABLED === 'true') {
+    logger.info('email.disabled', { delivered: false });
+    return null;
+  }
   const smtp = readSmtpConfig();
   const transporter = smtpTransport(smtp);
   if (!transporter) {

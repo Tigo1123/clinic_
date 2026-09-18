@@ -9,6 +9,10 @@ backend/prisma/qa.db
 backend/.env.qa
 backend/uploads/
 backend/backups/
+.local/lan-backups/
+deploy/lan/keys/
+*.backup-private.asc
+*.backup-secret.asc
 frontend/.env
 frontend/.env.*
 !frontend/.env.example

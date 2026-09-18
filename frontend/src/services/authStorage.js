@@ -58,7 +58,7 @@ export function clearStaffSession() {
 
 export function readPatientSession() {
   return readSession(
-    localStorage,
+    sessionStorage,
     PATIENT_USER_KEY,
     PATIENT_TOKEN_KEY,
     (user) => user.role === 'PATIENT'
@@ -67,14 +67,14 @@ export function readPatientSession() {
 
 export function writePatientSession(user, token) {
   if (user?.role !== 'PATIENT' || !token) throw new Error('Invalid patient session');
-  writeSession(localStorage, PATIENT_USER_KEY, PATIENT_TOKEN_KEY, user, token);
+  writeSession(sessionStorage, PATIENT_USER_KEY, PATIENT_TOKEN_KEY, user, token);
 }
 
 export function updateStoredPatient(user) {
-  localStorage.setItem(PATIENT_USER_KEY, JSON.stringify(user));
+  sessionStorage.setItem(PATIENT_USER_KEY, JSON.stringify(user));
 }
 
 export function clearPatientSession() {
-  localStorage.removeItem(PATIENT_USER_KEY);
-  localStorage.removeItem(PATIENT_TOKEN_KEY);
+  sessionStorage.removeItem(PATIENT_USER_KEY);
+  sessionStorage.removeItem(PATIENT_TOKEN_KEY);
 }

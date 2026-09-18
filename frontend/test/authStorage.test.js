@@ -62,8 +62,8 @@ test('incomplete or wrong-role sessions are cleared safely', () => {
   assert.equal(authStorage.readStaffSession(), null);
   assert.equal(sessionStorage.getItem(authStorage.STAFF_USER_KEY), null);
 
-  localStorage.setItem(authStorage.PATIENT_USER_KEY, JSON.stringify({ role: 'ADMIN' }));
-  localStorage.setItem(authStorage.PATIENT_TOKEN_KEY, 'wrong-token');
+  sessionStorage.setItem(authStorage.PATIENT_USER_KEY, JSON.stringify({ role: 'ADMIN' }));
+  sessionStorage.setItem(authStorage.PATIENT_TOKEN_KEY, 'wrong-token');
   assert.equal(authStorage.readPatientSession(), null);
-  assert.equal(localStorage.getItem(authStorage.PATIENT_TOKEN_KEY), null);
+  assert.equal(sessionStorage.getItem(authStorage.PATIENT_TOKEN_KEY), null);
 });

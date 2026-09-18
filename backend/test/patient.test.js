@@ -27,7 +27,7 @@ async function login(username, pass = password) {
   return response;
 }
 async function register(phone, email, overrides = {}) {
-  return api.post('/api/patient-auth/register').send({ fullName: 'Online Patient', phone, email, dateOfBirth: '1990-01-01', gender: 'MALE', password, ...overrides });
+  return api.post('/api/patient-auth/register').send({ firstNameAr: 'مريض', fatherNameAr: 'اختبار', grandfatherNameAr: 'أحمد', familyNameAr: 'الأسرة', firstNameEn: 'Online', fatherNameEn: 'Patient', grandfatherNameEn: 'Test', familyNameEn: 'Family', phone, email, dateOfBirth: '1990-01-01', gender: 'MALE', password, ...overrides });
 }
 async function registerAndVerify(phone, email, overrides = {}) {
   const registration = await register(phone, email, overrides);
@@ -54,6 +54,31 @@ before(async () => {
 after(async () => {
   await prisma.$disconnect();
   if (httpServer.listening) await new Promise((resolve) => httpServer.close(resolve));
+});
+
+test('new patient registration requires all bilingual name components and derives canonical legacy names', async () => {
+  const complete = {
+    firstNameAr: '  محمد ', fatherNameAr: ' أحمد', grandfatherNameAr: '  علي ', familyNameAr: ' النور ',
+    firstNameEn: '  Mohamed ', fatherNameEn: ' Ahmed ', grandfatherNameEn: ' Ali ', familyNameEn: ' Noor '
+  };
+  const rejected = await register('+250788210001', 'structured-missing@example.com', { ...complete, familyNameEn: '   ' });
+  assert.equal(rejected.status, 422);
+  const registered = await register('+250788210002', 'structured-name@example.com', complete);
+  assert.equal(registered.status, 201);
+  const pending = await prisma.patientRegistration.findUnique({ where: { userId: (await prisma.verificationChallenge.findUnique({ where: { id: registered.body.challengeId } })).userId } });
+  assert.equal(pending.fullNameAr, 'محمد أحمد علي النور');
+  assert.equal(pending.fullNameEn, 'Mohamed Ahmed Ali Noor');
+  assert.equal(pending.firstNameAr, 'محمد');
+});
+
+test('legacy rows remain unsplit while structured patient search matches individual components', async () => {
+  const legacy = await prisma.patient.create({ data: { fullNameAr: 'اسم تراثي كامل', fullNameEn: 'Legacy Full Name', gender: 'MALE', dateOfBirth: '1985-01-01', phone: '+250788210003', addressStateId: 1, emergencyContact: 'Self' } });
+  assert.equal(legacy.firstNameAr, null);
+  const created = await api.post('/api/patients').set(auth(receptionToken)).send({ firstNameAr: 'سارة', fatherNameAr: 'محمد', grandfatherNameAr: 'علي', familyNameAr: 'النور', firstNameEn: 'Sara', fatherNameEn: 'Mohamed', grandfatherNameEn: 'Ali', familyNameEn: 'Noor', gender: 'FEMALE', dateOfBirth: '1992-01-01', phone: '+250788210004', addressStateId: 1 });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.fullNameAr, 'سارة محمد علي النور');
+  assert.equal((await api.get('/api/patients/search?q=محمد').set(auth(receptionToken))).body.some((patient) => patient.id === created.body.id), true);
+  assert.equal((await api.get('/api/patients/search?q=Legacy').set(auth(receptionToken))).body.some((patient) => patient.id === legacy.id), true);
 });
 
 test('patient registration creates verified user and linked new patient record', () => {
@@ -144,7 +169,9 @@ test('unique existing patient is automatically linked after verification', async
     where: { id: existing.id }
   });
 
-  assert.equal(linkedPatient.userId, registration.body.userId);
+  const registeredUser = await prisma.user.findUnique({ where: { email: 'claim@example.com' } });
+  assert.equal(Object.hasOwn(registration.body, 'userId'), false);
+  assert.equal(linkedPatient.userId, registeredUser.id);
 
   const session = await login('+250788100020');
   assert.equal(session.status, 200);
@@ -195,7 +222,9 @@ test('auto-link assigns an existing patient to only one verified account', async
     where: { id: existing.id }
   });
 
-  assert.equal(linked.userId, registration.body.userId);
+  const registeredUser = await prisma.user.findUnique({ where: { email: 'claim-race@example.com' } });
+  assert.equal(Object.hasOwn(registration.body, 'userId'), false);
+  assert.equal(linked.userId, registeredUser.id);
 
   const issued = await api
     .post(`/api/patient-auth/claims/${existing.id}/code`)
@@ -378,7 +407,7 @@ test('forgot password sends a reset challenge without exposing unknown emails', 
 
   assert.equal(unknown.status, 200);
   assert.equal(unknown.body.success, true);
-  assert.equal(Object.hasOwn(unknown.body, 'challengeId'), false);
+  assert.equal(Object.hasOwn(unknown.body, 'challengeId'), true);
 
   assert.ok(account.user.id);
 });

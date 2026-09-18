@@ -1,0 +1,82 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const read = (relativePath) => readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
+const compose = read('compose.lan.yml');
+const nginx = read('deploy/lan/nginx.conf');
+const exampleEnvironment = read('deploy/lan/env.example');
+const readme = read('deploy/lan/README.md');
+const lanFiles = `${compose}\n${nginx}\n${exampleEnvironment}\n${readme}`;
+
+function serviceBlock(name) {
+  const match = compose.match(new RegExp(`^  ${name}:\\n([\\s\\S]*?)(?=^  [a-z][a-z0-9-]*:\\n|^networks:|^volumes:)`, 'm'));
+  assert.ok(match, `${name} service must exist`);
+  return match[1];
+}
+
+test('only the frontend publishes a host port', () => {
+  assert.doesNotMatch(serviceBlock('postgres'), /^    ports:/m);
+  assert.doesNotMatch(serviceBlock('backend'), /^    ports:/m);
+  assert.match(serviceBlock('frontend'), /^    ports:\n      - "\$\{LAN_BIND_IP:\?LAN_BIND_IP is required\}:443:443"/m);
+  assert.equal((compose.match(/^    ports:/gm) || []).length, 1);
+});
+
+test('transitional HTTPS uses deployment-supplied LAN binding and certificate mounts', () => {
+  const frontend = serviceBlock('frontend');
+  assert.match(frontend, /\$\{LAN_BIND_IP:\?LAN_BIND_IP is required\}:443:443/);
+  assert.match(frontend, /\$\{LAN_TLS_CERT_FILE:\?LAN_TLS_CERT_FILE is required\}:\/etc\/nginx\/tls\/server\.crt:ro/);
+  assert.match(frontend, /\$\{LAN_TLS_KEY_FILE:\?LAN_TLS_KEY_FILE is required\}:\/etc\/nginx\/tls\/server\.key:ro/);
+  assert.match(exampleEnvironment, /^LAN_BIND_IP=127\.0\.0\.1$/m);
+  assert.match(exampleEnvironment, /^LAN_TLS_CERT_FILE=\/secure\/path\//m);
+  assert.match(exampleEnvironment, /^LAN_TLS_KEY_FILE=\/secure\/path\//m);
+  assert.doesNotMatch(lanFiles, /-----BEGIN (?:RSA |EC )?PRIVATE KEY-----/);
+  assert.doesNotMatch(lanFiles, /-----BEGIN CERTIFICATE-----/);
+});
+
+test('Nginx TLS and same-origin proxy hardening remain present', () => {
+  assert.match(nginx, /listen 443 ssl;/);
+  assert.match(nginx, /ssl_protocols TLSv1\.2 TLSv1\.3;/);
+  assert.match(nginx, /resolver 127\.0\.0\.11 valid=5s ipv6=off;/);
+  assert.match(nginx, /location \/api\//);
+  assert.match(nginx, /location \/socket\.io\//);
+  assert.match(nginx, /proxy_set_header Upgrade \$http_upgrade;/);
+  assert.match(nginx, /proxy_set_header Connection "upgrade";/);
+  assert.match(nginx, /listen 127\.0\.0\.1:8080;/);
+  assert.match(nginx, /location = \/healthz/);
+  assert.match(nginx, /location \/ \{ return 404; \}/);
+  assert.doesNotMatch(nginx, /Strict-Transport-Security|HSTS/i);
+});
+
+test('long-running services retain restart policies, health checks, and persistence', () => {
+  for (const service of ['postgres', 'backend', 'frontend']) {
+    assert.match(serviceBlock(service), /^    restart: unless-stopped$/m);
+    assert.match(serviceBlock(service), /^    healthcheck:$/m);
+  }
+  assert.match(serviceBlock('postgres'), /lan-postgres-data:\/var\/lib\/postgresql\/data/);
+  assert.match(serviceBlock('backend'), /lan-uploads-data:\/app\/uploads/);
+  assert.match(compose, /^  lan-postgres-data:$/m);
+  assert.match(compose, /^  lan-uploads-data:$/m);
+  assert.match(compose, /^  lan-app:\n    internal: true$/m);
+  assert.match(compose, /^  lan-data:\n    internal: true$/m);
+});
+
+test('same-origin API and Socket.IO proxy routes remain present', () => {
+  assert.match(nginx, /location \/api\/ \{/);
+  assert.match(nginx, /location \/socket\.io\/ \{/);
+  assert.match(nginx, /set \$backend_upstream backend:5000;/);
+  assert.match(nginx, /proxy_pass http:\/\/\$backend_upstream;/);
+  assert.match(nginx, /proxy_set_header Upgrade \$http_upgrade;/);
+  assert.match(nginx, /try_files \$uri \$uri\/ \/index\.html;/);
+});
+
+test('LAN deployment files contain no Render endpoint or committed usable secret', () => {
+  assert.doesNotMatch(lanFiles, /(?:^|[./-])render\.com\b|onrender\.com\b/i);
+  assert.doesNotMatch(exampleEnvironment, /^(?:POSTGRES_PASSWORD|JWT_SECRET|MEDICAL_ENCRYPTION_KEY|MFA_ENCRYPTION_KEY|SMTP_PASS)=(?!REPLACE_).+$/m);
+  assert.match(exampleEnvironment, /^VITE_API_BASE_URL=$/m);
+  assert.match(exampleEnvironment, /^VITE_STAFF_API_URL=$/m);
+  assert.match(exampleEnvironment, /^VITE_STAFF_SOCKET_URL=$/m);
+});

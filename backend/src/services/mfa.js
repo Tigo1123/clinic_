@@ -94,6 +94,8 @@ export async function consumeRecoveryCode(userId, code) {
 export async function startMfaEnrollment(user, ipAddress = 'unknown') {
   const enrollment = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${user.id} FOR UPDATE`;
+    const currentUser = await tx.user.findUnique({ where: { id: user.id } });
+    if (!currentUser || currentUser.status !== 'ACTIVE' || currentUser.authVersion !== user.authVersion) throw new MfaError(401, 'MFA_CREDENTIALS_CHANGED', 'Credentials changed. Sign in again.');
     const existing = await tx.mfaConfiguration.findUnique({ where: { userId: user.id } });
     const now = new Date();
 
@@ -128,7 +130,7 @@ export async function startMfaEnrollment(user, ipAddress = 'unknown') {
   return enrollment;
 }
 
-export async function confirmMfaEnrollment(userId, code, timestamp = Date.now(), ipAddress = 'unknown') {
+export async function confirmMfaEnrollment(userId, code, timestamp = Date.now(), ipAddress = 'unknown', expectedAuthVersion) {
   const configuration = await prisma.mfaConfiguration.findUnique({ where: { userId } });
   if (!configuration || configuration.state !== 'PENDING') {
     throw new MfaError(409, 'MFA_ENROLLMENT_NOT_PENDING', 'MFA enrollment is not pending.');
@@ -149,8 +151,11 @@ export async function confirmMfaEnrollment(userId, code, timestamp = Date.now(),
   const recoveryHashes = await hashRecoveryCodes(recoveryCodes);
   const enabledAt = new Date(timestamp);
   const enabled = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE`;
+    const user = await tx.user.findUnique({ where: { id: userId } });
+    if (!user || user.status !== 'ACTIVE' || (expectedAuthVersion !== undefined && user.authVersion !== expectedAuthVersion)) throw new MfaError(401, 'MFA_CREDENTIALS_CHANGED', 'Credentials changed. Sign in again.');
     const claimed = await tx.mfaConfiguration.updateMany({
-      where: { userId, state: 'PENDING', enrollmentExpiresAt: { gt: enabledAt } },
+      where: { userId, state: 'PENDING', secretEncrypted: configuration.secretEncrypted, enrollmentExpiresAt: { gt: new Date() } },
       data: { state: 'ACTIVE', enrollmentExpiresAt: null, lastTotpStep: acceptedStep }
     });
     if (claimed.count !== 1) return false;
@@ -158,7 +163,7 @@ export async function confirmMfaEnrollment(userId, code, timestamp = Date.now(),
     await tx.mfaRecoveryCode.createMany({
       data: recoveryHashes.map((codeHash) => ({ userId, codeHash }))
     });
-    await tx.user.update({ where: { id: userId }, data: { mfaEnabled: true } });
+    await tx.user.update({ where: { id: userId }, data: { mfaEnabled: true, authVersion: { increment: 1 } } });
     await tx.tenantAuditLog.create({
       data: { userId, action: 'MFA_ENABLED', details: 'Staff MFA enrollment confirmed and enabled.', ipAddress }
     });
@@ -244,7 +249,7 @@ export async function verifyTotpLoginChallenge(token, code, staffRoles, now = ne
       where: { id: challenge.userId },
       select: {
         id: true, username: true, role: true, status: true, preferredLanguage: true,
-        email: true, phoneNormalized: true, authVersion: true, mfaEnabled: true,
+        email: true, phoneNormalized: true, authVersion: true, mfaEnabled: true, mustChangePassword: true,
         mfaConfiguration: { select: { state: true, secretEncrypted: true, lastTotpStep: true } },
         doctor: { select: { id: true, fullNameEn: true } }
       }
@@ -358,7 +363,7 @@ export async function verifyRecoveryLoginChallenge(token, recoveryCode, staffRol
       where: { id: challenge.userId },
       select: {
         id: true, username: true, role: true, status: true, preferredLanguage: true,
-        email: true, phoneNormalized: true, authVersion: true, mfaEnabled: true,
+        email: true, phoneNormalized: true, authVersion: true, mfaEnabled: true, mustChangePassword: true,
         mfaConfiguration: { select: { state: true } },
         doctor: { select: { id: true, fullNameEn: true } }
       }

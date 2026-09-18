@@ -1,3 +1,5 @@
+import { clearStaffSession } from '../services/authStorage.js';
+import { disconnectStaffSocket, connectStaffSocket } from '../services/staffSocket.js';
 import React, { useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Check, Copy, KeyRound, ShieldCheck, X } from 'lucide-react';
@@ -8,6 +10,7 @@ import {
   startMfaEnrollment
 } from '../services/staffMfa';
 import MfaCodeInput from './MfaCodeInput';
+import { fetchWithAuth, apiErrorMessage } from '../services/staffApi.js';
 
 function ProofFields({ currentPassword, setCurrentPassword, proofType, setProofType, proof, setProof, proofRef, t }) {
   return <>
@@ -29,7 +32,9 @@ function ProofFields({ currentPassword, setCurrentPassword, proofType, setProofT
   </>;
 }
 
-export default function StaffSecurityDialog({ user, onUserChange, onClose, t }) {
+export default function StaffSecurityDialog({ user, onClose, t }) {
+  const [revoked, setRevoked] = useState(false);
+  const closeDialog = () => { if (revoked) window.location.replace('/staff'); else onClose(); };
   const [mode, setMode] = useState('overview');
   const [currentPassword, setCurrentPassword] = useState('');
   const [enrollment, setEnrollment] = useState(null);
@@ -40,6 +45,8 @@ export default function StaffSecurityDialog({ user, onUserChange, onClose, t }) 
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const enrollmentCodeRef = useRef(null);
   const proofRef = useRef(null);
 
@@ -66,6 +73,7 @@ export default function StaffSecurityDialog({ user, onUserChange, onClose, t }) 
       setEnrollment({ secret: result.secret, otpauthUri: result.otpauthUri, expiresAt: result.expiresAt });
       setMode('setup');
     } catch (requestError) {
+      connectStaffSocket();
       setError(requestError?.status ? t('mfaReauthFailed') : t('mfaServiceUnavailable'));
     } finally { setPending(false); }
   };
@@ -80,13 +88,17 @@ export default function StaffSecurityDialog({ user, onUserChange, onClose, t }) 
     }
     setPending(true); setError('');
     try {
+      disconnectStaffSocket();
       const result = await confirmMfaEnrollment(code);
+      clearStaffSession();
+      setRevoked(true);
       enrollmentCodeRef.current?.clear();
       setEnrollment(null);
       setRecoveryCodes(result.recoveryCodes);
-      onUserChange({ ...user, mfaEnabled: true });
+
       setMode('recovery');
     } catch (requestError) {
+      connectStaffSocket();
       if (['MFA_ENROLLMENT_EXPIRED', 'MFA_ENROLLMENT_NOT_PENDING'].includes(requestError?.code)) {
         resetSensitive('overview');
         setError(t('mfaEnrollmentExpired'));
@@ -104,18 +116,22 @@ export default function StaffSecurityDialog({ user, onUserChange, onClose, t }) 
     }
     setPending(true); setError('');
     try {
+      disconnectStaffSocket();
       if (mode === 'disable') {
         await disableMfa(currentPassword, proofType, submittedProof);
-        onUserChange({ ...user, mfaEnabled: false });
-        resetSensitive('overview');
+        clearStaffSession();
+        window.location.replace('/staff');
       } else {
         const result = await regenerateMfaRecoveryCodes(currentPassword, proofType, submittedProof);
+        clearStaffSession();
+        setRevoked(true);
         proofRef.current?.clear();
         setCurrentPassword(''); setProof('');
         setRecoveryCodes(result.recoveryCodes);
         setMode('recovery');
       }
     } catch (requestError) {
+      connectStaffSocket();
       setError(requestError?.status ? t('mfaReauthFailed') : t('mfaServiceUnavailable'));
     } finally { setPending(false); }
   };
@@ -132,11 +148,12 @@ export default function StaffSecurityDialog({ user, onUserChange, onClose, t }) 
 
   return <div className="security-dialog-backdrop" role="presentation">
     <section className="security-dialog glass-panel" role="dialog" aria-modal="true" aria-labelledby="security-dialog-title">
-      <button type="button" className="security-dialog-close" aria-label={t('close')} disabled={mode === 'recovery' && !acknowledged} onClick={onClose}><X size={20} /></button>
+      <button type="button" className="security-dialog-close" aria-label={t('close')} disabled={mode === 'recovery' && !acknowledged} onClick={closeDialog}><X size={20} /></button>
       <div className="security-dialog-heading">
         <span className="staff-mfa-icon"><ShieldCheck size={28} /></span>
         <div><h2 id="security-dialog-title">{t('securitySettings')}</h2><p>{t('mfaSettingsDescription')}</p></div>
       </div>
+      {revoked && <p role="status">{t('securitySignInAgain')}</p>}
       {error && <div className="badge badge-danger staff-login-error" role="alert">{error}</div>}
 
       {mode === 'overview' && <div className="security-overview">
@@ -144,10 +161,19 @@ export default function StaffSecurityDialog({ user, onUserChange, onClose, t }) 
           <div><strong>{t('twoFactorAuthentication')}</strong><p>{user.mfaEnabled ? t('mfaEnabledDescription') : t('mfaDisabledDescription')}</p></div>
           <span className={`security-status ${user.mfaEnabled ? 'enabled' : 'disabled'}`}>{user.mfaEnabled ? t('enabled') : t('disabled')}</span>
         </div>
+        <button className="btn btn-secondary" type="button" onClick={() => setMode('password')}>{t('changePassword')}</button>
         {!user.mfaEnabled
           ? <button className="btn btn-primary" type="button" onClick={() => setMode('enroll')}>{t('enableMfa')}</button>
           : <div className="security-actions"><button className="btn btn-secondary" type="button" onClick={() => setMode('regenerate')}>{t('regenerateRecoveryCodes')}</button><button className="btn btn-danger" type="button" onClick={() => setMode('disable')}>{t('disableMfa')}</button></div>}
       </div>}
+
+      {mode === 'password' && <form className="staff-login-form" onSubmit={async (event) => { event.preventDefault(); setError(''); if (newPassword !== confirmPassword) return setError(t('passwordsDoNotMatch')); setPending(true); try { const response = await fetchWithAuth('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }); const body = await response.json(); if (!response.ok) throw new Error(apiErrorMessage(body, t('passwordChangeFailed'))); clearStaffSession(); disconnectStaffSocket(); window.location.reload(); } catch (requestError) { setError(requestError.message); } finally { setPending(false); } }}>
+        <p className="staff-login-description">{t('passwordChangeSignInAgain')}</p>
+        <div className="form-group"><label className="form-label">{t('currentPassword')}</label><input className="form-input" type="password" autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></div>
+        <div className="form-group"><label className="form-label">{t('newPassword')}</label><input className="form-input" type="password" autoComplete="new-password" required minLength={10} maxLength={200} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></div>
+        <div className="form-group"><label className="form-label">{t('confirmNewPassword')}</label><input className="form-input" type="password" autoComplete="new-password" required value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></div>
+        <button className="btn btn-primary" disabled={pending} type="submit">{pending ? t('loading') : t('changePassword')}</button><button className="btn btn-secondary" disabled={pending} type="button" onClick={() => resetSensitive()}>{t('cancel')}</button>
+      </form>}
 
       {mode === 'enroll' && <form className="staff-login-form" onSubmit={requestEnrollment}>
         <p className="staff-login-description">{t('mfaPasswordPrompt')}</p>

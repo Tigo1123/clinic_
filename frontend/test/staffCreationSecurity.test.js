@@ -43,8 +43,7 @@ test('non-doctor staff payloads omit every doctor-only field', () => {
       role,
       fullNameAr: '',
       fullNameEn: '',
-      specialtyAr: 'طب عام',
-      specialtyEn: 'General Medicine',
+      specialtyId: '00000000-0000-4000-8000-000000000001',
       consultationFee: '20000'
     });
     assert.deepEqual(Object.keys(payload).sort(), ['password', 'role', 'username']);
@@ -58,8 +57,7 @@ test('doctor staff payload includes its profile fields', () => {
     role: 'DOCTOR',
     fullNameAr: 'د. اختبار',
     fullNameEn: 'Dr. Test',
-    specialtyAr: 'طب عام',
-    specialtyEn: 'General Medicine',
+    specialtyId: '00000000-0000-4000-8000-000000000001',
     consultationFee: '20000'
   });
   assert.deepEqual(payload, {
@@ -68,8 +66,7 @@ test('doctor staff payload includes its profile fields', () => {
     role: 'DOCTOR',
     fullNameAr: 'د. اختبار',
     fullNameEn: 'Dr. Test',
-    specialtyAr: 'طب عام',
-    specialtyEn: 'General Medicine',
+    specialtyId: '00000000-0000-4000-8000-000000000001',
     consultationFee: '20000'
   });
 });

@@ -20,7 +20,8 @@
     "test": "node test/run-tests.js",
     "backup:postgres": "sh scripts/backup-postgres.sh",
     "bootstrap:reference": "node scripts/bootstrap-reference-data.js",
-    "start:staging": "node src/server.js"
+    "start:staging": "node src/server.js",
+    "start:staging:migrate": "prisma migrate deploy && npm run start:staging"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -29,6 +30,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "express-rate-limit": "^8.6.2",
+    "google-auth-library": "^11.1.0",
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.2",
     "libphonenumber-js": "^1.13.10",

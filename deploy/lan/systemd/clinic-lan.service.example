@@ -1,0 +1,18 @@
+[Unit]
+Description=Al-Shifa clinic LAN stack (installation template)
+Requires=docker.service
+After=docker.service network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=clinic-lan
+Group=clinic-lan
+WorkingDirectory=/opt/clinic-lan
+ExecStart=/usr/bin/docker compose --env-file /etc/clinic-lan/runtime.env -f /opt/clinic-lan/compose.lan.yml up -d postgres backend frontend
+ExecStop=/usr/bin/docker compose --env-file /etc/clinic-lan/runtime.env -f /opt/clinic-lan/compose.lan.yml stop frontend backend postgres
+TimeoutStartSec=300
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target

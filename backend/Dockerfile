@@ -28,5 +28,6 @@ USER node
 # Expose port 5000
 EXPOSE 5000
 
-# Start server
-CMD ["npm", "run", "start:container"]
+# Keep Node as PID 1 so Docker SIGTERM/SIGINT reach the server's graceful
+# shutdown handlers instead of stopping at an npm wrapper process.
+CMD ["node", "src/server.js"]

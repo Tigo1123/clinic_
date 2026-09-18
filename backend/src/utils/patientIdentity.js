@@ -36,7 +36,12 @@ export function maskPhone(value) {
 export async function findPossiblePatientDuplicates(client, { phone, dateOfBirth, nationalId }, take = 5) {
   const normalizedPhone = normalizePatientPhone(phone);
   const normalizedNationalId = normalizeNationalId(nationalId);
-  const candidates = await client.patient.findMany({
+  const matches = [];
+  let cursor;
+  // Scan in bounded pages, not a truncated first page: an older dense DOB
+  // cohort must not hide an exact legacy phone match after row 200.
+  while (matches.length < take) {
+    const candidates = await client.patient.findMany({
     where: {
       OR: [
         ...(normalizedNationalId ? [{ nationalId: normalizedNationalId }] : []),
@@ -44,13 +49,18 @@ export async function findPossiblePatientDuplicates(client, { phone, dateOfBirth
       ]
     },
     select: { id: true, fullNameAr: true, fullNameEn: true, phone: true, dateOfBirth: true, nationalId: true },
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    orderBy: { id: 'asc' },
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     take: 200
   });
-  return candidates.filter((candidate) =>
+    matches.push(...candidates.filter((candidate) =>
     (normalizedNationalId && normalizeNationalId(candidate.nationalId) === normalizedNationalId)
     || (normalizedPhone && candidate.dateOfBirth === dateOfBirth && normalizePatientPhone(candidate.phone) === normalizedPhone)
-  ).slice(0, take);
+    ));
+    if (candidates.length < 200) break;
+    cursor = candidates.at(-1).id;
+  }
+  return matches.slice(0, take);
 }
 
 export function safeDuplicateCandidates(candidates) {

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import prisma from '../src/db.js';
+import { assertDemoSeedAllowed, DemoSeedPolicyError } from '../scripts/demo-seed-policy.js';
 
 const backendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -15,6 +16,42 @@ function runSeed(extraEnv = {}) {
     encoding: 'utf8'
   });
 }
+
+function runDirectSeed(extraEnv = {}) {
+  return spawnSync(process.execPath, ['prisma/seed.js'], {
+    cwd: backendDir,
+    env: { ...process.env, ...extraEnv },
+    encoding: 'utf8'
+  });
+}
+
+test('demo seed policy refuses production and an omitted environment before connecting to a database', () => {
+  assert.throws(
+    () => assertDemoSeedAllowed({ NODE_ENV: 'production', DEPLOYMENT_ENV: 'production' }),
+    DemoSeedPolicyError
+  );
+  assert.throws(() => assertDemoSeedAllowed({}), DemoSeedPolicyError);
+
+  for (const environment of [
+    { NODE_ENV: 'production', DEPLOYMENT_ENV: 'production' },
+    { NODE_ENV: '', DEPLOYMENT_ENV: '', ALLOW_STAGING_SEED: '' }
+  ]) {
+    const result = runDirectSeed({
+      ...environment,
+      DATABASE_URL: 'postgresql://not-a-real-host.invalid:5432/never_connect_test'
+    });
+    assert.equal(result.status, 1);
+    assert.match(`${result.stderr}${result.stdout}`, /Demo seed refused/);
+    assert.doesNotMatch(`${result.stderr}${result.stdout}`, /Starting seed process/);
+  }
+});
+
+test('demo seed policy permits only explicit development, test, or staging fixture contexts', () => {
+  assert.doesNotThrow(() => assertDemoSeedAllowed({ NODE_ENV: 'development', DEPLOYMENT_ENV: 'development' }));
+  assert.doesNotThrow(() => assertDemoSeedAllowed({ NODE_ENV: 'test', DEPLOYMENT_ENV: 'test' }));
+  assert.doesNotThrow(() => assertDemoSeedAllowed({ NODE_ENV: 'production', DEPLOYMENT_ENV: 'staging', ALLOW_STAGING_SEED: 'true' }));
+  assert.throws(() => assertDemoSeedAllowed({ DEPLOYMENT_ENV: 'staging', ALLOW_STAGING_SEED: 'false' }), DemoSeedPolicyError);
+});
 
 test('staging seed refuses to run without explicit opt-in', () => {
   const result = runSeed({ ALLOW_STAGING_SEED: '', DEPLOYMENT_ENV: 'staging' });

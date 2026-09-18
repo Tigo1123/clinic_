@@ -16,9 +16,23 @@ import { clinicDayBounds } from '../utils/clinicTime.js';
 
 const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
 
+import { lockPatientIdentity } from '../utils/patientOnboarding.js';
+import { normalizePatientPhone } from '../utils/patientIdentity.js';
+import { structuredPatientName } from '../utils/patientName.js';
+import { lockAccount } from '../services/verification.js';
+
 const router = express.Router();
+router.use((req, res, next) => { markSensitiveResponse(res); next(); });
+// Account-wide logout. A concurrent/repeated request cannot bump a newer
+// generation: the update is conditional on the authenticated generation.
+router.post('/logout', authenticate, async (req, res, next) => {
+  try {
+    await prisma.user.updateMany({ where: { id: req.user.id, authVersion: req.user.av }, data: { authVersion: { increment: 1 } } });
+    return res.status(204).end();
+  } catch (error) { next(error); }
+});
 export const STAFF_ROLES = ['ADMIN', 'RECEPTIONIST', 'DOCTOR', 'PHARMACIST', 'LAB_TECH'];
-const DOCTOR_CREATION_FIELDS = ['fullNameAr', 'fullNameEn', 'specialtyAr', 'specialtyEn', 'consultationFee'];
+const DOCTOR_CREATION_FIELDS = ['fullNameAr', 'fullNameEn', 'specialtyId', 'consultationFee'];
 
 function isUsernameUniqueViolation(error) {
   if (error?.code !== 'P2002') return false;
@@ -47,8 +61,7 @@ const staffCreationSchema = z.preprocess((input) => {
   preferredLanguage: z.enum(['ar', 'en']).optional(),
   fullNameAr: z.string().trim().min(1, 'Arabic full name cannot be empty.').max(150).optional(),
   fullNameEn: z.string().trim().min(1, 'English full name cannot be empty.').max(150).optional(),
-  specialtyAr: z.string().trim().min(1, 'Arabic specialty cannot be empty.').max(150).optional(),
-  specialtyEn: z.string().trim().min(1, 'English specialty cannot be empty.').max(150).optional(),
+  specialtyId: z.string().uuid().optional(),
   consultationFee: z.coerce.number().int().positive().max(1_000_000_000).optional()
 }));
 
@@ -57,6 +70,7 @@ const staffPasswordResetSchema = z.object({
   currentAdminPassword: z.string().min(1).max(200),
   mfaCode: z.string().regex(/^\d{6}$/).optional()
 }).strict();
+const passwordChangeSchema = z.object({ currentPassword: z.string().min(1).max(200), newPassword: passwordSchema }).strict();
 
 const loginLimiter = createLoginLimiter({ windowMs: rateLimits.windowMs, limit: rateLimits.login });
 const adminResetLimiter = createAdminResetLimiter({ windowMs: rateLimits.windowMs, limit: rateLimits.adminReset });
@@ -146,6 +160,7 @@ router.post('/login', loginLimiter, validate(z.object({
           role: true,
           status: true,
           authVersion: true,
+          mustChangePassword: true,
           mfaEnabled: true,
           preferredLanguage: true,
           email: true,
@@ -157,6 +172,13 @@ router.post('/login', loginLimiter, validate(z.object({
 
     if (!user) {
       logger.security('auth.login_failed', { requestId: req.id, reason: 'invalid_credentials', ip: req.ip });
+      return res.status(401).json({ error: 'Invalid username or password.' });
+    }
+
+    // 3. Verify password
+    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+    if (!isPasswordValid) {
+      logger.security('auth.login_failed', { requestId: req.id, userId: user.id, reason: 'invalid_credentials', ip: req.ip });
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
 
@@ -187,13 +209,6 @@ router.post('/login', loginLimiter, validate(z.object({
         error: 'Your account is deactivated. Contact Admin.',
         code: 'ACCOUNT_INACTIVE'
       });
-    }
-
-    // 3. Verify password
-    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
-    if (!isPasswordValid) {
-      logger.security('auth.login_failed', { requestId: req.id, userId: user.id, reason: 'invalid_credentials', ip: req.ip });
-      return res.status(401).json({ error: 'Invalid username or password.' });
     }
 
     // 4. Enforce the second authentication factor for enrolled staff before
@@ -257,96 +272,37 @@ router.post('/login', loginLimiter, validate(z.object({
         });
 
         if (registration && user.phoneNormalized) {
-          const candidates = await prisma.patient.findMany({
-            where: {
-              dateOfBirth: registration.dateOfBirth
-            },
-            select: {
-              id: true,
-              phone: true,
-              userId: true
-            }
-          });
-
-          const normalizedMatches = candidates.filter(
-            (patient) =>
-              normalizePhone(patient.phone) ===
-              normalizePhone(user.phoneNormalized)
-          );
-
-          if (normalizedMatches.length === 0) {
-            try {
-              const createdPatient = await prisma.patient.create({
-                data: {
-                  userId: user.id,
-                  fullNameAr: registration.fullNameAr,
-                  fullNameEn: registration.fullNameEn,
-                  gender: registration.gender,
-                  dateOfBirth: registration.dateOfBirth,
-                  phone: user.phoneNormalized,
-                  addressStateId: registration.addressStateId,
-                  emergencyContact: 'Self'
-                },
-                select: {
-                  id: true,
-                  fileNumber: true
-                }
-              });
-
-              patientDetails = createdPatient;
-
-              await prisma.tenantAuditLog.create({
-                data: {
-                  userId: user.id,
-                  action: 'PATIENT_LOGIN_SELF_HEALED',
-                  details: `Created missing patient record ${createdPatient.id} during authenticated login recovery.`,
-                  ipAddress: req.ip || 'unknown'
-                }
-              });
-              await prisma.tenantAuditLog.create({
-                data: {
-                  userId: user.id,
-                  action: 'PATIENT_FILE_CREATED',
-                  details: JSON.stringify({ patientId: createdPatient.id, fileNumber: createdPatient.fileNumber, context: 'PATIENT_LOGIN_SELF_HEAL' }),
-                  ipAddress: req.ip || 'unknown'
-                }
-              });
-            } catch (recoveryError) {
-              console.error('Patient login self-heal create error:', recoveryError);
-            }
-          } else if (
-            normalizedMatches.length === 1 &&
-            !normalizedMatches[0].userId &&
-            user.phoneVerifiedAt
-          ) {
-            try {
-              const linked = await prisma.patient.updateMany({
-                where: {
-                  id: normalizedMatches[0].id,
-                  userId: null
-                },
-                data: {
-                  userId: user.id
-                }
-              });
-
-              if (linked.count === 1) {
-                patientDetails = {
-                  id: normalizedMatches[0].id
-                };
-
-                await prisma.tenantAuditLog.create({
-                  data: {
-                    userId: user.id,
-                    action: 'PATIENT_LOGIN_SELF_HEALED',
-                    details: `Linked orphan patient account to existing patient record ${normalizedMatches[0].id} during login recovery.`,
-                    ipAddress: req.ip || 'unknown'
-                  }
-                });
+          try {
+            patientDetails = await prisma.$transaction(async (tx) => {
+              const current = await lockAccount(tx, user.id);
+              if (!current || current.status !== 'ACTIVE' || current.authVersion !== user.authVersion) return null;
+              await lockPatientIdentity(tx, { phone: current.phoneNormalized, dateOfBirth: registration.dateOfBirth });
+              const existing = await tx.patient.findUnique({ where: { userId: user.id }, select: { id: true } });
+              if (existing) return existing;
+              const candidates = await tx.patient.findMany({ where: { dateOfBirth: registration.dateOfBirth }, select: { id: true, phone: true, userId: true } });
+              const normalizedMatches = candidates.filter((patient) => normalizePatientPhone(patient.phone) === normalizePatientPhone(current.phoneNormalized));
+              if (!normalizedMatches.length) {
+                const created = await tx.patient.create({ data: {
+                  userId: user.id, fullNameAr: registration.fullNameAr, fullNameEn: registration.fullNameEn,
+                  ...(structuredPatientName(registration) || {}),
+                  gender: registration.gender, dateOfBirth: registration.dateOfBirth, phone: current.phoneNormalized,
+                  addressStateId: registration.addressStateId, emergencyContact: 'Self'
+                }, select: { id: true, fileNumber: true } });
+                await tx.tenantAuditLog.create({ data: { userId: user.id, action: 'PATIENT_LOGIN_SELF_HEALED', details: `Created missing patient record ${created.id} during authenticated login recovery.`, ipAddress: req.ip || 'unknown' } });
+                await tx.tenantAuditLog.create({ data: { userId: user.id, action: 'PATIENT_FILE_CREATED', details: JSON.stringify({ patientId: created.id, fileNumber: created.fileNumber, context: 'PATIENT_LOGIN_SELF_HEAL' }), ipAddress: req.ip || 'unknown' } });
+                return created;
               }
-            } catch (recoveryError) {
-              console.error('Patient login self-heal link error:', recoveryError);
-            }
+              if (normalizedMatches.length === 1 && !normalizedMatches[0].userId && current.phoneVerifiedAt) {
+                const linked = await tx.patient.updateMany({ where: { id: normalizedMatches[0].id, userId: null }, data: { userId: user.id } });
+                if (linked.count === 1) {
+                  await tx.tenantAuditLog.create({ data: { userId: user.id, action: 'PATIENT_LOGIN_SELF_HEALED', details: `Linked orphan patient account to existing patient record ${normalizedMatches[0].id} during login recovery.`, ipAddress: req.ip || 'unknown' } });
+                  return { id: normalizedMatches[0].id };
+                }
+              }
+              return null;
+            });
+          } catch (recoveryError) {
+            console.error('Patient login self-heal error:', recoveryError);
           }
         }
       }
@@ -371,6 +327,7 @@ router.post('/login', loginLimiter, validate(z.object({
         role: user.role,
         preferredLanguage: user.preferredLanguage,
         mfaEnabled: user.mfaEnabled,
+        mustChangePassword: user.mustChangePassword,
         doctorId: doctorDetails ? doctorDetails.id : null,
         doctorName: doctorDetails ? doctorDetails.fullNameEn : null,
         patientLinked:
@@ -518,8 +475,8 @@ router.post('/users', authenticate, checkRoles('ADMIN'), validate(staffCreationS
   if (!username || !password || !role) {
     return res.status(400).json({ error: 'Username, password, and role are required.' });
   }
-  if (role === 'DOCTOR' && req.body.consultationFee == null) {
-    return sendError(res, 422, 'CONSULTATION_FEE_REQUIRED', 'A configured consultation fee is required for a doctor account.');
+  if (role === 'DOCTOR' && (req.body.consultationFee == null || !req.body.specialtyId)) {
+    return sendError(res, 422, 'DOCTOR_CONFIGURATION_REQUIRED', 'A consultation fee and active specialty are required for a doctor account.');
   }
 
   try {
@@ -540,11 +497,14 @@ router.post('/users', authenticate, checkRoles('ADMIN'), validate(staffCreationS
           passwordHash,
           role,
           preferredLanguage: preferredLanguage || 'ar',
-          status: 'ACTIVE'
+          status: 'ACTIVE',
+          mustChangePassword: true
         }
       });
 
       if (role === 'DOCTOR') {
+        const specialty = await tx.specialty.findFirst({ where: { id: req.body.specialtyId, active: true } });
+        if (!specialty) throw Object.assign(new Error('Active specialty not found.'), { status: 422, code: 'SPECIALTY_INACTIVE_OR_NOT_FOUND' });
         const docSchedule = JSON.stringify([
           { day: 'Sunday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
           { day: 'Monday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
@@ -560,8 +520,9 @@ router.post('/users', authenticate, checkRoles('ADMIN'), validate(staffCreationS
             userId: createdUser.id,
             fullNameAr: req.body.fullNameAr || `د. ${username.split('@')[0]}`,
             fullNameEn: req.body.fullNameEn || `Dr. ${username.split('@')[0]}`,
-            specialtyAr: req.body.specialtyAr || 'طب عام',
-            specialtyEn: req.body.specialtyEn || 'General Medicine',
+            specialtyId: specialty.id,
+            specialtyAr: specialty.nameAr,
+            specialtyEn: specialty.nameEn,
             consultationFee: req.body.consultationFee,
             weeklySchedule: docSchedule,
             status: 'ACTIVE'
@@ -588,15 +549,40 @@ router.post('/users', authenticate, checkRoles('ADMIN'), validate(staffCreationS
         id: newUser.id,
         username: newUser.username,
         role: newUser.role,
-        status: newUser.status
+        status: newUser.status,
+        mustChangePassword: newUser.mustChangePassword
       }
     });
   } catch (error) {
+    if (error?.code === 'SPECIALTY_INACTIVE_OR_NOT_FOUND') {
+      return sendError(res, 422, 'SPECIALTY_INACTIVE_OR_NOT_FOUND', 'The selected specialty is not available.');
+    }
     if (isUsernameUniqueViolation(error)) {
       return sendError(res, 409, 'USERNAME_ALREADY_REGISTERED', 'Username is already registered.');
     }
     logger.error('auth.staff_creation_failed', { requestId: req.id, error });
     return sendError(res, 500, 'STAFF_CREATION_FAILED', 'Failed to create staff user.');
+  }
+});
+
+router.post('/change-password', authenticate, validate(passwordChangeSchema), async (req, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { id: true, role: true, status: true, passwordHash: true, authVersion: true, mustChangePassword: true } });
+    if (!user || user.status !== 'ACTIVE' || user.authVersion !== req.user.av) return sendError(res, 401, 'SESSION_REVOKED', 'This session is no longer active.');
+    if (!await bcrypt.compare(req.body.currentPassword, user.passwordHash)) return sendError(res, 401, 'CURRENT_PASSWORD_INVALID', 'Current password is invalid.');
+    if (await bcrypt.compare(req.body.newPassword, user.passwordHash)) return sendError(res, 422, 'PASSWORD_REUSE_NOT_ALLOWED', 'New password must be different from the current password.');
+    const passwordHash = await bcrypt.hash(req.body.newPassword, bcryptRounds);
+    await prisma.$transaction(async (tx) => {
+      const current = await tx.user.findUnique({ where: { id: user.id }, select: { authVersion: true, role: true, status: true } });
+      if (!current || current.authVersion !== user.authVersion || current.role !== user.role || current.status !== 'ACTIVE') throw new Error('PASSWORD_CHANGE_CONFLICT');
+      await tx.user.update({ where: { id: user.id }, data: { passwordHash, lastPasswordChange: new Date(), mustChangePassword: false, authVersion: { increment: 1 } } });
+      await tx.tenantAuditLog.create({ data: { userId: user.id, action: 'USER_PASSWORD_CHANGED', details: JSON.stringify({ role: user.role, clearedMustChangePassword: user.mustChangePassword }), ipAddress: req.ip || 'unknown' } });
+    });
+    logger.security('auth.user_password_changed', { requestId: req.id, userId: user.id, role: user.role, ip: req.ip });
+    return res.json({ success: true, message: 'Password changed. Sign in again.' });
+  } catch (error) {
+    if (error?.message === 'PASSWORD_CHANGE_CONFLICT') return sendError(res, 409, 'PASSWORD_CHANGE_CONFLICT', 'Account security state changed. Sign in again.');
+    return next(error);
   }
 });
 
@@ -712,6 +698,7 @@ router.post('/users/:id/reset-password', authenticate, checkRoles('ADMIN'), admi
         data: {
           passwordHash,
           lastPasswordChange: changedAt,
+          mustChangePassword: true,
           authVersion: { increment: 1 }
         },
         select: { id: true, username: true, role: true, status: true }
@@ -744,6 +731,61 @@ router.post('/users/:id/reset-password', authenticate, checkRoles('ADMIN'), admi
     }
     logger.error('auth.staff_password_reset_failed', { requestId: req.id, error });
     return sendError(res, 500, 'STAFF_PASSWORD_RESET_FAILED', 'Failed to reset staff password.');
+  }
+});
+
+/**
+ * POST /api/auth/users/:id/revoke-sessions
+ * Ends every active session for a user without modifying credentials, status,
+ * or role. Self-revocation is deliberately left to the account logout route.
+ */
+router.post('/users/:id/revoke-sessions', authenticate, checkRoles('ADMIN'), async (req, res, next) => {
+  if (req.params.id === req.user.id) {
+    return sendError(res, 409, 'ADMIN_SELF_SESSION_REVOCATION_UNSUPPORTED', 'Use logout to sign out your own sessions.');
+  }
+
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${req.params.id} FOR UPDATE`;
+      const target = await tx.user.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, username: true, role: true, status: true, authVersion: true }
+      });
+      if (!target) throw new Error('SESSION_REVOCATION_TARGET_NOT_FOUND');
+      if (target.status !== 'ACTIVE') throw new Error('SESSION_REVOCATION_TARGET_INACTIVE');
+
+      const revoked = await tx.user.update({
+        where: { id: target.id },
+        data: { authVersion: { increment: 1 } },
+        select: { id: true, username: true, role: true, status: true, authVersion: true }
+      });
+      await tx.tenantAuditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'USER_SESSIONS_REVOKED_BY_ADMIN',
+          details: JSON.stringify({ userId: target.id, targetRole: target.role, previousAuthVersion: target.authVersion, authVersion: revoked.authVersion }),
+          ipAddress: req.ip || 'unknown'
+        }
+      });
+      return revoked;
+    });
+
+    logger.security('auth.user_sessions_revoked_by_admin', {
+      requestId: req.id,
+      actorUserId: req.user.id,
+      targetUserId: updated.id,
+      targetRole: updated.role,
+      ip: req.ip
+    });
+    return res.json({ success: true, user: updated });
+  } catch (error) {
+    if (error?.message === 'SESSION_REVOCATION_TARGET_NOT_FOUND') {
+      return sendError(res, 404, 'USER_NOT_FOUND', 'User was not found.');
+    }
+    if (error?.message === 'SESSION_REVOCATION_TARGET_INACTIVE') {
+      return sendError(res, 409, 'USER_SESSION_REVOCATION_NOT_APPLICABLE', 'Inactive accounts do not have active sessions to revoke.');
+    }
+    return next(error);
   }
 });
 
