@@ -16,6 +16,7 @@ import { rateLimits } from '../config.js';
 import { markSensitiveResponse } from '../utils/edgeSecurity.js';
 
 import { patientIdentitySummary } from '../utils/patientOnboarding.js';
+import { linkGooglePatientIdentity, unlinkGooglePatientIdentity } from '../services/googlePatientIdentity.js';
 
 const router = express.Router();
 router.use((req, res, next) => { markSensitiveResponse(res); next(); });
@@ -37,6 +38,26 @@ function stateConflict() {
   });
 }
 
+const patientSelfSelect = {
+  id: true,
+  fileNumber: true,
+  fullNameAr: true,
+  fullNameEn: true,
+  gender: true,
+  dateOfBirth: true,
+  addressStateId: true,
+  addressDetails: true,
+  emergencyContact: true,
+  bloodType: true
+};
+
+function hasSlotCollision(error) {
+  const target = error?.meta?.target;
+  return error?.code === 'P2002'
+    && (Array.isArray(target)
+      && ['doctorId', 'appointmentDate', 'appointmentTime'].every((field) => target.includes(field)));
+}
+
 function isAppointmentSlotConflict(error) {
   if (error?.code !== 'P2002') return false;
   const target = error?.meta?.target;
@@ -49,8 +70,48 @@ const doctorSelect = { id: true, fullNameAr: true, fullNameEn: true, specialtyAr
 
 const recoveryIdentityLimiter = createLoginLimiter({ windowMs: rateLimits.windowMs, limit: rateLimits.verification });
 router.get('/me', async (req, res) => {
-  const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { email: true, phoneNormalized: true, emailVerifiedAt: true, phoneVerifiedAt: true, preferredLanguage: true } });
-  return res.json({ ...patientIdentitySummary(req.patient), id: req.patient.id, fileNumber: req.patient.fileNumber, fullNameAr: req.patient.fullNameAr, fullNameEn: req.patient.fullNameEn, gender: req.patient.gender, dateOfBirth: req.patient.dateOfBirth, phone: user.phoneNormalized, email: user.email, phoneVerified: Boolean(user.phoneVerifiedAt), emailVerified: Boolean(user.emailVerifiedAt), addressStateId: req.patient.addressStateId, addressDetails: req.patient.addressDetails, emergencyContact: req.patient.emergencyContact, bloodType: req.patient.bloodType, preferredLanguage: user.preferredLanguage });
+  const user = await prisma.user.findUnique({
+    where: { id: req.user.id },
+    select: {
+      email: true,
+      phoneNormalized: true,
+      emailVerifiedAt: true,
+      phoneVerifiedAt: true,
+      preferredLanguage: true,
+      externalIdentities: {
+        where: { provider: 'GOOGLE' },
+        select: { normalizedEmailAtLink: true, createdAt: true },
+        take: 1
+      }
+    }
+  });
+  const googleIdentity = user?.externalIdentities?.[0];
+  const googleAccount = {
+    linked: Boolean(googleIdentity),
+    ...(googleIdentity ? {
+      email: googleIdentity.normalizedEmailAtLink,
+      linkedAt: googleIdentity.createdAt
+    } : {})
+  };
+  return res.json({
+    ...patientIdentitySummary(req.patient),
+    id: req.patient.id,
+    fileNumber: req.patient.fileNumber,
+    fullNameAr: req.patient.fullNameAr,
+    fullNameEn: req.patient.fullNameEn,
+    gender: req.patient.gender,
+    dateOfBirth: req.patient.dateOfBirth,
+    phone: user.phoneNormalized,
+    email: user.email,
+    phoneVerified: Boolean(user.phoneVerifiedAt),
+    emailVerified: Boolean(user.emailVerifiedAt),
+    addressStateId: req.patient.addressStateId,
+    addressDetails: req.patient.addressDetails,
+    emergencyContact: req.patient.emergencyContact,
+    bloodType: req.patient.bloodType,
+    preferredLanguage: user.preferredLanguage,
+    googleAccount
+  });
 });
 
 router.patch('/me', (req, res, next) => {
@@ -130,6 +191,48 @@ router.post('/me/phone-change/verify', recoveryIdentityLimiter, validate(z.objec
     next(error);
   }
 });
+
+router.post(
+  '/me/external-identities/google/link',
+  recoveryIdentityLimiter,
+  validate(z.object({
+    credential: z.string().trim().min(1).max(20000),
+    currentPassword: z.string().min(1).max(200)
+  }).strict()),
+  async (req, res, next) => {
+    try {
+      const result = await linkGooglePatientIdentity({
+        userId: req.user.id,
+        currentPassword: req.body.currentPassword,
+        credential: req.body.credential
+      });
+      await audit(req, 'PATIENT_GOOGLE_LINKED', `Patient linked Google account ${result.googleAccount.email}.`);
+      return res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.delete(
+  '/me/external-identities/google',
+  recoveryIdentityLimiter,
+  validate(z.object({
+    currentPassword: z.string().min(1).max(200)
+  }).strict()),
+  async (req, res, next) => {
+    try {
+      const result = await unlinkGooglePatientIdentity({
+        userId: req.user.id,
+        currentPassword: req.body.currentPassword
+      });
+      await audit(req, 'PATIENT_GOOGLE_UNLINKED', 'Patient unlinked Google account.');
+      return res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 router.get('/doctors', async (req, res) => {
   const doctors = await prisma.doctor.findMany({ where: { status: 'ACTIVE', OR: [{ specialtyId: null }, { specialty: { active: true } }] }, select: doctorSelect, orderBy: { fullNameEn: 'asc' } });
