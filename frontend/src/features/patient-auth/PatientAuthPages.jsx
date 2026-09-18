@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { Check, Eye, EyeOff, HeartPulse } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -7,10 +7,14 @@ import { useAuth } from '../../app/auth/auth-context';
 import { INITIAL_ONBOARDING_FORM, NAME_FIELDS, ONBOARDING_STEPS, googleRegistrationPayload, onboardingErrorMessage, passwordChecks, registrationPayload, RESEND_COOLDOWN_SECONDS, resendSecondsRemaining, validateOnboardingStep } from './onboarding';
 import { callingCode, countryFlag, countryName, normalisePatientPhone, PATIENT_PHONE_COUNTRIES, splitInternationalPhone } from './phoneCountries';
 import { SUDANESE_STATES } from '../reception/clinicData';
-import patientAuthDoctor from '../../assets/patient-auth-doctor-v2.webp';
+import consultationIllustration from '../../assets/alshifa-consultation.svg';
+import doctor3dScene from '../../assets/alshifa-doctor-patient-3d.webp';
+import register3dScene from '../../assets/alshifa-register-3d.webp';
+import './patientAuth.css';
 import { GoogleIdentityButton } from './GoogleIdentityButton.jsx';
 import { clearGoogleOnboardingToken, getGoogleOnboardingToken } from './googleOnboardingStorage.js';
 import { useGooglePatientAuth } from './useGooglePatientAuth.js';
+import ThemeToggle from '../../components/ui/ThemeToggle.jsx';
 
 export function PatientLogin(){
   const{t}=useTranslation();
@@ -182,9 +186,9 @@ export function PatientLogin(){
 
         <label className="patient-field">
           {t('password')}
-          <span style={{position:'relative'}}>
+          <span className="patient-field__password-wrap">
             <input
-              style={{width:'100%',paddingInlineEnd:'3rem'}}
+              className="patient-field__password-input"
               type={showPassword?'text':'password'}
               value={form.password}
               onChange={event=>setForm({...form,password:event.target.value})}
@@ -196,22 +200,16 @@ export function PatientLogin(){
               type="button"
               aria-label={showPassword?t('hidePassword'):t('showPassword')}
               onClick={()=>setShowPassword(!showPassword)}
-              style={{
-                position:'absolute',
-                insetInlineEnd:'.45rem',
-                top:'.35rem',
-                width:'38px',
-                height:'38px',
-                border:0,
-                background:'transparent',
-                color:'var(--color-text-secondary)',
-                cursor:'pointer'
-              }}
+              className="patient-field__password-toggle"
             >
               {showPassword?<EyeOff size={19}/>:<Eye size={19}/>}
             </button>
           </span>
         </label>
+
+        <Link className="patient-auth-forgot" to="/forgot-password">
+          {t('forgotPassword')}
+        </Link>
 
         {error&&<Alert>{error}</Alert>}
 
@@ -247,9 +245,6 @@ export function PatientLogin(){
           </Link>
         </div>
 
-        <Link className="patient-auth-forgot" to="/forgot-password">
-          {t('forgotPassword')}
-        </Link>
       </form>
 
     </AuthShell>
@@ -474,164 +469,13 @@ export function PatientForgotPassword(){
   );
 }
 
-function LegacyPatientRegister(){
-  const{t}=useTranslation();const navigate=useNavigate();
-  const[form,setForm]=useState({
-    firstNameAr:'', fatherNameAr:'', grandfatherNameAr:'', familyNameAr:'',
-    firstNameEn:'', fatherNameEn:'', grandfatherNameEn:'', familyNameEn:'',
-    countryCode:'+249',
-    phone:'',
-    email:'',
-    dateOfBirth:'',
-    gender:'MALE',
-    password:'',
-    confirmPassword:''
-  });const[challenge,setChallenge]=useState(null);const[code,setCode]=useState('');const[error,setError]=useState('');const[fieldErrors,setFieldErrors]=useState({});const[loading,setLoading]=useState(false);
-  const checks=[['length',form.password.length>=10,t('passwordMin')],['upper',/[A-Z]/.test(form.password),t('passwordUpper')],['lower',/[a-z]/.test(form.password),t('passwordLower')],['number',/\d/.test(form.password),t('passwordNumber')]];
-  async function register(event){event.preventDefault();const clientErrors={};if(checks.some(([,valid])=>!valid))clientErrors.password=t('passwordRequirementsMissing');if(form.password!==form.confirmPassword)clientErrors.confirmPassword=t('passwordMismatch');if(Object.keys(clientErrors).length){setFieldErrors(clientErrors);return}setLoading(true);setError('');setFieldErrors({});try{const payload={...form};
-delete payload.confirmPassword;
-
-const localPhone = payload.phone.trim().replace(/^0+/, '');
-payload.phone = `${payload.countryCode}${localPhone}`;
-delete payload.countryCode;
-
-const data=await apiRequest('/api/patient-auth/register',{method:'POST',body:JSON.stringify(payload)});setChallenge(data)}catch(requestError){const details=Array.isArray(requestError.details)?requestError.details:[];if(details.length){const fields={};for(const detail of details)fields[detail.field]=friendlyValidation(detail.field,detail.message,t);setFieldErrors(fields)}else setError(requestError.code==='VERIFICATION_UNAVAILABLE'?t('onlineVerificationUnavailable'):requestError.message)}finally{setLoading(false)}}
-  async function verify(event){
-    event.preventDefault();
-    setLoading(true);
-    setError('');
-
-    try{
-      const data = await apiRequest('/api/patient-auth/verify',{
-        method:'POST',
-        body:JSON.stringify({
-          challengeId:challenge.challengeId,
-          code
-        })
-      });
-
-      let message = t('accountVerified');
-
-      if(data.state === 'CLAIMED'){
-        message = t('accountLinked');
-      }else if(
-        data.state === 'MANUAL_REVIEW_REQUIRED' ||
-        data.state === 'AMBIGUOUS_MATCH'
-      ){
-        message = t('manualReviewRequired');
-      }
-
-      navigate('/patient-login',{
-        state:{message}
-      });
-    }catch(requestError){
-      setError(requestError.message);
-    }finally{
-      setLoading(false);
-    }
-  }
-async function resendVerification(){
-  setLoading(true);
-  setError('');
-
-  try{
-    const data=await apiRequest(
-      '/api/patient-auth/verification/resend',
-      {
-        method:'POST',
-        body:JSON.stringify({
-          challengeId:challenge.challengeId
-        })
-      }
-    );
-
-    setChallenge({
-      ...challenge,
-      challengeId:data.challengeId,
-      developmentCode:data.developmentCode
-    });
-
-    setCode('');
-  }catch(requestError){
-    setError(requestError.message);
-  }finally{
-    setLoading(false);
-  }
-}
-  return <AuthShell title={t('createPatientAccount')}>{!challenge?<form onSubmit={register}>
-  {['firstNameAr','fatherNameAr','grandfatherNameAr','familyNameAr','firstNameEn','fatherNameEn','grandfatherNameEn','familyNameEn'].map((field)=><Field key={field} label={t(field)} value={form[field]} onChange={(value)=>setForm({...form,[field]:value})} error={fieldErrors[field]}/>)}
-  <label className="patient-field">
-  {t('phone')}
-  <div style={{display:'grid',gridTemplateColumns:'150px 1fr',gap:'.5rem'}}>
-    <select
-      value={form.countryCode}
-      onChange={event=>setForm({...form,countryCode:event.target.value})}
-    >
-      <option value="+249">🇸🇩 +249 {t('countrySudan')}</option>
-      <option value="+250">🇷🇼 +250 {t('countryRwanda')}</option>
-      <option value="+20">🇪🇬 +20 {t('countryEgypt')}</option>
-      <option value="+251">🇪🇹 +251 {t('countryEthiopia')}</option>
-      <option value="+254">🇰🇪 +254 {t('countryKenya')}</option>
-      <option value="+256">🇺🇬 +256 {t('countryUganda')}</option>
-      <option value="+255">🇹🇿 +255 {t('countryTanzania')}</option>
-      <option value="+211">🇸🇸 +211 {t('countrySouthSudan')}</option>
-      <option value="+966">🇸🇦 +966 {t('countrySaudiArabia')}</option>
-      <option value="+971">🇦🇪 +971 {t('countryUAE')}</option>
-    </select>
-
-    <input
-      type="tel"
-      value={form.phone}
-      onChange={event=>setForm({...form,phone:event.target.value})}
-      placeholder={t('phoneExample')}
-      required
-      aria-invalid={Boolean(fieldErrors.phone)}
-    />
-  </div>
-</label>
-{fieldErrors.phone&&<span className="field-error">{fieldErrors.phone}</span>}<Field label={t('emailOptional')} type="email" value={form.email} onChange={email=>setForm({...form,email})} error={fieldErrors.email}/><Field label={t('dateOfBirth')} type="date" value={form.dateOfBirth} onChange={dateOfBirth=>setForm({...form,dateOfBirth})} error={fieldErrors.dateOfBirth}/><label className="patient-field">{t('gender')}<select value={form.gender} onChange={event=>setForm({...form,gender:event.target.value})}><option value="MALE">{t('male')}</option><option value="FEMALE">{t('female')}</option></select></label><Field label={t('password')} type="password" value={form.password} onChange={password=>setForm({...form,password})} error={fieldErrors.password}/><div className="password-requirements">{checks.map(([key,valid,label])=><span className={valid?'valid':''} key={key}><Check size={14}/>{label}</span>)}</div><Field label={t('confirmPassword')} type="password" value={form.confirmPassword} onChange={confirmPassword=>setForm({...form,confirmPassword})} error={fieldErrors.confirmPassword}/>{error&&<Alert>{error}</Alert>}<button className="patient-button" style={{width:'100%'}} disabled={loading}>{loading?t('loading'):t('createAccount')}</button></form>:<form onSubmit={verify}>
-  <p>{t('verificationCodePrompt')}</p>
-
-  {challenge.developmentCode&&
-    <div className="patient-alert success">
-      {t('developmentCode')}: <strong>{challenge.developmentCode}</strong>
-    </div>
-  }
-
-  <Field
-    label={t('verificationCode')}
-    value={code}
-    onChange={setCode}
-  />
-
-  {error&&<Alert>{error}</Alert>}
-
-  <button
-    className="patient-button"
-    style={{width:'100%'}}
-    disabled={loading}
-  >
-    {loading?t('loading'):t('verify')}
-  </button>
-
-  <button
-    type="button"
-    className="patient-button"
-    style={{width:'100%',marginTop:'.75rem'}}
-    disabled={loading}
-    onClick={resendVerification}
-  >
-    {t('resendVerification')}
-  </button>
-</form>}
-</AuthShell>;
-
-}
-
 export function PatientRegister() {
   const { t, i18n } = useTranslation(); const navigate = useNavigate(); const location = useLocation();
   const { login } = useAuth();
   const [form, setForm] = useState(INITIAL_ONBOARDING_FORM); const [step, setStep] = useState(0);
+  const [stepDirection, setStepDirection] = useState('forward');
+  const [stepLeaving, setStepLeaving] = useState(false);
+  const stepTimer = useRef(null);
   const [challenge, setChallenge] = useState(null); const [code, setCode] = useState(''); const [identity, setIdentity] = useState(null);
   const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [fieldErrors, setFieldErrors] = useState({}); const [loading, setLoading] = useState(false); const [resending, setResending] = useState(false); const [verified, setVerified] = useState(false); const [googleReviewState, setGoogleReviewState] = useState(''); const [googleExpired, setGoogleExpired] = useState(false); const [resendAvailableAt, setResendAvailableAt] = useState(0); const [now, setNow] = useState(Date.now());
   const googleOnboardingToken = getGoogleOnboardingToken();
@@ -648,11 +492,19 @@ export function PatientRegister() {
   }, [challenge, resendRemaining]);
   const update = (field, value) => { setForm(current => ({ ...current, [field]: value })); setFieldErrors(current => ({ ...current, [field]: undefined })); setError(''); };
   const updatePhone = (value) => { const nextPhone = splitInternationalPhone(value, form.phoneCountry); setForm(current => ({ ...current, phoneCountry: nextPhone.country, phone: nextPhone.phone })); setFieldErrors(current => ({ ...current, phone: undefined })); setError(''); };
-  const next = () => { const errors = validateOnboardingStep(form, step, messages, undefined, { requireEmail: !googleOnboarding }); setFieldErrors(errors); if (!Object.keys(errors).length) setStep(current => current + 1); };
+  useEffect(() => () => window.clearTimeout(stepTimer.current), []);
+  const goToStep = (target) => {
+    if (target === step || stepLeaving) return;
+    setStepDirection(target > step ? 'forward' : 'back');
+    setStepLeaving(true);
+    window.clearTimeout(stepTimer.current);
+    stepTimer.current = window.setTimeout(() => { setStep(target); setStepLeaving(false); }, 105);
+  };
+  const next = () => { const errors = validateOnboardingStep(form, step, messages, undefined, { requireEmail: !googleOnboarding }); setFieldErrors(errors); if (!Object.keys(errors).length) goToStep(step + 1); };
   async function submit(event) {
     event.preventDefault(); if (loading) return;
     const errors = validateOnboardingStep(form, 5, messages, undefined, { requireEmail: !googleOnboarding });
-    if (Object.keys(errors).length) { setFieldErrors(errors); setStep(5); return; }
+    if (Object.keys(errors).length) { setFieldErrors(errors); goToStep(5); return; }
     setLoading(true); setError('');
     try {
       if (googleOnboarding) {
@@ -680,21 +532,31 @@ export function PatientRegister() {
   const title = (key) => t(`onboarding${key[0].toUpperCase()}${key.slice(1)}`);
   const reviewPhone = normalisePatientPhone(form.phone, form.phoneCountry) || form.phone;
   if (googleReviewState) return <AuthShell title={t('createPatientAccount')} onboarding><section className="onboarding-success" aria-live="polite"><h2>{t('googleManualReviewTitle')}</h2><p>{t(googleReviewState === 'AMBIGUOUS_MATCH' ? 'googleAmbiguousReview' : 'googleManualReview')}</p><button className="patient-button" onClick={() => navigate('/patient-login')}>{t('signIn')}</button></section></AuthShell>;
-  if (verified) return <AuthShell title={t('onboardingSuccessTitle')} onboarding><section className="onboarding-success" aria-live="polite"><Check size={44}/><h2>{t('onboardingSuccessTitle')}</h2><p>{t('onboardingSuccessText')}</p><strong>{identity?.fullNameAr || identity?.fullNameEn}</strong>{identity?.fileNumber && <p className="onboarding-mrn">{t('onboardingMrn')}: {identity.fileNumber}</p>}{error&&<Alert>{error}</Alert>}<button className="patient-button" disabled={loading} onClick={continueToDashboard}>{loading?t('loading'):t('onboardingContinueDashboard')}</button></section></AuthShell>;
+  if (verified) return <AuthShell title={t('onboardingSuccessTitle')} onboarding><section className="onboarding-success" aria-live="polite"><Check size={44}/><p>{t('onboardingSuccessText')}</p><strong>{identity?.fullNameAr || identity?.fullNameEn}</strong>{identity?.fileNumber && <p className="onboarding-mrn">{t('onboardingMrn')}: {identity.fileNumber}</p>}{error&&<Alert>{error}</Alert>}<button className="patient-button" disabled={loading} onClick={continueToDashboard}>{loading?t('loading'):t('onboardingContinueDashboard')}</button></section></AuthShell>;
   if (challenge) return <AuthShell title={t('verificationCode')} onboarding><form className="onboarding-verification" onSubmit={verify} aria-live="polite"><p className="onboarding-caption">{t('onboardingVerificationIntro')}</p>{challenge.developmentCode && <div className="patient-alert success">{t('developmentCode')}: <strong>{challenge.developmentCode}</strong></div>}<Field label={t('verificationCode')} value={code} onChange={setCode} autoComplete="one-time-code" inputMode="numeric" maxLength={6} dir="ltr"/>{notice&&<div className="patient-alert success" role="status">{notice}</div>}{error&&<Alert>{error}</Alert>}<button className="patient-button" style={{width:'100%'}} disabled={loading || resending}>{loading?t('loading'):t('verify')}</button><section className="onboarding-resend" aria-live="polite"><p>{t('onboardingResendPrompt')}</p><button type="button" className="onboarding-resend-button" disabled={resending || loading || resendRemaining > 0} onClick={resendVerification}>{resending ? t('loading') : resendRemaining > 0 ? t('onboardingResendAvailableIn', { seconds:resendRemaining }) : t('onboardingResendAction')}</button></section></form></AuthShell>;
   const nameFields = step === 0 ? NAME_FIELDS.slice(0, 4) : NAME_FIELDS.slice(4);
-  return <AuthShell title={t('createPatientAccount')}><form className="onboarding-form" onSubmit={submit}><div className="onboarding-step-summary" aria-live="polite"><span>{t('onboardingStepOf', { current:step + 1, total:ONBOARDING_STEPS.length })}</span><strong>{title(ONBOARDING_STEPS[step])}</strong></div><ol className="onboarding-progress" aria-label={t('onboardingProgress')}>{ONBOARDING_STEPS.map((key, index) => <li key={key} className={index === step ? 'active' : index < step ? 'complete' : ''}><button type="button" disabled={index > step} onClick={() => setStep(index)} aria-current={index === step ? 'step' : undefined}><b aria-hidden="true">{index + 1}</b><span>{title(key)}</span></button></li>)}</ol><div className="onboarding-mobile-progress" aria-live="polite"><span>{t('onboardingStepOf', { current:step + 1, total:ONBOARDING_STEPS.length })}</span><strong>{title(ONBOARDING_STEPS[step])}</strong><i style={{'--progress':`${((step + 1) / ONBOARDING_STEPS.length) * 100}%`}} /></div><h2>{title(ONBOARDING_STEPS[step])}</h2><p className="onboarding-caption">{t(`onboarding${ONBOARDING_STEPS[step][0].toUpperCase()}${ONBOARDING_STEPS[step].slice(1)}Help`)}</p>
-  {step < 2 && <div className="onboarding-grid" dir={step === 0 ? 'rtl' : 'ltr'}>{nameFields.map(field => <Field key={field} label={t(`onboarding${field[0].toUpperCase()}${field.slice(1)}`)} value={form[field]} onChange={value => update(field, value)} error={fieldErrors[field]} autoComplete="name"/>)}</div>}
+  return <AuthShell title={t('createPatientAccount')} onboarding><form className="onboarding-form" onSubmit={submit}>
+    <div className="onboarding-progress-meta" aria-live="polite">{t('onboardingStepOf', { current:step + 1, total:ONBOARDING_STEPS.length })}</div>
+    <ol className="onboarding-progress" aria-label={t('onboardingProgress')}>
+      {ONBOARDING_STEPS.map((key, index) => <li key={key} className={index === step ? 'active' : index < step ? 'complete' : ''}>
+        <button type="button" disabled={index > step || stepLeaving} onClick={() => goToStep(index)} aria-label={`${t('onboardingStepOf', { current:index + 1, total:ONBOARDING_STEPS.length })}: ${title(key)}`} aria-current={index === step ? 'step' : undefined}><span aria-hidden="true" /></button>
+      </li>)}
+    </ol>
+    <div key={step} className={`onboarding-step-panel${stepLeaving ? ' is-leaving' : ''}`} data-direction={stepDirection}>
+      <h2>{title(ONBOARDING_STEPS[step])}</h2>
+      <p className="onboarding-caption">{t(`onboarding${ONBOARDING_STEPS[step][0].toUpperCase()}${ONBOARDING_STEPS[step].slice(1)}Help`)}</p>
+  {step < 2 && <div className="onboarding-grid">{nameFields.map(field => <Field key={field} label={t(`onboarding${field[0].toUpperCase()}${field.slice(1)}`)} value={form[field]} onChange={value => update(field, value)} error={fieldErrors[field]} autoComplete="name" dir={step === 0 ? 'rtl' : 'ltr'}/>)}</div>}
   {step === 2 && <div className="onboarding-grid"><Field label={t('dateOfBirth')} type="date" value={form.dateOfBirth} onChange={value => update('dateOfBirth', value)} error={fieldErrors.dateOfBirth}/><label className="patient-field">{t('gender')}<select value={form.gender} onChange={event => update('gender', event.target.value)}><option value="">{t('onboardingSelectGender')}</option><option value="MALE">{t('male')}</option><option value="FEMALE">{t('female')}</option></select></label>{fieldErrors.gender&&<span className="field-error">{fieldErrors.gender}</span>}</div>}
   {step === 3 && <div className="onboarding-grid onboarding-contact-grid"><div className="onboarding-contact-phone"><label className="patient-field">{t('phone')}<div className="patient-phone-control"><select value={form.phoneCountry} onChange={event => update('phoneCountry', event.target.value)} aria-label={t('selectCountry')} dir={i18n.language === 'ar' ? 'rtl' : 'ltr'}>{PATIENT_PHONE_COUNTRIES.map(country => <option key={country} value={country}>{countryFlag(country)} {countryName(country, i18n.language)} ({callingCode(country)})</option>)}</select><input type="tel" inputMode="tel" dir="ltr" value={form.phone} onChange={event => updatePhone(event.target.value)} placeholder={t('phoneExample')} autoComplete="tel-national" required aria-invalid={Boolean(fieldErrors.phone)}/></div></label>{fieldErrors.phone&&<span className="field-error">{fieldErrors.phone}</span>}</div>{!googleOnboarding && <Field label={t('email')} type="email" value={form.email} onChange={value => update('email', value)} error={fieldErrors.email} autoComplete="email"/>}</div>}
   {step === 4 && <><label className="patient-field">{t('addressState')}<select value={form.addressStateId} onChange={event => update('addressStateId', event.target.value)}>{SUDANESE_STATES.map(state => <option key={state.id} value={state.id}>{i18n.language === 'ar' ? state.labelAr : state.labelEn}</option>)}</select></label><p className="onboarding-note">{t('onboardingContactAfterActivation')}</p></>}
   {step === 5 && <div dir="ltr"><Field label={t('password')} type="password" value={form.password} onChange={value => update('password', value)} error={fieldErrors.password} autoComplete="new-password"/><div className="password-requirements">{Object.entries(passwordChecks(form.password)).map(([key, valid]) => <span className={valid?'valid':''} key={key}><Check size={14}/>{t(`password${key[0].toUpperCase()}${key.slice(1)}`)}</span>)}</div><Field label={t('confirmPassword')} type="password" value={form.confirmPassword} onChange={value => update('confirmPassword', value)} error={fieldErrors.confirmPassword} autoComplete="new-password"/></div>}
   {step === 6 && <div className="onboarding-review"><p>{form.firstNameAr} {form.fatherNameAr} {form.grandfatherNameAr} {form.familyNameAr}</p><p dir="ltr">{form.firstNameEn} {form.fatherNameEn} {form.grandfatherNameEn} {form.familyNameEn}</p><p>{form.dateOfBirth} · {form.gender === 'MALE' ? t('male') : t('female')}</p><p dir="ltr">{reviewPhone}{!googleOnboarding && ` · ${form.email}`}</p><p>{t('addressState')}: {(SUDANESE_STATES.find(state => String(state.id) === form.addressStateId)?.[i18n.language === 'ar' ? 'labelAr' : 'labelEn'])}</p><p className="onboarding-note">{t('onboardingPasswordHidden')}</p></div>}
-  {error&&<Alert>{error}</Alert>}{step === 0 && !googleOnboarding && <section className="patient-auth-google-entry"><div className="patient-auth-divider" role="separator"><span>{t('authOr')}</span></div><GoogleIdentityButton onCredential={googleAuth.handleCredential} loading={googleAuth.loading}/>{googleAuth.errorCode&&<Alert>{t(googleErrorMessageKey(googleAuth.errorCode))}</Alert>}</section>}<div className="onboarding-actions">{step > 0 && <button type="button" className="patient-button secondary" onClick={() => setStep(current => current - 1)} disabled={loading}>{t('onboardingBack')}</button>}{step < 6 ? <button type="button" className="patient-button" onClick={next}>{t('onboardingNext')}</button> : <button className="patient-button" disabled={loading}>{loading?t('loading'):t('createAccount')}</button>}</div><section className="patient-auth-registration-nav"><div className="patient-auth-divider" role="separator"><span>{t('authOr')}</span></div><p>{t('alreadyHaveAccount')}</p><Link className="patient-auth-secondary-button" to="/patient-login">{t('signIn')}</Link></section></form></AuthShell>;
+    </div>
+  {error&&<Alert>{error}</Alert>}<div className="onboarding-actions">{step > 0 && <button type="button" className="patient-button secondary" onClick={() => goToStep(step - 1)} disabled={loading}>{t('onboardingBack')}</button>}{step < 6 ? <button type="button" className="patient-button" onClick={next}>{t('onboardingNext')}</button> : <button className="patient-button" disabled={loading}>{loading?t('loading'):t('createAccount')}</button>}</div>{step === 0 && !googleOnboarding && <section className="patient-auth-google-entry"><div className="patient-auth-divider" role="separator"><span>{t('authOr')}</span></div><GoogleIdentityButton onCredential={googleAuth.handleCredential} loading={googleAuth.loading}/>{googleAuth.errorCode&&<Alert>{t(googleErrorMessageKey(googleAuth.errorCode))}</Alert>}</section>}<section className="patient-auth-registration-nav"><div className="patient-auth-divider" role="separator"><span>{t('authOr')}</span></div><p>{t('alreadyHaveAccount')}</p><Link className="patient-auth-secondary-button" to="/patient-login">{t('signIn')}</Link></section></form></AuthShell>;
 }
 
 export function PatientClaim() {
-  const { t, i18n } = useTranslation();
+  const { i18n } = useTranslation();
   const { user, updateUser, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -844,43 +706,12 @@ export function PatientClaim() {
   }
 
   return (
-    <main className="patient-auth-shell">
-      <aside className="patient-auth-aside">
-        <Link to="/">
-          <HeartPulse size={24} />
-          {t('brandName')}
-        </Link>
-
-        <div>
-          <h2>
-            {lang === 'ar'
-              ? 'استعادة وربط الملف الطبي'
-              : 'Recover your medical record'}
-          </h2>
-
-          <p>
-            {lang === 'ar'
-              ? 'حسابك آمن، لكن يجب ربطه بملف المريض الصحيح قبل الوصول إلى البيانات الطبية.'
-              : 'Your account is secure, but it must be linked to the correct patient record before clinical information can be accessed.'}
-          </p>
-        </div>
-      </aside>
-
-      <div className="patient-auth-content">
-        <section className="patient-card patient-auth">
-          <div style={{ marginBottom: '1.25rem' }}>
-            <h1>
-              {lang === 'ar'
-                ? 'ربط الملف الطبي'
-                : 'Link medical record'}
-            </h1>
-
-            <p>
-              {lang === 'ar'
-                ? 'إذا كان لديك ملف سابق في العيادة، استخدم رمز الربط الذي حصلت عليه من موظف الاستقبال.'
-                : 'If you already have a record at the clinic, enter the claim code provided by reception.'}
-            </p>
-          </div>
+    <AuthShell title={lang === 'ar' ? 'ربط الملف الطبي' : 'Link medical record'}>
+      <p className="patient-auth-intro">
+        {lang === 'ar'
+          ? 'إذا كان لديك ملف سابق في العيادة، استخدم رمز الربط الذي حصلت عليه من موظف الاستقبال.'
+          : 'If you already have a record at the clinic, enter the claim code provided by reception.'}
+      </p>
 
           <div
             className="patient-alert"
@@ -991,9 +822,7 @@ export function PatientClaim() {
                 : 'Sign out and use another account'}
             </button>
           </div>
-        </section>
-      </div>
-    </main>
+    </AuthShell>
   );
 }
 
@@ -1004,12 +833,65 @@ function OfflineActivation(){
   return <AuthShell title={t('offlineActivation')}><p>{t('offlineActivationInstructions')}</p><form onSubmit={submit}><Field label={t('claimCode')} value={form.code} onChange={code=>setForm({...form,code})} autoComplete="one-time-code"/><Field label={t('dateOfBirth')} type="date" value={form.dateOfBirth} onChange={dateOfBirth=>setForm({...form,dateOfBirth})}/><Field label={t('emailOptional')} type="email" value={form.email} onChange={email=>setForm({...form,email})}/><Field label={t('newPassword')} type="password" value={form.password} onChange={password=>setForm({...form,password})} autoComplete="new-password"/><Field label={t('confirmPassword')} type="password" value={form.confirmPassword} onChange={confirmPassword=>setForm({...form,confirmPassword})} autoComplete="new-password"/>{error&&<Alert>{error}</Alert>}<button className="patient-button" style={{width:'100%'}} disabled={loading}>{loading?t('loading'):t('activatePatientAccount')}</button></form></AuthShell>;
 }
 
-function AuthShell({title,children,onboarding=false}){const{t,i18n}=useTranslation();const isOnboarding=onboarding||title===t('createPatientAccount');const isRegistration=!onboarding&&title===t('createPatientAccount');const isLogin=title===t('patientLogin');const languageControl=<div className={isOnboarding?'onboarding-language':'patient-auth-language'} role="group" aria-label="Language"><button type="button" className={i18n.language==='ar'?'active':''} onClick={()=>i18n.changeLanguage('ar')} lang="ar">العربية</button><button type="button" className={i18n.language!=='ar'?'active':''} onClick={()=>i18n.changeLanguage('en')} lang="en">English</button></div>;return <main className={`patient-auth-shell${isOnboarding?' patient-auth-shell--onboarding':''}${isLogin?' patient-auth-shell--login':''}${isRegistration?' patient-auth-shell--registration':''}`}><aside className="patient-auth-aside"><Link className="patient-auth-brand" to="/"><span><HeartPulse size={20}/></span>{t('brandName')}</Link><div className="patient-auth-hero-copy"><span className="patient-auth-kicker">{t('patientPortal')}</span><h2>{t('patientPortal')}</h2><p>{t('secureAccessDescription')}</p></div><div className="patient-auth-doctor" aria-hidden="true"><img src={patientAuthDoctor} alt=""/></div></aside><div className="patient-auth-content"><section className="patient-card patient-auth">{isLogin&&<PatientLoginIllustration/>}{isRegistration&&<PatientRegisterIllustration/>}<header className="patient-auth-card-header">{languageControl}<span className="patient-auth-card-kicker">{t('patientPortal')}</span><h1>{title}</h1></header>{children}</section></div></main>}
+function AuthShell({ title, children, onboarding = false }) {
+  const { t, i18n } = useTranslation();
+  const isRegistration = onboarding || title === t('createPatientAccount');
+  const isLogin = title === t('patientLogin');
+  const mode = isRegistration ? 'register' : isLogin ? 'login' : 'flow';
 
-function PatientLoginIllustration(){return <svg className="patient-login-illustration" viewBox="0 0 120 120" role="img" aria-label="Patient illustration"><circle cx="60" cy="60" r="55" fill="#e7f4ff"/><path d="M36 105c2-18 12-29 24-29s22 11 24 29" fill="#1f83c9"/><path d="M38 104c3-16 11-24 22-24s19 8 22 24" fill="#72c5ed" opacity=".55"/><circle cx="60" cy="48" r="17" fill="#f2c4a2"/><path d="M43 48c0-17 8-26 19-26 10 0 18 8 18 22-5-4-11-7-18-7-6 0-12 2-19 11Z" fill="#31516e"/><path d="M51 51h.5M68.5 51h.5" stroke="#31516e" strokeWidth="3" strokeLinecap="round"/><path d="M55 59c3 3 7 3 10 0" fill="none" stroke="#b66f67" strokeWidth="2" strokeLinecap="round"/><path d="M46 79c5 6 9 8 14 8s9-2 14-8" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round"/><path d="M75 78c9 2 12 8 12 15 0 5-3 8-7 8" fill="none" stroke="#125f9f" strokeWidth="3" strokeLinecap="round"/><path d="M87 99c4 0 7-3 7-7" fill="none" stroke="#125f9f" strokeWidth="3" strokeLinecap="round"/><circle cx="94" cy="91" r="3" fill="#125f9f"/><path d="M88 89c-2-4-5-5-8-5" fill="none" stroke="#125f9f" strokeWidth="3" strokeLinecap="round"/></svg>}
-
-function PatientRegisterIllustration(){return <svg className="patient-register-illustration" viewBox="0 0 120 120" role="img" aria-label="New patient illustration"><circle cx="60" cy="60" r="55" fill="#e7f4ff"/><path d="M35 105c2-18 12-29 25-29s23 11 25 29" fill="#277fbe"/><path d="M42 101c4-12 10-18 18-18s14 6 18 18" fill="#8dd4f1" opacity=".6"/><circle cx="60" cy="48" r="17" fill="#f2c4a2"/><path d="M43 47c1-16 9-25 20-25 9 0 16 6 18 18-7-4-13-6-20-6-7 0-12 4-18 13Z" fill="#31516e"/><path d="M51 51h.5M68.5 51h.5" stroke="#31516e" strokeWidth="3" strokeLinecap="round"/><path d="M55 59c3 3 7 3 10 0" fill="none" stroke="#b66f67" strokeWidth="2" strokeLinecap="round"/><path d="M76 80c8 2 12 7 12 13" fill="none" stroke="#125f9f" strokeWidth="3" strokeLinecap="round"/><circle cx="94" cy="91" r="15" fill="#fff" stroke="#91cbed" strokeWidth="2"/><path d="M94 84v14M87 91h14" stroke="#1680c9" strokeWidth="3" strokeLinecap="round"/></svg>}
-function Field({label,type='text',value,onChange,autoComplete,error,inputMode,maxLength,dir,className}){return <><label className="patient-field">{label}<input className={className} type={type} value={value} onChange={event=>onChange(event.target.value)} autoComplete={autoComplete} inputMode={inputMode} maxLength={maxLength} dir={dir} required aria-invalid={Boolean(error)}/></label>{error&&<span className="field-error">{error}</span>}</>}
+  return <main className={`patient-auth-shell patient-auth-shell--${mode}`}>
+    <header className="patient-auth-topbar">
+      <div className="patient-auth-topbar-inner">
+        <Link className="patient-auth-brand" to="/" aria-label={t('brandName')}>
+          <span className="patient-auth-brand-mark"><HeartPulse size={20} aria-hidden="true" /></span>
+          <span>{t('brandName')}</span>
+        </Link>
+        <div className="patient-auth-topbar-actions">
+          <ThemeToggle />
+          <div className="patient-auth-language" role="group" aria-label="Language">
+            <button type="button" className={i18n.language === 'ar' ? 'active' : ''} onClick={() => i18n.changeLanguage('ar')} lang="ar" aria-pressed={i18n.language === 'ar'}>العربية</button>
+            <button type="button" className={i18n.language !== 'ar' ? 'active' : ''} onClick={() => i18n.changeLanguage('en')} lang="en" aria-pressed={i18n.language !== 'ar'}>English</button>
+          </div>
+        </div>
+      </div>
+    </header>
+    <div className="patient-auth-stage">
+      <aside className="patient-auth-aside" aria-hidden="true">
+        {isLogin ? (
+          <img
+            className="patient-auth-illustration patient-auth-illustration--3d"
+            src={doctor3dScene}
+            alt=""
+            width="500"
+            height="373"
+            decoding="async"
+            fetchPriority="high"
+          />
+        ) : isRegistration ? (
+          <img
+            className="patient-auth-illustration patient-auth-illustration--3d patient-auth-illustration--register"
+            src={register3dScene}
+            alt=""
+            width="420"
+            height="314"
+            decoding="async"
+          />
+        ) : (
+          <img className="patient-auth-illustration" src={consultationIllustration} alt="" />
+        )}
+      </aside>
+      <div className="patient-auth-content">
+        <section className="patient-auth" aria-labelledby="patient-auth-title">
+          <header className="patient-auth-heading">
+            {isLogin && <p className="patient-auth-welcome">{t('welcomeBack')}</p>}
+            <h1 id="patient-auth-title">{title}</h1>
+          </header>
+          {children}
+        </section>
+      </div>
+    </div>
+  </main>;
+}
+function Field({label,type='text',value,onChange,autoComplete,error,inputMode,maxLength,dir,className}){const {t}=useTranslation();const [visible,setVisible]=useState(false);const password=type==='password';return <><label className="patient-field">{label}<span className={password?'patient-field__password-wrap':undefined}><input className={className} type={password&&visible?'text':type} value={value} onChange={event=>onChange(event.target.value)} autoComplete={autoComplete} inputMode={inputMode} maxLength={maxLength} dir={dir} required aria-invalid={Boolean(error)}/>{password&&<button type="button" className="patient-field__password-toggle" aria-label={visible?t('hidePassword'):t('showPassword')} onClick={()=>setVisible(current=>!current)}>{visible?<EyeOff size={18}/>:<Eye size={18}/>}</button>}</span></label>{error&&<span className="field-error">{error}</span>}</>}
 function Alert({children}){return <div className="patient-alert error" role="alert">{children}</div>}
 function googleErrorMessageKey(code){if(code==='ACCOUNT_LINK_REQUIRED')return 'googleAccountLinkRequired';if(code==='REGISTRATION_PENDING')return 'googleRegistrationPending';if(code==='GOOGLE_SIGN_IN_CONFLICT')return 'googleAccountConflict';if(code==='GOOGLE_ONBOARDING_BUSY')return 'googleOnboardingBusy';if(code==='GOOGLE_AUTH_UNAVAILABLE')return 'googleSignInUnavailable';if(code==='GOOGLE_CREDENTIAL_INVALID'||code?.startsWith('GOOGLE_CREDENTIAL_')||code==='GOOGLE_EMAIL_UNVERIFIED')return 'googleCredentialInvalid';if(code==='GOOGLE_SIGN_IN_NETWORK_ERROR'||code==='GOOGLE_VERIFICATION_UNAVAILABLE'||code==='REQUEST_FAILED')return 'googleNetworkError';return 'googleSignInUnexpectedError'}
-function friendlyValidation(field,message,t){if(field==='password'){if(/uppercase/i.test(message))return t('passwordUpper');if(/lowercase/i.test(message))return t('passwordLower');if(/number/i.test(message))return t('passwordMin')}if(field==='email')return t('emailInvalid');if(field==='phone')return t('phoneInvalid');if(/Name(?:Ar|En)$/.test(field))return t('fullNameInvalid');if(field==='dateOfBirth')return t('dateInvalid');return t('fieldInvalid')}

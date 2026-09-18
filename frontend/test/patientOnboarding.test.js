@@ -34,14 +34,11 @@ test('country-aware phone validation accepts supported African and Arab numbers 
 });
 
 test('phone country selector keeps a readable gap without changing its value contract', () => {
-  const styles = readFileSync(new URL('../src/layouts/patient.css', import.meta.url), 'utf8');
-  assert.match(styles, /\.patient-phone-control\{[^}]*gap:\.75rem/);
-  assert.match(styles, /\.patient-phone-control\{[^}]*width:100%;min-width:0;box-sizing:border-box/);
-  assert.match(styles, /\.patient-phone-control select,\.patient-phone-control input\{width:100%;min-width:0;box-sizing:border-box\}/);
-  assert.match(styles, /\.onboarding-contact-grid\{grid-template-columns:minmax\(0,1\.45fr\) minmax\(220px,1fr\)\}/);
-  assert.match(styles, /\.onboarding-contact-grid>\*\{min-width:0\}/);
-  assert.match(styles, /\.onboarding-contact-phone\{min-width:0\}/);
-  assert.match(styles, /@media\(max-width:900px\)\{\.patient-auth-shell--onboarding \.onboarding-contact-grid\{grid-template-columns:1fr\}\}/);
+  const styles = readFileSync(new URL('../src/features/patient-auth/patientAuth.css', import.meta.url), 'utf8');
+  assert.match(styles, /\.patient-phone-control \{[^}]*gap: 10px/);
+  assert.match(styles, /\.patient-auth \.patient-phone-control input/);
+  assert.match(styles, /\.onboarding-contact-grid \{ grid-template-columns: 1fr; \}/);
+  assert.match(styles, /\.onboarding-contact-phone \{ min-width: 0; \}/);
   const page = readFileSync(new URL('../src/features/patient-auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
   assert.match(page, /onboarding-contact-phone/);
   assert.equal(registrationPayload({ ...complete, phoneCountry:'SD', phone:'912345678' }).phone, '+249912345678');
@@ -94,19 +91,19 @@ test('OTP resend cooldown is deterministic and localized in both languages', asy
 test('registration page renders the stepper, keeps RTL/LTR inputs explicit, and continues verified patients safely', () => {
   const page = readFileSync(new URL('../src/features/patient-auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
   assert.match(page, /onboarding-progress/);
-  assert.match(page, /dir=\{step === 0 \? 'rtl' : 'ltr'\}/);
+  assert.match(page, /autoComplete="name" dir=\{step === 0 \? 'rtl' : 'ltr'\}/);
   assert.match(page, /patient-phone-control/);
   assert.match(page, /splitInternationalPhone/);
   assert.match(page, /inputMode="tel" dir="ltr"/);
   assert.match(page, /continueToDashboard/);
   assert.match(page, /identity\?\.fileNumber/);
-  assert.match(page, /onboarding-step-summary/);
+  assert.match(page, /onboarding-progress-meta/);
+  assert.match(page, /onboarding-step-panel/);
   assert.match(page, /onboarding-resend/);
   assert.match(page, /verification\/resend/);
   assert.match(page, /inputMode="numeric" maxLength=\{6\} dir="ltr"/);
-  assert.match(page, /patient-auth-doctor-v2\.webp/);
-  assert.match(page, /patient-auth-hero-copy/);
-  assert.match(page, /PatientRegisterIllustration/);
+  assert.match(page, /alshifa-consultation\.svg/);
+  assert.doesNotMatch(page, /patient-auth-hero-copy|PatientRegisterIllustration/);
   assert.match(page, /patient-auth-registration-nav/);
   assert.match(page, /patient-auth-secondary-button/);
   assert.doesNotMatch(page, /className="auth-account-switch"/);
@@ -120,8 +117,8 @@ test('registration page renders the stepper, keeps RTL/LTR inputs explicit, and 
 
 test('patient login presents a visible illustration and clear registration action', async () => {
   const page = readFileSync(new URL('../src/features/patient-auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
-  assert.match(page, /patient-login-illustration/);
-  assert.match(page, /PatientLoginIllustration/);
+  assert.match(page, /patient-auth-illustration/);
+  assert.match(page, /consultationIllustration/);
   assert.match(page, /patient-auth-divider/);
   assert.match(page, /patient-auth-secondary-button/);
   assert.match(page, /to="\/register"/);
@@ -138,10 +135,10 @@ test('patient login presents a visible illustration and clear registration actio
 
 test('patient login identifier uses explicit visible LTR text styling without changing password styling', () => {
   const page = readFileSync(new URL('../src/features/patient-auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
-  const styles = readFileSync(new URL('../src/layouts/patient.css', import.meta.url), 'utf8');
+  const styles = readFileSync(new URL('../src/features/patient-auth/patientAuth.css', import.meta.url), 'utf8');
   assert.match(page, /autoComplete="username"[\s\S]*className="patient-auth-identifier"[\s\S]*dir="ltr"/);
-  assert.match(styles, /\.patient-auth \.patient-auth-identifier\{[^}]*color:#142033;[^}]*-webkit-text-fill-color:#142033;[^}]*opacity:1;[^}]*caret-color:#142033/);
-  assert.match(styles, /\.patient-auth \.patient-auth-identifier::placeholder\{[^}]*color:#52677d/);
+  assert.match(styles, /\.patient-auth \.patient-auth-identifier \{[^}]*-webkit-text-fill-color: #142b37;[^}]*caret-color: #142b37/);
+  assert.match(styles, /\.patient-auth \.patient-auth-identifier::placeholder/);
   assert.match(styles, /\.patient-auth \.patient-auth-identifier:-webkit-autofill/);
   assert.match(page, /type=\{showPassword\?'text':'password'\}/);
 });

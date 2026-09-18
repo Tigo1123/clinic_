@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 560" fill="none">
+  <title>Doctor speaking with a patient in a consultation room</title>
+  <path d="M54 451h615" stroke="#DCE7EB" stroke-width="2" stroke-linecap="round"/>
+  <path d="M101 124c0-31 25-56 56-56h401c31 0 56 25 56 56v258H101V124Z" fill="#F1F6F8"/>
+  <path d="M101 158h513M403 68v314" stroke="#FFF" stroke-width="12"/>
+  <path d="M148 213h46v169h-46zM202 178h36v204h-36zM249 242h36v140h-36zM440 203h41v179h-41zM488 158h42v224h-42zM538 226h40v156h-40z" fill="#DDE9ED"/>
+  <path d="M148 261h46M202 232h36M202 282h36M249 286h36M440 255h41M488 215h42M488 275h42M538 275h40" stroke="#F5F9FA" stroke-width="7"/>
+  <path d="M75 382h576v12H75z" fill="#D3E2E7"/>
+  <path d="M73 397h579" stroke="#B9CCD3" stroke-width="3"/>
+  <path d="M463 383V277c0-14 11-25 25-25h63c14 0 25 11 25 25v106" fill="#FFF" stroke="#CADBE1" stroke-width="5"/>
+  <rect x="478" y="275" width="83" height="68" rx="9" fill="#ECF4F7"/>
+  <path d="M490 310h16l7-13 9 25 7-12h20" stroke="#20799A" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M505 343v40" stroke="#CADBE1" stroke-width="5"/>
+  <path d="M466 383h106" stroke="#CADBE1" stroke-width="5" stroke-linecap="round"/>
+  <path d="M68 346c-12-34-9-71 7-87 21 19 29 49 24 77M73 340c-32-14-46-43-44-68 33 7 51 28 57 54M97 347c14-37 37-53 60-53-4 32-25 53-57 60" fill="#528E91"/>
+  <path d="M84 355c-1-31-3-58-9-87M86 354c-13-34-31-55-53-71M90 354c20-25 40-41 63-54" stroke="#256875" stroke-width="3" stroke-linecap="round"/>
+  <path d="M55 351h68l-9 77H64l-9-77Z" fill="#76859A"/>
+  <path d="M55 351h68l-2 13H57l-2-13Z" fill="#A2AFC0"/>
+  <path d="M66 429h45" stroke="#617489" stroke-width="5" stroke-linecap="round"/>
+  <!-- Patient and visitor chair -->
+  <path d="M471 404h114v18H471z" fill="#829BA7"/>
+  <path d="M482 416v35M570 416v35" stroke="#526D7B" stroke-width="8" stroke-linecap="round"/>
+  <path d="M470 350c-4-40 14-66 49-70 40-4 65 21 66 68v62H470v-60Z" fill="#C4D7DD"/>
+  <path d="M490 356c15 15 41 25 72 24" stroke="#9FB8C1" stroke-width="7" stroke-linecap="round"/>
+  <path d="M486 421c-2 21-3 41-4 66h27l18-66M537 421l15 66h28l-13-67" fill="#284F68"/>
+  <path d="M479 488h39M548 488h40" stroke="#163B50" stroke-width="9" stroke-linecap="round"/>
+  <path d="M471 294c-3 15-1 41 8 61 13 22 39 30 72 24 22-4 37-20 33-48-4-24-23-47-53-53-24-5-52 1-60 16Z" fill="#7CA9B6"/>
+  <path d="M504 286c-3-14-4-26 1-38h38c7 14 6 25 1 39-9 11-31 11-40-1Z" fill="#D99580"/>
+  <path d="M494 217c0-25 16-41 39-41s39 16 39 41v24c0 27-18 44-39 44s-39-17-39-44v-24Z" fill="#E6AD95"/>
+  <path d="M494 227c-12-31 1-57 27-62 14-18 43-8 51 11 12 11 13 36 2 54-3-21-13-36-26-41-18 19-37 22-54 23v15Z" fill="#29354C"/>
+  <path d="M515 238h2M546 238h2" stroke="#384655" stroke-width="5" stroke-linecap="round"/>
+  <path d="M525 256c5 3 10 3 15 0" stroke="#AA705E" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M478 324c-13 4-27 15-42 24l-46 11-3 20 53-5c24-5 41-18 55-28" fill="#7CA9B6"/>
+  <path d="m391 356-14 2-11 9 3 11 19 2 10-8" fill="#E6AD95"/>
+  <!-- Doctor and desk -->
+  <path d="M275 384h195v13H275z" fill="#4D7D91"/>
+  <path d="M291 397v86M452 397v86" stroke="#51798B" stroke-width="9" stroke-linecap="round"/>
+  <path d="M341 342h79l15 42H327l14-42Z" fill="#C8DCE2"/>
+  <path d="M347 347h67l10 29h-87l10-29Z" fill="#EAF2F4"/>
+  <path d="M371 381h28" stroke="#92AFB9" stroke-width="3" stroke-linecap="round"/>
+  <path d="M205 417c3 25 4 48 3 70h31l22-72M264 416l18 71h31l-17-74" fill="#193D58"/>
+  <path d="M198 488h48M277 488h46" stroke="#153348" stroke-width="9" stroke-linecap="round"/>
+  <path d="M184 318c-4-33 16-52 44-56l43-1c36 4 50 24 49 57l-7 102H189l-5-102Z" fill="#FFF" stroke="#BFCFD5" stroke-width="3"/>
+  <path d="m224 263 24 67 27-67-16-13h-18l-17 13Z" fill="#DFEBEE"/>
+  <path d="m247 330-13 87h31l-18-87Z" fill="#176789"/>
+  <path d="m237 289 10 15 10-15-10-10-10 10Z" fill="#176789"/>
+  <path d="m205 275 29 72-24 23m85-95-31 72 25 23" stroke="#D2E0E4" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M230 258c-3-15-3-28-1-39h40c3 13 2 26-2 40-7 11-27 12-37-1Z" fill="#C98975"/>
+  <path d="M209 190c0-26 16-42 40-42 23 0 40 16 40 42v25c0 27-18 46-40 46s-40-19-40-46v-25Z" fill="#DCA18A"/>
+  <path d="M208 203c-13-23-4-60 29-62 22-17 52 0 55 25 7 15 5 29-3 40-2-26-13-34-25-37-17 16-35 19-56 17v17Z" fill="#2A4052"/>
+  <path d="M230 211h2M265 211h2" stroke="#304454" stroke-width="5" stroke-linecap="round"/>
+  <path d="M239 229c6 4 12 4 18 0" stroke="#A87162" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M192 313c-19 14-19 38-3 51 15 12 48 21 91 24l6-22-68-20 8-25" fill="#FFF" stroke="#C5D6DA" stroke-width="3"/>
+  <path d="m283 365 17-4 13 9-4 18-18 3-9-9" fill="#DCA18A"/>
+  <path d="M271 322c-4 26-1 42 13 52" stroke="#B7C9CF" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="282" cy="376" r="5" fill="#1D7290"/>
+  <path d="M321 154h53" stroke="#D2E2E7" stroke-width="4" stroke-linecap="round"/>
+  <path d="M348 129v49M323 153h50" stroke="#77AFBE" stroke-width="7" stroke-linecap="round"/>
+</svg>
