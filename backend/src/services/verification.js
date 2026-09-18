@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import prisma from '../db.js';
 import { sendEmail } from '../utils/notifications.js';
 import { ApiError } from '../utils/apiError.js';
+import { assertPhoneVerificationAvailable, sendPhoneVerificationCode } from './phoneVerification.js';
 
 export const registrationPurpose = () => process.env.VERIFICATION_PROVIDER === 'email' ? 'REGISTRATION_EMAIL' : 'REGISTRATION_PHONE';
 const invalid = () => new ApiError(422, 'VERIFICATION_INVALID', 'Verification request is invalid or already used.');
@@ -14,10 +15,37 @@ export async function lockAccount(tx, userId) {
 export async function invalidateChallenges(tx, userId) {
   await tx.verificationChallenge.updateMany({ where: { userId, usedAt: null }, data: { usedAt: new Date() } });
 }
+
+// G4 uses this record-only path inside its account-creation transaction. The
+// normal flow below additionally delivers the challenge after persistence.
+export async function createVerificationChallengeRecord(tx, user, type, targetNormalized) {
+  const code = String(crypto.randomInt(100000, 1000000));
+  const codeHash = await bcrypt.hash(code, 10);
+  const current = await lockAccount(tx, user.id);
+  if (!current || current.role !== 'PATIENT' || current.status !== 'PENDING_VERIFICATION') throw invalid();
+  if (!['REGISTRATION_EMAIL', 'REGISTRATION_PHONE'].includes(type)) throw invalid();
+  if (targetNormalized !== (type.endsWith('PHONE') ? current.phoneNormalized : current.email)) throw invalid();
+  const challenge = await tx.verificationChallenge.create({
+    data: {
+      userId: user.id,
+      type,
+      targetNormalized,
+      authVersion: current.authVersion,
+      codeHash,
+      expiresAt: new Date(Date.now() + 600000)
+    }
+  });
+  return {
+    challenge,
+    code,
+    ...(process.env.VERIFICATION_PROVIDER === 'development' && process.env.NODE_ENV !== 'production' ? { developmentCode: code } : {})
+  };
+}
 export async function createVerificationChallenge(user, type, targetNormalized, { cooldownMs = 0 } = {}) {
   // Disabled is an intentional offline operating mode, not a delivery attempt.
   // Refuse before persisting a challenge so no UI can honestly claim a code was sent.
   if (process.env.VERIFICATION_PROVIDER === 'disabled') throw verificationUnavailable();
+  if (type.endsWith('PHONE')) assertPhoneVerificationAvailable();
   const code = String(crypto.randomInt(100000, 1000000));
   const codeHash = await bcrypt.hash(code, 10);
   const challenge = await prisma.$transaction(async (tx) => {
@@ -41,10 +69,19 @@ export async function createVerificationChallenge(user, type, targetNormalized, 
     if (type !== 'PASSWORD_RESET') await tx.verificationChallenge.updateMany({ where: { userId: user.id, type, usedAt: null }, data: { usedAt: new Date() } });
     return tx.verificationChallenge.create({ data: { userId: user.id, type, targetNormalized, authVersion: current.authVersion, codeHash, expiresAt: new Date(Date.now() + 600000) } });
   });
-  if (process.env.VERIFICATION_PROVIDER === 'development' && process.env.NODE_ENV !== 'production') return { challenge, developmentCode: code };
-  if (!type.endsWith('PHONE')) {
+  try {
+    if (type.endsWith('PHONE')) {
+      const delivery = await sendPhoneVerificationCode({ destination: targetNormalized, code, purpose: type });
+      return { challenge, ...delivery };
+    }
+    if (process.env.VERIFICATION_PROVIDER === 'development' && process.env.NODE_ENV !== 'production') return { challenge, developmentCode: code };
     const sent = await sendEmail({ to: type === 'PROFILE_PHONE_CHANGE' ? user.email : targetNormalized, subject: 'Confirm your patient account request', text: `Your verification code is ${code}. It expires in 10 minutes.` });
     if (sent) return { challenge };
+  } catch (error) {
+    await prisma.verificationChallenge.update({ where: { id: challenge.id }, data: { usedAt: new Date() } }).catch(() => {});
+    throw error.code === 'VERIFICATION_UNAVAILABLE' || error.code === 'VERIFICATION_DELIVERY_FAILED'
+      ? error
+      : new ApiError(503, 'VERIFICATION_DELIVERY_FAILED', 'Verification could not be delivered.');
   }
   await prisma.verificationChallenge.update({ where: { id: challenge.id }, data: { usedAt: new Date() } });
   throw new ApiError(503, 'VERIFICATION_DELIVERY_FAILED', 'Verification could not be delivered.');

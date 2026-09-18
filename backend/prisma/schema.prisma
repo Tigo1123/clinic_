@@ -41,6 +41,7 @@ model User {
   emailVerifiedAt            DateTime?
   phoneVerifiedAt            DateTime?
   patient                    Patient?
+  externalIdentities         UserExternalIdentity[]
   verificationChallenges     VerificationChallenge[]
   issuedClaimCodes           PatientClaimCode[]      @relation("ClaimCodeIssuer")
   pendingPatientRegistration PatientRegistration?
@@ -388,6 +389,38 @@ model LabOrder {
   items               LabOrderItem[]
   invoices            Invoice[]
   releasedToPatientAt DateTime?
+}
+
+model UserExternalIdentity {
+  id                   String   @id @default(uuid())
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider             String
+  providerSubject      String
+  normalizedEmailAtLink String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([provider, providerSubject])
+  @@unique([userId, provider])
+  @@index([userId])
+}
+
+model PendingExternalAuth {
+  id              String   @id @default(uuid())
+  provider        String
+  providerSubject String
+  verifiedEmail   String
+  capabilityHash  String   @unique
+  expiresAt       DateTime
+  consumedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // One row per provider identity is deliberately retained across expiry and
+  // consumption; a later attempt refreshes the same short-lived state.
+  @@unique([provider, providerSubject])
+  @@index([expiresAt, consumedAt])
 }
 
 model VerificationChallenge {
