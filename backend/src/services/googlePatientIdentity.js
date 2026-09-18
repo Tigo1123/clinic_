@@ -1,3 +1,4 @@
+import bcrypt from 'bcryptjs';
 import prisma from '../db.js';
 import { ROLES } from '../middleware/policies.js';
 import { ApiError } from '../utils/apiError.js';
@@ -130,4 +131,156 @@ export async function resolveGooglePatientIdentity({ credential, verifyCredentia
   }
 
   return createOrRotatePending(normalizedIdentity, db, now, onPendingLockAcquired);
+}
+
+export async function linkGooglePatientIdentity({
+  userId,
+  currentPassword,
+  credential,
+  verifyCredential = verifyGoogleCredential,
+  db = prisma,
+  now = new Date()
+} = {}) {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      email: true,
+      passwordHash: true,
+      status: true,
+      role: true
+    }
+  });
+
+  if (!user || user.status !== 'ACTIVE' || user.role !== ROLES.PATIENT) {
+    throw new ApiError(401, 'REAUTHENTICATION_FAILED', 'Current credentials are invalid.');
+  }
+
+  if (!currentPassword || !user.passwordHash || !await bcrypt.compare(currentPassword, user.passwordHash)) {
+    throw new ApiError(401, 'REAUTHENTICATION_FAILED', 'Current credentials are invalid.');
+  }
+
+  const identity = await verifyCredential(credential);
+  if (
+    !identity ||
+    identity.provider !== GOOGLE_PROVIDER ||
+    typeof identity.providerSubject !== 'string' ||
+    !identity.providerSubject.trim() ||
+    typeof identity.email !== 'string' ||
+    !identity.email.trim()
+  ) {
+    throw new ApiError(401, 'GOOGLE_CREDENTIAL_INVALID', 'Google credential could not be verified.');
+  }
+
+  const normalizedGoogleEmail = normalizeEmail(identity.email);
+  const normalizedUserEmail = normalizeEmail(user.email);
+
+  if (normalizedGoogleEmail !== normalizedUserEmail) {
+    throw new ApiError(409, 'GOOGLE_EMAIL_MISMATCH', 'Google account email does not match clinic account email.');
+  }
+
+  const existingSubject = await db.userExternalIdentity.findUnique({
+    where: {
+      provider_providerSubject: {
+        provider: GOOGLE_PROVIDER,
+        providerSubject: identity.providerSubject
+      }
+    }
+  });
+  if (existingSubject) {
+    throw new ApiError(409, 'GOOGLE_IDENTITY_ALREADY_LINKED', 'This Google account is already linked to another patient.');
+  }
+
+  const existingUserLink = await db.userExternalIdentity.findFirst({
+    where: {
+      userId,
+      provider: GOOGLE_PROVIDER
+    }
+  });
+  if (existingUserLink) {
+    throw new ApiError(409, 'GOOGLE_ALREADY_LINKED', 'A Google account is already linked to this account.');
+  }
+
+  try {
+    const created = await db.userExternalIdentity.create({
+      data: {
+        userId,
+        provider: GOOGLE_PROVIDER,
+        providerSubject: identity.providerSubject,
+        normalizedEmailAtLink: normalizedGoogleEmail,
+        createdAt: now
+      }
+    });
+
+    return {
+      success: true,
+      googleAccount: {
+        linked: true,
+        email: created.normalizedEmailAtLink,
+        linkedAt: created.createdAt
+      }
+    };
+  } catch (error) {
+    if (error.code === 'P2002') {
+      const target = error.meta?.target || [];
+      if (target.includes('providerSubject') || target.includes('provider_providerSubject')) {
+        throw new ApiError(409, 'GOOGLE_IDENTITY_ALREADY_LINKED', 'This Google account is already linked to another patient.');
+      }
+      if (target.includes('userId') || target.includes('userId_provider')) {
+        throw new ApiError(409, 'GOOGLE_ALREADY_LINKED', 'A Google account is already linked to this account.');
+      }
+      throw new ApiError(409, 'GOOGLE_IDENTITY_CONFLICT', 'External identity conflict.');
+    }
+    throw error;
+  }
+}
+
+export async function unlinkGooglePatientIdentity({
+  userId,
+  currentPassword,
+  db = prisma
+} = {}) {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      passwordHash: true,
+      status: true,
+      role: true
+    }
+  });
+
+  if (!user || user.status !== 'ACTIVE' || user.role !== ROLES.PATIENT) {
+    throw new ApiError(401, 'REAUTHENTICATION_FAILED', 'Current credentials are invalid.');
+  }
+
+  if (!currentPassword || !user.passwordHash || !await bcrypt.compare(currentPassword, user.passwordHash)) {
+    throw new ApiError(401, 'REAUTHENTICATION_FAILED', 'Current credentials are invalid.');
+  }
+
+  const existingLink = await db.userExternalIdentity.findFirst({
+    where: {
+      userId,
+      provider: GOOGLE_PROVIDER
+    }
+  });
+
+  if (!existingLink) {
+    throw new ApiError(404, 'GOOGLE_NOT_LINKED', 'No Google account is currently linked.');
+  }
+
+  if (!user.passwordHash) {
+    throw new ApiError(400, 'PRIMARY_AUTH_REQUIRED', 'Cannot unlink Google account without a password.');
+  }
+
+  await db.userExternalIdentity.delete({
+    where: { id: existingLink.id }
+  });
+
+  return {
+    success: true,
+    googleAccount: {
+      linked: false
+    }
+  };
 }
