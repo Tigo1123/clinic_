@@ -52,9 +52,9 @@ async function request(path, options = {}, auth = null) {
 
     const code =
       payload?.code ||
-      (typeof error === 'object'
-        ? error.code
-        : 'REQUEST_FAILED');
+      (typeof error === 'object' && error ? error.code : undefined) ||
+      (typeof payload?.status === 'string' && payload.status ? payload.status : undefined) ||
+      'REQUEST_FAILED';
 
     const message =
       typeof error === 'object'
