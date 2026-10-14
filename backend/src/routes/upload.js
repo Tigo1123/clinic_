@@ -1,4 +1,5 @@
 import express from 'express';
+import { asyncRouter } from '../utils/asyncRouter.js';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -8,7 +9,7 @@ import { authenticate } from '../middleware/auth.js';
 import { allowRoles, ROLES } from '../middleware/policies.js';
 import { sendError } from '../utils/apiError.js';
 
-const router = express.Router();
+const router = asyncRouter();
 const uploadDir = path.resolve(process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads'));
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 

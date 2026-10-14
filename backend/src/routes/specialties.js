@@ -1,4 +1,5 @@
 import express from 'express';
+import { asyncRouter } from '../utils/asyncRouter.js';
 import { z } from 'zod';
 import prisma from '../db.js';
 import { authenticate } from '../middleware/auth.js';
@@ -6,7 +7,7 @@ import { checkRoles } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { sendError } from '../utils/apiError.js';
 
-const router = express.Router();
+const router = asyncRouter();
 const specialtySchema = z.object({
   code: z.string().trim().toLowerCase().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(60),
   nameAr: z.string().trim().min(1).max(100),

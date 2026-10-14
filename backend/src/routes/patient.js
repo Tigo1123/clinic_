@@ -1,4 +1,5 @@
 import express from 'express';
+import { asyncRouter } from '../utils/asyncRouter.js';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import prisma from '../db.js';
@@ -18,7 +19,7 @@ import { markSensitiveResponse } from '../utils/edgeSecurity.js';
 import { patientIdentitySummary } from '../utils/patientOnboarding.js';
 import { linkGooglePatientIdentity, unlinkGooglePatientIdentity } from '../services/googlePatientIdentity.js';
 
-const router = express.Router();
+const router = asyncRouter();
 router.use((req, res, next) => { markSensitiveResponse(res); next(); });
 router.use(authenticate, allowRoles(ROLES.PATIENT), requireOwnedPatient);
 

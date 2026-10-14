@@ -1,4 +1,5 @@
 import express from 'express';
+import { asyncRouter } from '../utils/asyncRouter.js';
 import prisma from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { sendSMS, sendBookingConfirmation, sendStatusUpdateNotification } from '../utils/notifications.js';
@@ -19,7 +20,7 @@ import { structuredPatientName, structuredPatientNameSchema } from '../utils/pat
 
 import { lockPatientIdentity, patientDateOfBirthSchema } from '../utils/patientOnboarding.js';
 
-const router = express.Router();
+const router = asyncRouter();
 const otpLimiter = rateLimit({ windowMs: rateLimits.windowMs, limit: rateLimits.verification, standardHeaders: 'draft-7', legacyHeaders: false });
 const developmentOtps = new Map();
 

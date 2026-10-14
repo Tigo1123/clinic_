@@ -1,4 +1,5 @@
 import express from 'express';
+import { asyncRouter } from '../utils/asyncRouter.js';
 import { Prisma } from '../generated/prisma/index.js';
 import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
@@ -20,7 +21,7 @@ import {
 } from '../utils/medicineManagement.js';
 import { ensurePharmacyInvoiceInTransaction } from '../services/pharmacyInvoice.js';
 
-const router = express.Router();
+const router = asyncRouter();
 
 const ACTIVE_PRESCRIPTION_STATUSES = ['ACTIVE', 'PARTIALLY_FILLED'];
 const TERMINAL_PRESCRIPTION_STATUSES = ['FILLED', 'RESOLVED', 'CANCELLED'];

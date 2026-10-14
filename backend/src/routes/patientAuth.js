@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import express from 'express';
+import { asyncRouter } from '../utils/asyncRouter.js';
 import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
@@ -21,7 +22,7 @@ import { lockPatientIdentity, patientDateOfBirthSchema, patientIdentitySummary }
 import { resolveGooglePatientIdentity } from '../services/googlePatientIdentity.js';
 import { completeGooglePatientOnboarding } from '../services/googlePatientOnboarding.js';
 
-const router = express.Router();
+const router = asyncRouter();
 router.use((req, res, next) => { markSensitiveResponse(res); next(); });
 const limiter = (limit) => rateLimit({ windowMs: rateLimits.windowMs, limit, standardHeaders: 'draft-7', legacyHeaders: false, handler: (req, res) => sendError(res, 429, 'RATE_LIMITED', 'Too many attempts. Please try again later.') });
 const registrationLimiter = limiter(rateLimits.registration);

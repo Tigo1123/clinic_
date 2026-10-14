@@ -1,4 +1,5 @@
 import express from 'express';
+import { asyncRouter } from '../utils/asyncRouter.js';
 import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
 import { clinicDateSequence, clinicMonthBounds } from '../utils/clinicTime.js';
@@ -7,7 +8,7 @@ import { validate } from '../middleware/validate.js';
 import { sendError } from '../utils/apiError.js';
 import { ensurePharmacyInvoiceInTransaction } from '../services/pharmacyInvoice.js';
 
-const router = express.Router();
+const router = asyncRouter();
 const MAX_MONEY_SDG = 1_000_000_000;
 const priceUpdateSchema = z.object({
   priceSdg: z.number().int().positive().max(MAX_MONEY_SDG),

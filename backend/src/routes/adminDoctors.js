@@ -1,11 +1,12 @@
 import express from 'express';
+import { asyncRouter } from '../utils/asyncRouter.js';
 import { z } from 'zod';
 import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { sendError } from '../utils/apiError.js';
 
-const router = express.Router();
+const router = asyncRouter();
 const doctorUpdateSchema = z.object({
   fullNameAr: z.string().trim().min(1).max(150).optional(),
   fullNameEn: z.string().trim().min(1).max(150).optional(),

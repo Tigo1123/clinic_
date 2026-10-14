@@ -1,4 +1,5 @@
 import express from 'express';
+import { asyncRouter } from '../utils/asyncRouter.js';
 import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
@@ -23,7 +24,7 @@ import { signAccessToken } from '../services/accessTokens.js';
 import { logger } from '../utils/logger.js';
 import { markSensitiveResponse } from '../utils/edgeSecurity.js';
 
-const router = express.Router();
+const router = asyncRouter();
 router.use((req, res, next) => { markSensitiveResponse(res); next(); });
 const STAFF_ROLES = [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.DOCTOR, ROLES.LAB_TECH, ROLES.PHARMACIST];
 const mfaLimiter = rateLimit({

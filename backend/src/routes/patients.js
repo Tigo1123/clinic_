@@ -1,4 +1,5 @@
 import express from 'express';
+import { asyncRouter } from '../utils/asyncRouter.js';
 import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
 import { decrypt } from '../utils/encryption.js';
@@ -12,7 +13,7 @@ import { STRUCTURED_PATIENT_NAME_FIELDS, structuredPatientName, structuredPatien
 
 import { lockPatientIdentity, patientDateOfBirthSchema, patientIdentitySummary } from '../utils/patientOnboarding.js';
 
-const router = express.Router();
+const router = asyncRouter();
 
 /**
  * GET /api/patients/search

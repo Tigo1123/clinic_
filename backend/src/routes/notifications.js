@@ -1,8 +1,9 @@
 import express from 'express';
+import { asyncRouter } from '../utils/asyncRouter.js';
 import prisma from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 
-const router = express.Router();
+const router = asyncRouter();
 
 /**
  * GET /api/notifications

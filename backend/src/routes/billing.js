@@ -1,4 +1,5 @@
 import express from 'express';
+import { asyncRouter } from '../utils/asyncRouter.js';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import prisma from '../db.js';
@@ -14,7 +15,7 @@ import {
   toPublicClinicalService
 } from '../utils/publicDto.js';
 
-const router = express.Router();
+const router = asyncRouter();
 const MAX_MONEY_SDG = 1_000_000_000;
 const MAX_GENERAL_QUANTITY = 100;
 const MAX_GENERAL_INVOICE_ITEMS = 100;
