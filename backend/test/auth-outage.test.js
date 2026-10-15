@@ -1,3 +1,4 @@
+import { createSocketAuthenticate } from '../src/middleware/auth.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
@@ -49,4 +50,20 @@ test('valid user passes authentication', async () => {
   const res = await request(buildApp(verify)).get('/protected').set(bearer);
   assert.equal(res.status, 200);
   assert.equal(res.body.user, 'user-1');
+});
+
+const socketWith = (token) => ({ handshake: { auth: { token } } });
+const runSocketAuth = (verify, socket) => new Promise((resolve) => createSocketAuthenticate({ verify })(socket, (error) => resolve(error || null)));
+
+test('socket: infrastructure failure maps to the retryable SOCKET_SECURITY_UNAVAILABLE code', async () => {
+  const error = await runSocketAuth(async () => { throw new Error('db down'); }, socketWith('tok'));
+  assert.equal(error.data.code, 'SOCKET_SECURITY_UNAVAILABLE');
+  assert.ok(!error.message.includes('db down'));
+});
+
+test('socket: invalid and revoked tokens keep their terminal codes', async () => {
+  const invalid = await runSocketAuth(async () => { throw new AccessTokenError('INVALID_TOKEN', 'bad'); }, socketWith('tok'));
+  assert.equal(invalid.data.code, 'INVALID_TOKEN');
+  const revoked = await runSocketAuth(async () => { throw new AccessTokenError('SESSION_REVOKED', 'gone'); }, socketWith('tok'));
+  assert.equal(revoked.data.code, 'SESSION_REVOKED');
 });

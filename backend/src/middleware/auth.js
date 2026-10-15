@@ -71,36 +71,52 @@ export function createAuthenticate({ verify = verifyActiveAccessToken } = {}) {
 
 export const authenticate = createAuthenticate();
 
-export async function authenticateSocketAccessToken(socket, next) {
-  try {
-    const token = socket.handshake.auth?.token;
-    if (!token) {
-      const error = new Error("Authentication required.");
-      error.data = { code: "AUTHENTICATION_REQUIRED" };
-      return next(error);
-    }
-    socket.user = await verifyActiveAccessToken(token);
-    return next();
-  } catch (error) {
-    if (error instanceof AccessTokenError) {
-      const code =
-        error.code === "SESSION_REVOKED" ? "SESSION_REVOKED" : "INVALID_TOKEN";
+/**
+ * Builds the Socket.IO authentication middleware. `verify` is injectable for
+ * the same reason as above. Infrastructure failures use the retryable
+ * SOCKET_SECURITY_UNAVAILABLE code that the staff socket client already
+ * retries with backoff.
+ */
+export function createSocketAuthenticate({
+  verify = verifyActiveAccessToken,
+} = {}) {
+  return async function authenticateSocketAccessToken(socket, next) {
+    try {
+      const token = socket.handshake.auth?.token;
+      if (!token) {
+        const error = new Error("Authentication required.");
+        error.data = { code: "AUTHENTICATION_REQUIRED" };
+        return next(error);
+      }
+      socket.user = await verify(token);
+      return next();
+    } catch (error) {
+      if (error instanceof AccessTokenError) {
+        const code =
+          error.code === "SESSION_REVOKED"
+            ? "SESSION_REVOKED"
+            : "INVALID_TOKEN";
+        const socketError = new Error(
+          code === "SESSION_REVOKED"
+            ? "Session is no longer active."
+            : "Invalid or expired token.",
+        );
+        socketError.data = { code };
+        return next(socketError);
+      }
+      logger.error("auth.socket_verification_unavailable", {
+        error: { name: error?.name, message: error?.message },
+      });
       const socketError = new Error(
-        code === "SESSION_REVOKED"
-          ? "Session is no longer active."
-          : "Invalid or expired token.",
+        "Realtime session security is temporarily unavailable.",
       );
-      socketError.data = { code };
+      socketError.data = { code: "SOCKET_SECURITY_UNAVAILABLE" };
       return next(socketError);
     }
-    logger.error("auth.socket_verification_unavailable", {
-      error: { name: error?.name, message: error?.message },
-    });
-    const socketError = new Error("Service temporarily unavailable.");
-    socketError.data = { code: "SERVICE_UNAVAILABLE" };
-    return next(socketError);
-  }
+  };
 }
+
+export const authenticateSocketAccessToken = createSocketAuthenticate();
 
 /**
  * Middleware builder to check allowed roles.
