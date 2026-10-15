@@ -11,6 +11,18 @@ export class ApiClientError extends Error {
   }
 }
 
+const SESSION_ENDING_CODES = new Set(['INVALID_TOKEN', 'SESSION_REVOKED', 'AUTHENTICATION_REQUIRED']);
+
+async function endsSession(response) {
+  if (response.status !== 401) return false;
+  // Read a copy so callers can still read the original body.
+  const body = await response.clone?.().json().catch(() => null);
+  const code = body?.error?.code ?? body?.code;
+  // A 401 without a recognizable code usually comes from an intermediary,
+  // so keep the previous behavior and end the session.
+  return !code || SESSION_ENDING_CODES.has(code);
+}
+
 export async function apiFetch(path, options = {}, auth = null, baseUrl = API_BASE) {
   const session = auth === 'staff'
     ? readStaffSession()
@@ -30,7 +42,7 @@ export async function apiFetch(path, options = {}, auth = null, baseUrl = API_BA
     }
   });
 
-  if (response.status === 401 && auth) {
+  if (auth && await endsSession(response)) {
     if (auth === 'staff') clearStaffSession();
     if (auth === 'patient') clearPatientSession();
     window.location.replace(auth === 'staff' ? '/staff' : '/patient-login');

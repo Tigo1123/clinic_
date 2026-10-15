@@ -138,3 +138,47 @@ test('missing code and status fallback to REQUEST_FAILED', async () => {
     }
   );
 });
+
+const { apiFetch } = await import('../src/services/apiClient.js');
+const { writeStaffSession, readStaffSession } = await import('../src/services/authStorage.js');
+
+function withClone(status, body) {
+  const make = () => ({ status, ok: status >= 200 && status < 300, json: async () => body, clone: make });
+  return Promise.resolve(make());
+}
+
+async function sessionAfter(status, body) {
+  const redirects = [];
+  globalThis.window = { location: { replace: (url) => redirects.push(url) } };
+  writeStaffSession({ role: 'ADMIN', id: 'u1' }, 'token-abc');
+  globalThis.fetch = async () => withClone(status, body);
+  await apiFetch('/api/admin/x', {}, 'staff');
+  return { session: readStaffSession(), redirects };
+}
+
+test('401 with a session-ending code clears the session and redirects', async () => {
+  for (const code of ['INVALID_TOKEN', 'SESSION_REVOKED', 'AUTHENTICATION_REQUIRED']) {
+    const { session, redirects } = await sessionAfter(401, { error: { code } });
+    assert.equal(session, null, code);
+    assert.deepEqual(redirects, ['/staff'], code);
+  }
+});
+
+test('401 for a wrong re-authentication password keeps the session', async () => {
+  for (const code of ['CURRENT_PASSWORD_INVALID', 'ADMIN_REAUTHENTICATION_FAILED', 'MFA_REAUTH_FAILED', 'REAUTHENTICATION_FAILED']) {
+    const { session, redirects } = await sessionAfter(401, { error: { code } });
+    assert.ok(session, code);
+    assert.deepEqual(redirects, [], code);
+  }
+});
+
+test('503 service unavailable keeps the session', async () => {
+  const { session, redirects } = await sessionAfter(503, { error: { code: 'SERVICE_UNAVAILABLE' } });
+  assert.ok(session);
+  assert.deepEqual(redirects, []);
+});
+
+test('401 without a recognizable code still ends the session', async () => {
+  const { session } = await sessionAfter(401, {});
+  assert.equal(session, null);
+});
