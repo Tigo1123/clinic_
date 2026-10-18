@@ -502,3 +502,9 @@ must not be confused with offline supply-chain readiness.
 
 The HTTPS transport acceptance does not by itself constitute clinical readiness;
 remaining recovery, backup, WAN, and user-acceptance gates still apply.
+
+### Optional patient Google sign-in
+
+Leave `VITE_GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_ID` empty for offline LAN operation; the patient button is unavailable and no Google script is requested. Local login continues. To enable online Google sign-in, both public web client IDs must match; Compose forwards the former at frontend build time and the latter at backend runtime. Rebuild the frontend when changing its ID. Script-load failure leaves local login usable. Staff Google login is not supported.
+
+The edge CSP allows only Google's documented GIS script/style and `/gsi/` frames/connections. This does not provide internet access or authorize the LAN origin with Google. The internal backend networks and private LAN origin require a separate online deployment review before enablement. See [Google configuration and manual verification](../../DEPLOYMENT.md#frontend-build-configuration) for origin/consent setup and online acceptance requirements. Tests simulate Google; no real account verification is implied.

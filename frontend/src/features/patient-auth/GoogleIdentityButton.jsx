@@ -14,9 +14,13 @@ function loadGoogleIdentityServices() {
   gisScriptPromise = new Promise((resolve, reject) => {
     const existing = document.getElementById(GIS_SCRIPT_ID);
     const script = existing || document.createElement('script');
-    const finish = () => window.google?.accounts?.id ? resolve(window.google) : reject(new Error('Google Identity Services did not initialize.'));
+    const fail = (message) => {
+      script.remove();
+      reject(new Error(message));
+    };
+    const finish = () => window.google?.accounts?.id ? resolve(window.google) : fail('Google Identity Services did not initialize.');
     script.addEventListener('load', finish, { once: true });
-    script.addEventListener('error', () => reject(new Error('Google Identity Services failed to load.')), { once: true });
+    script.addEventListener('error', () => fail('Google Identity Services failed to load.'), { once: true });
     if (!existing) {
       script.id = GIS_SCRIPT_ID;
       script.src = GIS_SCRIPT_SRC;
