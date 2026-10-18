@@ -19,7 +19,7 @@ const reply = (data, ok = true) => ({ ok, json: async () => data });
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 const period = (dayOfWeek = 'MONDAY') => ({ dayOfWeek, startTime: '09:00', endTime: '17:00', slotDurationMinutes: 30, active: true, breaks: [] });
 const version = (id, periods = [period()]) => ({ id, active: true, effectiveFrom: '2190-01-01', effectiveTo: '2191-01-01', periods });
-async function mount(fn = () => reply([])) {
+async function mount(fn = () => reply([]), t) {
  requests = []; handler = fn;
  globalThis.scheduleFetch = async (url, options) => {
   requests.push({ url, options });
@@ -28,7 +28,7 @@ async function mount(fn = () => reply([])) {
   return handler(url, options);
  };
  root = createRoot(document.getElementById('root'));
- await act(async () => root.render(createElement(Panel)));
+ await act(async () => root.render(createElement(Panel, { t })));
 }
 afterEach(async () => { if (root) await act(async () => root.unmount()); root = null; });
 const click = async text => { const button = [...document.querySelectorAll('button')].find(b => b.textContent.includes(text)); assert.ok(button, text); await act(async () => button.click()); };
@@ -58,6 +58,17 @@ test('save failure preserves unsaved periods and displays the conflict', async (
  await click('Add working period'); await click('Add working period'); await submit();
  assert.equal(document.querySelectorAll('.admin-period').length, 2);
  assert.match(document.querySelector('[role=alert]').textContent, /overlaps/);
+});
+test('future appointment conflicts show the translated explanation and keep edits intact', async () => {
+ const arabic = 'هذا التغيير يتعارض مع موعد مستقبلي؛ عدّل ساعات العمل أو الاستراحة أو تاريخ السريان.';
+ await mount((url, options) => options
+  ? reply({ error: { code: 'SCHEDULE_FUTURE_APPOINTMENT_CONFLICT', message: 'Schedule conflict.' } }, false)
+  : reply([]), key => key === 'scheduleAppointmentConflict' ? arabic : key);
+ await click('Add working period');
+ await change(document.querySelector('.admin-period input[type=time]'), '10:30');
+ await submit();
+ assert.equal(document.querySelector('[role=alert]').textContent, arabic);
+ assert.equal(document.querySelector('.admin-period input[type=time]').value, '10:30');
 });
 test('A→B→A ignores an older response for the same doctor', async () => {
  const old = deferred(); let calls = 0;

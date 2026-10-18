@@ -6,6 +6,15 @@ export const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 export const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 export const todayString = getClinicDateString;
 export const OCCUPYING_APPOINTMENT_STATUSES = Object.freeze(['PENDING', 'SCHEDULED', 'CONFIRMED', 'CHECKED_IN', 'IN_CONSULTATION', 'WAITING_LAB', 'COMPLETED']);
+export async function lockDoctorScheduleRows(tx, doctorIds) {
+  const locked = new Set();
+  for (const doctorId of [...new Set(doctorIds)].sort()) {
+    const rows = await tx.$queryRaw`SELECT "id" FROM "Doctor" WHERE "id" = ${doctorId} FOR UPDATE`;
+    if (!rows.length) return false;
+    locked.add(doctorId);
+  }
+  return locked.size === new Set(doctorIds).size;
+}
 const DAY_MAP = Object.freeze({ Sunday: 'SUNDAY', Monday: 'MONDAY', Tuesday: 'TUESDAY', Wednesday: 'WEDNESDAY', Thursday: 'THURSDAY', Friday: 'FRIDAY', Saturday: 'SATURDAY' });
 const validDate = (date) => { const parsed = DateTime.fromISO(date, { zone: clinicTimeZone() }); return DATE_PATTERN.test(String(date)) && parsed.isValid && parsed.toISODate() === date; };
 const minutes = (value) => Number(value.slice(0, 2)) * 60 + Number(value.slice(3));
@@ -23,20 +32,25 @@ function legacyPeriods(doctor, date) {
   return [{ startTime: item.startTime, endTime: item.endTime, slotDurationMinutes: item.slotDurationInMinutes, breaks: [] }];
 }
 
-export async function getEffectiveSchedule(doctorId, date) {
+export async function getEffectiveSchedule(doctorId, date, { client = prisma, ignoreExceptionDate = null, scheduleOverride = null, exceptionOverride = null, excludeScheduleId = null } = {}) {
   if (!validDate(date)) return null;
-  const exception = await prisma.doctorScheduleException.findFirst({ where: { doctorId, date, active: true }, include: { periods: { where: { active: true } } } });
+  if (exceptionOverride?.doctorId === doctorId && exceptionOverride.date === date) {
+    if (exceptionOverride.type === 'FULL_DAY_LEAVE') return { normalized: true, periods: [] };
+    if (exceptionOverride.type === 'SPECIAL_HOURS') return { normalized: true, periods: exceptionOverride.periods || [] };
+  }
+  const exception = date !== ignoreExceptionDate ? await client.doctorScheduleException.findFirst({ where: { doctorId, date, active: true }, include: { periods: { where: { active: true } } } }) : null;
   if (exception) {
     if (exception.type === 'FULL_DAY_LEAVE') return { normalized: true, periods: [] };
     if (exception.type === 'SPECIAL_HOURS') return { normalized: true, periods: exception.periods };
     diagnostic('INVALID_EXCEPTION_TYPE', { doctorId, date });
     return { normalized: true, periods: [] };
   }
-  const schedules = await prisma.doctorSchedule.findMany({ where: { doctorId, active: true, effectiveFrom: { lte: date }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: date } }] }, include: { periods: { where: { active: true }, include: { breaks: { where: { active: true } } } } } });
+  const schedules = await client.doctorSchedule.findMany({ where: { doctorId, id: excludeScheduleId ? { not: excludeScheduleId } : undefined, active: true, effectiveFrom: { lte: date }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: date } }] }, include: { periods: { where: { active: true }, include: { breaks: { where: { active: true } } } } } });
+  if (scheduleOverride && scheduleOverride.doctorId === doctorId && scheduleOverride.effectiveFrom <= date && (!scheduleOverride.effectiveTo || scheduleOverride.effectiveTo >= date) && !schedules.some((schedule) => schedule.id === scheduleOverride.id)) schedules.push(scheduleOverride);
   if (!schedules.length) {
-    const count = await prisma.doctorSchedule.count({ where: { doctorId } });
+    const count = await client.doctorSchedule.count({ where: { doctorId } });
     if (count) return { normalized: true, periods: [] };
-    const doctor = await prisma.doctor.findUnique({ where: { id: doctorId }, select: { id: true, weeklySchedule: true } });
+    const doctor = await client.doctor.findUnique({ where: { id: doctorId }, select: { id: true, weeklySchedule: true } });
     return { normalized: false, periods: doctor ? legacyPeriods(doctor, date) : [] };
   }
   if (schedules.length !== 1) { diagnostic('OVERLAPPING_EFFECTIVE_SCHEDULES', { doctorId, date }); return { normalized: true, periods: [] }; }
@@ -62,9 +76,9 @@ function generatePeriods(periods, date, now = DateTime.now().setZone(clinicTimeZ
   return [...new Set(slots)].sort();
 }
 
-export async function getConfiguredSlots(doctor, date, now = DateTime.now().setZone(clinicTimeZone())) {
+export async function getConfiguredSlots(doctor, date, now = DateTime.now().setZone(clinicTimeZone()), client = prisma) {
   if (!doctor || doctor.status !== 'ACTIVE' || !validDate(date) || date < todayString(now.toJSDate())) return [];
-  const effective = await getEffectiveSchedule(doctor.id, date);
+  const effective = await getEffectiveSchedule(doctor.id, date, { client });
   return effective ? generatePeriods(effective.periods, date, now) : [];
 }
 

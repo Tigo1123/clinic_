@@ -6,8 +6,8 @@ import prisma from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { allowRoles, requireOwnedPatient, ROLES } from '../middleware/policies.js';
 import { validate } from '../middleware/validate.js';
-import { sendError } from '../utils/apiError.js';
-import { getConfiguredSlots, DATE_PATTERN, TIME_PATTERN, todayString } from '../utils/scheduling.js';
+import { ApiError, sendError } from '../utils/apiError.js';
+import { getConfiguredSlots, lockDoctorScheduleRows, DATE_PATTERN, TIME_PATTERN, todayString } from '../utils/scheduling.js';
 import { decrypt } from '../utils/encryption.js';
 import { cancellationCutoffReached } from '../utils/clinicTime.js';
 import { normalizeEmail, normalizePhone } from '../utils/identity.js';
@@ -281,10 +281,18 @@ async function validateSlot(res, doctorId, date, time) {
 router.post('/appointments', validate(bookingSchema), async (req, res, next) => {
   try {
     if (!(await validateSlot(res, req.body.doctorId, req.body.appointmentDate, req.body.appointmentTime))) return;
-    const appointment = await prisma.appointment.create({ data: { patientId: req.patient.id, ...req.body, status: 'PENDING' }, include: { doctor: { select: doctorSelect } } });
+    const appointment = await prisma.$transaction(async (tx) => {
+      if (!(await lockDoctorScheduleRows(tx, [req.body.doctorId]))) throw new ApiError(404, 'DOCTOR_NOT_FOUND', 'Active doctor not found.');
+      const doctor = await tx.doctor.findFirst({ where: { id: req.body.doctorId, status: 'ACTIVE' } });
+      if (!(await getConfiguredSlots(doctor, req.body.appointmentDate, undefined, tx)).includes(req.body.appointmentTime)) {
+        throw new ApiError(409, 'INVALID_APPOINTMENT_SLOT', 'The selected appointment time is no longer available in the doctor schedule.');
+      }
+      return tx.appointment.create({ data: { patientId: req.patient.id, ...req.body, status: 'PENDING' }, include: { doctor: { select: doctorSelect } } });
+    });
     await audit(req, 'PATIENT_APPOINTMENT_BOOKED', `Patient booked appointment ${appointment.id}.`);
     return res.status(201).json(appointment);
   } catch (error) {
+    if (error instanceof ApiError) return sendError(res, error.status, error.code, error.message);
     if (error.code === 'P2002') return sendError(res, 409, 'APPOINTMENT_SLOT_UNAVAILABLE', 'This appointment slot is no longer available.');
     next(error);
   }
@@ -328,6 +336,11 @@ router.put('/appointments/:id/reschedule', validate(bookingSchema), async (req, 
   if (!(await validateSlot(res, req.body.doctorId, req.body.appointmentDate, req.body.appointmentTime))) return;
   try {
     const updated = await prisma.$transaction(async (tx) => {
+      if (!(await lockDoctorScheduleRows(tx, [appointment.doctorId, req.body.doctorId]))) throw new ApiError(404, 'DOCTOR_NOT_FOUND', 'Active doctor not found.');
+      const targetDoctor = await tx.doctor.findFirst({ where: { id: req.body.doctorId, status: 'ACTIVE' } });
+      if (!(await getConfiguredSlots(targetDoctor, req.body.appointmentDate, undefined, tx)).includes(req.body.appointmentTime)) {
+        throw new ApiError(409, 'INVALID_APPOINTMENT_SLOT', 'The selected appointment time is no longer available in the doctor schedule.');
+      }
       const claimed = await tx.appointment.updateMany({
         where: {
           id: appointment.id,
@@ -345,6 +358,7 @@ router.put('/appointments/:id/reschedule', validate(bookingSchema), async (req, 
     });
     return res.json(updated);
   } catch (error) {
+    if (error instanceof ApiError) return sendError(res, error.status, error.code, error.message);
     if (error.status === 409 && error.code === 'APPOINTMENT_STATE_CONFLICT') return sendError(res, 409, error.code, error.message);
     if (isAppointmentSlotConflict(error)) return sendError(res, 409, 'APPOINTMENT_SLOT_UNAVAILABLE', 'The requested new slot is no longer available; the original appointment was preserved.');
     next(error);
