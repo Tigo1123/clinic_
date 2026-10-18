@@ -18,7 +18,8 @@ function validatePeriods(periods = [], exception = false) {
     if (!TIME_PATTERN.test(period.startTime) || !TIME_PATTERN.test(period.endTime) || minutes(period.startTime) >= minutes(period.endTime) || !Number.isInteger(period.slotDurationMinutes) || period.slotDurationMinutes < 1 || period.slotDurationMinutes > 1440) throw new ScheduleDomainError('SCHEDULE_INVALID_PERIOD', 'Invalid period time or duration.');
     const key = exception ? 'all' : period.dayOfWeek;
     const list = seen.get(key) || [];
-    if (list.some((x) => overlap(minutes(x.startTime), minutes(x.endTime), minutes(period.startTime), minutes(period.endTime)))) throw new ScheduleDomainError('SCHEDULE_PERIOD_OVERLAP', 'Active schedule periods overlap.');
+    const conflict = list.find((x) => overlap(minutes(x.startTime), minutes(x.endTime), minutes(period.startTime), minutes(period.endTime)));
+    if (conflict) throw new ScheduleDomainError('SCHEDULE_PERIOD_OVERLAP', `${exception ? 'Special hours' : period.dayOfWeek}: ${period.startTime}–${period.endTime} overlaps ${conflict.startTime}–${conflict.endTime}. Change the day or times, or remove the duplicate period.`);
     seen.set(key, [...list, period]);
     const breaks = period.breaks || [];
     const activeBreaks = breaks.filter((b) => b.active !== false);

@@ -21,7 +21,8 @@
     "backup:postgres": "sh scripts/backup-postgres.sh",
     "bootstrap:reference": "node scripts/bootstrap-reference-data.js",
     "start:staging": "node src/server.js",
-    "start:staging:migrate": "prisma migrate deploy && npm run start:staging"
+    "start:staging:migrate": "prisma migrate deploy && npm run start:staging",
+    "test:schedule-workflow": "node scripts/test-schedule-workflow.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
