@@ -114,8 +114,9 @@ accepted fallback. Restrict firewall exposure to the clinic LAN, never WAN.
 
 The internal loopback `:8080/healthz` endpoint exists only for Docker's frontend
 healthcheck; all other paths return 404 and it is not host-published. Do not use
-it as a browser or staff endpoint. Do not enable HSTS until the remaining
-operational recovery gates are approved.
+it as a browser or staff endpoint. The TLS terminator sends HSTS with a one-year
+max-age, including static responses; Express does not duplicate that header.
+Certificate trust and operational recovery gates still require review.
 
 ## WAN-disconnected behavior
 

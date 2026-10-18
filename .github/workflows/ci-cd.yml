@@ -2,7 +2,7 @@ name: Clinic Management System CI/CD
 
 on:
   push:
-    branches: [ main, redesign ]
+    branches: [ main, redesign, fix/audit-issues ]
   pull_request:
     branches: [ main, redesign ]
 
@@ -10,14 +10,14 @@ jobs:
   test-and-lint:
     runs-on: ubuntu-latest
     services:
-      postgres:
+      clinic-test-db:
         image: postgres:16-alpine
         env:
           POSTGRES_DB: clinic_test
           POSTGRES_USER: clinic_test
           POSTGRES_HOST_AUTH_METHOD: trust
         ports:
-          - 5432:5432
+          - 5433:5432
         options: >-
           --health-cmd "pg_isready -U clinic_test -d clinic_test"
           --health-interval 5s
@@ -39,7 +39,8 @@ jobs:
       - name: Test Backend
         env:
           NODE_ENV: test
-          TEST_DATABASE_URL: postgresql://clinic_test@127.0.0.1:5432/clinic_test
+          TEST_REPORT_PATH: ${{ runner.temp }}/backend-test-results.json
+          TEST_DATABASE_URL: postgresql://clinic_test@127.0.0.1:5433/clinic_test
           JWT_SECRET: ci-only-jwt-secret-that-is-long-and-not-production
           MEDICAL_ENCRYPTION_KEY: ci-only-medical-key-that-is-long-and-not-production
           CORS_ALLOWED_ORIGINS: http://localhost:5173
@@ -52,12 +53,21 @@ jobs:
           npx prisma generate
           npm test
 
-      - name: Build Frontend
+      - name: Test, Lint and Build Frontend
         run: |
           cd frontend
           npm ci
+          npm test
           npm run lint
           npm run build
+
+      - name: Upload Backend Test Manifest and Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: ${{ runner.temp }}/backend-test-results.json
+          if-no-files-found: warn
 
   build-docker-images:
     needs: test-and-lint

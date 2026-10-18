@@ -1,0 +1,996 @@
+{
+  "originalInventory": {
+    "originalFiles": [
+      "backend/test/access-token.test.js",
+      "backend/test/admin-doctor-management.test.js",
+      "backend/test/admin-scheduling.test.js",
+      "backend/test/async-router.test.js",
+      "backend/test/auth-foundations.test.js",
+      "backend/test/auth-outage.test.js",
+      "backend/test/browser-security.test.js",
+      "backend/test/clinic-time.test.js",
+      "backend/test/external-identity-foundation.test.js",
+      "backend/test/first-admin-provision.test.js",
+      "backend/test/google-identity.test.js",
+      "backend/test/google-patient-link.test.js",
+      "backend/test/google-patient-onboarding.test.js",
+      "backend/test/google-patient-verify.test.js",
+      "backend/test/integration.test.js",
+      "backend/test/lan-backup-restore.test.js",
+      "backend/test/lan-database-bootstrap.test.js",
+      "backend/test/lan-deployment-foundation.test.js",
+      "backend/test/lan-full-acceptance.test.js",
+      "backend/test/lan-recovery-resilience.test.js",
+      "backend/test/lan-runtime-independence.test.js",
+      "backend/test/lan-same-origin.test.js",
+      "backend/test/medicine-management.test.js",
+      "backend/test/medicine-migration.test.js",
+      "backend/test/mfa.test.js",
+      "backend/test/mrn-sequence-provisioning.test.js",
+      "backend/test/offline-patient-activation.test.js",
+      "backend/test/password-policy.test.js",
+      "backend/test/patient-file-projection.test.js",
+      "backend/test/patient-onboarding.test.js",
+      "backend/test/patient.test.js",
+      "backend/test/phone-verification.test.js",
+      "backend/test/reference-bootstrap.test.js",
+      "backend/test/schedule-regressions.test.js",
+      "backend/test/schedule-workflow.test.js",
+      "backend/test/scheduling.test.js",
+      "backend/test/seed-security.test.js",
+      "backend/test/smtp-config.test.js",
+      "backend/test/socket-revocation.test.js",
+      "backend/test/specialty-delete.test.js",
+      "backend/test/staging-demo-staff.test.js"
+    ],
+    "listed": [
+      "access-token.test.js",
+      "admin-scheduling.test.js",
+      "async-router.test.js",
+      "auth-foundations.test.js",
+      "auth-outage.test.js",
+      "clinic-time.test.js",
+      "integration.test.js",
+      "medicine-management.test.js",
+      "medicine-migration.test.js",
+      "mfa.test.js",
+      "mrn-sequence-provisioning.test.js",
+      "offline-patient-activation.test.js",
+      "password-policy.test.js",
+      "patient-file-projection.test.js",
+      "patient-onboarding.test.js",
+      "patient.test.js",
+      "reference-bootstrap.test.js",
+      "schedule-regressions.test.js",
+      "scheduling.test.js",
+      "seed-security.test.js",
+      "smtp-config.test.js",
+      "socket-revocation.test.js"
+    ],
+    "omitted": [
+      "backend/test/admin-doctor-management.test.js",
+      "backend/test/browser-security.test.js",
+      "backend/test/external-identity-foundation.test.js",
+      "backend/test/first-admin-provision.test.js",
+      "backend/test/google-identity.test.js",
+      "backend/test/google-patient-link.test.js",
+      "backend/test/google-patient-onboarding.test.js",
+      "backend/test/google-patient-verify.test.js",
+      "backend/test/lan-backup-restore.test.js",
+      "backend/test/lan-database-bootstrap.test.js",
+      "backend/test/lan-deployment-foundation.test.js",
+      "backend/test/lan-full-acceptance.test.js",
+      "backend/test/lan-recovery-resilience.test.js",
+      "backend/test/lan-runtime-independence.test.js",
+      "backend/test/lan-same-origin.test.js",
+      "backend/test/phone-verification.test.js",
+      "backend/test/schedule-workflow.test.js",
+      "backend/test/specialty-delete.test.js",
+      "backend/test/staging-demo-staff.test.js"
+    ]
+  },
+  "before": {
+    "completedFiles": 41,
+    "counts": {
+      "tests": 562,
+      "pass": 558,
+      "fail": 4,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0
+    },
+    "failedFiles": [
+      "test/google-patient-verify.test.js",
+      "test/lan-deployment-foundation.test.js",
+      "test/lan-recovery-resilience.test.js",
+      "test/lan-runtime-independence.test.js"
+    ]
+  },
+  "backend": {
+    "discovered": [
+      "test/access-token.test.js",
+      "test/admin-doctor-management.test.js",
+      "test/admin-scheduling.test.js",
+      "test/async-router.test.js",
+      "test/auth-foundations.test.js",
+      "test/auth-outage.test.js",
+      "test/browser-security.test.js",
+      "test/clinic-time.test.js",
+      "test/external-identity-foundation.test.js",
+      "test/first-admin-provision.test.js",
+      "test/google-identity.test.js",
+      "test/google-patient-link.test.js",
+      "test/google-patient-onboarding.test.js",
+      "test/google-patient-verify.test.js",
+      "test/integration.test.js",
+      "test/isolation/database.test.js",
+      "test/lan-backup-restore.test.js",
+      "test/lan-database-bootstrap.test.js",
+      "test/lan-deployment-foundation.test.js",
+      "test/lan-full-acceptance.test.js",
+      "test/lan-recovery-resilience.test.js",
+      "test/lan-runtime-independence.test.js",
+      "test/lan-same-origin.test.js",
+      "test/medicine-management.test.js",
+      "test/medicine-migration.test.js",
+      "test/mfa.test.js",
+      "test/mrn-sequence-provisioning.test.js",
+      "test/offline-patient-activation.test.js",
+      "test/password-policy.test.js",
+      "test/patient-file-projection.test.js",
+      "test/patient-onboarding.test.js",
+      "test/patient.test.js",
+      "test/phone-verification.test.js",
+      "test/reference-bootstrap.test.js",
+      "test/schedule-regressions.test.js",
+      "test/schedule-workflow.test.js",
+      "test/scheduling.test.js",
+      "test/seed-security.test.js",
+      "test/smtp-config.test.js",
+      "test/socket-revocation.test.js",
+      "test/specialty-delete.test.js",
+      "test/staging-demo-staff.test.js",
+      "test/test-runner.test.js"
+    ],
+    "selected": [
+      "test/access-token.test.js",
+      "test/admin-doctor-management.test.js",
+      "test/admin-scheduling.test.js",
+      "test/async-router.test.js",
+      "test/auth-foundations.test.js",
+      "test/auth-outage.test.js",
+      "test/browser-security.test.js",
+      "test/clinic-time.test.js",
+      "test/external-identity-foundation.test.js",
+      "test/first-admin-provision.test.js",
+      "test/google-identity.test.js",
+      "test/google-patient-link.test.js",
+      "test/google-patient-onboarding.test.js",
+      "test/google-patient-verify.test.js",
+      "test/integration.test.js",
+      "test/isolation/database.test.js",
+      "test/lan-backup-restore.test.js",
+      "test/lan-database-bootstrap.test.js",
+      "test/lan-deployment-foundation.test.js",
+      "test/lan-full-acceptance.test.js",
+      "test/lan-recovery-resilience.test.js",
+      "test/lan-runtime-independence.test.js",
+      "test/lan-same-origin.test.js",
+      "test/medicine-management.test.js",
+      "test/medicine-migration.test.js",
+      "test/mfa.test.js",
+      "test/mrn-sequence-provisioning.test.js",
+      "test/offline-patient-activation.test.js",
+      "test/password-policy.test.js",
+      "test/patient-file-projection.test.js",
+      "test/patient-onboarding.test.js",
+      "test/patient.test.js",
+      "test/phone-verification.test.js",
+      "test/reference-bootstrap.test.js",
+      "test/schedule-regressions.test.js",
+      "test/schedule-workflow.test.js",
+      "test/scheduling.test.js",
+      "test/seed-security.test.js",
+      "test/smtp-config.test.js",
+      "test/socket-revocation.test.js",
+      "test/specialty-delete.test.js",
+      "test/staging-demo-staff.test.js",
+      "test/test-runner.test.js"
+    ],
+    "files": [
+      {
+        "file": "test/access-token.test.js",
+        "schema": "test_1792305272824_3193356_0",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/admin-doctor-management.test.js",
+        "schema": "test_1792305272824_3193356_1",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/admin-scheduling.test.js",
+        "schema": "test_1792305272824_3193356_2",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 17,
+          "pass": 17,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/async-router.test.js",
+        "schema": "test_1792305272824_3193356_3",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/auth-foundations.test.js",
+        "schema": "test_1792305272824_3193356_4",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 16,
+          "pass": 16,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/auth-outage.test.js",
+        "schema": "test_1792305272824_3193356_5",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/browser-security.test.js",
+        "schema": "test_1792305272824_3193356_6",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/clinic-time.test.js",
+        "schema": "test_1792305272824_3193356_7",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/external-identity-foundation.test.js",
+        "schema": "test_1792305272824_3193356_8",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/first-admin-provision.test.js",
+        "schema": "test_1792305272824_3193356_9",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/google-identity.test.js",
+        "schema": "test_1792305272824_3193356_10",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/google-patient-link.test.js",
+        "schema": "test_1792305272824_3193356_11",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 18,
+          "pass": 18,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/google-patient-onboarding.test.js",
+        "schema": "test_1792305272824_3193356_12",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/google-patient-verify.test.js",
+        "schema": "test_1792305272824_3193356_13",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/integration.test.js",
+        "schema": "test_1792305272824_3193356_14",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 230,
+          "pass": 230,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/isolation/database.test.js",
+        "schema": "test_1792305272824_3193356_15",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/lan-backup-restore.test.js",
+        "schema": "test_1792305272824_3193356_16",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 13,
+          "pass": 13,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/lan-database-bootstrap.test.js",
+        "schema": "test_1792305272824_3193356_17",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/lan-deployment-foundation.test.js",
+        "schema": "test_1792305272824_3193356_18",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/lan-full-acceptance.test.js",
+        "schema": "test_1792305272824_3193356_19",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/lan-recovery-resilience.test.js",
+        "schema": "test_1792305272824_3193356_20",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 15,
+          "pass": 15,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/lan-runtime-independence.test.js",
+        "schema": "test_1792305272824_3193356_21",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/lan-same-origin.test.js",
+        "schema": "test_1792305272824_3193356_22",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/medicine-management.test.js",
+        "schema": "test_1792305272824_3193356_23",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/medicine-migration.test.js",
+        "schema": "test_1792305272824_3193356_24",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/mfa.test.js",
+        "schema": "test_1792305272824_3193356_25",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/mrn-sequence-provisioning.test.js",
+        "schema": "test_1792305272824_3193356_26",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/offline-patient-activation.test.js",
+        "schema": "test_1792305272824_3193356_27",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/password-policy.test.js",
+        "schema": "test_1792305272824_3193356_28",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/patient-file-projection.test.js",
+        "schema": "test_1792305272824_3193356_29",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/patient-onboarding.test.js",
+        "schema": "test_1792305272824_3193356_30",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/patient.test.js",
+        "schema": "test_1792305272824_3193356_31",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 28,
+          "pass": 28,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/phone-verification.test.js",
+        "schema": "test_1792305272824_3193356_32",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/reference-bootstrap.test.js",
+        "schema": "test_1792305272824_3193356_33",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/schedule-regressions.test.js",
+        "schema": "test_1792305272824_3193356_34",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/schedule-workflow.test.js",
+        "schema": "schedule_workflow_1792305272824_3193356_35",
+        "seeded": false,
+        "status": "passed",
+        "counts": {
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/scheduling.test.js",
+        "schema": "test_1792305272824_3193356_36",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/seed-security.test.js",
+        "schema": "test_1792305272824_3193356_37",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/smtp-config.test.js",
+        "schema": "test_1792305272824_3193356_38",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 15,
+          "pass": 15,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/socket-revocation.test.js",
+        "schema": "test_1792305272824_3193356_39",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/specialty-delete.test.js",
+        "schema": "test_1792305272824_3193356_40",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/staging-demo-staff.test.js",
+        "schema": "test_1792305272824_3193356_41",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/test-runner.test.js",
+        "schema": "test_1792305272824_3193356_42",
+        "seeded": true,
+        "status": "passed",
+        "counts": {
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      }
+    ],
+    "setupFailure": null,
+    "totals": {
+      "tests": 572,
+      "pass": 572,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0
+    },
+    "completedFiles": 43,
+    "exitCode": 0
+  },
+  "frontend": {
+    "files": 39,
+    "tests": 239,
+    "pass": 239,
+    "fail": 0,
+    "skipped": 0,
+    "cancelled": 0,
+    "todo": 0
+  },
+  "focusedVerification": {
+    "focused": {
+      "discovered": [
+        "test/access-token.test.js",
+        "test/admin-doctor-management.test.js",
+        "test/admin-scheduling.test.js",
+        "test/async-router.test.js",
+        "test/auth-foundations.test.js",
+        "test/auth-outage.test.js",
+        "test/browser-security.test.js",
+        "test/clinic-time.test.js",
+        "test/external-identity-foundation.test.js",
+        "test/first-admin-provision.test.js",
+        "test/google-identity.test.js",
+        "test/google-patient-link.test.js",
+        "test/google-patient-onboarding.test.js",
+        "test/google-patient-verify.test.js",
+        "test/integration.test.js",
+        "test/isolation/database.test.js",
+        "test/lan-backup-restore.test.js",
+        "test/lan-database-bootstrap.test.js",
+        "test/lan-deployment-foundation.test.js",
+        "test/lan-full-acceptance.test.js",
+        "test/lan-recovery-resilience.test.js",
+        "test/lan-runtime-independence.test.js",
+        "test/lan-same-origin.test.js",
+        "test/medicine-management.test.js",
+        "test/medicine-migration.test.js",
+        "test/mfa.test.js",
+        "test/mrn-sequence-provisioning.test.js",
+        "test/offline-patient-activation.test.js",
+        "test/password-policy.test.js",
+        "test/patient-file-projection.test.js",
+        "test/patient-onboarding.test.js",
+        "test/patient.test.js",
+        "test/phone-verification.test.js",
+        "test/reference-bootstrap.test.js",
+        "test/schedule-regressions.test.js",
+        "test/schedule-workflow.test.js",
+        "test/scheduling.test.js",
+        "test/seed-security.test.js",
+        "test/smtp-config.test.js",
+        "test/socket-revocation.test.js",
+        "test/specialty-delete.test.js",
+        "test/staging-demo-staff.test.js",
+        "test/test-runner.test.js"
+      ],
+      "selected": [
+        "test/isolation/database.test.js"
+      ],
+      "files": [
+        {
+          "file": "test/isolation/database.test.js",
+          "schema": "test_1792305533568_3205720_0",
+          "seeded": true,
+          "status": "passed",
+          "counts": {
+            "tests": 1,
+            "pass": 1,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          }
+        }
+      ],
+      "setupFailure": null,
+      "totals": {
+        "tests": 1,
+        "pass": 1,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      },
+      "completedFiles": 1,
+      "exitCode": 0
+    },
+    "schedule": {
+      "discovered": [
+        "test/access-token.test.js",
+        "test/admin-doctor-management.test.js",
+        "test/admin-scheduling.test.js",
+        "test/async-router.test.js",
+        "test/auth-foundations.test.js",
+        "test/auth-outage.test.js",
+        "test/browser-security.test.js",
+        "test/clinic-time.test.js",
+        "test/external-identity-foundation.test.js",
+        "test/first-admin-provision.test.js",
+        "test/google-identity.test.js",
+        "test/google-patient-link.test.js",
+        "test/google-patient-onboarding.test.js",
+        "test/google-patient-verify.test.js",
+        "test/integration.test.js",
+        "test/isolation/database.test.js",
+        "test/lan-backup-restore.test.js",
+        "test/lan-database-bootstrap.test.js",
+        "test/lan-deployment-foundation.test.js",
+        "test/lan-full-acceptance.test.js",
+        "test/lan-recovery-resilience.test.js",
+        "test/lan-runtime-independence.test.js",
+        "test/lan-same-origin.test.js",
+        "test/medicine-management.test.js",
+        "test/medicine-migration.test.js",
+        "test/mfa.test.js",
+        "test/mrn-sequence-provisioning.test.js",
+        "test/offline-patient-activation.test.js",
+        "test/password-policy.test.js",
+        "test/patient-file-projection.test.js",
+        "test/patient-onboarding.test.js",
+        "test/patient.test.js",
+        "test/phone-verification.test.js",
+        "test/reference-bootstrap.test.js",
+        "test/schedule-regressions.test.js",
+        "test/schedule-workflow.test.js",
+        "test/scheduling.test.js",
+        "test/seed-security.test.js",
+        "test/smtp-config.test.js",
+        "test/socket-revocation.test.js",
+        "test/specialty-delete.test.js",
+        "test/staging-demo-staff.test.js",
+        "test/test-runner.test.js"
+      ],
+      "selected": [
+        "test/clinic-time.test.js",
+        "test/schedule-workflow.test.js"
+      ],
+      "files": [
+        {
+          "file": "test/clinic-time.test.js",
+          "schema": "test_1792305538034_3205996_0",
+          "seeded": false,
+          "status": "passed",
+          "counts": {
+            "tests": 4,
+            "pass": 4,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          }
+        },
+        {
+          "file": "test/schedule-workflow.test.js",
+          "schema": "schedule_workflow_1792305538034_3205996_1",
+          "seeded": false,
+          "status": "passed",
+          "counts": {
+            "tests": 6,
+            "pass": 6,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          }
+        }
+      ],
+      "setupFailure": null,
+      "totals": {
+        "tests": 10,
+        "pass": 10,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      },
+      "completedFiles": 2,
+      "exitCode": 0
+    }
+  }
+}
