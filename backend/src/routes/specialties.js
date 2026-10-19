@@ -22,15 +22,21 @@ router.get('/', authenticate, checkRoles('ADMIN'), async (req, res, next) => {
 });
 router.post('/', authenticate, checkRoles('ADMIN'), validate(specialtySchema), async (req, res, next) => {
   try {
-    const specialty = await prisma.specialty.create({ data: req.body, select: safeSelect });
-    await prisma.tenantAuditLog.create({ data: { userId: req.user.id, action: 'SPECIALTY_CREATED', details: JSON.stringify({ specialtyId: specialty.id, code: specialty.code }), ipAddress: req.ip || 'unknown' } });
+    const specialty = await prisma.$transaction(async (tx) => {
+      const created = await tx.specialty.create({ data: req.body, select: safeSelect });
+      await tx.tenantAuditLog.create({ data: { userId: req.user.id, action: 'SPECIALTY_CREATED', details: JSON.stringify({ specialtyId: created.id, code: created.code }), ipAddress: req.ip || 'unknown' } });
+      return created;
+    });
     return res.status(201).json(specialty);
   } catch (error) { if (error.code === 'P2002') return sendError(res, 409, 'SPECIALTY_CODE_EXISTS', 'A specialty with this code already exists.'); next(error); }
 });
 router.patch('/:id', authenticate, checkRoles('ADMIN'), validate(specialtyUpdateSchema), async (req, res, next) => {
   try {
-    const specialty = await prisma.specialty.update({ where: { id: req.params.id }, data: req.body, select: safeSelect });
-    await prisma.tenantAuditLog.create({ data: { userId: req.user.id, action: 'SPECIALTY_UPDATED', details: JSON.stringify({ specialtyId: specialty.id, active: specialty.active }), ipAddress: req.ip || 'unknown' } });
+    const specialty = await prisma.$transaction(async (tx) => {
+      const updated = await tx.specialty.update({ where: { id: req.params.id }, data: req.body, select: safeSelect });
+      await tx.tenantAuditLog.create({ data: { userId: req.user.id, action: 'SPECIALTY_UPDATED', details: JSON.stringify({ specialtyId: updated.id, active: updated.active }), ipAddress: req.ip || 'unknown' } });
+      return updated;
+    });
     return res.json(specialty);
   } catch (error) { if (error.code === 'P2025') return sendError(res, 404, 'SPECIALTY_NOT_FOUND', 'Specialty not found.'); if (error.code === 'P2002') return sendError(res, 409, 'SPECIALTY_CODE_EXISTS', 'A specialty with this code already exists.'); next(error); }
 });

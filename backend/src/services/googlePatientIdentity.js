@@ -139,7 +139,8 @@ export async function linkGooglePatientIdentity({
   credential,
   verifyCredential = verifyGoogleCredential,
   db = prisma,
-  now = new Date()
+  now = new Date(),
+  onLinked
 } = {}) {
   const user = await db.user.findUnique({
     where: { id: userId },
@@ -202,15 +203,20 @@ export async function linkGooglePatientIdentity({
   }
 
   try {
-    const created = await db.userExternalIdentity.create({
-      data: {
-        userId,
-        provider: GOOGLE_PROVIDER,
-        providerSubject: identity.providerSubject,
-        normalizedEmailAtLink: normalizedGoogleEmail,
-        createdAt: now
-      }
-    });
+    const createLink = async (client) => {
+      const created = await client.userExternalIdentity.create({
+        data: {
+          userId,
+          provider: GOOGLE_PROVIDER,
+          providerSubject: identity.providerSubject,
+          normalizedEmailAtLink: normalizedGoogleEmail,
+          createdAt: now
+        }
+      });
+      if (onLinked) await onLinked(client, created);
+      return created;
+    };
+    const created = onLinked ? await db.$transaction((tx) => createLink(tx)) : await createLink(db);
 
     return {
       success: true,
@@ -238,7 +244,8 @@ export async function linkGooglePatientIdentity({
 export async function unlinkGooglePatientIdentity({
   userId,
   currentPassword,
-  db = prisma
+  db = prisma,
+  onUnlinked
 } = {}) {
   const user = await db.user.findUnique({
     where: { id: userId },
@@ -273,9 +280,12 @@ export async function unlinkGooglePatientIdentity({
     throw new ApiError(400, 'PRIMARY_AUTH_REQUIRED', 'Cannot unlink Google account without a password.');
   }
 
-  await db.userExternalIdentity.delete({
-    where: { id: existingLink.id }
-  });
+  const removeLink = async (client) => {
+    await client.userExternalIdentity.delete({ where: { id: existingLink.id } });
+    if (onUnlinked) await onUnlinked(client);
+  };
+  if (onUnlinked) await db.$transaction((tx) => removeLink(tx));
+  else await removeLink(db);
 
   return {
     success: true,

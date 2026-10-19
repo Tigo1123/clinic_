@@ -121,11 +121,11 @@ router.patch('/me', (req, res, next) => {
   }
   return next();
 }, validate(z.object({ addressStateId: z.coerce.number().int().min(1).max(18).optional(), addressDetails: z.string().trim().max(300).nullable().optional(), emergencyContact: z.string().trim().min(2).max(150).optional(), bloodType: z.enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']).nullable().optional(), preferredLanguage: z.enum(['ar', 'en']).optional() }).strict().refine((body) => Object.keys(body).length > 0)), async (req, res) => {
-  await prisma.$transaction([
-    prisma.patient.update({ where: { id: req.patient.id }, data: { addressStateId: req.body.addressStateId, addressDetails: req.body.addressDetails, emergencyContact: req.body.emergencyContact, bloodType: req.body.bloodType } }),
-    ...(req.body.preferredLanguage ? [prisma.user.update({ where: { id: req.user.id }, data: { preferredLanguage: req.body.preferredLanguage } })] : [])
-  ]);
-  await audit(req, 'PATIENT_PROFILE_UPDATED', 'Patient updated self-service contact/profile fields.');
+  await prisma.$transaction(async (tx) => {
+    await tx.patient.update({ where: { id: req.patient.id }, data: { addressStateId: req.body.addressStateId, addressDetails: req.body.addressDetails, emergencyContact: req.body.emergencyContact, bloodType: req.body.bloodType } });
+    if (req.body.preferredLanguage) await tx.user.update({ where: { id: req.user.id }, data: { preferredLanguage: req.body.preferredLanguage } });
+    await audit(req, 'PATIENT_PROFILE_UPDATED', 'Patient updated self-service contact/profile fields.', tx);
+  });
   return res.json({ success: true });
 });
 
@@ -205,9 +205,9 @@ router.post(
       const result = await linkGooglePatientIdentity({
         userId: req.user.id,
         currentPassword: req.body.currentPassword,
-        credential: req.body.credential
+        credential: req.body.credential,
+        onLinked: (tx, identity) => audit(req, 'PATIENT_GOOGLE_LINKED', `Patient linked Google account ${identity.normalizedEmailAtLink}.`, tx)
       });
-      await audit(req, 'PATIENT_GOOGLE_LINKED', `Patient linked Google account ${result.googleAccount.email}.`);
       return res.json(result);
     } catch (error) {
       next(error);
@@ -225,9 +225,9 @@ router.delete(
     try {
       const result = await unlinkGooglePatientIdentity({
         userId: req.user.id,
-        currentPassword: req.body.currentPassword
+        currentPassword: req.body.currentPassword,
+        onUnlinked: (tx) => audit(req, 'PATIENT_GOOGLE_UNLINKED', 'Patient unlinked Google account.', tx)
       });
-      await audit(req, 'PATIENT_GOOGLE_UNLINKED', 'Patient unlinked Google account.');
       return res.json(result);
     } catch (error) {
       next(error);
@@ -287,9 +287,10 @@ router.post('/appointments', validate(bookingSchema), async (req, res, next) => 
       if (!(await getConfiguredSlots(doctor, req.body.appointmentDate, undefined, tx)).includes(req.body.appointmentTime)) {
         throw new ApiError(409, 'INVALID_APPOINTMENT_SLOT', 'The selected appointment time is no longer available in the doctor schedule.');
       }
-      return tx.appointment.create({ data: { patientId: req.patient.id, ...req.body, status: 'PENDING' }, include: { doctor: { select: doctorSelect } } });
+      const created = await tx.appointment.create({ data: { patientId: req.patient.id, ...req.body, status: 'PENDING' }, include: { doctor: { select: doctorSelect } } });
+      await audit(req, 'PATIENT_APPOINTMENT_BOOKED', `Patient booked appointment ${created.id}.`, tx);
+      return created;
     });
-    await audit(req, 'PATIENT_APPOINTMENT_BOOKED', `Patient booked appointment ${appointment.id}.`);
     return res.status(201).json(appointment);
   } catch (error) {
     if (error instanceof ApiError) return sendError(res, error.status, error.code, error.message);

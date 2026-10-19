@@ -120,6 +120,7 @@ router.post('/register', registrationLimiter, validate(patientRegistrationFields
         userId: created.id, ...name, gender: req.body.gender,
         dateOfBirth: req.body.dateOfBirth, addressStateId: resolvedAddressStateId
       } });
+      await audit(created.id, 'PATIENT_ACCOUNT_REGISTRATION', 'Patient online account registration started.', req, tx);
       return created;
     });
     createdUserId = user.id;
@@ -127,10 +128,12 @@ router.post('/register', registrationLimiter, validate(patientRegistrationFields
     const verificationTarget = verificationType.endsWith('EMAIL') ? email : phoneNormalized;
     if (!verificationTarget) throw new ApiError(422, 'VERIFICATION_TARGET_MISSING', 'Email is required when email verification is configured.');
     const { challenge, developmentCode } = await createVerificationChallenge(user, verificationType, verificationTarget);
-    await audit(user.id, 'PATIENT_ACCOUNT_REGISTRATION', 'Patient online account registration started.', req);
     return markSensitiveResponse(res).status(201).json({ state: 'VERIFICATION_REQUIRED', identity: patientIdentitySummary({ ...structuredPatientName(req.body), gender: req.body.gender, dateOfBirth: req.body.dateOfBirth, phone: phoneNormalized, addressStateId }), challengeId: challenge.id, ...(developmentCode ? { developmentCode } : {}) });
   } catch (error) {
-    if (createdUserId) await prisma.user.delete({ where: { id: createdUserId } }).catch(() => {});
+    if (createdUserId) await prisma.$transaction(async (tx) => {
+      await tx.user.deleteMany({ where: { id: createdUserId } });
+      await tx.tenantAuditLog.deleteMany({ where: { userId: createdUserId, action: 'PATIENT_ACCOUNT_REGISTRATION' } });
+    }).catch(() => {});
     if (error.code === 'P2002') {
       const target = error.meta?.target || [];
       if (target.includes('phoneNormalized')) return sendError(res, 409, 'PHONE_ALREADY_REGISTERED', 'An account already exists for this phone number.');
@@ -742,14 +745,15 @@ router.post(
       //
       // updateMany + userId:null protects against concurrent claims.
       // -----------------------------------------------------
-      const linked = await prisma.patient.updateMany({
-        where: {
-          id: patient.id,
-          userId: null
-        },
-        data: {
-          userId: user.id
+      const linked = await prisma.$transaction(async (tx) => {
+        const result = await tx.patient.updateMany({
+          where: { id: patient.id, userId: null },
+          data: { userId: user.id }
+        });
+        if (result.count === 1) {
+          await audit(user.id, 'PATIENT_LINK_RECOVERED', `Recovered legacy patient account linkage to patient record ${patient.id}.`, req, tx);
         }
+        return result;
       });
 
       if (linked.count !== 1) {
@@ -765,13 +769,6 @@ router.post(
           reason: 'LINK_CONFLICT'
         });
       }
-
-      await audit(
-        user.id,
-        'PATIENT_LINK_RECOVERED',
-        `Recovered legacy patient account linkage to patient record ${patient.id}.`,
-        req
-      );
 
       return res.json({
         state: 'LINKED',
@@ -798,13 +795,13 @@ router.post('/claim', claimLimiter, authenticate, allowRoles(ROLES.PATIENT), val
       if (result.error) return false;
       const updated = await tx.patient.updateMany({ where: { id: matches[0].id, userId: null }, data: { userId: user.id } });
       if (updated.count !== 1) return false;
+      await audit(user.id, 'PATIENT_RECORD_CLAIMED', `Claimed existing patient record ${matches[0].id}.`, req, tx);
       return true;
     });
     if (!linked) {
       await audit(user.id, 'PATIENT_CLAIM_REJECTED', 'Patient claim credential was rejected or ownership changed.', req);
       return sendError(res, 422, 'CLAIM_VERIFICATION_FAILED', 'Claim verification failed.');
     }
-    await audit(user.id, 'PATIENT_RECORD_CLAIMED', `Claimed existing patient record ${matches[0].id}.`, req);
     return res.json({ state: 'CLAIMED' });
   } catch (error) { next(error); }
 });
@@ -838,10 +835,10 @@ router.post('/offline-activation', claimLimiter, validate(z.object({
       } });
       const linked = await tx.patient.updateMany({ where: { id: patient.id, userId: null }, data: { userId: user.id } });
       if (linked.count !== 1) throw new ApiError(409, 'PATIENT_ALREADY_CLAIMED', 'Patient record was claimed by another account.');
+      await audit(user.id, 'PATIENT_OFFLINE_ACTIVATION_COMPLETED', `Clinic-assisted activation linked patient record ${patient.id}.`, req, tx);
       return { userId: user.id, patientId: patient.id, patient: patientIdentitySummary(patient) };
     });
     if (result.error) throw result.error;
-    await audit(result.userId, 'PATIENT_OFFLINE_ACTIVATION_COMPLETED', `Clinic-assisted activation linked patient record ${result.patientId}.`, req);
     return markSensitiveResponse(res).status(201).json({ state: 'ACTIVATED', patient: result.patient });
   } catch (error) {
     if (error.code === 'P2002') return sendError(res, 409, 'ACCOUNT_ALREADY_EXISTS', 'An account already exists for this identity.');
@@ -861,8 +858,8 @@ router.post('/claims/:patientId/code', authenticate, allowRoles(ROLES.ADMIN, ROL
     await prisma.$transaction(async (tx) => {
       await tx.patientClaimCode.updateMany({ where: { patientId: patient.id, usedAt: null }, data: { usedAt: new Date() } });
       await tx.patientClaimCode.create({ data: { patientId: patient.id, publicId, codeHash: await bcrypt.hash(secret, 10), expiresAt: new Date(Date.now() + 30 * 60000), createdById: req.user.id, issuerAuthVersion: req.user.av } });
+      await audit(req.user.id, 'PATIENT_CLAIM_CODE_ISSUED', `Issued claim code for patient ${patient.id}.`, req, tx);
     });
-    await audit(req.user.id, 'PATIENT_CLAIM_CODE_ISSUED', `Issued claim code for patient ${patient.id}.`, req);
     return markSensitiveResponse(res).status(201).json({ code, expiresInMinutes: 30 });
   } catch (error) { next(error); }
 });
