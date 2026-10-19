@@ -186,11 +186,12 @@ router.get('/analytics', authenticate, checkRoles('ADMIN'), async (req, res) => 
 
     // 2. Monthly Visits (Visits logged in current calendar month)
     const now = new Date();
-    const { start: startOfMonth } = clinicMonthBounds(now);
+    const { start: startOfMonth, end: startOfNextMonth } = clinicMonthBounds(now);
     const monthlyVisits = await prisma.medicalRecord.count({
       where: {
         visitDate: {
-          gte: startOfMonth
+          gte: startOfMonth,
+          lt: startOfNextMonth
         }
       }
     });
@@ -205,12 +206,15 @@ router.get('/analytics', authenticate, checkRoles('ADMIN'), async (req, res) => 
     });
 
     const statusMap = {
-      COMPLETED: 0,
-      IN_CONSULTATION: 0,
-      CHECKED_IN: 0,
-      CONFIRMED: 0,
       PENDING: 0,
-      CANCELLED: 0
+      SCHEDULED: 0,
+      CONFIRMED: 0,
+      CHECKED_IN: 0,
+      IN_CONSULTATION: 0,
+      WAITING_LAB: 0,
+      COMPLETED: 0,
+      CANCELLED: 0,
+      NO_SHOW: 0
     };
 
     statusCountsRaw.forEach((item) => {
@@ -220,7 +224,7 @@ router.get('/analytics', authenticate, checkRoles('ADMIN'), async (req, res) => 
     });
 
     const completedVisits = statusMap.COMPLETED;
-    const waitingVisits = statusMap.CHECKED_IN + statusMap.IN_CONSULTATION + statusMap.CONFIRMED + statusMap.PENDING;
+    const waitingVisits = statusMap.PENDING + statusMap.SCHEDULED + statusMap.CONFIRMED + statusMap.CHECKED_IN + statusMap.IN_CONSULTATION + statusMap.WAITING_LAB;
     const completionRate = totalAppointments > 0 ? Math.round((completedVisits / totalAppointments) * 100) : 0;
 
     // 5. Visits per Doctor (Clinical Volume Breakdown)
@@ -290,7 +294,10 @@ router.get('/analytics', authenticate, checkRoles('ADMIN'), async (req, res) => 
         waiting: statusMap.CHECKED_IN,
         confirmed: statusMap.CONFIRMED,
         pending: statusMap.PENDING,
+        scheduled: statusMap.SCHEDULED,
+        waitingLab: statusMap.WAITING_LAB,
         cancelled: statusMap.CANCELLED,
+        noShow: statusMap.NO_SHOW,
         totalActiveQueue: waitingVisits
       },
       appointmentStatuses: statusCountsRaw.map((item) => ({

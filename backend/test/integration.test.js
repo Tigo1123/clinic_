@@ -13,7 +13,7 @@ import prisma from '../src/db.js';
 import { app, httpServer } from '../src/server.js';
 import { validateEnvironment } from '../src/config.js';
 import { emitQueueUpdate } from '../src/utils/socketEvents.js';
-import { getClinicDateString } from '../src/utils/clinicTime.js';
+import { clinicMonthBounds, getClinicDateString, getClinicNow } from '../src/utils/clinicTime.js';
 import { encrypt, decrypt } from '../src/utils/encryption.js';
 import { authenticateSocketAccessToken } from '../src/middleware/auth.js';
 import {
@@ -6968,6 +6968,90 @@ test('ADMIN analytics returns authoritative complete appointment status aggregat
   assert.equal((await api.get('/api/admin/analytics').set(auth('doctor'))).status, 403);
   const serialized = JSON.stringify(response.body);
   assert.doesNotMatch(serialized, /passwordHash|mfaSecret|authVersion|diagnosis|clinicalNotes|token/i);
+});
+
+test('ADMIN analytics counts every appointment status and excludes terminal states from the active queue', async () => {
+  const statuses = ['PENDING', 'SCHEDULED', 'CONFIRMED', 'CHECKED_IN', 'IN_CONSULTATION', 'WAITING_LAB', 'COMPLETED', 'CANCELLED', 'NO_SHOW'];
+  const keys = {
+    PENDING: 'pending', SCHEDULED: 'scheduled', CONFIRMED: 'confirmed',
+    CHECKED_IN: 'waiting', IN_CONSULTATION: 'inConsultation', WAITING_LAB: 'waitingLab',
+    COMPLETED: 'completed', CANCELLED: 'cancelled', NO_SHOW: 'noShow'
+  };
+  const beforeResponse = await api.get('/api/admin/analytics').set(auth('admin'));
+  assert.equal(beforeResponse.status, 200);
+  const before = beforeResponse.body;
+  for (let index = 0; index < statuses.length; index++) {
+    await prisma.appointment.create({ data: {
+      patientId: patient1.id, doctorId: doctor1.id,
+      appointmentDate: '2098-01-11', appointmentTime: `${String(8 + index).padStart(2, '0')}:00`, status: statuses[index]
+    } });
+  }
+  const response = await api.get('/api/admin/analytics').set(auth('admin'));
+  assert.equal(response.status, 200);
+  const breakdown = response.body.statusBreakdown;
+  for (const status of statuses) assert.equal(breakdown[keys[status]], (before.statusBreakdown[keys[status]] || 0) + 1, status);
+  assert.equal(response.body.totalAppointments, before.totalAppointments + statuses.length);
+  assert.equal(response.body.totalAppointments, response.body.appointmentStatuses.reduce((sum, item) => sum + item.count, 0));
+  // Six nonterminal states enter the active queue; completed/cancelled/no-show do not.
+  assert.equal(breakdown.totalActiveQueue, before.statusBreakdown.totalActiveQueue + 6);
+  assert.equal(response.body.completionRate, Math.round(((before.statusBreakdown.completed + 1) / response.body.totalAppointments) * 100));
+});
+
+test('ADMIN analytics returns valid zero counts for empty aggregates', async () => {
+  const replacements = [
+    [prisma.patient, 'count', async () => 0],
+    [prisma.medicalRecord, 'count', async () => 0],
+    [prisma.medicalRecord, 'groupBy', async () => []],
+    [prisma.appointment, 'count', async () => 0],
+    [prisma.appointment, 'groupBy', async () => []],
+    [prisma.doctor, 'findMany', async () => []],
+    [prisma.invoice, 'count', async () => 0],
+    [prisma.payment, 'aggregate', async () => ({ _sum: { amountSdg: null } })],
+    [prisma.refund, 'aggregate', async () => ({ _sum: { amountSdg: null } })]
+  ].map(([model, method, replacement]) => {
+    const original = model[method];
+    model[method] = replacement;
+    return () => { model[method] = original; };
+  });
+  try {
+    const response = await api.get('/api/admin/analytics').set(auth('admin'));
+    assert.equal(response.status, 200);
+    assert.equal(response.body.totalPatients, 0);
+    assert.equal(response.body.monthlyVisits, 0);
+    assert.equal(response.body.totalAppointments, 0);
+    assert.equal(response.body.completionRate, 0);
+    assert.equal(response.body.statusBreakdown.totalActiveQueue, 0);
+    for (const key of ['completed', 'inConsultation', 'waiting', 'confirmed', 'pending', 'scheduled', 'waitingLab', 'cancelled', 'noShow']) {
+      assert.equal(response.body.statusBreakdown[key], 0, key);
+    }
+    assert.deepEqual(response.body.appointmentStatuses, []);
+    assert.deepEqual(response.body.doctorVisits, []);
+  } finally {
+    for (const restore of replacements.reverse()) restore();
+  }
+});
+
+test('ADMIN analytics monthly visits use clinic month start-inclusive and next-start-exclusive bounds', async () => {
+  const bounds = clinicMonthBounds(new Date());
+  const localStart = getClinicNow(bounds.start);
+  assert.equal(localStart.day, 1);
+  assert.equal(localStart.hour, 0);
+  assert.equal(localStart.minute, 0);
+  const baseline = await prisma.medicalRecord.count({ where: { visitDate: { gte: bounds.start, lt: bounds.end } } });
+  const visitDates = [new Date(bounds.start.getTime() - 1), bounds.start, new Date(bounds.end.getTime() - 1), bounds.end];
+  for (let index = 0; index < visitDates.length; index++) {
+    const appointment = await prisma.appointment.create({ data: {
+      patientId: patient1.id, doctorId: doctor1.id,
+      appointmentDate: '2098-02-11', appointmentTime: `0${index + 1}:00`, status: 'COMPLETED'
+    } });
+    await prisma.medicalRecord.create({ data: {
+      patientId: patient1.id, doctorId: doctor1.id, appointmentId: appointment.id, visitDate: visitDates[index],
+      symptomsEncrypted: '', diagnosisEncrypted: '', treatmentEncrypted: '', vitalSignsJson: '{}', clinicalNotesEncrypted: ''
+    } });
+  }
+  const response = await api.get('/api/admin/analytics').set(auth('admin'));
+  assert.equal(response.status, 200);
+  assert.equal(response.body.monthlyVisits, baseline + 2);
 });
 
 test('appointments reject past dates and invalid slots', async () => {
