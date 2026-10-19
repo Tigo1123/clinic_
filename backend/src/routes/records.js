@@ -317,6 +317,22 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
         throw authorityError(409, 'APPOINTMENT_STATE_CONFLICT', 'Appointment state changed before the consultation could be saved.');
       }
 
+      await tx.tenantAuditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'MEDICAL_RECORD_CREATED',
+          details: JSON.stringify({
+            medicalRecordId: record.id,
+            patientId,
+            appointmentId,
+            doctorId,
+            prescriptionId: prescription?.id || null,
+            labOrderId: labOrder?.id || null
+          }),
+          ipAddress: req.ip || 'unknown'
+        }
+      });
+
       return { record, prescription, labOrder };
     });
 
@@ -517,6 +533,21 @@ router.put('/:id/finalize', authenticate, checkRoles('DOCTOR'), validate(z.objec
           'Appointment status changed before the consultation could be finalized.'
         );
       }
+
+      await tx.tenantAuditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'MEDICAL_RECORD_FINALIZED',
+          details: JSON.stringify({
+            medicalRecordId: record.id,
+            patientId: record.patientId,
+            appointmentId: record.appointmentId,
+            doctorId,
+            prescriptionId: prescription?.id || null
+          }),
+          ipAddress: req.ip || 'unknown'
+        }
+      });
 
       return {
         record: updatedRecord,
@@ -1543,6 +1574,7 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
 
   try {
     await prisma.$transaction(async (tx) => {
+      const dispensedPrescribedDrugIds = [];
       // Financial hard gate: pharmacy dispensing is allowed only when
       // the prescription has a fully paid PHARMACY invoice.
       const paidPharmacyInvoice = await tx.invoice.findFirst({
@@ -1677,8 +1709,23 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
         });
         if (prescriptionClaim.count !== 1) throw new Error('Prescription changed concurrently. Reload and retry dispensing.');
 
+        dispensedPrescribedDrugIds.push(prescribedDrug.id);
+
       }
       await refreshPrescriptionResolution(tx, prescriptionId);
+      if (dispensedPrescribedDrugIds.length > 0) {
+        await tx.tenantAuditLog.create({
+          data: {
+            userId: req.user.id,
+            action: 'PRESCRIPTION_DISPENSED',
+            details: JSON.stringify({
+              prescriptionId,
+              prescribedDrugIds: dispensedPrescribedDrugIds
+            }),
+            ipAddress: req.ip || 'unknown'
+          }
+        });
+      }
     });
 
     return res.json({ success: true, message: 'Prescription dispensed successfully.' });
