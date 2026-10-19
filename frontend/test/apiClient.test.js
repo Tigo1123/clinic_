@@ -93,6 +93,23 @@ test('existing error contracts with {"error":{"code":"..."}} continue working un
   );
 });
 
+test('clinical data unreadable response preserves the stable sanitized code and message', async () => {
+  globalThis.fetch = async () => mockResponse(500, {
+    error: { code: 'CLINICAL_DATA_UNREADABLE', message: 'Clinical information is unavailable.' }
+  });
+
+  await assert.rejects(
+    async () => publicApiRequest('/api/records/synthetic-id/summary'),
+    (err) => {
+      assert.ok(err instanceof ApiClientError);
+      assert.equal(err.status, 500);
+      assert.equal(err.code, 'CLINICAL_DATA_UNREADABLE');
+      assert.equal(err.message, 'Clinical information is unavailable.');
+      return true;
+    }
+  );
+});
+
 test('precedence: payload.code > error.code > payload.status > REQUEST_FAILED', async () => {
   // payload.code wins over error.code and payload.status
   globalThis.fetch = async () => mockResponse(409, { code: 'WINNER', error: { code: 'LOSER_1' }, status: 'LOSER_2' });

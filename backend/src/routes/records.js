@@ -3,7 +3,7 @@ import { asyncRouter } from '../utils/asyncRouter.js';
 import { Prisma } from '../generated/prisma/index.js';
 import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
-import { encrypt, decrypt } from '../utils/encryption.js';
+import { encrypt, decrypt, isClinicalDataDecryptionError } from '../utils/encryption.js';
 import { sendEmail } from '../utils/notifications.js';
 import { allowRoles, ROLES, doctorHasPatientAccess } from '../middleware/policies.js';
 import { sendError } from '../utils/apiError.js';
@@ -2322,22 +2322,6 @@ router.put('/lab-orders/:id/release', authenticate, allowRoles(ROLES.LAB_TECH), 
 });
 
 /**
- * Helper to safely decrypt strings or return plain text fallback.
- */
-function safeDecryptField(encryptedVal) {
-  if (!encryptedVal) return '';
-  try {
-    const result = decrypt(encryptedVal);
-    if (result && !result.startsWith('[Decryption Error')) {
-      return result;
-    }
-  } catch (e) {
-    // Ignore and fallback to raw text
-  }
-  return encryptedVal;
-}
-
-/**
  * GET /api/records/:id/summary
  * Fetches compiled post-visit summary for a medical record or appointment ID.
  */
@@ -2410,10 +2394,10 @@ router.get('/:id/summary', authenticate, allowRoles(ROLES.DOCTOR), async (req, r
         specialtyEn: record.doctor?.specialtyEn || ''
       },
       vitals,
-      symptoms: safeDecryptField(record.symptomsEncrypted),
-      diagnosis: safeDecryptField(record.diagnosisEncrypted),
-      treatment: safeDecryptField(record.treatmentEncrypted),
-      clinicalNotes: safeDecryptField(record.clinicalNotesEncrypted),
+      symptoms: decrypt(record.symptomsEncrypted),
+      diagnosis: decrypt(record.diagnosisEncrypted),
+      treatment: decrypt(record.treatmentEncrypted),
+      clinicalNotes: decrypt(record.clinicalNotesEncrypted),
       prescriptions: (record.prescriptions || []).flatMap(p => (p.prescribedDrugs || []).map(pd => ({
         drugNameAr: pd.drug?.labelAr || pd.drug?.genericName || pd.customDrugName || '',
         drugNameEn: pd.drug?.labelEn || pd.drug?.genericName || pd.customDrugName || '',
@@ -2444,6 +2428,7 @@ router.get('/:id/summary', authenticate, allowRoles(ROLES.DOCTOR), async (req, r
 
     return res.json(summary);
   } catch (error) {
+    if (isClinicalDataDecryptionError(error)) return sendError(res, 500, 'CLINICAL_DATA_UNREADABLE', 'Clinical information is unavailable.');
     console.error('Fetch visit summary error:', error);
     return res.status(500).json({ error: 'Failed to generate visit summary.' });
   }
@@ -2554,6 +2539,7 @@ router.post('/:id/send-summary', authenticate, allowRoles(ROLES.DOCTOR), validat
     return res.json({ success: true, message: 'Post-visit summary emailed successfully.' });
 
   } catch (error) {
+    if (isClinicalDataDecryptionError(error)) return sendError(res, 500, 'CLINICAL_DATA_UNREADABLE', 'Clinical information is unavailable.');
     console.error('Email visit summary error:', error);
     return res.status(500).json({ error: 'Failed to email visit summary.' });
   }

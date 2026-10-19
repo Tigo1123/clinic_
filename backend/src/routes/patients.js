@@ -2,7 +2,7 @@ import express from 'express';
 import { asyncRouter } from '../utils/asyncRouter.js';
 import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
-import { decrypt } from '../utils/encryption.js';
+import { decrypt, isClinicalDataDecryptionError } from '../utils/encryption.js';
 import { allowRoles, doctorHasPatientAccess, getDoctorMedicalRecordAccess, ROLES } from '../middleware/policies.js';
 import { ApiError, sendError } from '../utils/apiError.js';
 import { z } from 'zod';
@@ -324,26 +324,11 @@ router.get('/:id/history', authenticate, allowRoles(ROLES.DOCTOR), async (req, r
     });
 
   } catch (error) {
+    if (isClinicalDataDecryptionError(error)) return sendError(res, 500, 'CLINICAL_DATA_UNREADABLE', 'Clinical information is unavailable.');
     console.error('EMR history error:', error);
     return res.status(500).json({ error: 'Failed to retrieve medical history.' });
   }
 });
-
-/**
- * Helper to safely decrypt strings or return plain text fallback.
- */
-function safeDecryptField(encryptedVal) {
-  if (!encryptedVal) return '';
-  try {
-    const result = decrypt(encryptedVal);
-    if (result && !result.startsWith('[Decryption Error')) {
-      return result;
-    }
-  } catch {
-    // Never return ciphertext when a permitted field cannot be decrypted.
-  }
-  return '';
-}
 
 /**
  * GET /api/patients/:id/profile
@@ -474,10 +459,10 @@ router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTION
           specialtyEn: rec.doctor?.specialtyEn || ''
         },
         vitals,
-        symptoms: isDoctor ? safeDecryptField(rec.symptomsEncrypted) : undefined,
-        diagnosis: isDoctor ? safeDecryptField(rec.diagnosisEncrypted) : undefined,
-        treatment: isDoctor ? safeDecryptField(rec.treatmentEncrypted) : undefined,
-        clinicalNotes: isDoctor ? safeDecryptField(rec.clinicalNotesEncrypted) : undefined,
+        symptoms: isDoctor ? decrypt(rec.symptomsEncrypted) : undefined,
+        diagnosis: isDoctor ? decrypt(rec.diagnosisEncrypted) : undefined,
+        treatment: isDoctor ? decrypt(rec.treatmentEncrypted) : undefined,
+        clinicalNotes: isDoctor ? decrypt(rec.clinicalNotesEncrypted) : undefined,
         prescriptionsCount: (rec.prescriptions || []).reduce((acc, p) => acc + (p.prescribedDrugs?.length || 0), 0),
         labOrdersCount: (rec.labOrders || []).reduce((acc, lo) => acc + (lo.items?.length || 0), 0)
       };
@@ -584,6 +569,7 @@ router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTION
 
     return res.json(profileData);
   } catch (error) {
+    if (isClinicalDataDecryptionError(error)) return sendError(res, 500, 'CLINICAL_DATA_UNREADABLE', 'Clinical information is unavailable.');
     console.error('Fetch patient profile error:', error);
     return res.status(500).json({ error: 'Failed to retrieve patient profile.' });
   }

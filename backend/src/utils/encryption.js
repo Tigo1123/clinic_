@@ -8,6 +8,19 @@ function encryptionKey() {
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
+export const CLINICAL_DATA_UNREADABLE_CODE = 'CLINICAL_DATA_UNREADABLE';
+
+export class ClinicalDataDecryptionError extends Error {
+  constructor() {
+    super('Clinical information is unavailable.');
+    this.name = 'ClinicalDataDecryptionError';
+    this.code = CLINICAL_DATA_UNREADABLE_CODE;
+  }
+}
+
+export function isClinicalDataDecryptionError(error) {
+  return error?.code === CLINICAL_DATA_UNREADABLE_CODE;
+}
 
 /**
  * Encrypts cleartext using AES-256-GCM.
@@ -27,12 +40,14 @@ export function encrypt(text) {
  * Decrypts composite cipher strings.
  */
 export function decrypt(cipherText) {
-  if (!cipherText) return '';
+  if (cipherText === '' || cipherText === null || cipherText === undefined) return '';
   try {
+    if (typeof cipherText !== 'string') throw new Error();
     const parts = cipherText.split(':');
     if (parts.length !== 3) {
-      return '[Decryption Error: Invalid Format]';
+      throw new Error();
     }
+    if (!/^[\da-f]{24}$/i.test(parts[0]) || !/^[\da-f]{32}$/i.test(parts[1]) || !/^(?:[\da-f]{2})*$/i.test(parts[2])) throw new Error();
     const iv = Buffer.from(parts[0], 'hex');
     const authTag = Buffer.from(parts[1], 'hex');
     const encryptedText = Buffer.from(parts[2], 'hex');
@@ -42,8 +57,7 @@ export function decrypt(cipherText) {
     let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
     return decrypted;
-  } catch (error) {
-    console.error('Decryption failed:', error);
-    return '[Decryption Error: Failed to decrypt]';
+  } catch {
+    throw new ClinicalDataDecryptionError();
   }
 }

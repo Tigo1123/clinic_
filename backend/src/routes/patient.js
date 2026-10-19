@@ -8,7 +8,7 @@ import { allowRoles, requireOwnedPatient, ROLES } from '../middleware/policies.j
 import { validate } from '../middleware/validate.js';
 import { ApiError, sendError } from '../utils/apiError.js';
 import { getConfiguredSlots, lockDoctorScheduleRows, DATE_PATTERN, TIME_PATTERN, todayString } from '../utils/scheduling.js';
-import { decrypt } from '../utils/encryption.js';
+import { decrypt, isClinicalDataDecryptionError } from '../utils/encryption.js';
 import { cancellationCutoffReached } from '../utils/clinicTime.js';
 import { normalizeEmail, normalizePhone } from '../utils/identity.js';
 import { createVerificationChallenge, consumeVerificationChallenge, invalidateChallenges } from '../services/verification.js';
@@ -22,11 +22,6 @@ import { linkGooglePatientIdentity, unlinkGooglePatientIdentity } from '../servi
 const router = asyncRouter();
 router.use((req, res, next) => { markSensitiveResponse(res); next(); });
 router.use(authenticate, allowRoles(ROLES.PATIENT), requireOwnedPatient);
-
-function safeDecrypt(value) {
-  const result = decrypt(value || '');
-  return result.startsWith('[Decryption Error') ? '' : result;
-}
 
 async function audit(req, action, details, db = prisma) {
   await db.tenantAuditLog.create({ data: { userId: req.user.id, action, details, ipAddress: req.ip || 'unknown' } });
@@ -482,7 +477,7 @@ router.get('/prescriptions', async (req, res) => {
 
 router.get('/medical-records', async (req, res) => {
   const records = await prisma.medicalRecord.findMany({ where: { patientId: req.patient.id }, include: { doctor: { select: doctorSelect }, prescriptions: { select: { id: true, status: true } }, labOrders: { where: { releasedToPatientAt: { not: null } }, select: { id: true, status: true, releasedToPatientAt: true } } }, orderBy: { visitDate: 'desc' } });
-  return res.json(records.map((record) => ({ id: record.id, visitDate: record.visitDate, doctor: record.doctor, diagnosis: safeDecrypt(record.diagnosisEncrypted), treatment: safeDecrypt(record.treatmentEncrypted), prescriptions: record.prescriptions, releasedLabResults: record.labOrders, attachmentPath: record.attachmentPath ? `/api/upload/${record.attachmentPath.split('/').pop()}` : null })));
+  return res.json(records.map((record) => ({ id: record.id, visitDate: record.visitDate, doctor: record.doctor, diagnosis: decrypt(record.diagnosisEncrypted), treatment: decrypt(record.treatmentEncrypted), prescriptions: record.prescriptions, releasedLabResults: record.labOrders, attachmentPath: record.attachmentPath ? `/api/upload/${record.attachmentPath.split('/').pop()}` : null })));
 });
 
 
@@ -537,9 +532,9 @@ router.get('/medical-records/:id', async (req, res) => {
 
       doctor: record.doctor,
 
-      symptoms: safeDecrypt(record.symptomsEncrypted),
-      diagnosis: safeDecrypt(record.diagnosisEncrypted),
-      treatment: safeDecrypt(record.treatmentEncrypted),
+      symptoms: decrypt(record.symptomsEncrypted),
+      diagnosis: decrypt(record.diagnosisEncrypted),
+      treatment: decrypt(record.treatmentEncrypted),
 
       vitalSigns,
 
@@ -575,6 +570,7 @@ router.get('/medical-records/:id', async (req, res) => {
         : null
     });
   } catch (error) {
+    if (isClinicalDataDecryptionError(error)) return sendError(res, 500, 'CLINICAL_DATA_UNREADABLE', 'Clinical information is unavailable.');
     console.error('Fetch patient medical record detail error:', error);
 
     return res.status(500).json({
