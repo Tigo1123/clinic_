@@ -9245,3 +9245,51 @@ test('email-only verification never auto-links an existing medical record', asyn
 
   assert.equal(linkedAfterLogin, null);
 });
+
+test('billing analytics groups dispensed medicines by identity and returns the top five', async () => {
+  const original = prisma.prescribedDrug.findMany;
+  const medicine = (id, brandName) => ({ id, brandName });
+  const rows = [
+    { id: 'rx-a1', drugId: 'drug-a', drug: medicine('drug-a', 'Same brand'), qtyDispensed: 8 },
+    { id: 'rx-a2', drugId: 'drug-a', drug: medicine('drug-a', 'Same brand'), qtyDispensed: 7 },
+    { id: 'rx-b', drugId: 'drug-b', drug: medicine('drug-b', 'Same brand'), qtyDispensed: 12 },
+    { id: 'rx-c', drugId: 'drug-c', drug: medicine('drug-c', 'Medicine C'), qtyDispensed: 10 },
+    { id: 'rx-d', drugId: 'drug-d', drug: medicine('drug-d', 'Medicine D'), qtyDispensed: 9 },
+    { id: 'rx-e', drugId: 'drug-e', drug: medicine('drug-e', 'Medicine E'), qtyDispensed: 6 },
+    { id: 'rx-f', drugId: 'drug-f', drug: medicine('drug-f', 'Medicine F'), qtyDispensed: 2 }
+  ];
+  prisma.prescribedDrug.findMany = async () => rows;
+  try {
+    const response = await api.get('/api/billing/analytics').set(auth('admin'));
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body.topDispensedDrugs, [
+      { name: 'Same brand', qty: 15 },
+      { name: 'Same brand', qty: 12 },
+      { name: 'Medicine C', qty: 10 },
+      { name: 'Medicine D', qty: 9 },
+      { name: 'Medicine E', qty: 6 }
+    ]);
+  } finally {
+    prisma.prescribedDrug.findMany = original;
+  }
+});
+
+test('billing analytics handles absent medicine relations without merging custom entries', async () => {
+  const original = prisma.prescribedDrug.findMany;
+  prisma.prescribedDrug.findMany = async () => [
+    { id: 'custom-a', drugId: null, drug: null, customDrugName: 'Custom medicine', qtyDispensed: 4 },
+    { id: 'custom-b', drugId: null, drug: null, customDrugName: 'Custom medicine', qtyDispensed: 3 },
+    { id: 'fallback', drugId: 'drug-label', drug: { id: 'drug-label', brandName: '', labelEn: 'English label' }, qtyDispensed: 2 }
+  ];
+  try {
+    const response = await api.get('/api/billing/analytics').set(auth('admin'));
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body.topDispensedDrugs, [
+      { name: 'Custom medicine', qty: 4 },
+      { name: 'Custom medicine', qty: 3 },
+      { name: 'English label', qty: 2 }
+    ]);
+  } finally {
+    prisma.prescribedDrug.findMany = original;
+  }
+});

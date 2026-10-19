@@ -1743,16 +1743,27 @@ router.get('/analytics', authenticate, checkRoles('ADMIN'), async (req, res) => 
       }
     });
 
-    const drugSales = {};
-    dispensedDrugs.forEach(pd => {
-      const name = pd.drug.tradeNameEn;
-      drugSales[name] = (drugSales[name] || 0) + pd.qtyDispensed;
-    });
+    const drugSales = new Map();
+    for (const pd of dispensedDrugs) {
+      const key = pd.drugId ? `drug:${pd.drugId}` : `prescribed:${pd.id}`;
+      const name = [
+        pd.drug?.brandName,
+        pd.drug?.labelEn,
+        pd.drug?.labelAr,
+        pd.drug?.genericName,
+        pd.customDrugName
+      ].find(value => typeof value === 'string' && value.trim())?.trim()
+        || 'Unknown medicine';
+      const existing = drugSales.get(key);
+      if (existing) existing.qty += pd.qtyDispensed;
+      else drugSales.set(key, { name, qty: pd.qtyDispensed });
+    }
 
-    const topDrugs = Object.entries(drugSales)
-      .map(([name, qty]) => ({ name, qty }))
-      .sort((a, b) => b.qty - a.qty)
-      .slice(0, 5);
+    const topDrugs = [...drugSales.entries()]
+      .sort(([keyA, a], [keyB, b]) =>
+        b.qty - a.qty || (keyA < keyB ? -1 : keyA > keyB ? 1 : 0))
+      .slice(0, 5)
+      .map(([, item]) => item);
 
     // 4. Patients Seen Today
     const todayStr = getClinicDateString();
