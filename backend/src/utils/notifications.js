@@ -118,25 +118,38 @@ export async function sendBookingConfirmation(appointment) {
     await sendSMS({ to: patientPhone, body: smsTextAr, language: 'ar' });
   }
 
-  // If patient has an email (or mock recipient), send confirmation email
-  const recipientEmail = patient?.email || null;
-  if (recipientEmail) {
-    const emailSubject = `Appointment Request Pending - Al-Shifa Medical Center`;
-    const emailHtml = `
-      <div style="font-family: Arial, sans-serif; padding: 20px; color: #1f2937;">
-        <h2 style="color: #0d9488;">Al-Shifa Medical Center / مركز الشفاء الطبي</h2>
-        <p>Dear <strong>${patient?.fullNameEn || patient?.fullNameAr}</strong>,</p>
-        <p>Your appointment request is currently <strong>PENDING APPROVAL</strong> by our reception team.</p>
-        <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
-          <tr><td><strong>Doctor:</strong></td><td>${doctor?.fullNameEn} (${doctor?.specialtyEn})</td></tr>
-          <tr><td><strong>Date:</strong></td><td>${appointmentDate}</td></tr>
-          <tr><td><strong>Time:</strong></td><td>${appointmentTime}</td></tr>
-          <tr><td><strong>Ticket Number:</strong></td><td>#${id.substring(0, 8).toUpperCase()}</td></tr>
-        </table>
-        <p>We will send you a WhatsApp message as soon as your booking is confirmed.</p>
-      </div>
-    `;
-    await sendEmail({ to: recipientEmail, subject: emailSubject, text: smsTextEn, html: emailHtml });
+  // Patient email belongs to its optional linked account. Resolve it privately
+  // instead of adding User fields to appointment/API projections.
+  if (process.env.NOTIFICATIONS_DISABLED !== 'true') {
+    try {
+      const recipient = await prisma.patient.findUnique({
+        where: { id: appointment.patientId },
+        select: { user: { select: { email: true } } }
+      });
+      const recipientEmail = recipient?.user?.email;
+      if (recipientEmail) {
+        const emailSubject = `Appointment Request Pending - Al-Shifa Medical Center`;
+        const emailHtml = `
+          <div style="font-family: Arial, sans-serif; padding: 20px; color: #1f2937;">
+            <h2 style="color: #0d9488;">Al-Shifa Medical Center / مركز الشفاء الطبي</h2>
+            <p>Dear <strong>${patient?.fullNameEn || patient?.fullNameAr}</strong>,</p>
+            <p>Your appointment request is currently <strong>PENDING APPROVAL</strong> by our reception team.</p>
+            <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+              <tr><td><strong>Doctor:</strong></td><td>${doctor?.fullNameEn} (${doctor?.specialtyEn})</td></tr>
+              <tr><td><strong>Date:</strong></td><td>${appointmentDate}</td></tr>
+              <tr><td><strong>Time:</strong></td><td>${appointmentTime}</td></tr>
+              <tr><td><strong>Ticket Number:</strong></td><td>#${id.substring(0, 8).toUpperCase()}</td></tr>
+            </table>
+            <p>We will send you a WhatsApp message as soon as your booking is confirmed.</p>
+          </div>
+        `;
+        await sendEmail({ to: recipientEmail, subject: emailSubject, text: smsTextEn, html: emailHtml });
+      }
+    } catch {
+      // Booking is already committed. Lookup, configuration, delivery, or log
+      // failures must not turn it into a failed booking response.
+      logger.warn('appointment.confirmation_email_failed');
+    }
   }
 
   return { smsTextAr, smsTextEn, whatsAppLinkAr, whatsAppLinkEn };
