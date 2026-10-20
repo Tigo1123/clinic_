@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer';
 import prisma from '../db.js';
 import { logger } from './logger.js';
 import { readSmtpConfig } from './smtpConfig.js';
+import { maskPhone } from './patientIdentity.js';
 
 export function smtpTransport(config = readSmtpConfig()) {
   if (!config) return null;
@@ -75,14 +76,75 @@ export async function sendEmail({ to, subject, text, html }) {
   }
 }
 
-/**
- * Sends a real or mock SMS.
- */
-export async function sendSMS({ to, body, language = 'en' }) {
-  if (process.env.NOTIFICATIONS_DISABLED === 'true') return false;
-  logger.warn('sms.provider_unavailable');
-  await prisma.notificationLog.create({ data: { recipientPhone: to, messageType: 'SMS', messageBody: 'SMS provider unavailable', language, status: 'FAILED', lastAttempt: new Date() } });
-  return false;
+async function recordSmsAttempt(log, { to, language, status }) {
+  try {
+    await log({
+      data: {
+        recipientPhone: maskPhone(to),
+        messageType: 'SMS',
+        messageBody: 'Appointment notification',
+        language,
+        status,
+        lastAttempt: new Date()
+      }
+    });
+  } catch {
+    // SMS logging is best effort after an appointment has committed.
+    logger.warn('sms.notification_log_failed');
+  }
+}
+
+/** Provider-neutral SMS seam. No transport is configured by the application. */
+export async function sendSMS({ to, body, language = 'en' }, { env = process.env, transport = null, simulated = false, log = (args) => prisma.notificationLog.create(args) } = {}) {
+  if (env.NOTIFICATIONS_DISABLED === 'true') return false;
+  const provider = env.SMS_PROVIDER || 'disabled';
+  const developmentEnvironment = ['development', 'test'].includes(env.NODE_ENV);
+  if (provider === 'disabled') {
+    logger.warn('sms.provider_unavailable');
+    await recordSmsAttempt(log, { to, language, status: 'FAILED' });
+    return false;
+  }
+  if (provider === 'development') {
+    if (!developmentEnvironment) {
+      logger.warn('sms.provider_unavailable');
+      await recordSmsAttempt(log, { to, language, status: 'FAILED' });
+      return false;
+    }
+    logger.info('sms.simulated', { sent: false, delivered: false });
+    await recordSmsAttempt(log, { to, language, status: 'SIMULATED' });
+    return false;
+  }
+  if (provider !== 'transport' || typeof transport !== 'function' || (simulated && !developmentEnvironment)) {
+    logger.warn('sms.provider_unavailable');
+    await recordSmsAttempt(log, { to, language, status: 'FAILED' });
+    return false;
+  }
+  try {
+    const result = await transport({ to, body, language });
+    const validAcceptance = result !== null
+      && typeof result === 'object'
+      && !Array.isArray(result)
+      && (Object.getPrototypeOf(result) === Object.prototype || Object.getPrototypeOf(result) === null)
+      && result.accepted === true
+      && Object.keys(result).length === 1;
+    if (!validAcceptance) {
+      logger.warn('sms.delivery_not_accepted');
+      await recordSmsAttempt(log, { to, language, status: 'FAILED' });
+      return false;
+    }
+    if (simulated) {
+      await recordSmsAttempt(log, { to, language, status: 'SIMULATED' });
+      logger.info('sms.simulated', { accepted: false, delivered: false });
+      return false;
+    }
+    await recordSmsAttempt(log, { to, language, status: 'ACCEPTED' });
+    logger.info('sms.accepted', { delivered: false });
+    return true;
+  } catch {
+    logger.warn('sms.delivery_failed');
+    await recordSmsAttempt(log, { to, language, status: 'FAILED' });
+    return false;
+  }
 }
 
 /**

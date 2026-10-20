@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import prisma from '../db.js';
 import { sendEmail } from '../utils/notifications.js';
 import { ApiError } from '../utils/apiError.js';
-import { assertPhoneVerificationAvailable, sendPhoneVerificationCode } from './phoneVerification.js';
+import { assertPhoneVerificationAvailable, phoneVerificationProvider, sendPhoneVerificationCode } from './phoneVerification.js';
 
 export const registrationPurpose = () => process.env.VERIFICATION_PROVIDER === 'email' ? 'REGISTRATION_EMAIL' : 'REGISTRATION_PHONE';
 const invalid = () => new ApiError(422, 'VERIFICATION_INVALID', 'Verification request is invalid or already used.');
@@ -35,13 +35,17 @@ export async function createVerificationChallengeRecord(tx, user, type, targetNo
       expiresAt: new Date(Date.now() + 600000)
     }
   });
+  const developmentMode = ['development', 'test'].includes(process.env.NODE_ENV);
+  const developmentProvider = type.endsWith('PHONE')
+    ? phoneVerificationProvider() === 'development'
+    : process.env.VERIFICATION_PROVIDER === 'development';
   return {
     challenge,
     code,
-    ...(process.env.VERIFICATION_PROVIDER === 'development' && process.env.NODE_ENV !== 'production' ? { developmentCode: code } : {})
+    ...(developmentMode && developmentProvider ? { developmentCode: code } : {})
   };
 }
-export async function createVerificationChallenge(user, type, targetNormalized, { cooldownMs = 0 } = {}) {
+export async function createVerificationChallenge(user, type, targetNormalized, { cooldownMs = 0, phoneDelivery } = {}) {
   // Disabled is an intentional offline operating mode, not a delivery attempt.
   // Refuse before persisting a challenge so no UI can honestly claim a code was sent.
   if (process.env.VERIFICATION_PROVIDER === 'disabled') throw verificationUnavailable();
@@ -71,10 +75,10 @@ export async function createVerificationChallenge(user, type, targetNormalized, 
   });
   try {
     if (type.endsWith('PHONE')) {
-      const delivery = await sendPhoneVerificationCode({ destination: targetNormalized, code, purpose: type });
+      const delivery = await sendPhoneVerificationCode({ destination: targetNormalized, code, purpose: type }, phoneDelivery ? { delivery: phoneDelivery } : undefined);
       return { challenge, ...delivery };
     }
-    if (process.env.VERIFICATION_PROVIDER === 'development' && process.env.NODE_ENV !== 'production') return { challenge, developmentCode: code };
+    if (['development', 'test'].includes(process.env.NODE_ENV) && process.env.VERIFICATION_PROVIDER === 'development') return { challenge, developmentCode: code };
     const sent = await sendEmail({ to: type === 'PROFILE_PHONE_CHANGE' ? user.email : targetNormalized, subject: 'Confirm your patient account request', text: `Your verification code is ${code}. It expires in 10 minutes.` });
     if (sent) return { challenge };
   } catch (error) {

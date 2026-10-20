@@ -660,10 +660,10 @@ model InsuranceClaim {
 model NotificationLog {
   id             String    @id @default(uuid())
   recipientPhone String
-  messageType    String // BOOKING_CONFIRM, CANCELLATION, REMINDER, RESULTS_READY
+  messageType    String // SMS, EMAIL, BOOKING_CONFIRM, CANCELLATION, REMINDER, RESULTS_READY
   messageBody    String
   language       String    @default("ar") // ar, en
-  status         String    @default("QUEUED") // QUEUED, SENT, DELIVERED, FAILED
+  status         String    @default("QUEUED") // QUEUED, SIMULATED, ACCEPTED, DELIVERED, FAILED
   retryCount     Int       @default(0)
   lastAttempt    DateTime?
   createdAt      DateTime  @default(now())

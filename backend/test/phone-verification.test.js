@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sendPhoneVerificationCode, phoneVerificationProvider } from '../src/services/phoneVerification.js';
+import { normalizePatientPhone } from '../src/utils/patientIdentity.js';
 
 test('development phone delivery is injectable and receives only delivery fields', async () => {
   const calls = [];
@@ -8,7 +9,7 @@ test('development phone delivery is injectable and receives only delivery fields
     { destination: '+250788123456', code: '123456', purpose: 'REGISTRATION_PHONE', language: 'en' },
     { env: { NODE_ENV: 'test', PHONE_VERIFICATION_PROVIDER: 'development' }, delivery: async (input) => { calls.push(input); return { accepted: true }; } }
   );
-  assert.deepEqual(result, { accepted: true });
+  assert.deepEqual(result, { accepted: true, developmentCode: '123456' });
   assert.deepEqual(calls, [{ destination: '+250788123456', code: '123456', purpose: 'REGISTRATION_PHONE', language: 'en' }]);
 });
 
@@ -35,4 +36,24 @@ test('disabled phone delivery and provider failures are controlled and sanitized
     sendPhoneVerificationCode({ destination: '+250788123456', code: '123456', purpose: 'REGISTRATION_PHONE' }, { env: { NODE_ENV: 'test', PHONE_VERIFICATION_PROVIDER: 'development' }, delivery: async () => { throw new Error('vendor secret and token'); } }),
     { code: 'VERIFICATION_DELIVERY_FAILED', status: 503, message: 'Verification could not be delivered.' }
   );
+});
+
+test('development phone verification is restricted to development and test environments', async () => {
+  for (const NODE_ENV of ['staging', 'production']) {
+    assert.equal(phoneVerificationProvider({ NODE_ENV, VERIFICATION_PROVIDER: 'development' }), 'disabled');
+    assert.equal(phoneVerificationProvider({ NODE_ENV, PHONE_VERIFICATION_PROVIDER: 'development' }), 'disabled');
+    await assert.rejects(
+      sendPhoneVerificationCode(
+        { destination: '+249912345678', code: '123456', purpose: 'REGISTRATION_PHONE' },
+        { env: { NODE_ENV, PHONE_VERIFICATION_PROVIDER: 'development' } }
+      ),
+      { code: 'VERIFICATION_UNAVAILABLE', status: 503 }
+    );
+  }
+});
+
+test('Sudan normalization accepts +249 while other valid international numbers remain accepted', () => {
+  assert.equal(normalizePatientPhone('091 234 5678'), '+249912345678');
+  assert.equal(normalizePatientPhone('+249912345678'), '+249912345678');
+  assert.equal(normalizePatientPhone('+250788123456'), '+250788123456');
 });

@@ -8,12 +8,18 @@ export const PHONE_VERIFICATION_PROVIDERS = Object.freeze({
 });
 
 function configuredProvider(env = process.env) {
-  if (env.PHONE_VERIFICATION_PROVIDER) return env.PHONE_VERIFICATION_PROVIDER;
-  if (env.NODE_ENV === 'production') return PHONE_VERIFICATION_PROVIDERS.DISABLED;
-  return env.VERIFICATION_PROVIDER === 'development'
-    ? PHONE_VERIFICATION_PROVIDERS.DEVELOPMENT
-    : PHONE_VERIFICATION_PROVIDERS.DISABLED;
+  const requested = env.PHONE_VERIFICATION_PROVIDER || (
+    ['development', 'test'].includes(env.NODE_ENV) && env.VERIFICATION_PROVIDER === 'development'
+      ? PHONE_VERIFICATION_PROVIDERS.DEVELOPMENT
+      : PHONE_VERIFICATION_PROVIDERS.DISABLED
+  );
+  if (requested === PHONE_VERIFICATION_PROVIDERS.DEVELOPMENT && !['development', 'test'].includes(env.NODE_ENV)) {
+    return PHONE_VERIFICATION_PROVIDERS.DISABLED;
+  }
+  return requested;
 }
+
+const allowsDevelopmentSimulation = (env) => ['development', 'test'].includes(env.NODE_ENV);
 
 export function phoneVerificationProvider(env = process.env) {
   return configuredProvider(env);
@@ -21,7 +27,7 @@ export function phoneVerificationProvider(env = process.env) {
 
 export function assertPhoneVerificationAvailable(env = process.env) {
   const provider = configuredProvider(env);
-  if (provider !== PHONE_VERIFICATION_PROVIDERS.DEVELOPMENT || env.NODE_ENV === 'production') {
+  if (provider !== PHONE_VERIFICATION_PROVIDERS.DEVELOPMENT || !allowsDevelopmentSimulation(env)) {
     throw verificationUnavailable();
   }
   return provider;
@@ -42,7 +48,11 @@ export async function sendPhoneVerificationCode({ destination, code, purpose, la
   }
   assertPhoneVerificationAvailable(env);
   try {
-    return await delivery({ destination, code, purpose, language });
+    const result = await delivery({ destination, code, purpose, language });
+    if (env.PHONE_VERIFICATION_PROVIDER === PHONE_VERIFICATION_PROVIDERS.DEVELOPMENT && allowsDevelopmentSimulation(env)) {
+      return { ...result, developmentCode: code };
+    }
+    return result;
   } catch {
     throw new ApiError(503, 'VERIFICATION_DELIVERY_FAILED', 'Verification could not be delivered.');
   }

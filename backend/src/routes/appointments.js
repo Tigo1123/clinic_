@@ -17,12 +17,12 @@ import { getAvailableSlots, getConfiguredSlots, lockDoctorScheduleRows, validate
 import { findPossiblePatientDuplicates, normalizeNationalId, normalizePatientPhone, safeDuplicateCandidates } from '../utils/patientIdentity.js';
 import { publicDoctorSelect, toPublicBookingConfirmation, toPublicDoctor } from '../utils/publicDto.js';
 import { structuredPatientName, structuredPatientNameSchema } from '../utils/patientName.js';
+import { finishAppointmentOtp, issueAppointmentOtp, reserveAppointmentOtp } from '../services/appointmentOtp.js';
 
 import { lockPatientIdentity, patientDateOfBirthSchema } from '../utils/patientOnboarding.js';
 
 const router = asyncRouter();
 const otpLimiter = rateLimit({ windowMs: rateLimits.windowMs, limit: rateLimits.verification, standardHeaders: 'draft-7', legacyHeaders: false });
-const developmentOtps = new Map();
 
 /**
  * GET /api/appointments/slots
@@ -131,12 +131,13 @@ router.get('/slots', validate(z.object({ doctorId: z.string().uuid(), date: z.st
  * Mock endpoint to send OTP code to patient via SMS/WhatsApp.
  */
 router.post('/otp/request', otpLimiter, async (req, res) => {
-  if (process.env.NODE_ENV === 'production') return sendError(res, 503, 'SMS_PROVIDER_UNAVAILABLE', 'SMS verification is not configured. Use an authenticated patient account to book.');
+  if (!['development', 'test'].includes(process.env.NODE_ENV)) return sendError(res, 503, 'SMS_PROVIDER_UNAVAILABLE', 'SMS verification is not configured. Use an authenticated patient account to book.');
   const phone = normalizePatientPhone(req.body?.phone);
   if (!phone) return sendError(res, 422, 'PHONE_INVALID', 'Phone number is invalid.');
 
   const code = String(crypto.randomInt(100000, 1000000));
-  developmentOtps.set(phone, { code, expiresAt: Date.now() + 10 * 60 * 1000 });
+  const issued = issueAppointmentOtp(phone, code);
+  if (!issued.issued) return res.status(429).json({ error: 'Please wait before requesting another verification code.', retryAfterSeconds: issued.retryAfterSeconds });
   return markSensitiveResponse(res).json({ success: true, message: 'Development verification code generated.', developmentCode: code });
 });
 
@@ -150,7 +151,7 @@ router.post('/book', validate(structuredPatientNameSchema.extend({
   phone: z.string().trim().min(7).max(30), addressStateId: z.coerce.number().int().min(1).max(18), otpCode: z.string().length(6)
 }).strict()), async (req, res) => {
   markSensitiveResponse(res);
-  if (process.env.NODE_ENV === 'production') return sendError(res, 503, 'PUBLIC_BOOKING_VERIFICATION_UNAVAILABLE', 'Public OTP booking is unavailable. Use an authenticated patient account to book.');
+  if (!['development', 'test'].includes(process.env.NODE_ENV)) return sendError(res, 503, 'PUBLIC_BOOKING_VERIFICATION_UNAVAILABLE', 'Public OTP booking is unavailable. Use an authenticated patient account to book.');
   const {
     doctorId,
     appointmentDate,
@@ -167,11 +168,12 @@ router.post('/book', validate(structuredPatientNameSchema.extend({
   const normalizedNationalId = normalizeNationalId(nationalId);
   if (!normalizedPhone) return sendError(res, 422, 'PHONE_INVALID', 'Phone number is invalid.');
   if (nationalId && !normalizedNationalId) return sendError(res, 422, 'NATIONAL_ID_INVALID', 'National ID is invalid.');
-  const issuedOtp = developmentOtps.get(normalizedPhone);
-  if (!issuedOtp || issuedOtp.expiresAt <= Date.now() || otpCode !== issuedOtp.code) {
+  const otpReservation = reserveAppointmentOtp(normalizedPhone, otpCode);
+  if (!otpReservation.valid) {
     return res.status(400).json({ error: 'Incorrect verification code. Please try again.' });
   }
 
+  let otpConsumed = false;
   try {
     if (appointmentDate < todayString()) return sendError(res, 422, 'APPOINTMENT_DATE_IN_PAST', 'Past appointment dates are not allowed.');
     if (dateOfBirth >= todayString()) return sendError(res, 422, 'INVALID_DATE_OF_BIRTH', 'Date of birth must be in the past.');
@@ -260,6 +262,9 @@ router.post('/book', validate(structuredPatientNameSchema.extend({
       });
     });
 
+    finishAppointmentOtp(normalizedPhone, otpReservation.reservationToken, { consumed: true });
+    otpConsumed = true;
+
     // 5. Send Multi-Channel Notifications & Get WhatsApp Links
     await sendBookingConfirmation(appointment);
 
@@ -303,6 +308,8 @@ router.post('/book', validate(structuredPatientNameSchema.extend({
     }
     console.error('Booking submission error:', error);
     return res.status(500).json({ error: 'Failed to complete appointment booking.' });
+  } finally {
+    if (!otpConsumed) finishAppointmentOtp(normalizedPhone, otpReservation.reservationToken, { consumed: false });
   }
 });
 
