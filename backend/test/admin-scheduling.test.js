@@ -2,8 +2,10 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import request from 'supertest';
 import bcrypt from 'bcryptjs';
+import { DateTime } from 'luxon';
 import { app } from '../src/server.js';
 import prisma from '../src/db.js';
+import { clinicTimeZone, getClinicDateString } from '../src/utils/clinicTime.js';
 
 let adminToken; let receptionistToken; let doctorId; let doctorToken; let labToken; let pharmacyToken;
 const payload = { effectiveFrom: '2090-01-01', active: true, periods: [{ dayOfWeek: 'MONDAY', startTime: '09:00', endTime: '11:00', slotDurationMinutes: 30, breaks: [{ startTime: '09:30', endTime: '09:45', active: true }] }] };
@@ -41,11 +43,12 @@ test('active schedule replacement closes current version atomically and preserve
   await prisma.doctorSchedule.deleteMany({ where: { doctorId } });
   const current = await request(app).post(`/api/admin/doctors/${doctorId}/schedules`).set('Authorization', `Bearer ${adminToken}`).send({ ...payload, effectiveFrom: '2020-01-01' });
   assert.equal(current.status, 200);
-  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const today = getClinicDateString();
+  const tomorrow = DateTime.fromISO(today, { zone: clinicTimeZone() }).plus({ days: 1 }).toISODate();
   const replacement = await request(app).post(`/api/admin/doctors/${doctorId}/schedules`).set('Authorization', `Bearer ${adminToken}`).send({ ...payload, effectiveFrom: tomorrow, periods: [{ ...payload.periods[0], startTime: '14:00', endTime: '16:00', breaks: [{ startTime: '14:30', endTime: '14:45', active: true }] }] });
   assert.equal(replacement.status, 200);
   const versions = await prisma.doctorSchedule.findMany({ where: { doctorId }, orderBy: { effectiveFrom: 'asc' } });
-  assert.equal(versions.length, 2); assert.equal(versions[0].effectiveTo, new Date(new Date(`${tomorrow}T00:00:00Z`).getTime() - 86400000).toISOString().slice(0, 10));
+  assert.equal(versions.length, 2); assert.equal(versions[0].effectiveTo, today);
 });
 
 test('overlapping active versions and invalid period payloads are rejected', async () => {
