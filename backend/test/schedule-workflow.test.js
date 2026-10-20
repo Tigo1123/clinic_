@@ -1,10 +1,12 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { DateTime } from 'luxon';
 import express from 'express';
 import request from 'supertest';
 import prisma from '../src/db.js';
 import router from '../src/routes/adminScheduling.js';
 import { signAccessToken } from '../src/services/accessTokens.js';
+import { clinicTimeZone, getClinicDateString } from '../src/utils/clinicTime.js';
 
 // Dedicated isolated schema only; no seeds, shared records, or fixture deletion.
 assert.equal(process.env.NODE_ENV, 'test');
@@ -67,8 +69,8 @@ test('activation rejects other active versions while allowing itself', async () 
  assert.equal((await prisma.doctorSchedule.findUnique({ where: { id: dormant.id } })).active, false);
 });
 test('replacing current hours creates a tomorrow version and permits editing it repeatedly', async () => {
- const today = new Date().toISOString().slice(0, 10);
- const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+ const today = getClinicDateString();
+ const tomorrow = DateTime.fromISO(today, { zone: clinicTimeZone() }).plus({ days: 1 }).toISODate();
  const current = await auth(request(app).post(`/api/admin/doctors/${doctorB}/schedules`)).send({ ...base, effectiveFrom: today, effectiveTo: null });
  assert.equal(current.status, 200);
  const replacement = await auth(request(app).post(`/api/admin/doctors/${doctorB}/schedules`)).send({ ...base, effectiveFrom: tomorrow, effectiveTo: null });

@@ -102,7 +102,7 @@ test('registration page renders the stepper, keeps RTL/LTR inputs explicit, and 
   assert.match(page, /onboarding-resend/);
   assert.match(page, /verification\/resend/);
   assert.match(page, /inputMode="numeric" maxLength=\{6\} dir="ltr"/);
-  assert.match(page, /alshifa-consultation\.svg/);
+  assert.doesNotMatch(page, /alshifa-(?:consultation\.svg|register-3d\.webp)/);
   assert.doesNotMatch(page, /patient-auth-hero-copy|PatientRegisterIllustration/);
   assert.match(page, /patient-auth-registration-nav/);
   assert.match(page, /patient-auth-secondary-button/);
@@ -115,10 +115,32 @@ test('registration page renders the stepper, keeps RTL/LTR inputs explicit, and 
   assert.match(i18n.t('signIn'), /تسجيل الدخول|Sign in/);
 });
 
-test('patient login presents a visible illustration and clear registration action', async () => {
+test('registration and recovery share an artwork-free auth shell with a centered single-column form', () => {
   const page = readFileSync(new URL('../src/features/patient-auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
-  assert.match(page, /patient-auth-illustration/);
-  assert.match(page, /consultationIllustration/);
+  const styles = readFileSync(new URL('../src/features/patient-auth/patientAuth.css', import.meta.url), 'utf8');
+  const router = readFileSync(new URL('../src/app/router/AppRouter.jsx', import.meta.url), 'utf8');
+  const shell = page.slice(page.indexOf('function AuthShell('));
+
+  assert.doesNotMatch(shell, /patient-auth-aside|patient-auth-illustration|register3dScene|consultationIllustration/);
+  assert.match(shell, /patient-auth-stage--no-art/);
+  assert.match(styles, /\.patient-auth-stage--no-art\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+  assert.match(styles, /@media\s*\(max-width:\s*640px\)[\s\S]*?\.patient-auth-shell--register \.patient-auth-brand,\s*\.patient-auth-shell--flow \.patient-auth-brand\s*\{[^}]*flex:\s*1 1 auto/s);
+  assert.doesNotMatch(styles, /\[data-theme='dark'\]\s+\.patient-auth-aside\s*\{[^}]*display:\s*flex/s);
+  assert.match(router, /path="\/forgot-password" element=\{<PatientForgotPassword\/>\}/);
+  assert.match(page, /setStep\('reset'\)/);
+});
+
+test('patient login groups its medical mark with the introduction and keeps registration access clear', async () => {
+  const page = readFileSync(new URL('../src/features/patient-auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
+  const loginStart = page.indexOf('export function PatientLogin');
+  const loginEnd = page.indexOf('export function PatientForgotPassword');
+  const login = page.slice(loginStart, loginEnd);
+  assert.doesNotMatch(login, /patient-auth-illustration|doctor3dScene/);
+  const shell = page.slice(page.indexOf('function AuthShell'));
+  assert.match(shell, /patient-auth-login-intro/);
+  assert.match(shell, /patient-auth-login-intro__icon/);
+  assert.doesNotMatch(shell, /patient-auth-login-icon|Stethoscope/);
+  assert.doesNotMatch(shell, /doctor3dScene/);
   assert.match(page, /patient-auth-divider/);
   assert.match(page, /patient-auth-secondary-button/);
   assert.match(page, /to="\/register"/);
