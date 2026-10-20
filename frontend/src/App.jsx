@@ -9,7 +9,6 @@ import {
   EyeOff
 } from 'lucide-react';
 import ThemeToggle from './components/ui/ThemeToggle';
-import staff3dScene from './assets/alshifa-staff-3d.webp';
 import './features/patient-auth/patientAuth.css';
 
 import NotificationDropdown from './components/NotificationDropdown';
@@ -27,6 +26,7 @@ import {
 import './App.css';
 import { useFacilityBranding } from './app/branding/FacilityBrandingContext.js';
 import { brandingSubline } from './app/branding/brandingConfig';
+import { withLoginSubmissionLock } from './features/patient-auth/loginSubmission.js';
 
 const AdminDashboard = lazy(() => import('./features/admin/AdminDashboard'));
 const LaboratoryDashboard = lazy(() => import('./features/laboratory/LaboratoryDashboard'));
@@ -47,6 +47,8 @@ export default function App({ initialView = 'login' }) {
     .split('-')[0];
   const displayName = lang === 'ar' ? branding.displayNameAr : branding.displayNameEn;
   const productDescriptor = brandingSubline(branding, lang);
+  const facilityName = lang === 'ar' ? branding.facilityNameAr : branding.facilityNameEn;
+  const productName = lang === 'ar' ? branding.productNameAr : branding.productNameEn;
   const [securityOpen, setSecurityOpen] = useState(false);
   const [recoveryLoginNotice, setRecoveryLoginNotice] = useState(false);
   const [sessionRevokedNotice, setSessionRevokedNotice] = useState(false);
@@ -112,14 +114,14 @@ export default function App({ initialView = 'login' }) {
           <div className="patient-auth-topbar-inner">
             <a className="patient-auth-brand" href="/" aria-label={displayName}>
               <span className="patient-auth-brand-mark"><HeartPulse size={20} aria-hidden="true" /></span>
-              <span>{displayName}<small className="brand-product-descriptor">{productDescriptor}</small></span>
+              <span>{displayName}{!facilityName && <small className="brand-product-descriptor">{productDescriptor}</small>}</span>
             </a>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+            <div className="patient-auth-topbar-actions patient-auth-topbar-actions--staff">
               <a
                 className="staff-topbar-patient-link"
                 href="/patient-login"
               >
-                {t('patientPortal')}
+                {t('patientPortalShort')}
               </a>
               <ThemeToggle
                 className="staff-theme-toggle-btn"
@@ -139,20 +141,9 @@ export default function App({ initialView = 'login' }) {
           </div>
         )}
 
-        <div className="patient-auth-stage">
-          <aside className="patient-auth-aside" aria-hidden="true">
-            <img
-              className="patient-auth-illustration patient-auth-illustration--3d patient-auth-illustration--staff"
-              src={staff3dScene}
-              alt=""
-              width="500"
-              height="373"
-              decoding="async"
-              fetchPriority="high"
-            />
-          </aside>
+        <div className="patient-auth-stage patient-auth-stage--login">
           <div className="patient-auth-content">
-            <LoginView onLogin={handleLogin} t={t} lang={lang} />
+            <LoginView onLogin={handleLogin} t={t} lang={lang} productName={productName} productDescriptor={branding.productDescriptorAr && lang === 'ar' ? branding.productDescriptorAr : branding.productDescriptorEn} showProductIdentity={Boolean(facilityName)} />
           </div>
         </div>
       </div>
@@ -242,7 +233,7 @@ function RequiredPasswordChange({ t, onComplete }) {
 /* ==========================================
    PATIENT PUBLIC BOOKING PORTAL
    ========================================== */
-function LoginView({ onLogin, t, lang }) {
+function LoginView({ onLogin, t, lang, productName, productDescriptor, showProductIdentity }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -250,6 +241,7 @@ function LoginView({ onLogin, t, lang }) {
   const [mfaMethod, setMfaMethod] = useState('totp');
   const [errorMsg, setErrorMsg] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const submitInFlight = useRef(false);
   const mfaCodeRef = useRef(null);
   const recoveryCodeRef = useRef(null);
 
@@ -284,20 +276,19 @@ function LoginView({ onLogin, t, lang }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (submitting) return;
-    setSubmitting(true);
-    setErrorMsg('');
-    try {
-      const result = await startStaffLogin({ username, password }, onLogin);
-      if (result.state === 'MFA_REQUIRED') {
-        setPassword('');
-        setMfaMethod('totp');
-        setMfaChallenge({ token: result.challengeToken, expiresAt: result.expiresAt });
+    await withLoginSubmissionLock(submitInFlight, setSubmitting, async () => {
+      setErrorMsg('');
+      try {
+        const result = await startStaffLogin({ username, password }, onLogin);
+        if (result.state === 'MFA_REQUIRED') {
+          setPassword('');
+          setMfaMethod('totp');
+          setMfaChallenge({ token: result.challengeToken, expiresAt: result.expiresAt });
+        }
+      } catch (err) {
+        setErrorMsg(err?.status ? err.message : 'Cannot connect to authorization service.');
       }
-    } catch (err) {
-      setErrorMsg(err?.status ? err.message : 'Cannot connect to authorization service.');
-    } finally {
-      setSubmitting(false);
-    }
+    });
   };
 
   const handleMfaSubmit = async (e) => {
@@ -347,6 +338,7 @@ function LoginView({ onLogin, t, lang }) {
   if (mfaChallenge) return (
     <section className="patient-auth" aria-labelledby="staff-mfa-title">
       <header className="patient-auth-heading">
+        {showProductIdentity && <p className="patient-auth-product-line">{productName}<span aria-hidden="true"> · </span>{productDescriptor}</p>}
         <div className="patient-auth-brand-mark" style={{ marginBottom: '12px', width: '40px', height: '40px' }}>
           <ShieldCheck size={22} aria-hidden="true" />
         </div>
@@ -405,13 +397,19 @@ function LoginView({ onLogin, t, lang }) {
   return (
     <section className="patient-auth" aria-labelledby="staff-auth-title">
       <header className="patient-auth-heading">
-        <p className="patient-auth-welcome">{t('staffPortal') || 'بوابة الموظفين'}</p>
-        <h1 id="staff-auth-title">{t('signIn') || 'تسجيل الدخول'}</h1>
-        <p className="patient-auth-intro">
-          {lang === 'ar'
-            ? 'دخول آمن للكوادر الطبية والإدارية'
-            : 'Secure access for medical and administrative staff'}
-        </p>
+        <div className="patient-auth-login-intro">
+          <HeartPulse className="patient-auth-login-intro__icon" size={27} strokeWidth={1.8} aria-hidden="true" />
+          <div>
+            {showProductIdentity && <p className="patient-auth-product-line">{productName}<span aria-hidden="true"> · </span>{productDescriptor}</p>}
+            <p className="patient-auth-welcome">{t('staffPortal') || 'بوابة الموظفين'}</p>
+            <h1 id="staff-auth-title">{t('signIn') || 'تسجيل الدخول'}</h1>
+            <p className="patient-auth-intro">
+              {lang === 'ar'
+                ? 'دخول آمن للكوادر الطبية والإدارية'
+                : 'Secure access for medical and administrative staff'}
+            </p>
+          </div>
+        </div>
       </header>
 
       {errorMsg && (
@@ -420,7 +418,7 @@ function LoginView({ onLogin, t, lang }) {
         </div>
       )}
 
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} aria-busy={submitting}>
         <label className="patient-field">
           {t('username')}
           <input
@@ -429,7 +427,6 @@ function LoginView({ onLogin, t, lang }) {
             type="email"
             required
             autoComplete="username"
-            placeholder="staff@cms.com"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             dir="ltr"
@@ -445,7 +442,7 @@ function LoginView({ onLogin, t, lang }) {
               type={showPassword ? 'text' : 'password'}
               required
               autoComplete="current-password"
-              placeholder="••••••••"
+              dir="ltr"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
@@ -453,6 +450,7 @@ function LoginView({ onLogin, t, lang }) {
               type="button"
               className="patient-field__password-toggle"
               aria-label={showPassword ? t('hidePassword') : t('showPassword')}
+              aria-pressed={showPassword}
               onClick={() => setShowPassword(!showPassword)}
             >
               {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -472,7 +470,7 @@ function LoginView({ onLogin, t, lang }) {
         <div className="patient-auth-create-account">
           <p>{lang === 'ar' ? 'هل تبحث عن خدمات المرضى؟' : 'Looking for patient services?'}</p>
           <a href="/patient-login" className="patient-auth-secondary-button">
-            {t('patientPortal')}
+            {t('patientPortalShort')}
           </a>
         </div>
       </form>

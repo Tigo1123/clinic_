@@ -7,9 +7,6 @@ import { useAuth } from '../../app/auth/auth-context';
 import { INITIAL_ONBOARDING_FORM, NAME_FIELDS, ONBOARDING_STEPS, googleRegistrationPayload, onboardingErrorMessage, passwordChecks, registrationPayload, RESEND_COOLDOWN_SECONDS, resendSecondsRemaining, validateOnboardingStep } from './onboarding';
 import { callingCode, countryFlag, countryName, normalisePatientPhone, PATIENT_PHONE_COUNTRIES, splitInternationalPhone } from './phoneCountries';
 import { SUDANESE_STATES } from '../reception/clinicData';
-import consultationIllustration from '../../assets/alshifa-consultation.svg';
-import doctor3dScene from '../../assets/alshifa-doctor-patient-3d.webp';
-import register3dScene from '../../assets/alshifa-register-3d.webp';
 import './patientAuth.css';
 import { GoogleIdentityButton } from './GoogleIdentityButton.jsx';
 import { clearGoogleOnboardingToken, getGoogleOnboardingToken } from './googleOnboardingStorage.js';
@@ -17,6 +14,7 @@ import { useGooglePatientAuth } from './useGooglePatientAuth.js';
 import ThemeToggle from '../../components/ui/ThemeToggle.jsx';
 import { useFacilityBranding } from '../../app/branding/FacilityBrandingContext.js';
 import { brandingSubline } from '../../app/branding/brandingConfig';
+import { withLoginSubmissionLock } from './loginSubmission.js';
 
 export function PatientLogin(){
   const{t}=useTranslation();
@@ -30,6 +28,7 @@ export function PatientLogin(){
   const[form,setForm]=useState({username:'',password:''});
   const[error,setError]=useState('');
   const[loading,setLoading]=useState(false);
+  const submitInFlight = useRef(false);
   const[showPassword,setShowPassword]=useState(false);
   const[pendingVerification,setPendingVerification]=useState(false);
   const[challenge,setChallenge]=useState(null);
@@ -38,37 +37,36 @@ export function PatientLogin(){
 
   async function submit(event){
     event.preventDefault();
-    setLoading(true);
-    setError('');
-    setMessage('');
-    setPendingVerification(false);
+    await withLoginSubmissionLock(submitInFlight,setLoading,async()=>{
+      setError('');
+      setMessage('');
+      setPendingVerification(false);
 
-    try{
-      const data=await apiRequest('/api/auth/login',{
-        method:'POST',
-        body:JSON.stringify(form)
-      });
+      try{
+        const data=await apiRequest('/api/auth/login',{
+          method:'POST',
+          body:JSON.stringify(form)
+        });
 
-      if(data.user.role!=='PATIENT'){
-        throw new Error(t('patientAccountRequired'));
-      }
+        if(data.user.role!=='PATIENT'){
+          throw new Error(t('patientAccountRequired'));
+        }
 
-      login(data.user,data.token);
-      if(googleAuth.errorCode === 'ACCOUNT_LINK_REQUIRED'){
-        navigate('/patient/profile', { state: { highlightGoogleLink: true } });
-      }else{
-        navigate('/patient');
+        login(data.user,data.token);
+        if(googleAuth.errorCode === 'ACCOUNT_LINK_REQUIRED'){
+          navigate('/patient/profile', { state: { highlightGoogleLink: true } });
+        }else{
+          navigate('/patient');
+        }
+      }catch(requestError){
+        if(requestError.code==='ACCOUNT_PENDING_VERIFICATION'){
+          setPendingVerification(true);
+          setError(t('pendingVerificationMessage'));
+        }else{
+          setError(requestError.message);
+        }
       }
-    }catch(requestError){
-      if(requestError.code==='ACCOUNT_PENDING_VERIFICATION'){
-        setPendingVerification(true);
-        setError(t('pendingVerificationMessage'));
-      }else{
-        setError(requestError.message);
-      }
-    }finally{
-      setLoading(false);
-    }
+    });
   }
 
   async function resendVerification(){
@@ -180,7 +178,7 @@ export function PatientLogin(){
         </div>
       }
 
-      <form onSubmit={submit}>
+      <form onSubmit={submit} aria-busy={loading}>
         <Field
           label={t('phoneOrEmail')}
           value={form.username}
@@ -196,6 +194,7 @@ export function PatientLogin(){
             <input
               className="patient-field__password-input"
               type={showPassword?'text':'password'}
+              dir="ltr"
               value={form.password}
               onChange={event=>setForm({...form,password:event.target.value})}
               autoComplete="current-password"
@@ -205,6 +204,7 @@ export function PatientLogin(){
             <button
               type="button"
               aria-label={showPassword?t('hidePassword'):t('showPassword')}
+              aria-pressed={showPassword}
               onClick={()=>setShowPassword(!showPassword)}
               className="patient-field__password-toggle"
             >
@@ -845,6 +845,9 @@ function AuthShell({ title, children, onboarding = false }) {
   const language = (i18n.resolvedLanguage || i18n.language || 'ar').startsWith('ar') ? 'ar' : 'en';
   const displayName = language === 'ar' ? branding.displayNameAr : branding.displayNameEn;
   const descriptor = brandingSubline(branding, language);
+  const facilityName = language === 'ar' ? branding.facilityNameAr : branding.facilityNameEn;
+  const productName = language === 'ar' ? branding.productNameAr : branding.productNameEn;
+  const productDescriptor = language === 'ar' ? branding.productDescriptorAr : branding.productDescriptorEn;
   const isRegistration = onboarding || title === t('createPatientAccount');
   const isLogin = title === t('patientLogin');
   const mode = isRegistration ? 'register' : isLogin ? 'login' : 'flow';
@@ -854,7 +857,7 @@ function AuthShell({ title, children, onboarding = false }) {
       <div className="patient-auth-topbar-inner">
         <Link className="patient-auth-brand" to="/" aria-label={displayName}>
           <span className="patient-auth-brand-mark"><HeartPulse size={20} aria-hidden="true" /></span>
-          <span>{displayName}<small className="brand-product-descriptor">{descriptor}</small></span>
+          <span>{displayName}{(!facilityName || !isLogin) && <small className="brand-product-descriptor">{descriptor}</small>}</span>
         </Link>
         <div className="patient-auth-topbar-actions">
           <ThemeToggle />
@@ -865,36 +868,19 @@ function AuthShell({ title, children, onboarding = false }) {
         </div>
       </div>
     </header>
-    <div className="patient-auth-stage">
-      <aside className="patient-auth-aside" aria-hidden="true">
-        {isLogin ? (
-          <img
-            className="patient-auth-illustration patient-auth-illustration--3d"
-            src={doctor3dScene}
-            alt=""
-            width="500"
-            height="373"
-            decoding="async"
-            fetchPriority="high"
-          />
-        ) : isRegistration ? (
-          <img
-            className="patient-auth-illustration patient-auth-illustration--3d patient-auth-illustration--register"
-            src={register3dScene}
-            alt=""
-            width="420"
-            height="314"
-            decoding="async"
-          />
-        ) : (
-          <img className="patient-auth-illustration" src={consultationIllustration} alt="" />
-        )}
-      </aside>
+    <div className={`patient-auth-stage${isLogin ? ' patient-auth-stage--login' : ' patient-auth-stage--no-art'}`}>
       <div className="patient-auth-content">
         <section className="patient-auth" aria-labelledby="patient-auth-title">
           <header className="patient-auth-heading">
-            {isLogin && <p className="patient-auth-welcome">{t('welcomeBack')}</p>}
-            <h1 id="patient-auth-title">{title}</h1>
+            {isLogin ? <div className="patient-auth-login-intro">
+              <HeartPulse className="patient-auth-login-intro__icon" size={27} strokeWidth={1.8} aria-hidden="true" />
+              <div>
+                {facilityName && <p className="patient-auth-product-line">{productName}<span aria-hidden="true"> · </span>{productDescriptor}</p>}
+                <p className="patient-auth-welcome">{t('welcomeBack')}</p>
+                <h1 id="patient-auth-title">{title}</h1>
+                <p className="patient-auth-intro">{language === 'ar' ? 'سجّل الدخول لمتابعة خدماتك الصحية.' : 'Sign in to continue to your health services.'}</p>
+              </div>
+            </div> : <h1 id="patient-auth-title">{title}</h1>}
           </header>
           {children}
         </section>
