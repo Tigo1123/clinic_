@@ -30,7 +30,9 @@ async function compileComponent(relativePath, replacements) {
 
 const modalModules = await compileComponent('../src/features/clinical/ClinicalModals.jsx', [
   [/import \{ fetchWithAuth \} from '\.\.\/\.\.\/services\/staffApi';/, 'const fetchWithAuth = (...args) => globalThis.modalFetch(...args);'],
-  [/import \{ useAuth \} from '\.\.\/\.\.\/app\/auth\/auth-context';/, 'const useAuth = () => ({ user: globalThis.modalUser });']
+  [/import \{ useAuth \} from '\.\.\/\.\.\/app\/auth\/auth-context';/, 'const useAuth = () => ({ user: globalThis.modalUser });'],
+  [/import \{ useFacilityBranding \} from '\.\.\/\.\.\/app\/branding\/FacilityBrandingContext\.js';/, "const useFacilityBranding = () => ({ displayNameAr: 'شفاء', displayNameEn: 'Shifa', facilityNameAr: null, facilityNameEn: null, productNameAr: 'شفاء', productNameEn: 'Shifa', productDescriptorAr: 'نظام إدارة المنشآت الصحية', productDescriptorEn: 'Healthcare Facility Management System' });"],
+  [/import FacilityIdentityLine from '\.\.\/\.\.\/components\/FacilityIdentityLine';/, 'const FacilityIdentityLine = () => null;']
 ]);
 const doctorModule = await compileComponent('../src/features/doctor/DoctorDashboard.jsx', [
   [/import \{ PatientProfileModal, PostVisitSummaryModal \} from '\.\.\/clinical\/ClinicalModals';/, 'const PatientProfileModal = () => null; const PostVisitSummaryModal = () => null;'],
@@ -41,7 +43,9 @@ const doctorModule = await compileComponent('../src/features/doctor/DoctorDashbo
   [/import \{ clinicDateString \} from '\.\.\/\.\.\/utils\/clinicTime';/, 'const clinicDateString = () => "2099-01-01";'],
   [/import \{ staffApiRequest as apiRequest \} from '\.\.\/\.\.\/services\/apiClient';/, 'const apiRequest = (...args) => globalThis.doctorApiRequest(...args);'],
   [/import MedicineCombobox from '\.\/MedicineCombobox';/, 'const MedicineCombobox = () => null;'],
-  [/import \{ doctorPrescriptionItem, duplicatePrescriptionItem, validateDoctorPrescriptionEntry \} from '\.\.\/\.\.\/utils\/doctorPrescription';/, 'const doctorPrescriptionItem = () => ({}); const duplicatePrescriptionItem = () => false; const validateDoctorPrescriptionEntry = () => null;']
+  [/import \{ doctorPrescriptionItem, duplicatePrescriptionItem, validateDoctorPrescriptionEntry \} from '\.\.\/\.\.\/utils\/doctorPrescription';/, 'const doctorPrescriptionItem = () => ({}); const duplicatePrescriptionItem = () => false; const validateDoctorPrescriptionEntry = () => null;'],
+  [/import \{ useFacilityBranding \} from '\.\.\/\.\.\/app\/branding\/FacilityBrandingContext\.js';/, "const useFacilityBranding = () => ({ displayNameAr: 'شفاء', displayNameEn: 'Shifa', facilityNameAr: null, facilityNameEn: null, productNameAr: 'شفاء', productNameEn: 'Shifa', productDescriptorAr: 'نظام إدارة المنشآت الصحية', productDescriptorEn: 'Healthcare Facility Management System' });"],
+  [/import FacilityIdentityLine from '\.\.\/\.\.\/components\/FacilityIdentityLine';/, 'const FacilityIdentityLine = () => null;']
 ]);
 
 let root;

@@ -1,3 +1,5 @@
+import { getFacilityBranding } from './facilityBranding.js';
+
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 const SURROUNDING_QUOTE = /^["']|["']$/;
 
@@ -26,10 +28,11 @@ function smtpPort(env) {
 
 function smtpFromName(env) {
   const raw = env.SMTP_FROM_NAME;
-  if (raw === undefined || raw === null || raw === '') return 'Al-Shifa Medical Clinic';
+  const fallback = getFacilityBranding(env).displayNameEn;
+  if (raw === undefined || raw === null || raw === '') return fallback;
   if (CONTROL_CHARACTERS.test(raw)) throw new Error('SMTP_FROM_NAME contains invalid control characters.');
   const value = raw.trim();
-  if (!value) return 'Al-Shifa Medical Clinic';
+  if (!value) return fallback;
   if (SURROUNDING_QUOTE.test(value)) throw new Error('SMTP_FROM_NAME must not be surrounded by quotes.');
   return value;
 }

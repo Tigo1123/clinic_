@@ -43,6 +43,8 @@ html:has(.public-site), body:has(.public-site) { overflow-x: visible; }
 .public-brand__mark { width: 40px; height: 40px; flex: 0 0 40px; display: grid; place-items: center; color: #fff; background: var(--landing-primary); border-radius: 13px; box-shadow: 0 7px 17px rgba(20, 121, 238, .16); }
 .public-brand__mark svg { width: 23px; height: 23px; stroke-width: 2.2; }
 .public-brand__name { font-size: .98rem; line-height: 1.25; font-weight: 800; white-space: nowrap; }
+.public-brand__lockup { display: grid; gap: .12rem; min-width: 0; }
+.public-brand__lockup small { color: var(--landing-muted); font-size: .62rem; line-height: 1.25; font-weight: 600; }
 .public-nav { display: flex; align-items: center; gap: clamp(1.1rem, 2.2vw, 2.1rem); margin-inline: auto; }
 .public-nav a, .public-staff-link { color: var(--landing-ink-soft) !important; font-size: .89rem; font-weight: 700; white-space: nowrap; transition: color var(--landing-duration) var(--landing-ease); }
 .public-nav a:hover, .public-staff-link:hover { color: var(--landing-primary) !important; }
@@ -56,6 +58,13 @@ html:has(.public-site), body:has(.public-site) { overflow-x: visible; }
 .public-menu-toggle svg { width: 21px; height: 21px; }
 .public-menu-backdrop, .public-mobile-menu { display: none; }
 .public-menu-backdrop[hidden], .public-mobile-menu[hidden] { display: none; }
+
+@media (min-width: 1051px) {
+  .public-brand { flex: 0 1 min(34vw, 420px); }
+  .public-brand__lockup { flex: 1 1 auto; max-width: 100%; }
+  .public-brand__name { white-space: normal; overflow-wrap: anywhere; }
+  .public-nav { flex: 0 1 auto; gap: clamp(.6rem, 1.2vw, 1.2rem); }
+}
 
 .public-button { min-height: 54px; display: inline-flex; align-items: center; justify-content: center; gap: 1.6rem; padding: .85rem 1.3rem; border: 1px solid transparent; border-radius: 15px; font-size: .92rem; line-height: 1.2; font-weight: 800; white-space: nowrap; transition: transform var(--landing-duration) var(--landing-ease), background var(--landing-duration) var(--landing-ease), border-color var(--landing-duration) var(--landing-ease), box-shadow var(--landing-duration) var(--landing-ease); }
 .public-button svg { width: 17px; height: 17px; flex: 0 0 17px; transition: transform var(--landing-duration) var(--landing-ease); }

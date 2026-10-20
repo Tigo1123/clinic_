@@ -9,8 +9,11 @@ import { clinicDateString } from '../../utils/clinicTime';
 import { staffApiRequest as apiRequest } from '../../services/apiClient';
 import { createLatestSearchScheduler, visiblePatientDirectory } from './debouncedSearch';
 import './receptionDashboard.css';
+import { useFacilityBranding } from '../../app/branding/FacilityBrandingContext.js';
+import FacilityIdentityLine from '../../components/FacilityIdentityLine';
 
 export default function ReceptionDashboard({ lang, t }) {
+  const branding = useFacilityBranding();
   const [doctors, setDoctors] = useState([]);
   const [selectedDoctor, setSelectedDoctor] = useState(null);
   const [appointments, setAppointments] = useState([]);
@@ -1282,8 +1285,8 @@ export default function ReceptionDashboard({ lang, t }) {
                         href={getWhatsAppLink(
                           app.patient?.phone,
                           lang === 'ar'
-                            ? `مرحباً ${app.patient?.fullNameAr}، يرجى تأكيد موعدك بمركز الشفاء الطبي مع ${app.doctor?.fullNameAr} بتاريخ ${app.appointmentDate} الساعة ${app.appointmentTime}.`
-                            : `Hello ${app.patient?.fullNameEn}, please confirm your appointment at Al-Shifa Clinic with ${app.doctor?.fullNameEn} on ${app.appointmentDate} at ${app.appointmentTime}.`
+                            ? `مرحباً ${app.patient?.fullNameAr}، يرجى تأكيد موعدك في ${branding.displayNameAr} مع ${app.doctor?.fullNameAr} بتاريخ ${app.appointmentDate} الساعة ${app.appointmentTime}.`
+                            : `Hello ${app.patient?.fullNameEn}, please confirm your appointment at ${branding.displayNameEn} with ${app.doctor?.fullNameEn} on ${app.appointmentDate} at ${app.appointmentTime}.`
                         )}
                         target="_blank"
                         rel="noopener noreferrer"
@@ -1396,8 +1399,8 @@ export default function ReceptionDashboard({ lang, t }) {
                           href={getWhatsAppLink(
                             app.patient?.phone,
                             lang === 'ar'
-                              ? `مركز الشفاء الطبي: تذكير بموعدك (${app.patient.fullNameAr}). الوقت: ${app.appointmentTime}.`
-                              : `Al-Shifa Clinic: Reminder for your appointment (${app.patient.fullNameEn}) at ${app.appointmentTime}.`
+                              ? `${branding.displayNameAr}: تذكير بموعدك (${app.patient.fullNameAr}). الوقت: ${app.appointmentTime}.`
+                              : `${branding.displayNameEn}: Reminder for your appointment (${app.patient.fullNameEn}) at ${app.appointmentTime}.`
                           )}
                           target="_blank"
                           rel="noopener noreferrer"
@@ -1772,6 +1775,7 @@ export default function ReceptionDashboard({ lang, t }) {
             {/* TAB: BILLING & CHECKOUT */}
             {activeTab === 'billing' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto' }}>
+                <FacilityIdentityLine language={lang} />
                 {/* Laboratory Billing Queue */}
                 <section
                   className="glass-panel"

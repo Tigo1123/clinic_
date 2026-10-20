@@ -5,6 +5,7 @@ import {
   sortedDoctorVisits, statusDistribution, statusLabelKey, weeklyAppointmentSummary
 } from '../../utils/analyticsPresentation.js';
 import './analytics.css';
+import FacilityIdentityLine from '../../components/FacilityIdentityLine';
 
 const KPI_ICONS = { patients: UsersRound, visits: CalendarDays, completion: CheckCircle2, revenue: CircleDollarSign };
 
@@ -12,7 +13,7 @@ export default function AnalyticsPanel({ data, loading, error, lang, t, onRefres
   const tr = (key, options) => t(key, options);
   return <section className="clinic-analytics" dir={lang === 'ar' ? 'rtl' : 'ltr'} aria-labelledby="analytics-title">
     <header className="analytics-header">
-      <div><p className="analytics-eyebrow">{tr('analyticsEyebrow')}</p><h2 id="analytics-title">{tr('analyticsTitle')}</h2><p>{tr('analyticsSubtitle')}</p></div>
+      <div><FacilityIdentityLine language={lang} /><p className="analytics-eyebrow">{tr('analyticsEyebrow')}</p><h2 id="analytics-title">{tr('analyticsTitle')}</h2><p>{tr('analyticsSubtitle')}</p></div>
       <button type="button" className="analytics-refresh btn" onClick={onRefresh} disabled={loading}><RefreshCw size={17} className={loading ? 'analytics-spin' : ''}/>{tr('analyticsRefresh')}</button>
     </header>
     {loading ? <AnalyticsState kind="loading" text={tr('analyticsLoading')}/>

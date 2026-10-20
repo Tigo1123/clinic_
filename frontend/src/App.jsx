@@ -25,6 +25,8 @@ import {
 } from './services/staffSocket';
 
 import './App.css';
+import { useFacilityBranding } from './app/branding/FacilityBrandingContext.js';
+import { brandingSubline } from './app/branding/brandingConfig';
 
 const AdminDashboard = lazy(() => import('./features/admin/AdminDashboard'));
 const LaboratoryDashboard = lazy(() => import('./features/laboratory/LaboratoryDashboard'));
@@ -38,10 +40,13 @@ const ReceptionDashboard = lazy(() => import('./features/reception/ReceptionDash
 
 export default function App({ initialView = 'login' }) {
   const { t, i18n } = useTranslation();
+  const branding = useFacilityBranding();
   const [user, setUser] = useState(null);
   const [view, setView] = useState(initialView); // 'portal', 'login', 'dashboard'
   const lang = (i18n.resolvedLanguage || i18n.language || 'ar')
     .split('-')[0];
+  const displayName = lang === 'ar' ? branding.displayNameAr : branding.displayNameEn;
+  const productDescriptor = brandingSubline(branding, lang);
   const [securityOpen, setSecurityOpen] = useState(false);
   const [recoveryLoginNotice, setRecoveryLoginNotice] = useState(false);
   const [sessionRevokedNotice, setSessionRevokedNotice] = useState(false);
@@ -105,9 +110,9 @@ export default function App({ initialView = 'login' }) {
       <div className="patient-auth-shell patient-auth-shell--staff">
         <header className="patient-auth-topbar">
           <div className="patient-auth-topbar-inner">
-            <a className="patient-auth-brand" href="/" aria-label={t('brandName')}>
+            <a className="patient-auth-brand" href="/" aria-label={displayName}>
               <span className="patient-auth-brand-mark"><HeartPulse size={20} aria-hidden="true" /></span>
-              <span>{t('brandName')}</span>
+              <span>{displayName}<small className="brand-product-descriptor">{productDescriptor}</small></span>
             </a>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
               <a
@@ -160,7 +165,7 @@ export default function App({ initialView = 'login' }) {
       <header className="nav-header no-print-section">
         <div className="brand-section">
           <HeartPulse className="logo-icon" size={28} />
-          <span className="brand-title">{t('brandName')}</span>
+          <span className="brand-title">{displayName}<small className="brand-product-descriptor">{productDescriptor}</small></span>
         </div>
         <div className="header-actions">
           <button className="lang-toggle-btn" onClick={toggleLanguage}>

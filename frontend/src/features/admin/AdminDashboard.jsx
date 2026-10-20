@@ -358,7 +358,7 @@ export default function AdminDashboard({ user, lang, t }) {
             onClick={() => setActiveTab('profile')}
           >
             <Building size={18} />
-            {lang === 'ar' ? 'الملف التعريفي للعيادة' : 'Clinic Profile'}
+            {lang === 'ar' ? 'الملف التعريفي للمنشأة' : 'Facility Profile'}
           </button>
           <button
             className={`menu-btn ${activeTab === 'users' ? 'active' : ''}`}
@@ -618,7 +618,7 @@ export default function AdminDashboard({ user, lang, t }) {
 
         {activeTab === 'pricing' && (
           <div className="glass-panel" style={{ padding: '1.5rem' }}>
-            <h3>{lang === 'ar' ? 'إدارة الأسعار الرسمية للعيادة' : 'Clinic Pricing Management'}</h3>
+            <h3>{lang === 'ar' ? 'إدارة الأسعار الرسمية للمنشأة' : 'Facility Pricing Management'}</h3>
             <p style={{ opacity: 0.75 }}>
               {lang === 'ar'
                 ? 'تُستخدم الأسعار المحفوظة هنا للفواتير الجديدة فقط، ولا تتغير الفواتير التاريخية.'

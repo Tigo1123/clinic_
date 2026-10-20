@@ -15,6 +15,8 @@ import { GoogleIdentityButton } from './GoogleIdentityButton.jsx';
 import { clearGoogleOnboardingToken, getGoogleOnboardingToken } from './googleOnboardingStorage.js';
 import { useGooglePatientAuth } from './useGooglePatientAuth.js';
 import ThemeToggle from '../../components/ui/ThemeToggle.jsx';
+import { useFacilityBranding } from '../../app/branding/FacilityBrandingContext.js';
+import { brandingSubline } from '../../app/branding/brandingConfig';
 
 export function PatientLogin(){
   const{t}=useTranslation();
@@ -839,6 +841,10 @@ function OfflineActivation(){
 
 function AuthShell({ title, children, onboarding = false }) {
   const { t, i18n } = useTranslation();
+  const branding = useFacilityBranding();
+  const language = (i18n.resolvedLanguage || i18n.language || 'ar').startsWith('ar') ? 'ar' : 'en';
+  const displayName = language === 'ar' ? branding.displayNameAr : branding.displayNameEn;
+  const descriptor = brandingSubline(branding, language);
   const isRegistration = onboarding || title === t('createPatientAccount');
   const isLogin = title === t('patientLogin');
   const mode = isRegistration ? 'register' : isLogin ? 'login' : 'flow';
@@ -846,9 +852,9 @@ function AuthShell({ title, children, onboarding = false }) {
   return <main className={`patient-auth-shell patient-auth-shell--${mode}`}>
     <header className="patient-auth-topbar">
       <div className="patient-auth-topbar-inner">
-        <Link className="patient-auth-brand" to="/" aria-label={t('brandName')}>
+        <Link className="patient-auth-brand" to="/" aria-label={displayName}>
           <span className="patient-auth-brand-mark"><HeartPulse size={20} aria-hidden="true" /></span>
-          <span>{t('brandName')}</span>
+          <span>{displayName}<small className="brand-product-descriptor">{descriptor}</small></span>
         </Link>
         <div className="patient-auth-topbar-actions">
           <ThemeToggle />

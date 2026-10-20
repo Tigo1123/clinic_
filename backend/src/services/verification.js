@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import prisma from '../db.js';
 import { sendEmail } from '../utils/notifications.js';
+import { getFacilityBranding } from '../utils/facilityBranding.js';
 import { ApiError } from '../utils/apiError.js';
 import { assertPhoneVerificationAvailable, phoneVerificationProvider, sendPhoneVerificationCode } from './phoneVerification.js';
 
@@ -79,7 +80,8 @@ export async function createVerificationChallenge(user, type, targetNormalized, 
       return { challenge, ...delivery };
     }
     if (['development', 'test'].includes(process.env.NODE_ENV) && process.env.VERIFICATION_PROVIDER === 'development') return { challenge, developmentCode: code };
-    const sent = await sendEmail({ to: type === 'PROFILE_PHONE_CHANGE' ? user.email : targetNormalized, subject: 'Confirm your patient account request', text: `Your verification code is ${code}. It expires in 10 minutes.` });
+    const facilityName = getFacilityBranding().displayNameEn;
+    const sent = await sendEmail({ to: type === 'PROFILE_PHONE_CHANGE' ? user.email : targetNormalized, subject: `${facilityName} - Confirm your patient account request`, text: `Your verification code for ${facilityName} is ${code}. It expires in 10 minutes.` });
     if (sent) return { challenge };
   } catch (error) {
     await prisma.verificationChallenge.update({ where: { id: challenge.id }, data: { usedAt: new Date() } }).catch(() => {});

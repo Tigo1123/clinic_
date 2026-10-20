@@ -1,4 +1,9 @@
-# Clinic / Hospital Management System
+# Shifa | Healthcare Facility Management System
+
+Shifa is a bilingual healthcare facility management product. Set optional `FACILITY_NAME_AR`
+and `FACILITY_NAME_EN` deployment variables to show the institution's name prominently; each
+language falls back to the Shifa product name when its facility name is unset. No facility name
+is assumed or supplied by this repository.
 
 The repository contains an Express/Prisma backend and React/Vite frontend. The active database
 provider is PostgreSQL. Development, test, staging, and production must use separate databases
