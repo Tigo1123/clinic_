@@ -1,4 +1,5 @@
 import express from 'express';
+import { asyncRouter } from '../utils/asyncRouter.js';
 import { z } from 'zod';
 import { authenticate, checkRoles } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
@@ -6,7 +7,7 @@ import { sendError } from '../utils/apiError.js';
 import { clinicTimeZone } from '../utils/clinicTime.js';
 import { listSchedules, replaceSchedule, setScheduleStatus, listExceptions, replaceException, setExceptionStatus, preview, ScheduleDomainError } from '../services/doctorSchedulingAdmin.js';
 
-const router = express.Router();
+const router = asyncRouter();
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const period = z.object({ dayOfWeek: z.enum(['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY']), startTime: time, endTime: time, slotDurationMinutes: z.number().int().min(1).max(1440), active: z.boolean().optional(), breaks: z.array(z.object({ startTime: time, endTime: time, active: z.boolean().optional() }).strict()).optional() }).strict();
 const schedule = z.object({ effectiveFrom: z.string(), effectiveTo: z.string().nullable().optional(), active: z.boolean().optional(), periods: z.array(period) }).strict();

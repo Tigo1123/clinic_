@@ -49,9 +49,13 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
   const onCloseRef = useRef(onClose);
   const nestedModalOpenRef = useRef(nestedModalOpen);
 
-  const [profile, setProfile] = useState(null);
+  const [loadedProfile, setLoadedProfile] = useState(null);
+  const [loadedProfilePatientId, setLoadedProfilePatientId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const profileRequestRef = useRef(0);
+  const profile = loadedProfilePatientId === patientId ? loadedProfile : null;
+  const profileLoading = loading || loadedProfilePatientId !== patientId;
 
   const [claimCode, setClaimCode] = useState('');
   const [claimExpiresIn, setClaimExpiresIn] = useState(null);
@@ -67,17 +71,29 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
 
   const loadProfile = useCallback(async () => {
     if (!patientId) return;
+    const requestId = ++profileRequestRef.current;
     setLoading(true);
     setError('');
+    setLoadedProfile(null);
+    setLoadedProfilePatientId(null);
     try {
       const res = await fetchWithAuth(`/api/patients/${patientId}/profile`);
+      if (profileRequestRef.current !== requestId) return;
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `HTTP ${res.status}: Failed to load profile`);
+        const apiError = typeof errData.error === 'object' ? errData.error : null;
+        if (apiError?.code === 'CLINICAL_DATA_UNREADABLE') {
+          throw new Error(lang === 'ar' ? 'المعلومات السريرية غير متاحة حاليًا.' : 'Clinical information is unavailable.');
+        }
+        throw new Error(apiError?.message || errData.error || `HTTP ${res.status}: Failed to load profile`);
       }
       const data = await res.json();
-      setProfile(data);
+      if (profileRequestRef.current !== requestId) return;
+      setLoadedProfile(data);
+      setLoadedProfilePatientId(patientId);
     } catch (err) {
+      if (profileRequestRef.current !== requestId) return;
+      setLoadedProfilePatientId(patientId);
       console.error('Error fetching patient profile:', err);
       setError(
         err.message ||
@@ -86,12 +102,13 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
             : 'Failed to load patient profile.')
       );
     } finally {
-      setLoading(false);
+      if (profileRequestRef.current === requestId) setLoading(false);
     }
   }, [patientId, lang]);
 
   useEffect(() => {
     loadProfile();
+    return () => { profileRequestRef.current += 1; };
   }, [loadProfile]);
 
   useEffect(() => {
@@ -308,7 +325,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
         </header>
 
         <div className="modal-body patient-file-body">
-          {loading ? (
+          {profileLoading ? (
             <div className="patient-file-state" role="status">
               <div className="spinner" style={{ margin: '0 auto 1rem' }}></div>
               <p>{lang === 'ar' ? 'جاري تحميل ملف المريض...' : 'Loading patient profile...'}</p>
@@ -737,53 +754,72 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
 export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = 'base', returnFocusTo = null }) {
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
-  const [summary, setSummary] = useState(null);
+  const activeSummaryId = typeof summaryId === 'object' ? (summaryId?.id || summaryId?.recordId || summaryId?.appointmentId) : summaryId;
+  const [loadedSummary, setLoadedSummary] = useState(null);
+  const [loadedSummaryId, setLoadedSummaryId] = useState(null);
+  const summary = loadedSummaryId === activeSummaryId ? loadedSummary : null;
   const [loading, setLoading] = useState(true);
   const [errorDetails, setErrorDetails] = useState('');
   const [emailing, setEmailing] = useState(false);
   const [emailMsg, setEmailMsg] = useState('');
+  const summaryRequestRef = useRef(0);
+  const summaryLoading = loading || loadedSummaryId !== activeSummaryId;
 
   const loadSummary = useCallback(async () => {
     if (!summaryId) return;
     const idToFetch = typeof summaryId === 'object' ? (summaryId.id || summaryId.recordId || summaryId.appointmentId) : summaryId;
     if (!idToFetch) return;
+    const requestId = ++summaryRequestRef.current;
+    setLoadedSummary(null);
+    setLoadedSummaryId(null);
     setLoading(true);
     setErrorDetails('');
+    setEmailMsg('');
+    setEmailing(false);
     try {
       const res = await fetchWithAuth(`/api/records/${idToFetch}/summary`);
+      if (summaryRequestRef.current !== requestId) return;
       const contentType = res.headers.get('content-type') || '';
       if (!res.ok) {
         if (contentType.includes('application/json')) {
           const errData = await res.json();
-          const message =
-            typeof errData.error === 'object'
-              ? errData.error?.message
-              : errData.error;
+          if (summaryRequestRef.current !== requestId) return;
+          const apiError = typeof errData.error === 'object' ? errData.error : null;
+          const message = apiError?.code === 'CLINICAL_DATA_UNREADABLE'
+            ? (lang === 'ar' ? 'المعلومات السريرية غير متاحة. لم يتم تحميل الملخص أو بدء الطباعة.' : 'Clinical information is unavailable. The summary was not loaded or prepared for printing.')
+            : (apiError?.message || errData.error);
 
           throw new Error(
             message || `HTTP ${res.status}: Failed to retrieve summary`
           );
         } else {
           const htmlText = await res.text();
+          if (summaryRequestRef.current !== requestId) return;
           throw new Error(`Server returned non-JSON error (${res.status}): ${htmlText.substring(0, 100)}...`);
         }
       }
       if (!contentType.includes('application/json')) {
         const text = await res.text();
+        if (summaryRequestRef.current !== requestId) return;
         throw new Error(`Expected JSON response but received: ${text.substring(0, 100)}...`);
       }
       const data = await res.json();
-      setSummary(data);
+      if (summaryRequestRef.current !== requestId) return;
+      setLoadedSummary(data);
+      setLoadedSummaryId(idToFetch);
     } catch (err) {
+      if (summaryRequestRef.current !== requestId) return;
+      setLoadedSummaryId(idToFetch);
       console.error('Error fetching summary:', err);
       setErrorDetails(err.message || 'Network connection failed.');
     } finally {
-      setLoading(false);
+      if (summaryRequestRef.current === requestId) setLoading(false);
     }
-  }, [summaryId]);
+  }, [summaryId, lang]);
 
   useEffect(() => {
     loadSummary();
+    return () => { summaryRequestRef.current += 1; };
   }, [loadSummary]);
 
   useEffect(() => {
@@ -832,8 +868,9 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = '
   const renderModal = (content) => createPortal(content, document.body);
 
   const handleEmailSummary = async () => {
-    const idToFetch = typeof summaryId === 'object' ? (summaryId.id || summaryId.recordId || summaryId.appointmentId) : summaryId;
-    if (!idToFetch) return;
+    const idToFetch = activeSummaryId;
+    if (!idToFetch || !summary || summaryLoading) return;
+    const requestId = summaryRequestRef.current;
     setEmailing(true);
     setEmailMsg('');
     try {
@@ -841,31 +878,35 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = '
         method: 'POST',
         body: JSON.stringify({})
       });
+      if (summaryRequestRef.current !== requestId) return;
       const contentType = res.headers.get('content-type') || '';
       if (!res.ok) {
         if (contentType.includes('application/json')) {
           const errData = await res.json();
-          setEmailMsg(
-          errData.error ||
+          if (summaryRequestRef.current !== requestId) return;
+          const apiError = typeof errData.error === 'object' ? errData.error : null;
+          setEmailMsg(apiError?.code === 'CLINICAL_DATA_UNREADABLE'
+            ? (lang === 'ar' ? 'المعلومات السريرية غير متاحة. لم يتم إرسال البريد الإلكتروني.' : 'Clinical information is unavailable. No email was sent.')
+            : (apiError?.message || errData.error ||
             (lang === 'ar'
               ? 'تعذر إرسال البريد الإلكتروني.'
-              : 'Failed to send email.')
-        );
+              : 'Failed to send email.')));
         } else {
           setEmailMsg(`Server returned status ${res.status}`);
         }
         return;
       }
       await res.json();
+      if (summaryRequestRef.current !== requestId) return;
       setEmailMsg(lang === 'ar' ? 'تم إرسال ملخص الزيارة إلى البريد بنجاح.' : 'Post-visit summary emailed successfully!');
     } catch {
-      setEmailMsg('Error connecting to mail server.');
+      if (summaryRequestRef.current === requestId) setEmailMsg('Error connecting to mail server.');
     } finally {
-      setEmailing(false);
+      if (summaryRequestRef.current === requestId) setEmailing(false);
     }
   };
 
-  if (loading) {
+  if (summaryLoading) {
     return renderModal(
       <div className={`${overlayClassName} no-print-section`} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
         <div ref={dialogRef} tabIndex={-1} className="modal-content-panel glass-panel" role="dialog" aria-modal="true" aria-label={lang === 'ar' ? 'ملخص الزيارة' : 'Visit Summary'} style={{ textAlign: 'center', padding: '2rem' }}>

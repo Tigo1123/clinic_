@@ -1,8 +1,9 @@
 import express from 'express';
+import { asyncRouter } from '../utils/asyncRouter.js';
 import { Prisma } from '../generated/prisma/index.js';
 import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
-import { encrypt, decrypt } from '../utils/encryption.js';
+import { encrypt, decrypt, isClinicalDataDecryptionError } from '../utils/encryption.js';
 import { sendEmail } from '../utils/notifications.js';
 import { allowRoles, ROLES, doctorHasPatientAccess } from '../middleware/policies.js';
 import { sendError } from '../utils/apiError.js';
@@ -20,7 +21,7 @@ import {
 } from '../utils/medicineManagement.js';
 import { ensurePharmacyInvoiceInTransaction } from '../services/pharmacyInvoice.js';
 
-const router = express.Router();
+const router = asyncRouter();
 
 const ACTIVE_PRESCRIPTION_STATUSES = ['ACTIVE', 'PARTIALLY_FILLED'];
 const TERMINAL_PRESCRIPTION_STATUSES = ['FILLED', 'RESOLVED', 'CANCELLED'];
@@ -316,6 +317,22 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
         throw authorityError(409, 'APPOINTMENT_STATE_CONFLICT', 'Appointment state changed before the consultation could be saved.');
       }
 
+      await tx.tenantAuditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'MEDICAL_RECORD_CREATED',
+          details: JSON.stringify({
+            medicalRecordId: record.id,
+            patientId,
+            appointmentId,
+            doctorId,
+            prescriptionId: prescription?.id || null,
+            labOrderId: labOrder?.id || null
+          }),
+          ipAddress: req.ip || 'unknown'
+        }
+      });
+
       return { record, prescription, labOrder };
     });
 
@@ -516,6 +533,21 @@ router.put('/:id/finalize', authenticate, checkRoles('DOCTOR'), validate(z.objec
           'Appointment status changed before the consultation could be finalized.'
         );
       }
+
+      await tx.tenantAuditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'MEDICAL_RECORD_FINALIZED',
+          details: JSON.stringify({
+            medicalRecordId: record.id,
+            patientId: record.patientId,
+            appointmentId: record.appointmentId,
+            doctorId,
+            prescriptionId: prescription?.id || null
+          }),
+          ipAddress: req.ip || 'unknown'
+        }
+      });
 
       return {
         record: updatedRecord,
@@ -1542,6 +1574,7 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
 
   try {
     await prisma.$transaction(async (tx) => {
+      const dispensedPrescribedDrugIds = [];
       // Financial hard gate: pharmacy dispensing is allowed only when
       // the prescription has a fully paid PHARMACY invoice.
       const paidPharmacyInvoice = await tx.invoice.findFirst({
@@ -1676,8 +1709,23 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
         });
         if (prescriptionClaim.count !== 1) throw new Error('Prescription changed concurrently. Reload and retry dispensing.');
 
+        dispensedPrescribedDrugIds.push(prescribedDrug.id);
+
       }
       await refreshPrescriptionResolution(tx, prescriptionId);
+      if (dispensedPrescribedDrugIds.length > 0) {
+        await tx.tenantAuditLog.create({
+          data: {
+            userId: req.user.id,
+            action: 'PRESCRIPTION_DISPENSED',
+            details: JSON.stringify({
+              prescriptionId,
+              prescribedDrugIds: dispensedPrescribedDrugIds
+            }),
+            ipAddress: req.ip || 'unknown'
+          }
+        });
+      }
     });
 
     return res.json({ success: true, message: 'Prescription dispensed successfully.' });
@@ -2274,22 +2322,6 @@ router.put('/lab-orders/:id/release', authenticate, allowRoles(ROLES.LAB_TECH), 
 });
 
 /**
- * Helper to safely decrypt strings or return plain text fallback.
- */
-function safeDecryptField(encryptedVal) {
-  if (!encryptedVal) return '';
-  try {
-    const result = decrypt(encryptedVal);
-    if (result && !result.startsWith('[Decryption Error')) {
-      return result;
-    }
-  } catch (e) {
-    // Ignore and fallback to raw text
-  }
-  return encryptedVal;
-}
-
-/**
  * GET /api/records/:id/summary
  * Fetches compiled post-visit summary for a medical record or appointment ID.
  */
@@ -2362,10 +2394,10 @@ router.get('/:id/summary', authenticate, allowRoles(ROLES.DOCTOR), async (req, r
         specialtyEn: record.doctor?.specialtyEn || ''
       },
       vitals,
-      symptoms: safeDecryptField(record.symptomsEncrypted),
-      diagnosis: safeDecryptField(record.diagnosisEncrypted),
-      treatment: safeDecryptField(record.treatmentEncrypted),
-      clinicalNotes: safeDecryptField(record.clinicalNotesEncrypted),
+      symptoms: decrypt(record.symptomsEncrypted),
+      diagnosis: decrypt(record.diagnosisEncrypted),
+      treatment: decrypt(record.treatmentEncrypted),
+      clinicalNotes: decrypt(record.clinicalNotesEncrypted),
       prescriptions: (record.prescriptions || []).flatMap(p => (p.prescribedDrugs || []).map(pd => ({
         drugNameAr: pd.drug?.labelAr || pd.drug?.genericName || pd.customDrugName || '',
         drugNameEn: pd.drug?.labelEn || pd.drug?.genericName || pd.customDrugName || '',
@@ -2396,6 +2428,7 @@ router.get('/:id/summary', authenticate, allowRoles(ROLES.DOCTOR), async (req, r
 
     return res.json(summary);
   } catch (error) {
+    if (isClinicalDataDecryptionError(error)) return sendError(res, 500, 'CLINICAL_DATA_UNREADABLE', 'Clinical information is unavailable.');
     console.error('Fetch visit summary error:', error);
     return res.status(500).json({ error: 'Failed to generate visit summary.' });
   }
@@ -2506,6 +2539,7 @@ router.post('/:id/send-summary', authenticate, allowRoles(ROLES.DOCTOR), validat
     return res.json({ success: true, message: 'Post-visit summary emailed successfully.' });
 
   } catch (error) {
+    if (isClinicalDataDecryptionError(error)) return sendError(res, 500, 'CLINICAL_DATA_UNREADABLE', 'Clinical information is unavailable.');
     console.error('Email visit summary error:', error);
     return res.status(500).json({ error: 'Failed to email visit summary.' });
   }

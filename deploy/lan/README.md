@@ -1,12 +1,16 @@
 # Offline LAN deployment — HTTPS same-origin frontend, API, and Socket.IO
 
-This directory contains a reversible, test-bench-only foundation for running
-the clinic frontend, Express API, Socket.IO, and PostgreSQL on one local server.
-It is **not approved for clinical operation**. In particular, Phase 1A.1 uses
-HTTPS :443 is the only LAN application transport. Nginx's loopback-only
-container health listener on :8080 is not published and is not an application
-transport. TLS client trust and operational activation remain gated.
-WAN-disconnected clinical acceptance testing.
+This directory contains the LAN-specific test-bench runbook for the
+clinic frontend, API, Socket.IO, and PostgreSQL. It is not approval for
+clinical operation; the acceptance gates below still apply.
+
+See the [deployment guide](../../DEPLOYMENT.md) for shared configuration,
+authentication, migration, and recovery guidance.
+
+HTTPS on port 443 is the only LAN application transport. The container's
+loopback-only port 8080 is for health checks and is not published.
+Phase sections record the implementation history; use the installation
+lifecycle and acceptance gates below for current installation planning.
 
 ## Architecture
 
@@ -24,7 +28,7 @@ Clinic browser
 
 Nginx publishes only host port `443` (TLS). `backend:5000` and `postgres:5432` are
 Docker-private and must never be entered into a workstation browser. `lan-edge`
-carries the frontend's published HTTP listener; `lan-app` and `lan-data` are
+carries the frontend's published HTTPS listener; `lan-app` and `lan-data` are
 internal networks for frontend-to-API and API-to-database traffic respectively.
 PostgreSQL data and uploads use separate named volumes.
 
@@ -36,7 +40,7 @@ down -v` on a clinic installation**: `-v` destroys these persistent volumes.
 
 - `../../compose.lan.yml`: isolated LAN Compose definition.
 - `env.example`: non-secret configuration contract with unusable placeholders.
-- `nginx.conf`: transitional HTTP/TLS static server and same-origin reverse proxy.
+- `nginx.conf`: HTTPS static server with a separate loopback-only health listener and same-origin reverse proxy.
 - `../../backend/test/lan-deployment-foundation.test.js`: Phase 1A.1 static
   safety checks.
 - `../../backend/test/lan-same-origin.test.js`: Phase 1A.2 browser-origin,
@@ -51,9 +55,9 @@ The existing root `docker-compose.yml` is intentionally unchanged.
 - A separately created environment file outside Git. Never use this example as
   a real secret file and never commit its replacement.
 
-No stack should be started during Phase 1A.1 review. Starting PostgreSQL would
-initialize a new local data directory, while database role/bootstrap design is
-reserved for a later approved step.
+Static review requires no running stack. For an approved new installation,
+follow the database bootstrap and first-administrator procedures below.
+Starting PostgreSQL with a new volume initializes its data directory.
 
 ## Safe static validation
 
@@ -114,8 +118,9 @@ accepted fallback. Restrict firewall exposure to the clinic LAN, never WAN.
 
 The internal loopback `:8080/healthz` endpoint exists only for Docker's frontend
 healthcheck; all other paths return 404 and it is not host-published. Do not use
-it as a browser or staff endpoint. Do not enable HSTS until the remaining
-operational recovery gates are approved.
+it as a browser or staff endpoint. The TLS terminator sends HSTS with a one-year
+max-age, including static responses; Express does not duplicate that header.
+Certificate trust and operational recovery gates still require review.
 
 ## WAN-disconnected behavior
 
@@ -214,10 +219,16 @@ and uses the separate required `REFERENCE_BOOTSTRAP_DATABASE_URL`. A reviewed
 clinic manifest and an approved invocation procedure are still required before
 using it on a LAN installation; never substitute `prisma/seed.js`.
 
-No secure first-administrator creator currently exists. The password-reset
-script requires an already existing fixed administrator account, so it cannot
-bootstrap a new installation. Phase 1A.4 does not create a default account or
-credential; first-administrator provisioning remains an activation blocker.
+First-administrator provisioning is available through the explicit
+`first-admin` profile after database bootstrap. See
+[the provisioning procedure](#phase-1a7-acceptance-gate) and the
+[shared deployment guide](../../DEPLOYMENT.md#first-administrator).
+
+The provisioner verifies the database and runtime login/effective role,
+requires a protected single-line password file with mode 0600, and
+refuses if any ADMIN already exists. Account creation and its audit
+record occur in one transaction. The password-reset script is for
+an existing account and is not an installation substitute.
 
 ### Safety and rollback
 
@@ -407,8 +418,9 @@ must still be reviewed and monitored.
 
 If PostgreSQL remains unhealthy, stop clinical writes and inspect storage,
 free space, permissions, and bounded logs. If backend remains unhealthy after
-PostgreSQL recovery, check that readiness reports both database and revocation
-authority and inspect backend logs. If frontend alone is unhealthy, inspect
+PostgreSQL recovery, inspect private backend logs for database or revocation-listener failures.
+Readiness reports only `healthy` (HTTP 200) or `unhealthy` (HTTP 503);
+it does not disclose which dependency failed. If frontend alone is unhealthy, inspect
 Nginx health/configuration and backend readiness. Before any invasive repair,
 confirm the newest independently stored signed backup and follow the Phase
 1A.5 disposable restore-drill procedure. Never improvise a restore over the
@@ -459,7 +471,7 @@ recorded on the dedicated clinic hardware:
   `verify-recovery.sh` and inspect the latest signed backup.
 
 The actual second device was not tested automatically. A future manual client
-should browse `http(s)://<clinic-server-lan-address>:<port>`, confirm the page
+should browse the approved `https://<clinic-hostname>` origin with a trusted certificate, confirm the page
 and `/api/health/ready`, log in with a disposable acceptance account, navigate
 the patient lookup, perform one harmless read, and confirm Socket.IO reconnects.
 Do not alter host firewall or routing during this repository exercise.
@@ -479,7 +491,7 @@ must not be confused with offline supply-chain readiness.
 
 ## Intentionally not implemented
 
-    - automated certificate provisioning or renewal.
+- Automated certificate provisioning or renewal.
 - Real credentials or secret storage.
 - Automatic operational restore/disaster recovery, enabled scheduling, or
   approved key escrow.
@@ -490,3 +502,9 @@ must not be confused with offline supply-chain readiness.
 
 The HTTPS transport acceptance does not by itself constitute clinical readiness;
 remaining recovery, backup, WAN, and user-acceptance gates still apply.
+
+### Optional patient Google sign-in
+
+Leave `VITE_GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_ID` empty for offline LAN operation; the patient button is unavailable and no Google script is requested. Local login continues. To enable online Google sign-in, both public web client IDs must match; Compose forwards the former at frontend build time and the latter at backend runtime. Rebuild the frontend when changing its ID. Script-load failure leaves local login usable. Staff Google login is not supported.
+
+The edge CSP allows only Google's documented GIS script/style and `/gsi/` frames/connections. This does not provide internet access or authorize the LAN origin with Google. The internal backend networks and private LAN origin require a separate online deployment review before enablement. See [Google configuration and manual verification](../../DEPLOYMENT.md#frontend-build-configuration) for origin/consent setup and online acceptance requirements. Tests simulate Google; no real account verification is implied.

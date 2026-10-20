@@ -33,7 +33,7 @@ test('schedule editing submits complete backend-compatible payloads and prevents
   assert.match(panel, /effectiveFrom/);
   assert.match(panel, /slotDurationMinutes/);
   assert.match(panel, /breaks/);
-  assert.match(panel, /disabled=\{saving \|\| !doctorId\}/);
+  assert.match(panel, /disabled=\{saving \|\| loading \|\| !doctorId \|\| !ready\}/);
   assert.match(panel, /method: currentIsEffective \|\| !schedule\?\.id \? 'POST' : 'PUT'/);
   assert.match(panel, /method: 'PUT'/);
   assert.match(panel, /method: 'PATCH'/);

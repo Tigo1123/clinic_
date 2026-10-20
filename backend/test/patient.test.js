@@ -565,3 +565,52 @@ test('doctor discovery and specialties use real active doctor data', async () =>
   assert.ok(specialties.body.length > 0);
   assert.equal(Object.hasOwn(doctors.body[0], 'weeklySchedule'), false);
 });
+
+test('doctor-row locking serializes concurrent booking with a schedule edit', async () => {
+  await prisma.doctorScheduleException.deleteMany({ where: { doctorId: doctor.id } });
+  await prisma.doctorSchedule.deleteMany({ where: { doctorId: doctor.id } });
+  const effectiveFrom = '2114-01-01';
+  const appointmentDate = '2114-01-08'; // Monday in the clinic calendar.
+  const created = await api.post(`/api/admin/doctors/${doctor.id}/schedules`).set(auth(adminToken)).send({
+    effectiveFrom, active: true,
+    periods: [{ dayOfWeek: 'MONDAY', startTime: '09:00', endTime: '10:00', slotDurationMinutes: 30, breaks: [] }]
+  });
+  assert.equal(created.status, 200);
+
+  let releaseLock;
+  let reportLocked;
+  const lockHeld = new Promise((resolve) => { reportLocked = resolve; });
+  const waitForRelease = new Promise((resolve) => { releaseLock = resolve; });
+  const holder = prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "Doctor" WHERE "id" = ${doctor.id} FOR UPDATE`;
+    reportLocked();
+    await waitForRelease;
+  });
+  await lockHeld;
+
+  const bookingRequest = api.post('/api/patient/appointments').set(auth(patientA.token)).send({ doctorId: doctor.id, appointmentDate, appointmentTime: '09:00' });
+  const editRequest = api.put(`/api/admin/doctors/${doctor.id}/schedules/${created.body.id}`).set(auth(adminToken)).send({
+    effectiveFrom, active: true,
+    periods: [{ dayOfWeek: 'TUESDAY', startTime: '09:00', endTime: '10:00', slotDurationMinutes: 30, breaks: [] }]
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  releaseLock();
+  const [booking, edit] = await Promise.all([bookingRequest, editRequest]);
+  await holder;
+
+  const stored = await prisma.appointment.findFirst({ where: { patientId: patientA.patient.id, doctorId: doctor.id, appointmentDate, appointmentTime: '09:00', status: { notIn: ['CANCELLED', 'NO_SHOW'] } } });
+  const storedSchedule = await prisma.doctorSchedule.findUnique({ where: { id: created.body.id }, include: { periods: true } });
+  if (booking.status === 201) {
+    assert.equal(edit.status, 409);
+    assert.equal(edit.body.error.code, 'SCHEDULE_FUTURE_APPOINTMENT_CONFLICT');
+    assert.ok(stored);
+    assert.equal(storedSchedule.periods[0].dayOfWeek, 'MONDAY');
+  } else {
+    assert.ok([409, 422].includes(booking.status), JSON.stringify(booking.body));
+    assert.equal(edit.status, 200);
+    assert.equal(stored, null);
+    assert.equal(storedSchedule.periods[0].dayOfWeek, 'TUESDAY');
+  }
+  await prisma.appointment.deleteMany({ where: { doctorId: doctor.id, appointmentDate } });
+  await prisma.doctorSchedule.deleteMany({ where: { doctorId: doctor.id } });
+});

@@ -21,3 +21,4 @@ backend/src/generated/
 dist/
 coverage/
 backend/prisma/dev.db
+.env

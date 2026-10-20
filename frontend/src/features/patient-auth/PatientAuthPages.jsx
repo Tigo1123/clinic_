@@ -52,7 +52,11 @@ export function PatientLogin(){
       }
 
       login(data.user,data.token);
-      navigate('/patient');
+      if(googleAuth.errorCode === 'ACCOUNT_LINK_REQUIRED'){
+        navigate('/patient/profile', { state: { highlightGoogleLink: true } });
+      }else{
+        navigate('/patient');
+      }
     }catch(requestError){
       if(requestError.code==='ACCOUNT_PENDING_VERIFICATION'){
         setPendingVerification(true);

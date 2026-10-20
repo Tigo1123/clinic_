@@ -70,6 +70,7 @@ export default function DoctorDashboard({ user, lang, t }) {
   // Prevent duplicate consultation/finalize submissions.
   // The ref blocks even two clicks fired before React can re-render.
   const consultationSaveLock = useRef(false);
+  const patientSelectionRequestRef = useRef(0);
   const [isSavingConsultation, setIsSavingConsultation] = useState(false);
 
   // Diagnosis, Dosage and Vitals presets
@@ -201,19 +202,22 @@ export default function DoctorDashboard({ user, lang, t }) {
       });
   }, []);
 
-  const fetchPatientHistory = (patientId) => {
+  const fetchPatientHistory = (patientId, selectionRequestId) => {
     fetchWithAuth(`/api/patients/${patientId}/history`)
       .then((res) => res.ok ? res.json() : {})
       .then((data) => {
-        setHistoryData(data.history || []);
+        if (patientSelectionRequestRef.current === selectionRequestId) setHistoryData(data.history || []);
       })
       .catch((err) => {
-        console.error(err);
-        setHistoryData([]);
+        if (patientSelectionRequestRef.current === selectionRequestId) {
+          console.error(err);
+          setHistoryData([]);
+        }
       });
   };
 
   const handlePatientSelect = async (appt) => {
+    const selectionRequestId = ++patientSelectionRequestRef.current;
     setErrorMsg('');
     setSuccessMsg('');
 
@@ -246,14 +250,42 @@ export default function DoctorDashboard({ user, lang, t }) {
     }
 
     try {
+      // If the appointment is already IN_CONSULTATION, check whether a
+      // MedicalRecord already exists. If it does, this is normally a
+      // patient returning after laboratory results. Read it before any state
+      // transition so unreadable data cannot open a blank editable form.
+      let existingSummary = null;
+
+      if (appt.medicalRecordId || appt.status === 'COMPLETED') {
+        const summaryRes = await fetchWithAuth(`/api/records/${appt.id}/summary`);
+        if (patientSelectionRequestRef.current !== selectionRequestId) return;
+
+        if (summaryRes.ok) {
+          existingSummary = await summaryRes.json();
+          if (patientSelectionRequestRef.current !== selectionRequestId) return;
+        } else if (summaryRes.status === 404) {
+          throw new Error('The existing clinical record could not be loaded. This visit was not opened for editing.');
+        } else if (summaryRes.status !== 404) {
+          const summaryError = await summaryRes.json().catch(() => ({}));
+          if (patientSelectionRequestRef.current !== selectionRequestId) return;
+          const apiError = typeof summaryError.error === 'object' ? summaryError.error : null;
+          const error = new Error(apiError?.message || summaryError.error || 'Failed to load consultation.');
+          error.code = apiError?.code;
+          throw error;
+        }
+      }
+
       // A checked-in patient is starting consultation for the first time.
+      // Do this only after any existing clinical data has been read safely.
       if (appt.status === 'CHECKED_IN') {
         const statusRes = await fetchWithAuth(`/api/appointments/${appt.id}/status`, {
           method: 'PUT',
           body: JSON.stringify({ status: 'IN_CONSULTATION' })
         });
+        if (patientSelectionRequestRef.current !== selectionRequestId) return;
 
         const statusData = await statusRes.json().catch(() => ({}));
+        if (patientSelectionRequestRef.current !== selectionRequestId) return;
 
         if (!statusRes.ok) {
           const message =
@@ -271,31 +303,10 @@ export default function DoctorDashboard({ user, lang, t }) {
         }
       }
 
-      // If the appointment is already IN_CONSULTATION, check whether a
-      // MedicalRecord already exists. If it does, this is normally a
-      // patient returning after laboratory results.
-      let existingSummary = null;
-
-      if ((appt.status === 'IN_CONSULTATION' || appt.status === 'COMPLETED') && (appt.medicalRecordId || appt.status === 'COMPLETED')) {
-        const summaryRes = await fetchWithAuth(`/api/records/${appt.id}/summary`);
-
-        if (summaryRes.ok) {
-          existingSummary = await summaryRes.json();
-        } else if (summaryRes.status !== 404) {
-          const summaryError = await summaryRes.json().catch(() => ({}));
-
-          throw new Error(
-            typeof summaryError.error === 'object'
-              ? summaryError.error.message
-              : summaryError.error || 'Failed to load consultation.'
-          );
-        }
-      }
-
       setSelectedPatient(appt.patient);
       setSelectedAppointmentId(appt.id);
-      setSelectedAppointmentStatus(appt.status);
-      fetchPatientHistory(appt.patient.id);
+      setSelectedAppointmentStatus(appt.status === 'CHECKED_IN' ? 'IN_CONSULTATION' : appt.status);
+      fetchPatientHistory(appt.patient.id, selectionRequestId);
 
       if (existingSummary) {
         setIsFinalizingVisit(appt.status !== 'COMPLETED');
@@ -338,14 +349,16 @@ export default function DoctorDashboard({ user, lang, t }) {
 
       fetchDoctorQueue();
     } catch (err) {
+      if (patientSelectionRequestRef.current !== selectionRequestId) return;
       console.error(err);
 
-      setErrorMsg(
-        err.message ||
-          (lang === 'ar'
-            ? 'حدث خطأ أثناء فتح الكشف الطبي.'
-            : 'An error occurred while opening the consultation.')
-      );
+      setErrorMsg(err.code === 'CLINICAL_DATA_UNREADABLE'
+        ? (lang === 'ar'
+          ? 'المعلومات السريرية لهذه الزيارة غير متاحة. لم يتم فتح الزيارة للتعديل.'
+          : 'Clinical information for this visit is unavailable. The visit was not opened for editing.')
+        : (err.message || (lang === 'ar'
+          ? 'حدث خطأ أثناء فتح الكشف الطبي.'
+          : 'An error occurred while opening the consultation.')));
     }
   };
 

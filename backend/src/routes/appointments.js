@@ -1,4 +1,5 @@
 import express from 'express';
+import { asyncRouter } from '../utils/asyncRouter.js';
 import prisma from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { sendSMS, sendBookingConfirmation, sendStatusUpdateNotification } from '../utils/notifications.js';
@@ -12,14 +13,14 @@ import { rateLimits } from '../config.js';
 import crypto from 'crypto';
 import { emitQueueUpdate } from '../utils/socketEvents.js';
 import { markSensitiveResponse } from '../utils/edgeSecurity.js';
-import { getAvailableSlots, getConfiguredSlots, validateBookableSlot, DATE_PATTERN, TIME_PATTERN, todayString } from '../utils/scheduling.js';
+import { getAvailableSlots, getConfiguredSlots, lockDoctorScheduleRows, validateBookableSlot, DATE_PATTERN, TIME_PATTERN, todayString } from '../utils/scheduling.js';
 import { findPossiblePatientDuplicates, normalizeNationalId, normalizePatientPhone, safeDuplicateCandidates } from '../utils/patientIdentity.js';
 import { publicDoctorSelect, toPublicBookingConfirmation, toPublicDoctor } from '../utils/publicDto.js';
 import { structuredPatientName, structuredPatientNameSchema } from '../utils/patientName.js';
 
 import { lockPatientIdentity, patientDateOfBirthSchema } from '../utils/patientOnboarding.js';
 
-const router = express.Router();
+const router = asyncRouter();
 const otpLimiter = rateLimit({ windowMs: rateLimits.windowMs, limit: rateLimits.verification, standardHeaders: 'draft-7', legacyHeaders: false });
 const developmentOtps = new Map();
 
@@ -242,18 +243,21 @@ router.post('/book', validate(structuredPatientNameSchema.extend({
     }
 
     // 4. Create appointment with PENDING status (awaiting receptionist approval)
-    const appointment = await prisma.appointment.create({
-      data: {
-        patientId: patient.id,
-        doctorId,
-        appointmentDate,
-        appointmentTime,
-        status: 'PENDING'
-      },
-      include: {
-        doctor: true,
-        patient: true
+    const appointment = await prisma.$transaction(async (tx) => {
+      if (!(await lockDoctorScheduleRows(tx, [doctorId]))) throw new ApiError(404, 'DOCTOR_NOT_FOUND', 'Active doctor not found.');
+      const currentDoctor = await tx.doctor.findFirst({ where: { id: doctorId, status: 'ACTIVE' } });
+      if (!(await getConfiguredSlots(currentDoctor, appointmentDate, undefined, tx)).includes(appointmentTime)) {
+        throw new ApiError(409, 'INVALID_APPOINTMENT_SLOT', 'The selected appointment time is no longer available in the doctor schedule.');
       }
+      const duplicate = await tx.appointment.findFirst({
+        where: { doctorId, appointmentDate, appointmentTime, status: { notIn: ['CANCELLED', 'NO_SHOW'] } },
+        select: { id: true }
+      });
+      if (duplicate) throw new ApiError(409, 'APPOINTMENT_SLOT_UNAVAILABLE', 'This appointment slot was booked in the meantime. Please select another slot.');
+      return tx.appointment.create({
+        data: { patientId: patient.id, doctorId, appointmentDate, appointmentTime, status: 'PENDING' },
+        include: { doctor: true, patient: true }
+      });
     });
 
     // 5. Send Multi-Channel Notifications & Get WhatsApp Links
@@ -350,6 +354,11 @@ router.post('/walk-in', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
     }
 
     const appointment = await prisma.$transaction(async (tx) => {
+      if (!(await lockDoctorScheduleRows(tx, [doctorId]))) throw Object.assign(new Error('Active doctor not found.'), { status: 404, code: 'DOCTOR_NOT_FOUND' });
+      const currentDoctor = await tx.doctor.findFirst({ where: { id: doctorId, status: 'ACTIVE' } });
+      if (!(await getConfiguredSlots(currentDoctor, appointmentDate, undefined, tx)).includes(appointmentTime)) {
+        throw Object.assign(new Error('The selected time is no longer in the doctor schedule.'), { status: 409, code: 'INVALID_APPOINTMENT_SLOT' });
+      }
       let targetPatient;
       if (mode === 'EXISTING') {
         targetPatient = await tx.patient.findUnique({ where: { id: patientId } });
@@ -703,6 +712,16 @@ router.post('/:id/transfer', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTI
     } });
     if (conflict) return sendError(res, 409, 'APPOINTMENT_SLOT_UNAVAILABLE', 'Target doctor already has an appointment in this slot.');
     await prisma.$transaction(async (tx) => {
+      if (!(await lockDoctorScheduleRows(tx, [appointment.doctorId, targetDoctorId]))) throw new ApiError(404, 'DOCTOR_NOT_FOUND', 'Active doctor not found.');
+      const currentTargetDoctor = await tx.doctor.findFirst({ where: { id: targetDoctorId, status: 'ACTIVE' } });
+      if (!(await getConfiguredSlots(currentTargetDoctor, appointment.appointmentDate, undefined, tx)).includes(appointment.appointmentTime)) {
+        throw new ApiError(409, 'TARGET_DOCTOR_UNAVAILABLE', 'Target doctor is no longer scheduled for this appointment slot.');
+      }
+      const targetConflict = await tx.appointment.findFirst({
+        where: { doctorId: targetDoctorId, appointmentDate: appointment.appointmentDate, appointmentTime: appointment.appointmentTime, status: { notIn: ['CANCELLED', 'NO_SHOW'] }, id: { not: appointment.id } },
+        select: { id: true }
+      });
+      if (targetConflict) throw new ApiError(409, 'APPOINTMENT_SLOT_UNAVAILABLE', 'Target doctor already has an appointment in this slot.');
       const claimed = await tx.appointment.updateMany({
         where: { id: appointment.id, status: 'CHECKED_IN', doctorId: appointment.doctorId },
         data: {
@@ -727,6 +746,7 @@ router.post('/:id/transfer', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTI
 
     return res.json({ success: true, message: 'Patient transferred internally successfully.' });
   } catch (error) {
+    if (error instanceof ApiError) return sendError(res, error.status, error.code, error.message);
     if (error.status === 409 && error.code === 'APPOINTMENT_STATE_CONFLICT') return sendError(res, 409, error.code, error.message);
     if (isAppointmentSlotConflict(error)) return sendError(res, 409, 'APPOINTMENT_SLOT_UNAVAILABLE', 'Target doctor already has an appointment in this slot.');
     console.error('Transfer execution error:', error);

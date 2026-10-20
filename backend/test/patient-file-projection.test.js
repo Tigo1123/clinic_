@@ -16,7 +16,8 @@ test('non-clinical roles do not receive clinical patient-file sections', () => {
   assert.match(routeSource, /\['overview', 'appointments', 'billing'\]/);
   assert.match(routeSource, /visits: visits\.length/);
   assert.doesNotMatch(routeSource, /symptoms: safeDecryptField/);
-  assert.match(routeSource, /symptoms: isDoctor \? safeDecryptField/);
+  assert.match(routeSource, /symptoms: isDoctor \? decrypt\(rec\.symptomsEncrypted\)/);
+  assert.match(routeSource, /isClinicalDataDecryptionError\(error\)/);
 });
 
 test('blood type follows the existing doctor-only clinical projection', () => {

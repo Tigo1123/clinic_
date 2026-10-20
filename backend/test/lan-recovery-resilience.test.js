@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { test } from 'node:test';
+import { test, after } from 'node:test';
+import request from 'supertest';
+import prisma from '../src/db.js';
+import { app, socketRevocation, shutdown } from '../src/server.js';
+after(async () => shutdown('lan-recovery-test'));
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
@@ -94,12 +98,20 @@ test('health, dependencies, private ports, persistence, and bounded logs are ret
   assert.match(compose, /max-file: "5"/);
 });
 
-test('readiness fails closed for database or revocation authority loss', () => {
-  assert.match(server, /await prisma\.\$queryRaw`SELECT 1`/);
-  assert.match(server, /!socketRevocation\.isReady\(\)/);
-  assert.match(server, /socketRevocation: 'disconnected'/);
-  assert.match(server, /status\(503\)/);
-  assert.match(server, /socketRevocation: 'connected'/);
+test('readiness fails closed for database or revocation authority loss without disclosing internals', async (t) => {
+  const database = t.mock.method(prisma, '$queryRaw', async () => [{ '?column?': 1 }]);
+  const ready = t.mock.method(socketRevocation, 'isReady', () => false);
+  for (const route of ['/api/health', '/api/health/ready']) {
+    const response = await request(app).get(route);
+    assert.equal(response.status, 503);
+    assert.deepEqual(response.body, { status: 'unhealthy' });
+  }
+  ready.mock.mockImplementation(() => true);
+  const healthy = await request(app).get('/api/health/ready');
+  assert.equal(healthy.status, 200); assert.deepEqual(healthy.body, { status: 'healthy' });
+  database.mock.mockImplementation(async () => { throw new Error('Synthetic database outage'); });
+  const unavailable = await request(app).get('/api/health/ready');
+  assert.equal(unavailable.status, 503); assert.deepEqual(unavailable.body, { status: 'unhealthy' });
 });
 
 test('same-origin proxy re-resolves a recreated backend through Docker DNS', () => {

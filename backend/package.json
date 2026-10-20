@@ -21,7 +21,8 @@
     "backup:postgres": "sh scripts/backup-postgres.sh",
     "bootstrap:reference": "node scripts/bootstrap-reference-data.js",
     "start:staging": "node src/server.js",
-    "start:staging:migrate": "prisma migrate deploy && npm run start:staging"
+    "start:staging:migrate": "prisma migrate deploy && npm run start:staging",
+    "test:schedule-workflow": "node scripts/test-schedule-workflow.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -36,7 +37,7 @@
     "libphonenumber-js": "^1.13.10",
     "luxon": "^3.7.2",
     "multer": "^2.2.0",
-    "nodemailer": "^9.0.3",
+    "nodemailer": "^10.1.1",
     "otpauth": "^9.4.1",
     "pg": "^8.23.0",
     "prisma": "^5.22.0",

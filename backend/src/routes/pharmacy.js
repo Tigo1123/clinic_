@@ -1,4 +1,5 @@
 import express from 'express';
+import { asyncRouter } from '../utils/asyncRouter.js';
 import { z } from 'zod';
 import { Prisma } from '../generated/prisma/index.js';
 import prisma from '../db.js';
@@ -23,7 +24,7 @@ import {
   summarizeMedicineStock
 } from '../utils/medicineManagement.js';
 
-const router = express.Router();
+const router = asyncRouter();
 const readRoles = allowRoles(ROLES.PHARMACIST, ROLES.ADMIN);
 const pharmacistOnly = allowRoles(ROLES.PHARMACIST);
 const identityFields = ['brandName', 'genericName', 'strength', 'dosageForm'];

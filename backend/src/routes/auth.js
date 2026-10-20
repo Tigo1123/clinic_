@@ -1,4 +1,5 @@
 import express from 'express';
+import { asyncRouter } from '../utils/asyncRouter.js';
 import bcrypt from 'bcryptjs';
 import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
@@ -21,7 +22,7 @@ import { normalizePatientPhone } from '../utils/patientIdentity.js';
 import { structuredPatientName } from '../utils/patientName.js';
 import { lockAccount } from '../services/verification.js';
 
-const router = express.Router();
+const router = asyncRouter();
 router.use((req, res, next) => { markSensitiveResponse(res); next(); });
 // Account-wide logout. A concurrent/repeated request cannot bump a newer
 // generation: the update is conditional on the authenticated generation.

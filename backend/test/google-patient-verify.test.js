@@ -64,10 +64,18 @@ test('Google endpoint strictly validates the minimal credential body and keeps G
   assert.equal(malformed.status, 422);
   assert.equal(malformed.body.error.code, 'VALIDATION_ERROR');
 
-  const unavailable = await request(app).post('/api/patient-auth/google/verify').send({ credential: 'mock-google-credential' });
-  assert.equal(unavailable.status, 503);
-  assert.equal(unavailable.body.error.code, 'GOOGLE_AUTH_UNAVAILABLE');
-  assert.doesNotMatch(JSON.stringify(unavailable.body), /mock-google-credential|google-auth-library|stack/i);
+  // This case exercises missing configuration, regardless of the developer's environment.
+  const previousClientId = process.env.GOOGLE_CLIENT_ID;
+  process.env.GOOGLE_CLIENT_ID = '';
+  try {
+    const unavailable = await request(app).post('/api/patient-auth/google/verify').send({ credential: 'mock-google-credential' });
+    assert.equal(unavailable.status, 503);
+    assert.equal(unavailable.body.error.code, 'GOOGLE_AUTH_UNAVAILABLE');
+    assert.doesNotMatch(JSON.stringify(unavailable.body), /mock-google-credential|google-auth-library|stack/i);
+  } finally {
+    if (previousClientId === undefined) delete process.env.GOOGLE_CLIENT_ID;
+    else process.env.GOOGLE_CLIENT_ID = previousClientId;
+  }
 });
 
 test('linked eligible patient authenticates by provider subject and tolerates Google email drift', async () => {

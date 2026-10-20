@@ -1,13 +1,14 @@
 import express from 'express';
+import { asyncRouter } from '../utils/asyncRouter.js';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import prisma from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { allowRoles, requireOwnedPatient, ROLES } from '../middleware/policies.js';
 import { validate } from '../middleware/validate.js';
-import { sendError } from '../utils/apiError.js';
-import { getConfiguredSlots, DATE_PATTERN, TIME_PATTERN, todayString } from '../utils/scheduling.js';
-import { decrypt } from '../utils/encryption.js';
+import { ApiError, sendError } from '../utils/apiError.js';
+import { getConfiguredSlots, lockDoctorScheduleRows, DATE_PATTERN, TIME_PATTERN, todayString } from '../utils/scheduling.js';
+import { decrypt, isClinicalDataDecryptionError } from '../utils/encryption.js';
 import { cancellationCutoffReached } from '../utils/clinicTime.js';
 import { normalizeEmail, normalizePhone } from '../utils/identity.js';
 import { createVerificationChallenge, consumeVerificationChallenge, invalidateChallenges } from '../services/verification.js';
@@ -16,15 +17,11 @@ import { rateLimits } from '../config.js';
 import { markSensitiveResponse } from '../utils/edgeSecurity.js';
 
 import { patientIdentitySummary } from '../utils/patientOnboarding.js';
+import { linkGooglePatientIdentity, unlinkGooglePatientIdentity } from '../services/googlePatientIdentity.js';
 
-const router = express.Router();
+const router = asyncRouter();
 router.use((req, res, next) => { markSensitiveResponse(res); next(); });
 router.use(authenticate, allowRoles(ROLES.PATIENT), requireOwnedPatient);
-
-function safeDecrypt(value) {
-  const result = decrypt(value || '');
-  return result.startsWith('[Decryption Error') ? '' : result;
-}
 
 async function audit(req, action, details, db = prisma) {
   await db.tenantAuditLog.create({ data: { userId: req.user.id, action, details, ipAddress: req.ip || 'unknown' } });
@@ -35,6 +32,26 @@ function stateConflict() {
     status: 409,
     code: 'APPOINTMENT_STATE_CONFLICT'
   });
+}
+
+const patientSelfSelect = {
+  id: true,
+  fileNumber: true,
+  fullNameAr: true,
+  fullNameEn: true,
+  gender: true,
+  dateOfBirth: true,
+  addressStateId: true,
+  addressDetails: true,
+  emergencyContact: true,
+  bloodType: true
+};
+
+function hasSlotCollision(error) {
+  const target = error?.meta?.target;
+  return error?.code === 'P2002'
+    && (Array.isArray(target)
+      && ['doctorId', 'appointmentDate', 'appointmentTime'].every((field) => target.includes(field)));
 }
 
 function isAppointmentSlotConflict(error) {
@@ -49,8 +66,48 @@ const doctorSelect = { id: true, fullNameAr: true, fullNameEn: true, specialtyAr
 
 const recoveryIdentityLimiter = createLoginLimiter({ windowMs: rateLimits.windowMs, limit: rateLimits.verification });
 router.get('/me', async (req, res) => {
-  const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { email: true, phoneNormalized: true, emailVerifiedAt: true, phoneVerifiedAt: true, preferredLanguage: true } });
-  return res.json({ ...patientIdentitySummary(req.patient), id: req.patient.id, fileNumber: req.patient.fileNumber, fullNameAr: req.patient.fullNameAr, fullNameEn: req.patient.fullNameEn, gender: req.patient.gender, dateOfBirth: req.patient.dateOfBirth, phone: user.phoneNormalized, email: user.email, phoneVerified: Boolean(user.phoneVerifiedAt), emailVerified: Boolean(user.emailVerifiedAt), addressStateId: req.patient.addressStateId, addressDetails: req.patient.addressDetails, emergencyContact: req.patient.emergencyContact, bloodType: req.patient.bloodType, preferredLanguage: user.preferredLanguage });
+  const user = await prisma.user.findUnique({
+    where: { id: req.user.id },
+    select: {
+      email: true,
+      phoneNormalized: true,
+      emailVerifiedAt: true,
+      phoneVerifiedAt: true,
+      preferredLanguage: true,
+      externalIdentities: {
+        where: { provider: 'GOOGLE' },
+        select: { normalizedEmailAtLink: true, createdAt: true },
+        take: 1
+      }
+    }
+  });
+  const googleIdentity = user?.externalIdentities?.[0];
+  const googleAccount = {
+    linked: Boolean(googleIdentity),
+    ...(googleIdentity ? {
+      email: googleIdentity.normalizedEmailAtLink,
+      linkedAt: googleIdentity.createdAt
+    } : {})
+  };
+  return res.json({
+    ...patientIdentitySummary(req.patient),
+    id: req.patient.id,
+    fileNumber: req.patient.fileNumber,
+    fullNameAr: req.patient.fullNameAr,
+    fullNameEn: req.patient.fullNameEn,
+    gender: req.patient.gender,
+    dateOfBirth: req.patient.dateOfBirth,
+    phone: user.phoneNormalized,
+    email: user.email,
+    phoneVerified: Boolean(user.phoneVerifiedAt),
+    emailVerified: Boolean(user.emailVerifiedAt),
+    addressStateId: req.patient.addressStateId,
+    addressDetails: req.patient.addressDetails,
+    emergencyContact: req.patient.emergencyContact,
+    bloodType: req.patient.bloodType,
+    preferredLanguage: user.preferredLanguage,
+    googleAccount
+  });
 });
 
 router.patch('/me', (req, res, next) => {
@@ -59,11 +116,11 @@ router.patch('/me', (req, res, next) => {
   }
   return next();
 }, validate(z.object({ addressStateId: z.coerce.number().int().min(1).max(18).optional(), addressDetails: z.string().trim().max(300).nullable().optional(), emergencyContact: z.string().trim().min(2).max(150).optional(), bloodType: z.enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']).nullable().optional(), preferredLanguage: z.enum(['ar', 'en']).optional() }).strict().refine((body) => Object.keys(body).length > 0)), async (req, res) => {
-  await prisma.$transaction([
-    prisma.patient.update({ where: { id: req.patient.id }, data: { addressStateId: req.body.addressStateId, addressDetails: req.body.addressDetails, emergencyContact: req.body.emergencyContact, bloodType: req.body.bloodType } }),
-    ...(req.body.preferredLanguage ? [prisma.user.update({ where: { id: req.user.id }, data: { preferredLanguage: req.body.preferredLanguage } })] : [])
-  ]);
-  await audit(req, 'PATIENT_PROFILE_UPDATED', 'Patient updated self-service contact/profile fields.');
+  await prisma.$transaction(async (tx) => {
+    await tx.patient.update({ where: { id: req.patient.id }, data: { addressStateId: req.body.addressStateId, addressDetails: req.body.addressDetails, emergencyContact: req.body.emergencyContact, bloodType: req.body.bloodType } });
+    if (req.body.preferredLanguage) await tx.user.update({ where: { id: req.user.id }, data: { preferredLanguage: req.body.preferredLanguage } });
+    await audit(req, 'PATIENT_PROFILE_UPDATED', 'Patient updated self-service contact/profile fields.', tx);
+  });
   return res.json({ success: true });
 });
 
@@ -131,6 +188,48 @@ router.post('/me/phone-change/verify', recoveryIdentityLimiter, validate(z.objec
   }
 });
 
+router.post(
+  '/me/external-identities/google/link',
+  recoveryIdentityLimiter,
+  validate(z.object({
+    credential: z.string().trim().min(1).max(20000),
+    currentPassword: z.string().min(1).max(200)
+  }).strict()),
+  async (req, res, next) => {
+    try {
+      const result = await linkGooglePatientIdentity({
+        userId: req.user.id,
+        currentPassword: req.body.currentPassword,
+        credential: req.body.credential,
+        onLinked: (tx, identity) => audit(req, 'PATIENT_GOOGLE_LINKED', `Patient linked Google account ${identity.normalizedEmailAtLink}.`, tx)
+      });
+      return res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.delete(
+  '/me/external-identities/google',
+  recoveryIdentityLimiter,
+  validate(z.object({
+    currentPassword: z.string().min(1).max(200)
+  }).strict()),
+  async (req, res, next) => {
+    try {
+      const result = await unlinkGooglePatientIdentity({
+        userId: req.user.id,
+        currentPassword: req.body.currentPassword,
+        onUnlinked: (tx) => audit(req, 'PATIENT_GOOGLE_UNLINKED', 'Patient unlinked Google account.', tx)
+      });
+      return res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 router.get('/doctors', async (req, res) => {
   const doctors = await prisma.doctor.findMany({ where: { status: 'ACTIVE', OR: [{ specialtyId: null }, { specialty: { active: true } }] }, select: doctorSelect, orderBy: { fullNameEn: 'asc' } });
   return res.json(doctors);
@@ -177,10 +276,19 @@ async function validateSlot(res, doctorId, date, time) {
 router.post('/appointments', validate(bookingSchema), async (req, res, next) => {
   try {
     if (!(await validateSlot(res, req.body.doctorId, req.body.appointmentDate, req.body.appointmentTime))) return;
-    const appointment = await prisma.appointment.create({ data: { patientId: req.patient.id, ...req.body, status: 'PENDING' }, include: { doctor: { select: doctorSelect } } });
-    await audit(req, 'PATIENT_APPOINTMENT_BOOKED', `Patient booked appointment ${appointment.id}.`);
+    const appointment = await prisma.$transaction(async (tx) => {
+      if (!(await lockDoctorScheduleRows(tx, [req.body.doctorId]))) throw new ApiError(404, 'DOCTOR_NOT_FOUND', 'Active doctor not found.');
+      const doctor = await tx.doctor.findFirst({ where: { id: req.body.doctorId, status: 'ACTIVE' } });
+      if (!(await getConfiguredSlots(doctor, req.body.appointmentDate, undefined, tx)).includes(req.body.appointmentTime)) {
+        throw new ApiError(409, 'INVALID_APPOINTMENT_SLOT', 'The selected appointment time is no longer available in the doctor schedule.');
+      }
+      const created = await tx.appointment.create({ data: { patientId: req.patient.id, ...req.body, status: 'PENDING' }, include: { doctor: { select: doctorSelect } } });
+      await audit(req, 'PATIENT_APPOINTMENT_BOOKED', `Patient booked appointment ${created.id}.`, tx);
+      return created;
+    });
     return res.status(201).json(appointment);
   } catch (error) {
+    if (error instanceof ApiError) return sendError(res, error.status, error.code, error.message);
     if (error.code === 'P2002') return sendError(res, 409, 'APPOINTMENT_SLOT_UNAVAILABLE', 'This appointment slot is no longer available.');
     next(error);
   }
@@ -224,6 +332,11 @@ router.put('/appointments/:id/reschedule', validate(bookingSchema), async (req, 
   if (!(await validateSlot(res, req.body.doctorId, req.body.appointmentDate, req.body.appointmentTime))) return;
   try {
     const updated = await prisma.$transaction(async (tx) => {
+      if (!(await lockDoctorScheduleRows(tx, [appointment.doctorId, req.body.doctorId]))) throw new ApiError(404, 'DOCTOR_NOT_FOUND', 'Active doctor not found.');
+      const targetDoctor = await tx.doctor.findFirst({ where: { id: req.body.doctorId, status: 'ACTIVE' } });
+      if (!(await getConfiguredSlots(targetDoctor, req.body.appointmentDate, undefined, tx)).includes(req.body.appointmentTime)) {
+        throw new ApiError(409, 'INVALID_APPOINTMENT_SLOT', 'The selected appointment time is no longer available in the doctor schedule.');
+      }
       const claimed = await tx.appointment.updateMany({
         where: {
           id: appointment.id,
@@ -241,6 +354,7 @@ router.put('/appointments/:id/reschedule', validate(bookingSchema), async (req, 
     });
     return res.json(updated);
   } catch (error) {
+    if (error instanceof ApiError) return sendError(res, error.status, error.code, error.message);
     if (error.status === 409 && error.code === 'APPOINTMENT_STATE_CONFLICT') return sendError(res, 409, error.code, error.message);
     if (isAppointmentSlotConflict(error)) return sendError(res, 409, 'APPOINTMENT_SLOT_UNAVAILABLE', 'The requested new slot is no longer available; the original appointment was preserved.');
     next(error);
@@ -363,7 +477,7 @@ router.get('/prescriptions', async (req, res) => {
 
 router.get('/medical-records', async (req, res) => {
   const records = await prisma.medicalRecord.findMany({ where: { patientId: req.patient.id }, include: { doctor: { select: doctorSelect }, prescriptions: { select: { id: true, status: true } }, labOrders: { where: { releasedToPatientAt: { not: null } }, select: { id: true, status: true, releasedToPatientAt: true } } }, orderBy: { visitDate: 'desc' } });
-  return res.json(records.map((record) => ({ id: record.id, visitDate: record.visitDate, doctor: record.doctor, diagnosis: safeDecrypt(record.diagnosisEncrypted), treatment: safeDecrypt(record.treatmentEncrypted), prescriptions: record.prescriptions, releasedLabResults: record.labOrders, attachmentPath: record.attachmentPath ? `/api/upload/${record.attachmentPath.split('/').pop()}` : null })));
+  return res.json(records.map((record) => ({ id: record.id, visitDate: record.visitDate, doctor: record.doctor, diagnosis: decrypt(record.diagnosisEncrypted), treatment: decrypt(record.treatmentEncrypted), prescriptions: record.prescriptions, releasedLabResults: record.labOrders, attachmentPath: record.attachmentPath ? `/api/upload/${record.attachmentPath.split('/').pop()}` : null })));
 });
 
 
@@ -418,9 +532,9 @@ router.get('/medical-records/:id', async (req, res) => {
 
       doctor: record.doctor,
 
-      symptoms: safeDecrypt(record.symptomsEncrypted),
-      diagnosis: safeDecrypt(record.diagnosisEncrypted),
-      treatment: safeDecrypt(record.treatmentEncrypted),
+      symptoms: decrypt(record.symptomsEncrypted),
+      diagnosis: decrypt(record.diagnosisEncrypted),
+      treatment: decrypt(record.treatmentEncrypted),
 
       vitalSigns,
 
@@ -456,6 +570,7 @@ router.get('/medical-records/:id', async (req, res) => {
         : null
     });
   } catch (error) {
+    if (isClinicalDataDecryptionError(error)) return sendError(res, 500, 'CLINICAL_DATA_UNREADABLE', 'Clinical information is unavailable.');
     console.error('Fetch patient medical record detail error:', error);
 
     return res.status(500).json({

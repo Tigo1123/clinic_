@@ -19,6 +19,9 @@ export function notFoundHandler(req, res) {
 
 export function errorHandler(err, req, res, next) {
   if (res.headersSent) return next(err);
+  if (err?.code === 'CLINICAL_DATA_UNREADABLE') {
+    return sendError(res, 500, 'CLINICAL_DATA_UNREADABLE', 'Clinical information is unavailable.');
+  }
   if (err?.name === 'MulterError') {
     if (err.code === 'LIMIT_FILE_SIZE') return sendError(res, 413, 'FILE_TOO_LARGE', 'The uploaded file exceeds the configured size limit.');
     return sendError(res, 400, 'UPLOAD_INVALID', 'The upload request is invalid.');

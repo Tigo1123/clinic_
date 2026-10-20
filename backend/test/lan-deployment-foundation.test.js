@@ -48,7 +48,8 @@ test('Nginx TLS and same-origin proxy hardening remain present', () => {
   assert.match(nginx, /listen 127\.0\.0\.1:8080;/);
   assert.match(nginx, /location = \/healthz/);
   assert.match(nginx, /location \/ \{ return 404; \}/);
-  assert.doesNotMatch(nginx, /Strict-Transport-Security|HSTS/i);
+  // b2950cf moved HSTS to the TLS terminator, including static-location headers.
+  assert.equal((nginx.match(/add_header Strict-Transport-Security "max-age=31536000" always;/g) || []).length, 2);
 });
 
 test('long-running services retain restart policies, health checks, and persistence', () => {

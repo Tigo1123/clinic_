@@ -8,6 +8,7 @@ const env = readFileSync(new URL('../.env.example', import.meta.url), 'utf8');
 const storage = readFileSync(new URL('../src/features/patient-auth/googleOnboardingStorage.js', import.meta.url), 'utf8');
 const flow = readFileSync(new URL('../src/features/patient-auth/useGooglePatientAuth.js', import.meta.url), 'utf8');
 const onboarding = readFileSync(new URL('../src/features/patient-auth/onboarding.js', import.meta.url), 'utf8');
+const i18n = readFileSync(new URL('../src/i18n.js', import.meta.url), 'utf8');
 
 test('GIS foundation uses one direct, reusable script loader and official button', () => {
   assert.match(component, /accounts\.google\.com\/gsi\/client/);
@@ -63,4 +64,38 @@ test('Google mode fails closed without a capability and normal mode remains sepa
 test('frontend environment documents only the public Google client ID', () => {
   assert.match(env, /VITE_GOOGLE_CLIENT_ID=/);
   assert.doesNotMatch(env, /GOOGLE_CLIENT_SECRET|GOOGLE_API_KEY/);
+});
+
+test('ACCOUNT_LINK_REQUIRED maps to specific account-linking message and NOT googleNetworkError', () => {
+  const match = page.match(/function googleErrorMessageKey\(code\)\s*\{([\s\S]*?)\}/);
+  assert.ok(match, 'googleErrorMessageKey function must be present');
+  const googleErrorMessageKey = new Function('code', match[1]);
+
+  const key = googleErrorMessageKey('ACCOUNT_LINK_REQUIRED');
+  assert.equal(key, 'googleAccountLinkRequired');
+  assert.notEqual(key, 'googleNetworkError');
+
+  // Verify Arabic and English actionable translation copy
+  assert.match(i18n, /googleAccountLinkRequired:\s*'يوجد حساب مريض مرتبط بهذا البريد\. سجّل الدخول باستخدام الهاتف\/البريد وكلمة المرور للمتابعة\.'/);
+  assert.match(i18n, /googleAccountLinkRequired:\s*'An existing patient account uses this email\. Sign in with your phone\/email and password to continue\.'/);
+});
+
+test('REGISTRATION_PENDING maps to specific registration-pending message and NOT googleNetworkError', () => {
+  const match = page.match(/function googleErrorMessageKey\(code\)\s*\{([\s\S]*?)\}/);
+  assert.ok(match, 'googleErrorMessageKey function must be present');
+  const googleErrorMessageKey = new Function('code', match[1]);
+
+  const key = googleErrorMessageKey('REGISTRATION_PENDING');
+  assert.equal(key, 'googleRegistrationPending');
+  assert.notEqual(key, 'googleNetworkError');
+
+  // Verify Arabic and English translation copy
+  assert.match(i18n, /googleRegistrationPending:\s*'يوجد تسجيل مريض قيد التحقق بالفعل\.'/);
+  assert.match(i18n, /googleRegistrationPending:\s*'A patient registration is already pending verification\.'/);
+});
+
+test('useGooglePatientAuth propagates API error codes without swallow or modification', () => {
+  assert.match(flow, /const code = requestError\?\.code \|\| 'GOOGLE_SIGN_IN_NETWORK_ERROR';/);
+  assert.match(flow, /setErrorCode\(code\);/);
+  assert.match(flow, /onError\?\.\(code\);/);
 });

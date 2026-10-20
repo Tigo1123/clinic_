@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { test } from 'node:test';
+import { test, after } from 'node:test';
+import nodemailer from 'nodemailer';
+import prisma from '../src/db.js';
+import { createVerificationChallenge } from '../src/services/verification.js';
+after(async () => prisma.$disconnect());
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -45,19 +49,24 @@ test('optional appointment communication does not claim email delivery or gate i
   assert.match(bookingFunction, /return \{ smsTextAr, smsTextEn, whatsAppLinkAr, whatsAppLinkEn \};/);
 });
 
-test('email-required security paths reject disabled or failed delivery', () => {
-  const verification = read('backend/src/services/verification.js');
-  const patientAuth = read('backend/src/routes/patientAuth.js');
-  const patientProfile = read('backend/src/routes/patient.js');
+test('email-required security paths reject disabled or failed delivery and invalidate undelivered challenges', async (t) => {
+  const names = ['VERIFICATION_PROVIDER', 'NOTIFICATIONS_DISABLED', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM_EMAIL'];
+  const previous = Object.fromEntries(names.map(name => [name, process.env[name]]));
+  const user = await prisma.user.create({ data: { username: `delivery-${crypto.randomUUID()}`, email: `${crypto.randomUUID()}@example.invalid`, passwordHash: 'unused-test-hash', role: 'PATIENT', status: 'PENDING_VERIFICATION' } });
+  t.mock.method(nodemailer, 'createTransport', () => ({ sendMail: async () => { throw new Error('Synthetic transport failure'); } }));
+  try {
+    Object.assign(process.env, { VERIFICATION_PROVIDER: 'email', SMTP_HOST: 'smtp.example.invalid', SMTP_PORT: '587', SMTP_USER: 'synthetic', SMTP_PASS: 'unused-test', SMTP_FROM_EMAIL: 'clinic@example.invalid' });
+    for (const disabled of ['true', 'false']) {
+      process.env.NOTIFICATIONS_DISABLED = disabled;
+      await assert.rejects(createVerificationChallenge(user, 'REGISTRATION_EMAIL', user.email), { code: 'VERIFICATION_DELIVERY_FAILED', status: 503 });
+      const challenges = await prisma.verificationChallenge.findMany({ where: { userId: user.id } });
+      assert.ok(challenges.length > 0); assert.ok(challenges.every(challenge => challenge.usedAt !== null));
+      assert.deepEqual(await prisma.user.findUnique({ where: { id: user.id } }), user);
+    }
+  } finally { for (const [name, value] of Object.entries(previous)) { if (value === undefined) delete process.env[name]; else process.env[name] = value; } }
   const records = read('backend/src/routes/records.js');
-  const config = read('backend/src/config.js');
-
-  assert.match(verification, /if \(!sent\) throw new ApiError\(503, 'VERIFICATION_DELIVERY_FAILED'/);
-  assert.match(patientAuth, /if \(!sent\) \{[\s\S]*?verificationChallenge[\s\S]*?\.delete/);
-  assert.match(patientProfile, /if \(!sent\) \{[\s\S]*?verificationChallenge[\s\S]*?\.delete/);
   assert.match(records, /if \(!delivery\) return sendError\(res, 503, 'EMAIL_DELIVERY_FAILED'/);
-  assert.match(config, /NOTIFICATIONS_DISABLED cannot be true when email verification is enabled/);
-  assert.doesNotMatch(verification, /emailVerifiedAt:[\s\S]*?sendEmail/);
+  assert.match(read('backend/src/config.js'), /NOTIFICATIONS_DISABLED cannot be true when email verification is enabled/);
 });
 
 test('offline behavior is explicitly opt-in and LAN configuration disables email verification', () => {

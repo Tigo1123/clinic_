@@ -1,9 +1,10 @@
 import { clearPatientSession } from '../../services/authStorage.js';
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { patientApiRequest as apiRequest } from '../../services/apiClient';
 import StatusBadge from '../../components/ui/StatusBadge';
+import { GoogleIdentityButton } from '../patient-auth/GoogleIdentityButton.jsx';
 import { CalendarDays, FileHeart, FlaskConical, HeartPulse, Pill, Search, Stethoscope, UserRound } from 'lucide-react';
 import Dialog from '../../components/ui/Dialog';
 import { EmptyState, ErrorState, Skeleton } from '../../components/feedback/States';
@@ -1003,6 +1004,80 @@ export function Profile() {
   const [passwordChanging, setPasswordChanging] = useState(false);
   const [passwordChangeError, setPasswordChangeError] = useState('');
 
+  const location = useLocation();
+  const highlightGoogleLink = location.state?.highlightGoogleLink;
+
+  const [googleLinkOpen, setGoogleLinkOpen] = useState(false);
+  const [googleLinkPassword, setGoogleLinkPassword] = useState('');
+  const [googleLinkError, setGoogleLinkError] = useState('');
+  const [googleLinkMessage, setGoogleLinkMessage] = useState('');
+  const [googleLinking, setGoogleLinking] = useState(false);
+  const [pendingGoogleCredential, setPendingGoogleCredential] = useState(null);
+
+  const [googleUnlinkOpen, setGoogleUnlinkOpen] = useState(false);
+  const [googleUnlinkPassword, setGoogleUnlinkPassword] = useState('');
+  const [googleUnlinkError, setGoogleUnlinkError] = useState('');
+  const [googleUnlinking, setGoogleUnlinking] = useState(false);
+
+  async function handleConfirmGoogleLink(event) {
+    event.preventDefault();
+    if (googleLinking || !pendingGoogleCredential || !googleLinkPassword) return;
+    setGoogleLinking(true);
+    setGoogleLinkError('');
+    setGoogleLinkMessage('');
+
+    try {
+      await apiRequest('/api/patient/me/external-identities/google/link', {
+        method: 'POST',
+        body: JSON.stringify({
+          credential: pendingGoogleCredential,
+          currentPassword: googleLinkPassword
+        })
+      });
+      setGoogleLinkMessage(t('googleLinkedSuccess'));
+      setPendingGoogleCredential(null);
+      setGoogleLinkPassword('');
+      setGoogleLinkOpen(false);
+      await reload();
+    } catch (requestError) {
+      let msg = t('genericLinkingFailed');
+      if (requestError?.code === 'REAUTHENTICATION_FAILED') msg = t('reauthenticationFailed');
+      else if (requestError?.code === 'GOOGLE_EMAIL_MISMATCH') msg = t('googleEmailMismatch');
+      else if (requestError?.code === 'GOOGLE_IDENTITY_ALREADY_LINKED') msg = t('identityAlreadyLinked');
+      else if (requestError?.code === 'GOOGLE_ALREADY_LINKED') msg = t('googleAlreadyLinked');
+      else if (requestError?.code === 'GOOGLE_CREDENTIAL_INVALID') msg = t('googleCredentialInvalid');
+      setGoogleLinkError(msg);
+    } finally {
+      setGoogleLinking(false);
+    }
+  }
+
+  async function handleConfirmGoogleUnlink(event) {
+    event.preventDefault();
+    if (googleUnlinking || !googleUnlinkPassword) return;
+    setGoogleUnlinking(true);
+    setGoogleUnlinkError('');
+
+    try {
+      await apiRequest('/api/patient/me/external-identities/google', {
+        method: 'DELETE',
+        body: JSON.stringify({
+          currentPassword: googleUnlinkPassword
+        })
+      });
+      setGoogleUnlinkOpen(false);
+      setGoogleUnlinkPassword('');
+      setMessage(t('googleUnlinkedSuccess'));
+      await reload();
+    } catch (requestError) {
+      let msg = t('genericUnlinkingFailed');
+      if (requestError?.code === 'REAUTHENTICATION_FAILED') msg = t('reauthenticationFailed');
+      setGoogleUnlinkError(msg);
+    } finally {
+      setGoogleUnlinking(false);
+    }
+  }
+
   useEffect(() => {
     if (!data) return;
 
@@ -1718,6 +1793,186 @@ export function Profile() {
                       ? 'يتم تأكيد طلب تغيير الرقم عبر بريدك الموثق حالياً. سيظل الرقم الجديد بحالة قيد التحقق حتى يتوفر التحقق عبر SMS.'
                       : 'The change is authorized through your currently verified email. The new phone remains pending until SMS verification is available.'}
                   </p>
+                </div>
+              )}
+            </div>
+
+            {/* Linked Accounts */}
+            <div
+              id="linked-accounts-section"
+              style={{
+                padding: '1rem 0',
+                borderTop: '1px solid var(--border-color)'
+              }}
+            >
+              <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem' }}>
+                {t('linkedAccounts')}
+              </h3>
+
+              {highlightGoogleLink && !data.googleAccount?.linked && (
+                <div className="patient-alert info" style={{ marginBottom: '1rem' }} role="status">
+                  {t('googleLinkPostLoginHint')}
+                </div>
+              )}
+
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: '1rem',
+                  flexWrap: 'wrap',
+                  alignItems: 'center'
+                }}
+              >
+                <div>
+                  <strong>{t('googleAccount')}</strong>
+                  <p style={{ margin: '.3rem 0' }}>
+                    {data.googleAccount?.linked
+                      ? `${t('connected')}: ${data.googleAccount.email}`
+                      : t('notConnected')}
+                  </p>
+                  <StatusBadge
+                    status={data.googleAccount?.linked ? 'CONFIRMED' : 'PENDING'}
+                  />
+                </div>
+
+                {!data.googleAccount?.linked ? (
+                  <button
+                    type="button"
+                    className="patient-button secondary"
+                    onClick={() => {
+                      setGoogleLinkOpen((current) => !current);
+                      setGoogleLinkError('');
+                      setGoogleLinkMessage('');
+                      setPendingGoogleCredential(null);
+                      setGoogleLinkPassword('');
+                    }}
+                  >
+                    {t('connectGoogle')}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="patient-button secondary"
+                    onClick={() => {
+                      setGoogleUnlinkOpen((current) => !current);
+                      setGoogleUnlinkError('');
+                      setGoogleUnlinkPassword('');
+                    }}
+                  >
+                    {t('disconnectGoogle')}
+                  </button>
+                )}
+              </div>
+
+              {googleLinkOpen && !data.googleAccount?.linked && (
+                <div style={{ marginTop: '1rem' }}>
+                  {!pendingGoogleCredential ? (
+                    <div>
+                      <p style={{ margin: '0 0 .75rem 0', fontSize: '.9rem' }}>
+                        {t('connectGooglePrompt')}
+                      </p>
+                      <GoogleIdentityButton
+                        onCredential={(credential) => {
+                          setPendingGoogleCredential(credential);
+                          setGoogleLinkError('');
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <form onSubmit={handleConfirmGoogleLink}>
+                      <p style={{ margin: '0 0 .75rem 0', fontSize: '.9rem' }}>
+                        {t('enterPasswordToLink')}
+                      </p>
+                      <label className="patient-field">
+                        {t('confirmPassword')}
+                        <input
+                          type="password"
+                          autoComplete="current-password"
+                          value={googleLinkPassword}
+                          onChange={(e) => setGoogleLinkPassword(e.target.value)}
+                          required
+                        />
+                      </label>
+                      <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+                        <button
+                          className="patient-button"
+                          disabled={googleLinking || !googleLinkPassword}
+                        >
+                          {googleLinking ? t('loading') : t('connectGoogle')}
+                        </button>
+                        <button
+                          type="button"
+                          className="patient-button secondary"
+                          disabled={googleLinking}
+                          onClick={() => {
+                            setPendingGoogleCredential(null);
+                            setGoogleLinkPassword('');
+                            setGoogleLinkError('');
+                          }}
+                        >
+                          {t('cancel')}
+                        </button>
+                      </div>
+                    </form>
+                  )}
+
+                  {googleLinkError && (
+                    <div className="patient-alert error" style={{ marginTop: '.75rem' }}>
+                      {googleLinkError}
+                    </div>
+                  )}
+                  {googleLinkMessage && (
+                    <div className="patient-alert success" style={{ marginTop: '.75rem' }}>
+                      {googleLinkMessage}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {googleUnlinkOpen && data.googleAccount?.linked && (
+                <div style={{ marginTop: '1rem' }}>
+                  <form onSubmit={handleConfirmGoogleUnlink}>
+                    <p style={{ margin: '0 0 .75rem 0', fontSize: '.9rem' }}>
+                      {t('disconnectGoogleConfirm')}
+                    </p>
+                    <label className="patient-field">
+                      {t('enterPasswordToUnlink')}
+                      <input
+                        type="password"
+                        autoComplete="current-password"
+                        value={googleUnlinkPassword}
+                        onChange={(e) => setGoogleUnlinkPassword(e.target.value)}
+                        required
+                      />
+                    </label>
+                    <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+                      <button
+                        className="patient-button secondary"
+                        style={{ borderColor: 'var(--color-danger, #ef4444)', color: 'var(--color-danger, #ef4444)' }}
+                        disabled={googleUnlinking || !googleUnlinkPassword}
+                      >
+                        {googleUnlinking ? t('loading') : t('disconnectGoogle')}
+                      </button>
+                      <button
+                        type="button"
+                        className="patient-button secondary"
+                        disabled={googleUnlinking}
+                        onClick={() => {
+                          setGoogleUnlinkOpen(false);
+                          setGoogleUnlinkPassword('');
+                          setGoogleUnlinkError('');
+                        }}
+                      >
+                        {t('cancel')}
+                      </button>
+                    </div>
+                  </form>
+                  {googleUnlinkError && (
+                    <div className="patient-alert error" style={{ marginTop: '.75rem' }}>
+                      {googleUnlinkError}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

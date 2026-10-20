@@ -168,7 +168,7 @@ test('exception deactivation rejects conflicts and safely restores recurring ava
   await prisma.doctorSchedule.deleteMany({ where: { doctorId } }); await prisma.doctorScheduleException.deleteMany({ where: { doctorId } });
   const recurring = await request(app).post(`/api/admin/doctors/${doctorId}/schedules`).set('Authorization', `Bearer ${adminToken}`).send({ ...payload, effectiveFrom: '2101-01-01', periods: [{ dayOfWeek: 'MONDAY', startTime: '09:00', endTime: '10:00', slotDurationMinutes: 30, breaks: [] }] });
   assert.equal(recurring.status, 200);
-  const date = '2101-01-04';
+  const date = '2101-01-03';
   const exception = await request(app).put(`/api/admin/doctors/${doctorId}/schedule-exceptions/${date}`).set('Authorization', `Bearer ${adminToken}`).send({ type: 'SPECIAL_HOURS', periods: [{ startTime: '14:00', endTime: '15:00', slotDurationMinutes: 30 }] });
   assert.equal(exception.status, 200);
   const state = await prisma.state.findFirst(); const patient = await prisma.patient.create({ data: { fullNameAr: 'اختبار', fullNameEn: 'Test', gender: 'FEMALE', dateOfBirth: '1991-01-01', phone: `+2507${Date.now().toString().slice(-8)}`, addressStateId: state.id, emergencyContact: 'None' } });
@@ -177,8 +177,33 @@ test('exception deactivation rejects conflicts and safely restores recurring ava
   assert.equal(rejected.status, 409); assert.equal(rejected.body.error.code, 'SCHEDULE_FUTURE_APPOINTMENT_CONFLICT');
   assert.equal((await prisma.doctorScheduleException.findUnique({ where: { doctorId_date: { doctorId, date } } })).active, true);
   await prisma.appointment.delete({ where: { id: appointment.id } });
+  const fitting = await prisma.appointment.create({ data: { patientId: patient.id, doctorId, appointmentDate: date, appointmentTime: '09:00', status: 'SCHEDULED' } });
   const safe = await request(app).patch(`/api/admin/doctors/${doctorId}/schedule-exceptions/${date}/status`).set('Authorization', `Bearer ${adminToken}`).send({ active: false });
   assert.equal(safe.status, 200);
+  assert.equal((await prisma.appointment.findUnique({ where: { id: fitting.id } })).status, 'SCHEDULED');
+  await prisma.appointment.delete({ where: { id: fitting.id } });
+  await prisma.patient.delete({ where: { id: patient.id } });
+});
+
+test('activating an exception that would invalidate a future appointment is rejected atomically', async () => {
+  await prisma.doctorSchedule.deleteMany({ where: { doctorId } });
+  await prisma.doctorScheduleException.deleteMany({ where: { doctorId } });
+  const date = '2102-01-02'; // Monday in the clinic calendar.
+  const schedule = await request(app).post(`/api/admin/doctors/${doctorId}/schedules`).set('Authorization', `Bearer ${adminToken}`).send({
+    effectiveFrom: '2102-01-01', active: true,
+    periods: [{ dayOfWeek: 'MONDAY', startTime: '09:00', endTime: '10:00', slotDurationMinutes: 30, breaks: [] }]
+  });
+  assert.equal(schedule.status, 200);
+  const exception = await prisma.doctorScheduleException.create({ data: { doctorId, date, type: 'FULL_DAY_LEAVE', active: false } });
+  const state = await prisma.state.findFirst();
+  const patient = await prisma.patient.create({ data: { fullNameAr: 'اختبار', fullNameEn: 'Test', gender: 'MALE', dateOfBirth: '1990-01-01', phone: `+2507${Date.now().toString().slice(-8)}`, addressStateId: state.id, emergencyContact: 'None' } });
+  const appointment = await prisma.appointment.create({ data: { patientId: patient.id, doctorId, appointmentDate: date, appointmentTime: '09:00', status: 'CONFIRMED' } });
+  const rejected = await request(app).patch(`/api/admin/doctors/${doctorId}/schedule-exceptions/${date}/status`).set('Authorization', `Bearer ${adminToken}`).send({ active: true });
+  assert.equal(rejected.status, 409);
+  assert.equal(rejected.body.error.code, 'SCHEDULE_FUTURE_APPOINTMENT_CONFLICT');
+  assert.equal((await prisma.doctorScheduleException.findUnique({ where: { id: exception.id } })).active, false);
+  assert.equal((await prisma.appointment.findUnique({ where: { id: appointment.id } })).status, 'CONFIRMED');
+  await prisma.appointment.delete({ where: { id: appointment.id } });
   await prisma.patient.delete({ where: { id: patient.id } });
 });
 
@@ -217,4 +242,129 @@ test('post-lock schedule conflict rolls back parent, children, and audit', async
   assert.deepEqual(after, before); assert.equal((await prisma.appointment.findUnique({ where: { id: appointment.id } })).status, 'SCHEDULED');
   assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'DOCTOR_SCHEDULE_DEACTIVATED' } }), auditBefore);
   await prisma.appointment.delete({ where: { id: appointment.id } }); await prisma.patient.delete({ where: { id: patient.id } });
+});
+
+test('editing slot duration preserves the existing booking interval near closing', async () => {
+  await prisma.doctorSchedule.deleteMany({ where: { doctorId } });
+  const monday = '2102-01-02';
+  const created = await request(app).post(`/api/admin/doctors/${doctorId}/schedules`).set('Authorization', `Bearer ${adminToken}`).send({
+    effectiveFrom: '2102-01-01', active: true,
+    periods: [{ dayOfWeek: 'MONDAY', startTime: '09:00', endTime: '12:00', slotDurationMinutes: 30, breaks: [] }]
+  });
+  assert.equal(created.status, 200);
+  const state = await prisma.state.findFirst();
+  const patient = await prisma.patient.create({ data: { fullNameAr: 'اختبار', fullNameEn: 'Test', gender: 'MALE', dateOfBirth: '1990-01-01', phone: `+2507${Date.now().toString().slice(-8)}`, addressStateId: state.id, emergencyContact: 'None' } });
+  const appointment = await prisma.appointment.create({ data: { patientId: patient.id, doctorId, appointmentDate: monday, appointmentTime: '11:30', status: 'SCHEDULED' } });
+  const auditCount = await prisma.tenantAuditLog.count({ where: { action: 'DOCTOR_SCHEDULE_UPDATED' } });
+  const cadenceEdit = await request(app).put(`/api/admin/doctors/${doctorId}/schedules/${created.body.id}`).set('Authorization', `Bearer ${adminToken}`).send({
+    effectiveFrom: '2102-01-01', active: true,
+    periods: [{ dayOfWeek: 'MONDAY', startTime: '09:00', endTime: '12:00', slotDurationMinutes: 10, breaks: [] }]
+  });
+  assert.equal(cadenceEdit.status, 409);
+  assert.equal(cadenceEdit.body.error.code, 'SCHEDULE_FUTURE_APPOINTMENT_CONFLICT');
+  assert.equal((await prisma.appointment.findUnique({ where: { id: appointment.id } })).status, 'SCHEDULED');
+  const persisted = await prisma.doctorSchedule.findUnique({ where: { id: created.body.id }, include: { periods: true } });
+  assert.equal(persisted.periods[0].slotDurationMinutes, 30);
+  assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'DOCTOR_SCHEDULE_UPDATED' } }), auditCount);
+  const hourAndBreakEdit = await request(app).put(`/api/admin/doctors/${doctorId}/schedules/${created.body.id}`).set('Authorization', `Bearer ${adminToken}`).send({
+    effectiveFrom: '2102-01-01', active: true,
+    periods: [{ dayOfWeek: 'MONDAY', startTime: '09:00', endTime: '12:30', slotDurationMinutes: 30, breaks: [{ startTime: '10:00', endTime: '10:10' }] }]
+  });
+  assert.equal(hourAndBreakEdit.status, 200);
+  const editsBeforeShortening = await prisma.tenantAuditLog.count({ where: { action: 'DOCTOR_SCHEDULE_UPDATED' } });
+  const shortened = await request(app).put(`/api/admin/doctors/${doctorId}/schedules/${created.body.id}`).set('Authorization', `Bearer ${adminToken}`).send({
+    effectiveFrom: '2102-01-01', active: true,
+    periods: [{ dayOfWeek: 'MONDAY', startTime: '09:00', endTime: '11:40', slotDurationMinutes: 30, breaks: [] }]
+  });
+  assert.equal(shortened.status, 409);
+  assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'DOCTOR_SCHEDULE_UPDATED' } }), editsBeforeShortening);
+  assert.equal((await prisma.appointment.findUnique({ where: { id: appointment.id } })).status, 'SCHEDULED');
+  assert.equal((await prisma.doctorSchedule.findUnique({ where: { id: created.body.id }, include: { periods: true } })).periods[0].endTime, '12:30');
+  await prisma.appointment.delete({ where: { id: appointment.id } });
+  await prisma.patient.delete({ where: { id: patient.id } });
+});
+
+test('inactive exception replacement validates fallback hours and rolls back conflicts', async () => {
+  await prisma.doctorSchedule.deleteMany({ where: { doctorId } });
+  await prisma.doctorScheduleException.deleteMany({ where: { doctorId } });
+  const date = '2102-01-02';
+  const weekly = await request(app).post(`/api/admin/doctors/${doctorId}/schedules`).set('Authorization', `Bearer ${adminToken}`).send({
+    effectiveFrom: '2102-01-01', active: true,
+    periods: [{ dayOfWeek: 'MONDAY', startTime: '09:00', endTime: '10:00', slotDurationMinutes: 30, breaks: [] }]
+  });
+  assert.equal(weekly.status, 200);
+  const state = await prisma.state.findFirst();
+  const patient = await prisma.patient.create({ data: { fullNameAr: 'اختبار', fullNameEn: 'Test', gender: 'MALE', dateOfBirth: '1990-01-01', phone: `+2507${Date.now().toString().slice(-8)}`, addressStateId: state.id, emergencyContact: 'None' } });
+  const appointment = await prisma.appointment.create({ data: { patientId: patient.id, doctorId, appointmentDate: date, appointmentTime: '11:00', status: 'SCHEDULED' } });
+  const exception = await request(app).put(`/api/admin/doctors/${doctorId}/schedule-exceptions/${date}`).set('Authorization', `Bearer ${adminToken}`).send({ type: 'SPECIAL_HOURS', periods: [{ startTime: '09:00', endTime: '12:00', slotDurationMinutes: 30 }] });
+  assert.equal(exception.status, 200);
+  const auditsBefore = await prisma.tenantAuditLog.count({ where: { action: 'DOCTOR_SCHEDULE_EXCEPTION_UPDATED' } });
+  const rejected = await request(app).put(`/api/admin/doctors/${doctorId}/schedule-exceptions/${date}`).set('Authorization', `Bearer ${adminToken}`).send({ type: 'SPECIAL_HOURS', active: false, periods: [{ startTime: '09:00', endTime: '12:00', slotDurationMinutes: 30 }] });
+  assert.equal(rejected.status, 409);
+  assert.equal(rejected.body.error.code, 'SCHEDULE_FUTURE_APPOINTMENT_CONFLICT');
+  const unchanged = await prisma.doctorScheduleException.findUnique({ where: { doctorId_date: { doctorId, date } }, include: { periods: true } });
+  assert.equal(unchanged.active, true);
+  assert.equal(unchanged.periods[0].endTime, '12:00');
+  assert.equal((await prisma.appointment.findUnique({ where: { id: appointment.id } })).status, 'SCHEDULED');
+  assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'DOCTOR_SCHEDULE_EXCEPTION_UPDATED' } }), auditsBefore);
+
+  await prisma.appointment.delete({ where: { id: appointment.id } });
+  const fitting = await prisma.appointment.create({ data: { patientId: patient.id, doctorId, appointmentDate: date, appointmentTime: '09:00', status: 'SCHEDULED' } });
+  const disabled = await request(app).put(`/api/admin/doctors/${doctorId}/schedule-exceptions/${date}`).set('Authorization', `Bearer ${adminToken}`).send({ type: 'SPECIAL_HOURS', active: false, periods: [{ startTime: '09:00', endTime: '12:00', slotDurationMinutes: 30 }] });
+  assert.equal(disabled.status, 200);
+  assert.equal((await prisma.doctorScheduleException.findUnique({ where: { doctorId_date: { doctorId, date } } })).active, false);
+  assert.equal((await prisma.appointment.findUnique({ where: { id: fitting.id } })).status, 'SCHEDULED');
+  await prisma.appointment.delete({ where: { id: fitting.id } });
+  await prisma.patient.delete({ where: { id: patient.id } });
+});
+
+test('exception changes preserve derivable 30-minute booking coverage', async () => {
+  await prisma.doctorSchedule.deleteMany({ where: { doctorId } });
+  await prisma.doctorScheduleException.deleteMany({ where: { doctorId } });
+  const date = '2102-01-09';
+  const weekly = await request(app).post(`/api/admin/doctors/${doctorId}/schedules`).set('Authorization', `Bearer ${adminToken}`).send({
+    effectiveFrom: '2102-01-01', active: true,
+    periods: [{ dayOfWeek: 'MONDAY', startTime: '09:00', endTime: '11:40', slotDurationMinutes: 10, breaks: [] }]
+  });
+  assert.equal(weekly.status, 200);
+  const exceptionUrl = `/api/admin/doctors/${doctorId}/schedule-exceptions/${date}`;
+  const originalPeriods = [{ startTime: '09:00', endTime: '12:00', slotDurationMinutes: 30 }];
+  const exception = await request(app).put(exceptionUrl).set('Authorization', `Bearer ${adminToken}`).send({ type: 'SPECIAL_HOURS', periods: originalPeriods });
+  assert.equal(exception.status, 200);
+  const state = await prisma.state.findFirst();
+  const patient = await prisma.patient.create({ data: { fullNameAr: 'اختبار', fullNameEn: 'Test', gender: 'MALE', dateOfBirth: '1990-01-01', phone: `+2507${Date.now().toString().slice(-8)}`, addressStateId: state.id, emergencyContact: 'None' } });
+  const appointment = await prisma.appointment.create({ data: { patientId: patient.id, doctorId, appointmentDate: date, appointmentTime: '11:30', status: 'SCHEDULED' } });
+
+  const shortCadenceException = await request(app).put(exceptionUrl).set('Authorization', `Bearer ${adminToken}`).send({ type: 'SPECIAL_HOURS', periods: [{ startTime: '09:00', endTime: '11:40', slotDurationMinutes: 10 }] });
+  assert.equal(shortCadenceException.status, 409);
+  assert.equal(shortCadenceException.body.error.code, 'SCHEDULE_FUTURE_APPOINTMENT_CONFLICT');
+  assert.equal((await prisma.doctorScheduleException.findUnique({ where: { doctorId_date: { doctorId, date } }, include: { periods: true } })).periods[0].endTime, '12:00');
+
+  const auditCount = await prisma.tenantAuditLog.count({ where: { action: 'DOCTOR_SCHEDULE_EXCEPTION_UPDATED' } });
+  const cadenceEdit = await request(app).put(exceptionUrl).set('Authorization', `Bearer ${adminToken}`).send({ type: 'SPECIAL_HOURS', periods: [{ startTime: '09:00', endTime: '12:00', slotDurationMinutes: 10 }] });
+  assert.equal(cadenceEdit.status, 409);
+  assert.equal(cadenceEdit.body.error.code, 'SCHEDULE_FUTURE_APPOINTMENT_CONFLICT');
+  assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'DOCTOR_SCHEDULE_EXCEPTION_UPDATED' } }), auditCount);
+  const coveredException = await request(app).put(exceptionUrl).set('Authorization', `Bearer ${adminToken}`).send({ type: 'SPECIAL_HOURS', periods: [{ startTime: '09:00', endTime: '12:30', slotDurationMinutes: 30 }] });
+  assert.equal(coveredException.status, 200);
+  const exceptionEditsBeforeShortening = await prisma.tenantAuditLog.count({ where: { action: 'DOCTOR_SCHEDULE_EXCEPTION_UPDATED' } });
+  const shortenedException = await request(app).put(exceptionUrl).set('Authorization', `Bearer ${adminToken}`).send({ type: 'SPECIAL_HOURS', periods: [{ startTime: '09:00', endTime: '11:40', slotDurationMinutes: 30 }] });
+  assert.equal(shortenedException.status, 409);
+  assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'DOCTOR_SCHEDULE_EXCEPTION_UPDATED' } }), exceptionEditsBeforeShortening);
+  assert.equal((await prisma.appointment.findUnique({ where: { id: appointment.id } })).status, 'SCHEDULED');
+  assert.equal((await prisma.doctorScheduleException.findUnique({ where: { doctorId_date: { doctorId, date } }, include: { periods: true } })).periods[0].endTime, '12:30');
+  const deactivate = await request(app).patch(`${exceptionUrl}/status`).set('Authorization', `Bearer ${adminToken}`).send({ active: false });
+  assert.equal(deactivate.status, 409);
+  assert.equal(deactivate.body.error.code, 'SCHEDULE_FUTURE_APPOINTMENT_CONFLICT');
+  assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'DOCTOR_SCHEDULE_EXCEPTION_UPDATED' } }), exceptionEditsBeforeShortening);
+  assert.equal((await prisma.doctorScheduleException.findUnique({ where: { doctorId_date: { doctorId, date } } })).active, true);
+
+  const inactiveUpsert = await request(app).put(exceptionUrl).set('Authorization', `Bearer ${adminToken}`).send({ type: 'SPECIAL_HOURS', active: false, periods: originalPeriods });
+  assert.equal(inactiveUpsert.status, 409);
+  assert.equal(inactiveUpsert.body.error.code, 'SCHEDULE_FUTURE_APPOINTMENT_CONFLICT');
+  assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'DOCTOR_SCHEDULE_EXCEPTION_UPDATED' } }), exceptionEditsBeforeShortening);
+  assert.equal((await prisma.doctorScheduleException.findUnique({ where: { doctorId_date: { doctorId, date } } })).active, true);
+  assert.equal((await prisma.appointment.findUnique({ where: { id: appointment.id } })).status, 'SCHEDULED');
+  await prisma.appointment.delete({ where: { id: appointment.id } });
+  await prisma.patient.delete({ where: { id: patient.id } });
 });
