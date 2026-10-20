@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { DEFAULT_CLINIC_TIME_ZONE, isValidClinicTimeZone } from './utils/clinicTime.js';
 import { readSmtpConfig } from './utils/smtpConfig.js';
+import { getFacilityBranding } from './utils/facilityBranding.js';
 
 const INSECURE_SECRETS = new Set([
   'secret', 'changeme', 'development-secret',
@@ -52,6 +53,9 @@ export function validateEnvironment() {
   const socketRevocationDatabaseUrl = process.env.SOCKET_REVOCATION_DATABASE_URL || (!production ? databaseUrl : '');
   const origins = csv(process.env.CORS_ALLOWED_ORIGINS);
   const clinicTimeZone = process.env.CLINIC_TIME_ZONE || (production ? '' : DEFAULT_CLINIC_TIME_ZONE);
+  let facilityBranding;
+  try { facilityBranding = getFacilityBranding(); }
+  catch (error) { errors.push(error.message); }
 
   if (!databaseUrl || !/^postgres(?:ql)?:\/\//.test(databaseUrl)) errors.push('DATABASE_URL must be a valid PostgreSQL URL.');
   if (!jwtSecret) errors.push('JWT_SECRET is required.');
@@ -93,6 +97,7 @@ export function validateEnvironment() {
       : ['http://localhost:5173'],
     googleClientId: configuredGoogleClientId(),
     clinicTimeZone,
+    facilityBranding,
     socketRevocation: {
       databaseUrl: socketRevocationDatabaseUrl,
       reconcileMs: positiveInteger('SOCKET_REVOCATION_RECONCILE_MS', 10000),

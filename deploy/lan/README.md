@@ -1,7 +1,7 @@
 # Offline LAN deployment — HTTPS same-origin frontend, API, and Socket.IO
 
 This directory contains the LAN-specific test-bench runbook for the
-clinic frontend, API, Socket.IO, and PostgreSQL. It is not approval for
+Shifa frontend, API, Socket.IO, and PostgreSQL. It is not approval for
 clinical operation; the acceptance gates below still apply.
 
 See the [deployment guide](../../DEPLOYMENT.md) for shared configuration,
@@ -46,7 +46,7 @@ down -v` on a clinic installation**: `-v` destroys these persistent volumes.
 - `../../backend/test/lan-same-origin.test.js`: Phase 1A.2 browser-origin,
   proxy, CORS, health, and upload-link checks.
 
-The existing root `docker-compose.yml` is intentionally unchanged.
+The root `docker-compose.yml` remains a separate general deployment profile; both Compose files forward the optional facility display-name variables to the backend.
 
 ## Prerequisites
 

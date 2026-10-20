@@ -92,14 +92,14 @@ export function HumanCareSection({ copy }) {
   </section>;
 }
 
-export function ProductPreviewSection({ copy }) {
+export function ProductPreviewSection({ copy, brand }) {
   return <section className="public-product public-section" aria-labelledby="product-title">
     <div className="public-container">
       <SectionHeading kicker={copy.productKicker} title={copy.productTitle} intro={copy.productIntro} id="product-title" />
       <div className="product-preview" data-asset-slot="product-dashboard-preview">
         <div className="product-preview__bar"><span className="product-preview__dots"><i /><i /><i /></span><strong>{copy.productWorkspace}</strong><span className="product-preview__secure"><ShieldCheck aria-hidden="true" />{copy.productWorkspaceStatus}</span></div>
         <div className="product-preview__body">
-          <aside className="product-preview__sidebar"><span className="product-preview__brand"><HeartPulse />{copy.productBrand}</span><span className="is-active"><CalendarDays />{copy.productAppointments}</span><span><UsersRound />{copy.productPatients}</span><span><ReceiptText />{copy.productBilling}</span><span><FlaskConical />{copy.productLab}</span></aside>
+          <aside className="product-preview__sidebar"><span className="product-preview__brand"><HeartPulse />{brand}</span><span className="is-active"><CalendarDays />{copy.productAppointments}</span><span><UsersRound />{copy.productPatients}</span><span><ReceiptText />{copy.productBilling}</span><span><FlaskConical />{copy.productLab}</span></aside>
           <div className="product-preview__main"><div className="product-preview__heading"><div><span>{copy.productEyebrow}</span><h3>{copy.productHeading}</h3></div><button type="button" tabIndex="-1">{copy.productAction}<ArrowUpRight aria-hidden="true" /></button></div><div className="product-preview__metrics"><div><span>{copy.metricOneLabel}</span><strong>{copy.metricOneValue}</strong><small>{copy.metricOneNote}</small></div><div><span>{copy.metricTwoLabel}</span><strong>{copy.metricTwoValue}</strong><small>{copy.metricTwoNote}</small></div><div><span>{copy.metricThreeLabel}</span><strong>{copy.metricThreeValue}</strong><small>{copy.metricThreeNote}</small></div></div><div className="product-preview__grid"><div className="product-preview__queue"><div className="product-preview__subhead"><strong>{copy.queueTitle}</strong><span>{copy.queueToday}</span></div>{[copy.queueOne, copy.queueTwo, copy.queueThree].map((item, index) => <div className="product-preview__queue-item" key={item}><span className={`product-preview__avatar product-preview__avatar--${index + 1}`}>{index + 1}</span><div><strong>{item}</strong><small>{copy.queueMeta[index]}</small></div><span className="product-preview__badge">{copy.queueStatus[index]}</span></div>)}</div><div className="product-preview__chart"><div className="product-preview__subhead"><strong>{copy.chartTitle}</strong><span>{copy.chartRange}</span></div><div className="product-preview__bars" aria-hidden="true"><i /><i /><i /><i /><i /><i /><i /></div><div className="product-preview__axis"><span>08:00</span><span>12:00</span><span>16:00</span></div></div></div></div>
         </div>
       </div>
@@ -132,10 +132,10 @@ export function FinalCTA({ copy }) {
   </section>;
 }
 
-export function LandingFooter({ copy, brand }) {
+export function LandingFooter({ copy, brand, descriptor }) {
   return <footer className="public-footer"><div className="public-container public-footer__inner">
-    <div className="public-footer__brand"><Link className="public-brand" to="/"><span className="public-brand__mark"><HeartPulse aria-hidden="true" /></span><span className="public-brand__name">{brand}</span></Link><p>{copy.footerDescription}</p></div>
+      <div className="public-footer__brand"><Link className="public-brand" to="/"><span className="public-brand__mark"><HeartPulse aria-hidden="true" /></span><span className="public-brand__lockup"><span className="public-brand__name">{brand}</span><small>{descriptor}</small></span></Link><p>{copy.footerDescription}</p></div>
     <div className="public-footer__column"><strong>{copy.footerNavigate}</strong><a href="#home">{copy.home}</a><a href="#features">{copy.featuresNav}</a><a href="#journey">{copy.howItWorks}</a><a href="#about">{copy.about}</a></div>
     <div className="public-footer__column"><strong>{copy.footerAccess}</strong><Link to="/register">{copy.createAccount}</Link><Link to="/patient-login">{copy.patientLogin}</Link><Link to="/staff">{copy.staffLogin}</Link></div>
-  </div><div className="public-container public-footer__bottom"><span>© {new Date().getFullYear()} {copy.footerCopyright}</span><span>{copy.footerDescription}</span></div></footer>;
+  </div><div className="public-container public-footer__bottom"><span>© {new Date().getFullYear()} {brand} · {descriptor}</span><span>{copy.footerDescription}</span></div></footer>;
 }

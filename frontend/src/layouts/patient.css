@@ -198,3 +198,5 @@
 .health-summary-card:active {
   transform: translateY(-1px);
 }
+.patient-brand>.patient-brand__lockup{display:block;width:auto;height:auto;background:none;border-radius:0;box-shadow:none;color:var(--color-primary-strong);font-size:.9rem;line-height:1.15}.patient-brand__lockup .brand-product-descriptor{font-size:.55rem;white-space:normal}
+@media(max-width:900px){.patient-header{height:auto;min-height:64px;align-items:center;padding-block:.65rem}.patient-brand{flex:1;min-width:0;align-items:center}.patient-brand>.patient-brand__lockup{color:#fff;overflow-wrap:anywhere}.patient-header>div{flex-shrink:0}.patient-brand__lockup .brand-product-descriptor{color:rgba(255,255,255,.84);-webkit-text-fill-color:rgba(255,255,255,.84)}}

@@ -3,7 +3,7 @@ import { ArrowUpRight, HeartPulse, Languages, Menu, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import ThemeToggle from '../../../components/ui/ThemeToggle.jsx';
 
-export default function LandingHeader({ copy, brand, language, onLanguageChange }) {
+export default function LandingHeader({ copy, brand, descriptor, language, onLanguageChange }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const toggleRef = useRef(null);
@@ -57,7 +57,7 @@ export default function LandingHeader({ copy, brand, language, onLanguageChange 
     <div className="public-header__inner">
       <Link className="public-brand" to="/" onClick={closeMenu} aria-label={brand}>
         <span className="public-brand__mark"><HeartPulse aria-hidden="true" /></span>
-        <span className="public-brand__name">{brand}</span>
+        <span className="public-brand__lockup"><span className="public-brand__name">{brand}</span><small>{descriptor}</small></span>
       </Link>
       <nav className="public-nav" aria-label={language === 'ar' ? 'التنقل الرئيسي' : 'Main navigation'}>
         {links.map(([href, label]) => <a key={href} href={href}>{label}</a>)}

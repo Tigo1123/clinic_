@@ -1,6 +1,6 @@
-# Clinic Pilot Documentation
+# Shifa Pilot Documentation
 
-These documents support a controlled clinic pilot. They do not represent unrestricted production approval or regulatory certification.
+These documents support a controlled Shifa pilot. They do not represent unrestricted production approval or regulatory certification. The institution name is configured per deployment; no hospital name is assumed.
 
 - [Clinic Pilot Handoff](CLINIC_PILOT_HANDOFF.md) — roles, workflows, statuses, operating notes, limitations, and issue reporting.
 - [Clinic Pilot Demo Script](CLINIC_PILOT_DEMO_SCRIPT.md) — the 10–15 minute demonstration and five-minute backup.

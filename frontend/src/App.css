@@ -1,4 +1,4 @@
-/* --- Custom Premium Styles for Al-Shifa CMS --- */
+/* --- Shifa application styles --- */
 
 :root {
   --glass-bg: rgba(17, 24, 39, 0.6);
@@ -50,6 +50,11 @@
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
+
+.brand-product-descriptor { display: block; color: var(--text-secondary); font-size: .58rem; line-height: 1.2; font-weight: 600; letter-spacing: 0; -webkit-text-fill-color: var(--text-secondary); }
+.facility-identity-line { display: grid; gap: .16rem; margin-block: .25rem .7rem; color: var(--text-primary); text-align: start; }
+.facility-identity-line strong { font-size: 1rem; font-weight: 800; }
+.facility-identity-line small { color: var(--text-secondary); font-size: .72rem; }
 
 .header-actions {
   display: flex;
@@ -115,7 +120,7 @@
   width: 100%;
 }
 
-/* Staff authentication is unified with the Al-Shifa Patient Auth visual system */
+/* Staff authentication shares the patient authentication visual system */
 .patient-auth-shell--staff {
   background: #fbfbfc;
 }

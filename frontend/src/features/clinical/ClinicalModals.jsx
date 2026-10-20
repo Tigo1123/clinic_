@@ -4,6 +4,8 @@ import { AlertCircle, Calendar, Check, Copy, FileText, Mail, MessageCircle, Pill
 import { fetchWithAuth } from '../../services/staffApi';
 import { useAuth } from '../../app/auth/auth-context';
 import './patientFile.css';
+import { useFacilityBranding } from '../../app/branding/FacilityBrandingContext.js';
+import FacilityIdentityLine from '../../components/FacilityIdentityLine';
 
 function getWhatsAppLink(phone, message) {
   if (!phone) return '#';
@@ -44,6 +46,7 @@ function patientAge(dateOfBirth) {
 
 export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary, nestedModalOpen = false }) {
   const { user } = useAuth();
+  const branding = useFacilityBranding();
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
   const onCloseRef = useRef(onClose);
@@ -596,7 +599,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
                 <div className="patient-file-actions">
                   {profile.phone && (
                     <a
-                      href={getWhatsAppLink(profile.phone, lang === 'ar' ? `مرحباً ${profile.fullNameAr}، نرحب بك في مركز الشفاء الطبي.` : `Hello ${profile.fullNameEn}, welcome to Al-Shifa Medical Center.`)}
+                      href={getWhatsAppLink(profile.phone, lang === 'ar' ? `مرحباً ${profile.fullNameAr}، نرحب بك في ${branding.displayNameAr}.` : `Hello ${profile.fullNameEn}, welcome to ${branding.displayNameEn}.`)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="patient-file-whatsapp"
@@ -752,6 +755,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
    POST-VISIT SUMMARY & INSTRUCTIONS MODAL
    ========================================== */
 export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = 'base', returnFocusTo = null }) {
+  const branding = useFacilityBranding();
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
   const activeSummaryId = typeof summaryId === 'object' ? (summaryId?.id || summaryId?.recordId || summaryId?.appointmentId) : summaryId;
@@ -947,7 +951,7 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = '
         {/* Printable Area */}
         <div className="printable-visit-summary" style={{ padding: '1rem', background: 'rgba(0,0,0,0.15)', borderRadius: 'var(--radius-md)' }}>
           <div style={{ textAlign: 'center', borderBottom: '2px solid var(--primary)', paddingBottom: '0.75rem', marginBottom: '1rem' }}>
-            <h2 style={{ margin: 0, color: 'var(--primary)', fontSize: '1.4rem' }}>Al-Shifa Medical Center</h2>
+            <FacilityIdentityLine language={lang} />
             <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
               {lang === 'ar' ? 'ملخص زيارة المريض' : 'Patient Visit Summary'}
             </p>
@@ -1105,8 +1109,8 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = '
                 href={getWhatsAppLink(
                   summary.patient.phone,
                   lang === 'ar'
-                    ? `مركز الشفاء الطبي: ملخص زيارة المريض (${summary.patient.fullNameAr}).\nالتشخيص: ${summary.diagnosis}.\nالعلاج: ${summary.treatment}.\nالوصفة: ${(summary.prescriptions || []).map(p => `${p.drugNameAr} (${p.dosage}، ${p.duration}${p.instructionsAr || p.instructionsEn ? `، ${p.instructionsAr || p.instructionsEn}` : ''})`).join(', ')}.`
-                    : `Al-Shifa Clinic: Post-visit summary for ${summary.patient.fullNameEn}.\nDiagnosis: ${summary.diagnosis}.\nTreatment: ${summary.treatment}.\nPrescriptions: ${(summary.prescriptions || []).map(p => `${p.drugNameEn} (${p.dosage}, ${p.duration}${p.instructionsEn || p.instructionsAr ? `, ${p.instructionsEn || p.instructionsAr}` : ''})`).join(', ')}.`
+                    ? `${branding.displayNameAr}: ملخص زيارة المريض (${summary.patient.fullNameAr}).\nالتشخيص: ${summary.diagnosis}.\nالعلاج: ${summary.treatment}.\nالوصفة: ${(summary.prescriptions || []).map(p => `${p.drugNameAr} (${p.dosage}، ${p.duration}${p.instructionsAr || p.instructionsEn ? `، ${p.instructionsAr || p.instructionsEn}` : ''})`).join(', ')}.`
+                    : `${branding.displayNameEn}: Post-visit summary for ${summary.patient.fullNameEn}.\nDiagnosis: ${summary.diagnosis}.\nTreatment: ${summary.treatment}.\nPrescriptions: ${(summary.prescriptions || []).map(p => `${p.drugNameEn} (${p.dosage}, ${p.duration}${p.instructionsEn || p.instructionsAr ? `, ${p.instructionsEn || p.instructionsAr}` : ''})`).join(', ')}.`
                 )}
                 target="_blank"
                 rel="noopener noreferrer"

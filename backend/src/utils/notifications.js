@@ -3,6 +3,7 @@ import prisma from '../db.js';
 import { logger } from './logger.js';
 import { readSmtpConfig } from './smtpConfig.js';
 import { maskPhone } from './patientIdentity.js';
+import { escapeHtmlText, getFacilityBranding } from './facilityBranding.js';
 
 export function smtpTransport(config = readSmtpConfig()) {
   if (!config) return null;
@@ -170,8 +171,9 @@ export async function sendBookingConfirmation(appointment) {
   const { patient, doctor, appointmentDate, appointmentTime, id } = appointment;
   const patientPhone = patient?.phone;
 
-  const smsTextEn = `Al-Shifa Clinic: Appointment request received for ${doctor?.fullNameEn || 'Doctor'} on ${appointmentDate} at ${appointmentTime}. Status: PENDING APPROVAL. Ticket #${id.substring(0, 8).toUpperCase()}`;
-  const smsTextAr = `مركز الشفاء الطبي: تم استلام طلب موعدك مع ${doctor?.fullNameAr || 'الطبيب'} بتاريخ ${appointmentDate} الساعة ${appointmentTime}. الحالة: قيد المراجعة والتأكيد. رقم التذكرة #${id.substring(0, 8).toUpperCase()}`;
+  const branding = getFacilityBranding();
+  const smsTextEn = `${branding.displayNameEn}: Appointment request received for ${doctor?.fullNameEn || 'Doctor'} on ${appointmentDate} at ${appointmentTime}. Status: PENDING APPROVAL. Ticket #${id.substring(0, 8).toUpperCase()}`;
+  const smsTextAr = `${branding.displayNameAr}: تم استلام طلب موعدك مع ${doctor?.fullNameAr || 'الطبيب'} بتاريخ ${appointmentDate} الساعة ${appointmentTime}. الحالة: قيد المراجعة والتأكيد. رقم التذكرة #${id.substring(0, 8).toUpperCase()}`;
 
   const whatsAppLinkAr = getWhatsAppLink({ phone: patientPhone, message: smsTextAr });
   const whatsAppLinkEn = getWhatsAppLink({ phone: patientPhone, message: smsTextEn });
@@ -190,10 +192,10 @@ export async function sendBookingConfirmation(appointment) {
       });
       const recipientEmail = recipient?.user?.email;
       if (recipientEmail) {
-        const emailSubject = `Appointment Request Pending - Al-Shifa Medical Center`;
+        const emailSubject = `Appointment Request Pending - ${branding.displayNameEn}`;
         const emailHtml = `
           <div style="font-family: Arial, sans-serif; padding: 20px; color: #1f2937;">
-            <h2 style="color: #0d9488;">Al-Shifa Medical Center / مركز الشفاء الطبي</h2>
+            <h2 style="color: #0d9488;">${escapeHtmlText(branding.displayNameEn)} / ${escapeHtmlText(branding.displayNameAr)}</h2>
             <p>Dear <strong>${patient?.fullNameEn || patient?.fullNameAr}</strong>,</p>
             <p>Your appointment request is currently <strong>PENDING APPROVAL</strong> by our reception team.</p>
             <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
@@ -223,30 +225,31 @@ export async function sendBookingConfirmation(appointment) {
 export async function sendStatusUpdateNotification(appointment, status) {
   const { patient, doctor, appointmentDate, appointmentTime, id } = appointment;
   const patientPhone = patient?.phone;
+  const branding = getFacilityBranding();
 
   let messageEn = '';
   let messageAr = '';
 
   switch (status) {
     case 'CONFIRMED':
-      messageEn = `Al-Shifa Clinic: Your appointment with ${doctor?.fullNameEn} on ${appointmentDate} at ${appointmentTime} is CONFIRMED. Ticket #${id.substring(0, 8).toUpperCase()}`;
-      messageAr = `مركز الشفاء الطبي: تم تأكيد موعدك بنجاح مع ${doctor?.fullNameAr} بتاريخ ${appointmentDate} الساعة ${appointmentTime}. رقم التذكرة #${id.substring(0, 8).toUpperCase()}`;
+      messageEn = `${branding.displayNameEn}: Your appointment with ${doctor?.fullNameEn} on ${appointmentDate} at ${appointmentTime} is CONFIRMED. Ticket #${id.substring(0, 8).toUpperCase()}`;
+      messageAr = `${branding.displayNameAr}: تم تأكيد موعدك بنجاح مع ${doctor?.fullNameAr} بتاريخ ${appointmentDate} الساعة ${appointmentTime}. رقم التذكرة #${id.substring(0, 8).toUpperCase()}`;
       break;
     case 'CHECKED_IN':
-      messageEn = `Al-Shifa Clinic: You are checked in for your appointment with ${doctor?.fullNameEn}. Please wait in the lounge.`;
-      messageAr = `مركز الشفاء الطبي: تم تسجيل دخولك لموعدك مع ${doctor?.fullNameAr}. يرجى الانتظار في صالة الانتظار.`;
+      messageEn = `${branding.displayNameEn}: You are checked in for your appointment with ${doctor?.fullNameEn}. Please wait in the lounge.`;
+      messageAr = `${branding.displayNameAr}: تم تسجيل دخولك لموعدك مع ${doctor?.fullNameAr}. يرجى الانتظار في صالة الانتظار.`;
       break;
     case 'IN_CONSULTATION':
-      messageEn = `Al-Shifa Clinic: It's your turn! Please proceed to ${doctor?.fullNameEn}'s office.`;
-      messageAr = `مركز الشفاء الطبي: حان دورك! يرجى التوجه لعيادة ${doctor?.fullNameAr}.`;
+      messageEn = `${branding.displayNameEn}: It's your turn! Please proceed to ${doctor?.fullNameEn}'s office.`;
+      messageAr = `${branding.displayNameAr}: حان دورك! يرجى التوجه لعيادة ${doctor?.fullNameAr}.`;
       break;
     case 'COMPLETED':
-      messageEn = `Al-Shifa Clinic: Your visit with ${doctor?.fullNameEn} is complete. Thank you for visiting Al-Shifa Medical Center!`;
-      messageAr = `مركز الشفاء الطبي: انتهت زيارتك مع ${doctor?.fullNameAr}. شكراً لزيارتك مركز الشفاء الطبي!`;
+      messageEn = `${branding.displayNameEn}: Your visit with ${doctor?.fullNameEn} is complete. Thank you for visiting ${branding.displayNameEn}!`;
+      messageAr = `${branding.displayNameAr}: انتهت زيارتك مع ${doctor?.fullNameAr}. شكراً لزيارتك ${branding.displayNameAr}!`;
       break;
     case 'CANCELLED':
-      messageEn = `Al-Shifa Clinic: Your appointment on ${appointmentDate} at ${appointmentTime} has been cancelled.`;
-      messageAr = `مركز الشفاء الطبي: تم إلغاء موعدك بتاريخ ${appointmentDate} الساعة ${appointmentTime}.`;
+      messageEn = `${branding.displayNameEn}: Your appointment on ${appointmentDate} at ${appointmentTime} has been cancelled.`;
+      messageAr = `${branding.displayNameAr}: تم إلغاء موعدك بتاريخ ${appointmentDate} الساعة ${appointmentTime}.`;
       break;
     default:
       return null;

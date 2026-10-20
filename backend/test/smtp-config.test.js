@@ -26,6 +26,12 @@ test('SMTP configuration trims surrounding spaces and preserves valid values', (
   assert.equal(readSmtpConfig(valid, { required: true }).pass, valid.SMTP_PASS);
 });
 
+test('default SMTP sender name follows the configured facility and defaults to Shifa', () => {
+  assert.equal(readSmtpConfig(valid, { required: true }).fromName, 'Shifa');
+  assert.equal(readSmtpConfig({ ...valid, FACILITY_NAME_EN: 'Care Centre' }, { required: true }).fromName, 'Care Centre');
+  assert.equal(readSmtpConfig({ ...valid, FACILITY_NAME_EN: 'Care Centre', SMTP_FROM_NAME: 'Mail Desk' }, { required: true }).fromName, 'Mail Desk');
+});
+
 for (const [name, value] of [
   ['SMTP_USER', 'synthetic\nuser'],
   ['SMTP_USER', 'synthetic\ruser'],

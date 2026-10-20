@@ -1,16 +1,8 @@
-# React + Vite
+# Shifa frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+This React application is the bilingual web client for Shifa, the Healthcare Facility Management
+System. The configured institution names are served by the backend public configuration endpoint.
+Set `FACILITY_NAME_AR` and `FACILITY_NAME_EN` in the deployment environment to brand the interface;
+when either is unset, that language uses the Shifa product name.
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+Run `npm test`, `npm run lint`, and `npm run build` from this directory for local verification.

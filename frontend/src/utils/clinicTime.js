@@ -1,13 +1,22 @@
+import { DEFAULT_BRANDING } from '../app/branding/brandingConfig.js';
+
 let backendClinicTimeZone = import.meta.env?.VITE_CLINIC_TIME_ZONE || 'Africa/Khartoum';
 export let CLINIC_TIME_ZONE = backendClinicTimeZone;
+
+let publicConfig = { ...DEFAULT_BRANDING };
+
+export function getPublicConfig() { return publicConfig; }
 
 export async function loadClinicTimeZone() {
   try {
     const response = await fetch('/api/public-config', { headers: { Accept: 'application/json' } });
     const config = await response.json();
-    if (response.ok && typeof config.clinicTimeZone === 'string' && config.clinicTimeZone) {
-      backendClinicTimeZone = config.clinicTimeZone;
-      CLINIC_TIME_ZONE = backendClinicTimeZone;
+    if (response.ok && config && typeof config === 'object') {
+      publicConfig = { ...DEFAULT_BRANDING, ...config };
+      if (typeof config.clinicTimeZone === 'string' && config.clinicTimeZone) {
+        backendClinicTimeZone = config.clinicTimeZone;
+        CLINIC_TIME_ZONE = backendClinicTimeZone;
+      }
     }
   } catch { /* retain development fallback when API is unavailable */ }
   return CLINIC_TIME_ZONE;

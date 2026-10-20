@@ -10,8 +10,11 @@ import { staffApiRequest as apiRequest } from '../../services/apiClient';
 import MedicineCombobox from './MedicineCombobox';
 import { doctorPrescriptionItem, duplicatePrescriptionItem, validateDoctorPrescriptionEntry } from '../../utils/doctorPrescription';
 import './doctorDashboard.css';
+import { useFacilityBranding } from '../../app/branding/FacilityBrandingContext.js';
+import FacilityIdentityLine from '../../components/FacilityIdentityLine';
 
 export default function DoctorDashboard({ user, lang, t }) {
+  const branding = useFacilityBranding();
   const [queue, setQueue] = useState([]);
   const [filterDate, setFilterDate] = useState(clinicDateString());
   const [selectedPatient, setSelectedPatient] = useState(null);
@@ -872,8 +875,8 @@ export default function DoctorDashboard({ user, lang, t }) {
                                       href={getWhatsAppLink(
                                         selectedPatient.phone,
                                         lang === 'ar'
-                                          ? `مركز الشفاء الطبي - ملخص الزيارة:\nالتشخيص: ${rec.diagnosis}\nالعلاج: ${rec.treatment}`
-                                          : `Al-Shifa Clinic - Visit Summary:\nDiagnosis: ${rec.diagnosis}\nTreatment: ${rec.treatment}`
+                                          ? `${branding.displayNameAr} - ملخص الزيارة:\nالتشخيص: ${rec.diagnosis}\nالعلاج: ${rec.treatment}`
+                                          : `${branding.displayNameEn} - Visit Summary:\nDiagnosis: ${rec.diagnosis}\nTreatment: ${rec.treatment}`
                                       )}
                                       target="_blank"
                                       rel="noopener noreferrer"
@@ -1110,6 +1113,7 @@ export default function DoctorDashboard({ user, lang, t }) {
 
                     {/* Prescription Builder */}
                     <section className="doctor-clinical-section doctor-prescription-section" aria-labelledby="doctor-prescription-title">
+                      <FacilityIdentityLine language={lang} />
                       <h3 className="doctor-clinical-section__title" id="doctor-prescription-title">
                         <Sliders size={16} color="var(--primary)" />
                         {lang === 'ar' ? 'الوصفة الطبية السريعة' : 'Rapid Prescription Builder'}

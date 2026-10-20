@@ -101,7 +101,17 @@ app.get(['/api/health', '/api/health/ready'], async (req, res) => {
   }
 });
 
-app.get('/api/public-config', (req, res) => res.json({ clinicTimeZone: environment.clinicTimeZone }));
+app.get('/api/public-config', (req, res) => res.json({
+  clinicTimeZone: environment.clinicTimeZone,
+  productNameAr: environment.facilityBranding.productNameAr,
+  productNameEn: environment.facilityBranding.productNameEn,
+  productDescriptorAr: environment.facilityBranding.productDescriptorAr,
+  productDescriptorEn: environment.facilityBranding.productDescriptorEn,
+  facilityNameAr: environment.facilityBranding.facilityNameAr,
+  facilityNameEn: environment.facilityBranding.facilityNameEn,
+  displayNameAr: environment.facilityBranding.displayNameAr,
+  displayNameEn: environment.facilityBranding.displayNameEn
+}));
 
 // Mount modular API routes
 app.use('/api/auth', authRoutes);

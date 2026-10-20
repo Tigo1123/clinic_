@@ -1,4 +1,4 @@
-# CMS deployment guide
+# Shifa deployment guide
 
 This is the authoritative guide for shared deployment, configuration, authentication, and recovery behavior at this repository revision. The [LAN runbook](deploy/lan/README.md) adds site-specific roles, TLS, bootstrap, signed backup, disposable restore, and acceptance instructions. [Operations](OPERATIONS.md), the [production checklist](PRODUCTION_CHECKLIST.md), and [staging acceptance](STAGING_QA_CHECKLIST.md) supplement this guide.
 
@@ -79,6 +79,8 @@ JWT_SECRET=<unique-random-signing-secret-at-least-32-characters>
 MEDICAL_ENCRYPTION_KEY=<independent-random-medical-key-at-least-32-characters>
 MFA_ENCRYPTION_KEY=<independent-random-mfa-key-at-least-32-characters>
 CLINIC_TIME_ZONE=Africa/Khartoum
+FACILITY_NAME_AR=<optional institution name in Arabic>
+FACILITY_NAME_EN=<optional institution name in English>
 CORS_ALLOWED_ORIGINS=https://<clinic-hostname>
 VERIFICATION_PROVIDER=disabled
 PHONE_VERIFICATION_PROVIDER=disabled
@@ -95,7 +97,8 @@ TRUST_PROXY=true
 | --- | --- |
 | `JWT_EXPIRES_IN` | `30m` when absent; access-token lifetime. Tracked backend/LAN examples specify `8h`. See the session section before choosing a policy. |
 | `JWT_ISSUER`, `JWT_AUDIENCE` | `clinic-api`, `clinic-application`; keep consistent across token issuers/verifiers. |
-| `MFA_TOTP_ISSUER` | `Clinic Management System`; authenticator label, not a replacement for `MFA_ENCRYPTION_KEY`. |
+| `FACILITY_NAME_AR`, `FACILITY_NAME_EN` | Optional display names for the facility. Values are trimmed, limited to 120 characters, and reject control characters; missing language values fall back to Shifa. Both Compose deployments pass them to the backend/public-config endpoint. |
+| `MFA_TOTP_ISSUER` | `Clinic Management System`; deliberately retained for enrolled authenticator compatibility. Do not change this technical issuer as part of display rebranding. |
 | `SOCKET_REVOCATION_RECONCILE_MS` | `10000`; account-state reconciliation interval. |
 | `SOCKET_REVOCATION_UNHEALTHY_GRACE_MS` | `15000`; listener outage grace before existing sockets are disconnected. Both timing values must be positive integers. |
 | `PORT`, `UPLOAD_DIR`, `UPLOAD_MAX_BYTES` | `5000`, backend `./uploads`, `10485760` bytes respectively; containers map uploads to `/app/uploads`. Make uploads writable by the runtime user and durable. |
@@ -107,7 +110,7 @@ TRUST_PROXY=true
 | `RATE_LIMIT_LOGIN_MAX`, `RATE_LIMIT_REGISTRATION_MAX`, `RATE_LIMIT_VERIFICATION_MAX`, `RATE_LIMIT_CLAIM_MAX`, `RATE_LIMIT_ADMIN_RESET_MAX` | `10` normally; code uses `100` in test mode unless explicitly configured. In-memory limits are not a distributed global limiter. |
 | `GOOGLE_CLIENT_ID` | Optional Google web client ID; no default. Client ID is public configuration, not a credential. See limitations. |
 
-Email mode additionally requires `NOTIFICATIONS_DISABLED=false`, `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM_EMAIL` (preferred) or legacy fallback `SMTP_FROM`. `SMTP_PORT` defaults to `587`, `SMTP_SECURE` is true only for literal `true`, `SMTP_FROM_NAME` defaults to `Al-Shifa Medical Clinic`, and `SMTP_CONNECTION_TIMEOUT_MS` to `10000`. The SMTP parser trims values and rejects control characters and surrounding quote characters in credential/sender values; provide actual values through the environment, not literal quotes copied into platform fields. Validate delivery to an approved inbox separately.
+Email mode additionally requires `NOTIFICATIONS_DISABLED=false`, `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM_EMAIL` (preferred) or legacy fallback `SMTP_FROM`. `SMTP_PORT` defaults to `587`, `SMTP_SECURE` is true only for literal `true`, `SMTP_FROM_NAME` defaults to the configured English facility name or Shifa, and `SMTP_CONNECTION_TIMEOUT_MS` to `10000`. The SMTP parser trims values and rejects control characters and surrounding quote characters in credential/sender values; provide actual values through the environment, not literal quotes copied into platform fields. Validate delivery to an approved inbox separately.
 
 ### Compose forwarding and example-file gaps
 
@@ -119,7 +122,9 @@ A variable in a host environment/example is **not automatically passed into a co
 - General Compose uses a shared database account for initialization/runtime, publishes backend port 5000, and does not run migrations or install an administrator. Review least privilege and remove/restrict direct API exposure before clinical deployment.
 - The backend example's test URL/comment predates the current runner. Automated tests now require **clinic-test-db at localhost:5433/clinic_test**, with per-file isolated schemas; never use clinic_dev or an application database. See [runner](backend/test/helpers/testRunner.js). Test setup is not an operational installation recipe.
 
-These are documented configuration gaps; this change does not alter Compose files or environment examples.
+The facility display names are runtime backend values, not Vite build arguments. The frontend reads them from the safe `/api/public-config` response, so changing them requires recreating the backend and does not alter identity, API, storage, or database contracts.
+
+Technical names remain intentionally stable: Compose service/container names (`cms-backend`, `cms-frontend`, `postgres`), database names and connection URL contracts, API routes, JWT issuer/audience (`clinic-api` / `clinic-application`), the MFA authenticator issuer (`Clinic Management System`), browser storage keys (`cms_*` and `alshifa_theme`), migration history, and LAN service/volume identifiers. A future technical rename needs a separately reviewed compatibility and migration plan for existing tokens, authenticator enrollments, browser sessions/preferences, persisted data, deployment scripts, and external integrations; display branding does not rename these identifiers.
 
 ## Frontend build configuration
 

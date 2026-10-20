@@ -5,6 +5,7 @@ import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
 import { encrypt, decrypt, isClinicalDataDecryptionError } from '../utils/encryption.js';
 import { sendEmail } from '../utils/notifications.js';
+import { escapeHtmlText, getFacilityBranding } from '../utils/facilityBranding.js';
 import { allowRoles, ROLES, doctorHasPatientAccess } from '../middleware/policies.js';
 import { sendError } from '../utils/apiError.js';
 import { z } from 'zod';
@@ -2494,6 +2495,7 @@ router.post('/:id/send-summary', authenticate, allowRoles(ROLES.DOCTOR), validat
       return sendError(res, 409, 'PATIENT_VERIFIED_EMAIL_REQUIRED', 'A verified patient email address is required to send the visit summary.');
     }
     const recipientEmail = patientUser.email;
+    const branding = getFacilityBranding();
     const diagnosis = decrypt(record.diagnosisEncrypted);
     const treatment = decrypt(record.treatmentEncrypted);
     const vitals = JSON.parse(record.vitalSignsJson || '{}');
@@ -2505,7 +2507,7 @@ router.post('/:id/send-summary', authenticate, allowRoles(ROLES.DOCTOR), validat
 
     const htmlContent = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: 24px; color: #1f2937;">
-        <h2 style="color: #0d9488; text-align: center; border-bottom: 2px solid #0d9488; padding-bottom: 10px;">Al-Shifa Medical Center<br/><span style="font-size:16px;">Visit Summary</span></h2>
+        <h2 style="color: #0d9488; text-align: center; border-bottom: 2px solid #0d9488; padding-bottom: 10px;">${escapeHtmlText(branding.displayNameEn)} / ${escapeHtmlText(branding.displayNameAr)}<br/><span style="font-size:16px;">Visit Summary</span></h2>
         
         <p><strong>Patient Name:</strong> ${record.patient.fullNameEn} (${record.patient.fullNameAr})</p>
         <p><strong>Attending Doctor:</strong> ${record.doctor.fullNameEn} - ${record.doctor.specialtyEn}</p>
@@ -2524,13 +2526,13 @@ router.post('/:id/send-summary', authenticate, allowRoles(ROLES.DOCTOR), validat
 
         ${drugsListHtml ? `<h4 style="color: #0369a1; margin-bottom: 8px;">Prescribed Medications</h4><ul>${drugsListHtml}</ul>` : ''}
 
-        <p style="text-align: center; font-size: 12px; color: #6b7280; margin-top: 24px;">Al-Shifa Medical Center - Khartoum, Sudan. Phone: +249 91 234 5678</p>
+        <p style="text-align: center; font-size: 12px; color: #6b7280; margin-top: 24px;">${escapeHtmlText(branding.displayNameEn)} / ${escapeHtmlText(branding.displayNameAr)}</p>
       </div>
     `;
 
     const delivery = await sendEmail({
       to: recipientEmail,
-      subject: `Post-Visit Summary - Al-Shifa Medical Center`,
+      subject: `Post-Visit Summary - ${branding.displayNameEn}`,
       text: `Visit summary for ${record.patient.fullNameEn}. Diagnosis: ${diagnosis}. Treatment: ${treatment}`,
       html: htmlContent
     });

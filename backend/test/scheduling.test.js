@@ -114,8 +114,13 @@ test('legacy parser fails closed for malformed, duplicate, invalid, and zero-dur
 test('public timezone configuration exposes only the safe contract', async () => {
   const response = await request(app).get('/api/public-config');
   assert.equal(response.status, 200);
-  assert.deepEqual(Object.keys(response.body), ['clinicTimeZone']);
+  assert.deepEqual(Object.keys(response.body), [
+    'clinicTimeZone', 'productNameAr', 'productNameEn', 'productDescriptorAr',
+    'productDescriptorEn', 'facilityNameAr', 'facilityNameEn', 'displayNameAr', 'displayNameEn'
+  ]);
   assert.equal(typeof response.body.clinicTimeZone, 'string');
+  assert.equal(response.body.displayNameAr, 'شفاء');
+  assert.equal(response.body.displayNameEn, 'Shifa');
   assert.equal(Object.hasOwn(response.body, 'DATABASE_URL'), false);
 });
 
