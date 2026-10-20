@@ -265,6 +265,21 @@ test('authenticated phone verification has a separate owner-bound endpoint and n
   assert.ok((await prisma.user.findUnique({ where: { id: user.id } })).phoneVerifiedAt);
 });
 
+test('failed mocked phone delivery invalidates its challenge and cannot verify the phone', async () => {
+  const pending = await account('PENDING_VERIFICATION');
+  await prisma.user.update({ where: { id: pending.user.id }, data: { status: 'ACTIVE' } });
+  const active = await prisma.user.findUnique({ where: { id: pending.user.id } });
+  await assert.rejects(
+    createVerificationChallenge(active, 'PHONE', active.phoneNormalized, {
+      phoneDelivery: async () => { throw new Error('synthetic provider secret and OTP'); }
+    }),
+    { code: 'VERIFICATION_DELIVERY_FAILED', status: 503 }
+  );
+  const challenge = await prisma.verificationChallenge.findFirst({ where: { userId: active.id, type: 'PHONE' }, orderBy: { createdAt: 'desc' } });
+  assert.ok(challenge?.usedAt);
+  assert.equal((await prisma.user.findUnique({ where: { id: active.id } })).phoneVerifiedAt, null);
+});
+
 test('phone change invalidates previous identity challenges even if the target later returns to its original value', async () => {
   const { user, token } = await account();
   await prisma.user.update({ where: { id: user.id }, data: { emailVerifiedAt: new Date() } });

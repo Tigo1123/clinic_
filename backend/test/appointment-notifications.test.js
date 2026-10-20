@@ -122,10 +122,11 @@ for (const loggingFails of [false, true]) {
   test(`delivery failure preserves HTTP booking success and committed appointment (log failure: ${loggingFails})`, async () => {
     delivery({ fail: true });
     const p = await patient(`failure-${loggingFails}@example.invalid`);
-    // SMS has no delivery provider. Mock its log too; no real messaging occurs.
+    // SMS has no delivery provider. A failed SMS log must also remain
+    // contained after the booking transaction; no real messaging occurs.
     const createLog = prisma.notificationLog.create.bind(prisma.notificationLog);
     mockPrismaMethod(prisma.notificationLog, 'create', async args => {
-      if (args.data.messageType === 'SMS') return { id: 'mock-sms-log' };
+      if (args.data.messageType === 'SMS') throw new Error('simulated SMS-log failure');
       if (loggingFails) throw new Error('simulated email-log failure');
       return createLog(args);
     });
@@ -145,8 +146,40 @@ for (const loggingFails of [false, true]) {
     assert.equal(stored.status, 'PENDING');
     assert.equal(booked.body.patient?.user, undefined);
     assert.equal(JSON.stringify(booked.body).includes('@example.invalid'), false);
+    const replay = await request(app).post('/api/appointments/book').send({
+      ...parts, gender: p.gender, dateOfBirth: p.dateOfBirth, nationalId: p.nationalId,
+      phone: p.phone, addressStateId: 1, doctorId: doctor.id,
+      appointmentDate: '2099-01-05', appointmentTime: time, otpCode: otp.body.developmentCode
+    });
+    assert.equal(replay.status, 400);
   });
 }
+
+test('pre-commit booking failure releases only its reservation so a valid retry can proceed', async () => {
+  const p = await patient('precommit@example.invalid');
+  const otp = await request(app).post('/api/appointments/otp/request').send({ phone: p.phone });
+  assert.equal(otp.status, 200);
+  const base = { ...parts, gender: p.gender, dateOfBirth: p.dateOfBirth, nationalId: p.nationalId, phone: p.phone, addressStateId: 1, doctorId: doctor.id, appointmentDate: '2099-01-12', otpCode: otp.body.developmentCode };
+  const invalid = await request(app).post('/api/appointments/book').send({ ...base, appointmentTime: '14:00' });
+  assert.equal(invalid.status, 422);
+  const valid = await request(app).post('/api/appointments/book').send({ ...base, appointmentTime: '09:00' });
+  assert.equal(valid.status, 201);
+  const replay = await request(app).post('/api/appointments/book').send({ ...base, appointmentTime: '09:30' });
+  assert.equal(replay.status, 400);
+});
+
+test('concurrent public booking attempts cannot reuse the same OTP for two appointments', async () => {
+  const p = await patient('concurrent-otp@example.invalid');
+  const otp = await request(app).post('/api/appointments/otp/request').send({ phone: p.phone });
+  assert.equal(otp.status, 200);
+  const payload = (time) => ({ ...parts, gender: p.gender, dateOfBirth: p.dateOfBirth, nationalId: p.nationalId, phone: p.phone, addressStateId: 1, doctorId: doctor.id, appointmentDate: '2099-01-19', appointmentTime: time, otpCode: otp.body.developmentCode });
+  const responses = await Promise.all([
+    request(app).post('/api/appointments/book').send(payload('09:00')),
+    request(app).post('/api/appointments/book').send(payload('09:30'))
+  ]);
+  assert.deepEqual(responses.map(({ status }) => status).sort(), [201, 400]);
+  assert.equal(await prisma.appointment.count({ where: { patientId: p.id, appointmentDate: '2099-01-19' } }), 1);
+});
 test('status notifications retain existing SMS/WhatsApp behavior without adding email', async () => {
   const transport = delivery();
   const p = await patient('status@example.invalid');

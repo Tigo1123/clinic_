@@ -7089,6 +7089,16 @@ test('public booking reuses only a strong exact identity and rejects mismatched 
     nationalId, phone, addressStateId: 1, emergencyContact: 'Self'
   } });
   const otp = await api.post('/api/appointments/otp/request').send({ phone });
+  const mismatched = await api.post('/api/appointments/book').send({
+    ...firstSlot, ...structuredPatientName('mismatch'), gender: 'FEMALE',
+    dateOfBirth: '1999-09-09', nationalId, phone, addressStateId: 1, otpCode: otp.body.developmentCode
+  });
+  assert.equal(mismatched.status, 409);
+  assert.equal(mismatched.body.error.code, 'PATIENT_IDENTITY_REVIEW_REQUIRED');
+  assert.doesNotMatch(JSON.stringify(mismatched.body), new RegExp(existing.id));
+
+  // The failed identity review releases this request's reservation. Reuse the
+  // same code instead of requesting another code inside the resend cooldown.
   const matched = await api.post('/api/appointments/book').send({
     ...firstSlot, ...structuredPatientName('strongmatch'), gender: existing.gender,
     dateOfBirth: existing.dateOfBirth, nationalId: nationalId.toLowerCase(), phone, addressStateId: 1, otpCode: otp.body.developmentCode
@@ -7097,16 +7107,6 @@ test('public booking reuses only a strong exact identity and rejects mismatched 
   assert.equal(Object.hasOwn(matched.body, 'patientId'), false);
   assert.equal((await prisma.appointment.findUnique({ where: { id: matched.body.id } })).patientId, existing.id);
   assert.equal(await prisma.patient.count({ where: { nationalId } }), 1);
-
-  const secondSlot = await findAvailableAppointmentSlot(doctor1.id);
-  const otp2 = await api.post('/api/appointments/otp/request').send({ phone });
-  const mismatched = await api.post('/api/appointments/book').send({
-    ...secondSlot, ...structuredPatientName('mismatch'), gender: 'FEMALE',
-    dateOfBirth: '1999-09-09', nationalId, phone, addressStateId: 1, otpCode: otp2.body.developmentCode
-  });
-  assert.equal(mismatched.status, 409);
-  assert.equal(mismatched.body.error.code, 'PATIENT_IDENTITY_REVIEW_REQUIRED');
-  assert.doesNotMatch(JSON.stringify(mismatched.body), new RegExp(existing.id));
 });
 
 test('emergency override and transfer cannot reopen terminal appointments', async () => {
@@ -7123,6 +7123,7 @@ test('emergency override and transfer cannot reopen terminal appointments', asyn
 test('concurrent booking allows exactly one reservation per active doctor slot', async () => {
   const date = '2030-01-13';
   const phone = `+24994${String(++fixtureCounter).padStart(7, '0').slice(-7)}`;
+  const secondPhone = `+24995${String(++fixtureCounter).padStart(7, '0').slice(-7)}`;
   const nationalId = `PUBLIC-${String(++fixtureCounter).padStart(7, '0').slice(-7)}`;
   const patientNames = structuredPatientName('slotconcurrency');
   const existing = await prisma.patient.create({ data: {
@@ -7137,19 +7138,24 @@ test('concurrent booking allows exactly one reservation per active doctor slot',
     emergencyContact: 'Self'
   } });
   const otp = await api.post('/api/appointments/otp/request').send({ phone });
-  const payload = {
+  const secondOtp = await api.post('/api/appointments/otp/request').send({ phone: secondPhone });
+  assert.equal(secondOtp.status, 200);
+  const payload = (bookingPhone, bookingNationalId, otpCode) => ({
     doctorId: doctor1.id,
     appointmentDate: date,
     appointmentTime: '10:00',
     ...patientNames,
     gender: existing.gender,
     dateOfBirth: existing.dateOfBirth,
-    nationalId: nationalId.toLowerCase(),
-    phone,
+    nationalId: bookingNationalId.toLowerCase(),
+    phone: bookingPhone,
     addressStateId: 1,
-    otpCode: otp.body.developmentCode
-  };
-  const responses = await Promise.all([api.post('/api/appointments/book').send(payload), api.post('/api/appointments/book').send(payload)]);
+    otpCode
+  });
+  const responses = await Promise.all([
+    api.post('/api/appointments/book').send(payload(phone, nationalId, otp.body.developmentCode)),
+    api.post('/api/appointments/book').send(payload(secondPhone, `${nationalId}-SECOND`, secondOtp.body.developmentCode))
+  ]);
   assert.deepEqual(responses.map((r) => r.status).sort(), [201, 409]);
   const conflict = responses.find((response) => response.status === 409);
   assert.equal(conflict.body.error.code, 'APPOINTMENT_SLOT_UNAVAILABLE');
