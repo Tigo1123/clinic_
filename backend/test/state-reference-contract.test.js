@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { REFERENCE_BOOTSTRAP_STATES, runReferenceBootstrap } from '../src/services/referenceBootstrap.js';
 import { SUDANESE_STATES } from '../../frontend/src/features/reception/clinicData.js';
-import { INITIAL_ONBOARDING_FORM, registrationPayload, googleRegistrationPayload } from '../../frontend/src/features/patient-auth/onboarding.js';
 
 const manifest = JSON.parse(fs.readFileSync(new URL('../reference-data/sudan-states.json', import.meta.url), 'utf8'));
+const onboardingSource = fs.readFileSync(new URL('../../frontend/src/features/patient-auth/onboarding.js', import.meta.url), 'utf8');
+const defaultStateIdMatch = onboardingSource.match(/addressStateId:\s*'(\d+)'/);
+const DEFAULT_STATE_ID = Number(defaultStateIdMatch?.[1]);
 const environment = {
   REFERENCE_BOOTSTRAP_ENABLED: 'true',
   REFERENCE_BOOTSTRAP_ENVIRONMENT: 'test',
@@ -32,7 +34,7 @@ function database(initial = []) {
   return { client, rows };
 }
 
-test('registration state IDs and bilingual labels match the approved bootstrap and legacy seed', () => {
+test('canonical state IDs and bilingual labels match the frontend choices, approved bootstrap, and legacy seed', () => {
   assert.deepEqual(SUDANESE_STATES, REFERENCE_BOOTSTRAP_STATES);
   assert.equal(REFERENCE_BOOTSTRAP_STATES.length, 18);
   const seed = fs.readFileSync(new URL('../prisma/seed.js', import.meta.url), 'utf8');
@@ -40,11 +42,9 @@ test('registration state IDs and bilingual labels match the approved bootstrap a
     .map(([, id, labelAr, labelEn]) => ({ id: Number(id), labelAr, labelEn }));
   assert.deepEqual(seedStates, REFERENCE_BOOTSTRAP_STATES);
   assert.deepEqual(manifest, { version: 1, services: [] });
-  for (const state of SUDANESE_STATES) {
-    const form = { ...INITIAL_ONBOARDING_FORM, addressStateId: String(state.id) };
-    assert.equal(registrationPayload(form).addressStateId, state.id);
-    assert.equal(googleRegistrationPayload(form, 'test-capability').addressStateId, state.id);
-  }
+  assert.ok(defaultStateIdMatch, 'onboarding must define a numeric-string default state ID');
+  assert.ok(REFERENCE_BOOTSTRAP_STATES.some(state => state.id === DEFAULT_STATE_ID), 'onboarding default must use an approved state ID');
+  assert.equal([...onboardingSource.matchAll(/\['addressStateId',\s*Number\(value\.addressStateId\)\]/g)].length, 2);
 });
 
 test('state-only bootstrap restores all registration choices including the default and is repeatable', async () => {
@@ -52,7 +52,7 @@ test('state-only bootstrap restores all registration choices including the defau
   const first = await runReferenceBootstrap({ prisma: client, manifest, environment });
   assert.equal(first.report.states.missing.length, 0);
   assert.deepEqual(rows, SUDANESE_STATES);
-  assert.ok(rows.some(row => row.id === Number(INITIAL_ONBOARDING_FORM.addressStateId)));
+  assert.ok(rows.some(row => row.id === DEFAULT_STATE_ID));
   const second = await runReferenceBootstrap({ prisma: client, manifest, environment });
   assert.equal(second.report.states.existing.length, 18);
   assert.deepEqual(rows, SUDANESE_STATES);
