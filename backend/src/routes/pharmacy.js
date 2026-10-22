@@ -1,3 +1,5 @@
+import { addMoney, subtractMoney } from '../utils/money.js';
+import { activePaymentMethods } from '../services/paymentMethods.js';
 import express from 'express';
 import { asyncRouter } from '../utils/asyncRouter.js';
 import { z } from 'zod';
@@ -28,7 +30,6 @@ const router = asyncRouter();
 const readRoles = allowRoles(ROLES.PHARMACIST, ROLES.ADMIN);
 const pharmacistOnly = allowRoles(ROLES.PHARMACIST);
 const identityFields = ['brandName', 'genericName', 'strength', 'dosageForm'];
-const paymentMethods = ['CASH', 'CARD', 'BANKAK', 'FAWRY'];
 const prescriptionIdParamsSchema = z.object({ id: z.string().uuid() }).strict();
 
 function apiFailure(status, code, message) {
@@ -437,6 +438,8 @@ router.get('/formulary/:id/movements', authenticate, readRoles,
 router.get('/prescriptions/:id/payment-state', authenticate, readRoles,
   validate(prescriptionIdParamsSchema, 'params'), async (req, res, next) => {
     try {
+      const configuredPaymentMethods = await activePaymentMethods(prisma);
+      const paymentMethods = configuredPaymentMethods.map(method => method.code);
       const prescription = await prisma.prescription.findUnique({
         where: { id: req.params.id },
         select: {
@@ -490,7 +493,7 @@ router.get('/prescriptions/:id/payment-state', authenticate, readRoles,
               : 'Pharmacy invoice preparation is pending medication review or authoritative pricing.'
           },
           dispensingAllowed: false,
-          allowedPaymentMethods: paymentMethods
+          allowedPaymentMethods: paymentMethods, paymentMethodOptions: configuredPaymentMethods
         });
       }
       const totalAmountSdg = Number(invoice.totalAmountSdg);
@@ -505,11 +508,11 @@ router.get('/prescriptions/:id/payment-state', authenticate, readRoles,
           id: invoice.id,
           totalAmountSdg,
           paidAmountSdg,
-          outstandingAmountSdg: Math.max(0, totalAmountSdg - paidAmountSdg),
+          outstandingAmountSdg: Math.max(0, subtractMoney(totalAmountSdg, paidAmountSdg)),
           paymentStatus: invoice.paymentStatus
         },
         dispensingAllowed: invoice.paymentStatus === 'PAID',
-        allowedPaymentMethods: paymentMethods
+        allowedPaymentMethods: paymentMethods, paymentMethodOptions: configuredPaymentMethods
       });
     } catch (error) {
       return next(error);

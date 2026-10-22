@@ -1,0 +1,1551 @@
+{
+  "schemaChecksum": "a4e4598195eb740d590814c1b05780350321e432e5b21e3aaf1d55479a37713e",
+  "modelCount": 41,
+  "models": [
+    {
+      "name": "User",
+      "fields": [
+        "id                         String                  @id @default(uuid())",
+        "username                   String                  @unique",
+        "passwordHash               String",
+        "role                       String // ADMIN, RECEPTIONIST, DOCTOR, PHARMACIST, LAB_TECH",
+        "status                     String                  @default(\"ACTIVE\") // ACTIVE, INACTIVE",
+        "lastPasswordChange         DateTime?",
+        "authVersion                Int                     @default(0)",
+        "mustChangePassword         Boolean                 @default(false)",
+        "mfaSecret                  String?",
+        "mfaEnabled                 Boolean                 @default(false)",
+        "mfaConfiguration           MfaConfiguration?",
+        "mfaRecoveryCodes           MfaRecoveryCode[]",
+        "mfaChallenges              MfaChallenge[]",
+        "preferredLanguage          String                  @default(\"ar\") // ar, en",
+        "createdAt                  DateTime                @default(now())",
+        "doctor                     Doctor?",
+        "email                      String?                 @unique",
+        "phoneNormalized            String?                 @unique",
+        "emailVerifiedAt            DateTime?",
+        "phoneVerifiedAt            DateTime?",
+        "patient                    Patient?",
+        "externalIdentities         UserExternalIdentity[]",
+        "verificationChallenges     VerificationChallenge[]",
+        "issuedClaimCodes           PatientClaimCode[]      @relation(\"ClaimCodeIssuer\")",
+        "pendingPatientRegistration PatientRegistration?",
+        "processedRefunds           Refund[]                @relation(\"RefundOperator\")",
+        "stockMovements             StockMovement[]         @relation(\"StockMovementActor\")"
+      ],
+      "relationships": [
+        {
+          "field": "mfaConfiguration",
+          "target": "MfaConfiguration",
+          "cardinality": "optional",
+          "annotation": ""
+        },
+        {
+          "field": "mfaRecoveryCodes",
+          "target": "MfaRecoveryCode",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "mfaChallenges",
+          "target": "MfaChallenge",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "doctor",
+          "target": "Doctor",
+          "cardinality": "optional",
+          "annotation": ""
+        },
+        {
+          "field": "patient",
+          "target": "Patient",
+          "cardinality": "optional",
+          "annotation": ""
+        },
+        {
+          "field": "externalIdentities",
+          "target": "UserExternalIdentity",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "verificationChallenges",
+          "target": "VerificationChallenge",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "issuedClaimCodes",
+          "target": "PatientClaimCode",
+          "cardinality": "many",
+          "annotation": "@relation(\"ClaimCodeIssuer\")"
+        },
+        {
+          "field": "pendingPatientRegistration",
+          "target": "PatientRegistration",
+          "cardinality": "optional",
+          "annotation": ""
+        },
+        {
+          "field": "processedRefunds",
+          "target": "Refund",
+          "cardinality": "many",
+          "annotation": "@relation(\"RefundOperator\")"
+        },
+        {
+          "field": "stockMovements",
+          "target": "StockMovement",
+          "cardinality": "many",
+          "annotation": "@relation(\"StockMovementActor\")"
+        }
+      ]
+    },
+    {
+      "name": "State",
+      "fields": [
+        "id       Int       @id",
+        "labelAr  String",
+        "labelEn  String",
+        "patients Patient[]"
+      ],
+      "relationships": [
+        {
+          "field": "patients",
+          "target": "Patient",
+          "cardinality": "many",
+          "annotation": ""
+        }
+      ]
+    },
+    {
+      "name": "Doctor",
+      "fields": [
+        "id                 String                    @id @default(uuid())",
+        "userId             String                    @unique",
+        "user               User                      @relation(fields: [userId], references: [id], onDelete: Cascade)",
+        "fullNameAr         String",
+        "fullNameEn         String",
+        "specialtyAr        String",
+        "specialtyEn        String",
+        "specialtyId        String?",
+        "specialty          Specialty?                @relation(fields: [specialtyId], references: [id], onDelete: Restrict)",
+        "consultationFee    Decimal",
+        "weeklySchedule     String // JSON config of slots & hours",
+        "status             String                    @default(\"ACTIVE\") // ACTIVE, INACTIVE",
+        "updatedAt          DateTime                  @updatedAt",
+        "appointments       Appointment[]",
+        "medicalRecords     MedicalRecord[]",
+        "prescriptions      Prescription[]",
+        "labOrders          LabOrder[]",
+        "schedules          DoctorSchedule[]",
+        "scheduleExceptions DoctorScheduleException[]"
+      ],
+      "relationships": [
+        {
+          "field": "user",
+          "target": "User",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [userId], references: [id], onDelete: Cascade)"
+        },
+        {
+          "field": "specialty",
+          "target": "Specialty",
+          "cardinality": "optional",
+          "annotation": "@relation(fields: [specialtyId], references: [id], onDelete: Restrict)"
+        },
+        {
+          "field": "appointments",
+          "target": "Appointment",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "medicalRecords",
+          "target": "MedicalRecord",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "prescriptions",
+          "target": "Prescription",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "labOrders",
+          "target": "LabOrder",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "schedules",
+          "target": "DoctorSchedule",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "scheduleExceptions",
+          "target": "DoctorScheduleException",
+          "cardinality": "many",
+          "annotation": ""
+        }
+      ]
+    },
+    {
+      "name": "DoctorSchedule",
+      "fields": [
+        "id            String                 @id @default(uuid())",
+        "doctorId      String",
+        "doctor        Doctor                 @relation(fields: [doctorId], references: [id], onDelete: Cascade)",
+        "effectiveFrom String",
+        "effectiveTo   String?",
+        "active        Boolean                @default(true)",
+        "createdAt     DateTime               @default(now())",
+        "updatedAt     DateTime               @updatedAt",
+        "periods       DoctorSchedulePeriod[]",
+        "@@index([doctorId, effectiveFrom, effectiveTo])",
+        "@@index([doctorId, active])"
+      ],
+      "relationships": [
+        {
+          "field": "doctor",
+          "target": "Doctor",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [doctorId], references: [id], onDelete: Cascade)"
+        },
+        {
+          "field": "periods",
+          "target": "DoctorSchedulePeriod",
+          "cardinality": "many",
+          "annotation": ""
+        }
+      ]
+    },
+    {
+      "name": "DoctorSchedulePeriod",
+      "fields": [
+        "id                  String                @id @default(uuid())",
+        "scheduleId          String",
+        "schedule            DoctorSchedule        @relation(fields: [scheduleId], references: [id], onDelete: Cascade)",
+        "dayOfWeek           ScheduleDayOfWeek",
+        "startTime           String",
+        "endTime             String",
+        "slotDurationMinutes Int",
+        "active              Boolean               @default(true)",
+        "createdAt           DateTime              @default(now())",
+        "updatedAt           DateTime              @updatedAt",
+        "breaks              DoctorScheduleBreak[]",
+        "@@index([scheduleId, dayOfWeek, active])"
+      ],
+      "relationships": [
+        {
+          "field": "schedule",
+          "target": "DoctorSchedule",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [scheduleId], references: [id], onDelete: Cascade)"
+        },
+        {
+          "field": "breaks",
+          "target": "DoctorScheduleBreak",
+          "cardinality": "many",
+          "annotation": ""
+        }
+      ]
+    },
+    {
+      "name": "DoctorScheduleBreak",
+      "fields": [
+        "id        String               @id @default(uuid())",
+        "periodId  String",
+        "period    DoctorSchedulePeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)",
+        "startTime String",
+        "endTime   String",
+        "active    Boolean              @default(true)",
+        "createdAt DateTime             @default(now())",
+        "updatedAt DateTime             @updatedAt",
+        "@@index([periodId, active])"
+      ],
+      "relationships": [
+        {
+          "field": "period",
+          "target": "DoctorSchedulePeriod",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [periodId], references: [id], onDelete: Cascade)"
+        }
+      ]
+    },
+    {
+      "name": "DoctorScheduleException",
+      "fields": [
+        "id        String                          @id @default(uuid())",
+        "doctorId  String",
+        "doctor    Doctor                          @relation(fields: [doctorId], references: [id], onDelete: Cascade)",
+        "date      String",
+        "type      String",
+        "reason    String?",
+        "active    Boolean                         @default(true)",
+        "createdAt DateTime                        @default(now())",
+        "updatedAt DateTime                        @updatedAt",
+        "periods   DoctorScheduleExceptionPeriod[]",
+        "@@unique([doctorId, date])",
+        "@@index([doctorId, date, active])"
+      ],
+      "relationships": [
+        {
+          "field": "doctor",
+          "target": "Doctor",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [doctorId], references: [id], onDelete: Cascade)"
+        },
+        {
+          "field": "periods",
+          "target": "DoctorScheduleExceptionPeriod",
+          "cardinality": "many",
+          "annotation": ""
+        }
+      ]
+    },
+    {
+      "name": "DoctorScheduleExceptionPeriod",
+      "fields": [
+        "id                  String                  @id @default(uuid())",
+        "exceptionId         String",
+        "exception           DoctorScheduleException @relation(fields: [exceptionId], references: [id], onDelete: Cascade)",
+        "startTime           String",
+        "endTime             String",
+        "slotDurationMinutes Int",
+        "active              Boolean                 @default(true)",
+        "createdAt           DateTime                @default(now())",
+        "updatedAt           DateTime                @updatedAt",
+        "@@index([exceptionId, active])"
+      ],
+      "relationships": [
+        {
+          "field": "exception",
+          "target": "DoctorScheduleException",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [exceptionId], references: [id], onDelete: Cascade)"
+        }
+      ]
+    },
+    {
+      "name": "Specialty",
+      "fields": [
+        "deletionProtected Boolean @default(false)",
+        "id        String   @id @default(uuid())",
+        "code      String   @unique",
+        "nameAr    String",
+        "nameEn    String",
+        "active    Boolean  @default(true)",
+        "createdAt DateTime @default(now())",
+        "updatedAt DateTime @updatedAt",
+        "doctors   Doctor[]"
+      ],
+      "relationships": [
+        {
+          "field": "doctors",
+          "target": "Doctor",
+          "cardinality": "many",
+          "annotation": ""
+        }
+      ]
+    },
+    {
+      "name": "Patient",
+      "fields": [
+        "id                       String             @id @default(uuid())",
+        "fileNumber               String             @unique @default(dbgenerated(\"('SHF-'::text || lpad(nextval('patient_file_number_seq'::regclass)::text, 6, '0'::text))\"))",
+        "fullNameAr               String",
+        "fullNameEn               String",
+        "firstNameAr              String?",
+        "fatherNameAr             String?",
+        "grandfatherNameAr        String?",
+        "familyNameAr             String?",
+        "firstNameEn              String?",
+        "fatherNameEn             String?",
+        "grandfatherNameEn        String?",
+        "familyNameEn             String?",
+        "gender                   String // MALE, FEMALE",
+        "dateOfBirth              String // YYYY-MM-DD",
+        "nationalId               String?            @unique",
+        "phone                    String",
+        "bloodType                String?",
+        "addressStateId           Int",
+        "addressState             State              @relation(fields: [addressStateId], references: [id])",
+        "addressDetails           String?",
+        "emergencyContact         String",
+        "status                   String             @default(\"ACTIVE\") // ACTIVE, ARCHIVED",
+        "createdAt                DateTime           @default(now())",
+        "nationalIdAttachmentPath String?",
+        "insuranceAttachmentPath  String?",
+        "appointments             Appointment[]",
+        "medicalRecords           MedicalRecord[]",
+        "consents                 Consent[]",
+        "prescriptions            Prescription[]",
+        "labOrders                LabOrder[]",
+        "invoices                 Invoice[]",
+        "insuranceClaims          InsuranceClaim[]",
+        "userId                   String?            @unique",
+        "user                     User?              @relation(fields: [userId], references: [id], onDelete: SetNull)",
+        "claimCodes               PatientClaimCode[]",
+        "@@index([phone])"
+      ],
+      "relationships": [
+        {
+          "field": "addressState",
+          "target": "State",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [addressStateId], references: [id])"
+        },
+        {
+          "field": "appointments",
+          "target": "Appointment",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "medicalRecords",
+          "target": "MedicalRecord",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "consents",
+          "target": "Consent",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "prescriptions",
+          "target": "Prescription",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "labOrders",
+          "target": "LabOrder",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "invoices",
+          "target": "Invoice",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "insuranceClaims",
+          "target": "InsuranceClaim",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "user",
+          "target": "User",
+          "cardinality": "optional",
+          "annotation": "@relation(fields: [userId], references: [id], onDelete: SetNull)"
+        },
+        {
+          "field": "claimCodes",
+          "target": "PatientClaimCode",
+          "cardinality": "many",
+          "annotation": ""
+        }
+      ]
+    },
+    {
+      "name": "Appointment",
+      "fields": [
+        "id                String             @id @default(uuid())",
+        "patientId         String",
+        "patient           Patient            @relation(fields: [patientId], references: [id])",
+        "doctorId          String",
+        "doctor            Doctor             @relation(fields: [doctorId], references: [id])",
+        "appointmentDate   String // YYYY-MM-DD",
+        "appointmentTime   String // HH:MM",
+        "status            String             @default(\"SCHEDULED\") // SCHEDULED, CHECKED_IN, IN_CONSULTATION, COMPLETED, CANCELLED, NO_SHOW",
+        "createdAt         DateTime           @default(now())",
+        "medicalRecord     MedicalRecord?",
+        "emergencyOverride EmergencyOverride?",
+        "invoices          Invoice[]",
+        "@@index([appointmentDate, appointmentTime])",
+        "@@index([doctorId, appointmentDate, appointmentTime])",
+        "@@index([patientId, appointmentDate, appointmentTime])"
+      ],
+      "relationships": [
+        {
+          "field": "patient",
+          "target": "Patient",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [patientId], references: [id])"
+        },
+        {
+          "field": "doctor",
+          "target": "Doctor",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [doctorId], references: [id])"
+        },
+        {
+          "field": "medicalRecord",
+          "target": "MedicalRecord",
+          "cardinality": "optional",
+          "annotation": ""
+        },
+        {
+          "field": "emergencyOverride",
+          "target": "EmergencyOverride",
+          "cardinality": "optional",
+          "annotation": ""
+        },
+        {
+          "field": "invoices",
+          "target": "Invoice",
+          "cardinality": "many",
+          "annotation": ""
+        }
+      ]
+    },
+    {
+      "name": "EmergencyOverride",
+      "fields": [
+        "id             String      @id @default(uuid())",
+        "appointmentId  String      @unique",
+        "appointment    Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)",
+        "justification  String",
+        "authorizedById String",
+        "timestamp      DateTime    @default(now())"
+      ],
+      "relationships": [
+        {
+          "field": "appointment",
+          "target": "Appointment",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [appointmentId], references: [id], onDelete: Cascade)"
+        }
+      ]
+    },
+    {
+      "name": "MedicalRecord",
+      "fields": [
+        "id                     String         @id @default(uuid())",
+        "patientId              String",
+        "patient                Patient        @relation(fields: [patientId], references: [id])",
+        "doctorId               String",
+        "doctor                 Doctor         @relation(fields: [doctorId], references: [id])",
+        "appointmentId          String         @unique",
+        "appointment            Appointment    @relation(fields: [appointmentId], references: [id])",
+        "visitDate              DateTime       @default(now())",
+        "symptomsEncrypted      String",
+        "diagnosisEncrypted     String",
+        "treatmentEncrypted     String",
+        "vitalSignsJson         String // JSON keys: blood_pressure, heart_rate, temperature, weight",
+        "clinicalNotesEncrypted String",
+        "attachmentPath         String?",
+        "prescriptions          Prescription[]",
+        "labOrders              LabOrder[]",
+        "@@index([patientId, visitDate])"
+      ],
+      "relationships": [
+        {
+          "field": "patient",
+          "target": "Patient",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [patientId], references: [id])"
+        },
+        {
+          "field": "doctor",
+          "target": "Doctor",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [doctorId], references: [id])"
+        },
+        {
+          "field": "appointment",
+          "target": "Appointment",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [appointmentId], references: [id])"
+        },
+        {
+          "field": "prescriptions",
+          "target": "Prescription",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "labOrders",
+          "target": "LabOrder",
+          "cardinality": "many",
+          "annotation": ""
+        }
+      ]
+    },
+    {
+      "name": "Consent",
+      "fields": [
+        "id                 String   @id @default(uuid())",
+        "patientId          String",
+        "patient            Patient  @relation(fields: [patientId], references: [id])",
+        "consentType        String // EMR_ACCESS, TREATMENT, PROCEDURE",
+        "signatureSvg       String?",
+        "otpVerified        Boolean  @default(false)",
+        "guardianName       String?",
+        "guardianNationalId String?",
+        "timestamp          DateTime @default(now())"
+      ],
+      "relationships": [
+        {
+          "field": "patient",
+          "target": "Patient",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [patientId], references: [id])"
+        }
+      ]
+    },
+    {
+      "name": "Prescription",
+      "fields": [
+        "id               String           @id @default(uuid())",
+        "medicalRecordId  String",
+        "medicalRecord    MedicalRecord    @relation(fields: [medicalRecordId], references: [id])",
+        "patientId        String",
+        "patient          Patient          @relation(fields: [patientId], references: [id])",
+        "doctorId         String",
+        "doctor           Doctor           @relation(fields: [doctorId], references: [id])",
+        "prescriptionDate DateTime         @default(now())",
+        "status           String           @default(\"ACTIVE\") // ACTIVE, FILLED, PARTIALLY_FILLED, CANCELLED",
+        "prescribedDrugs  PrescribedDrug[]",
+        "invoices         Invoice[]",
+        "@@index([patientId, prescriptionDate])"
+      ],
+      "relationships": [
+        {
+          "field": "medicalRecord",
+          "target": "MedicalRecord",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [medicalRecordId], references: [id])"
+        },
+        {
+          "field": "patient",
+          "target": "Patient",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [patientId], references: [id])"
+        },
+        {
+          "field": "doctor",
+          "target": "Doctor",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [doctorId], references: [id])"
+        },
+        {
+          "field": "prescribedDrugs",
+          "target": "PrescribedDrug",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "invoices",
+          "target": "Invoice",
+          "cardinality": "many",
+          "annotation": ""
+        }
+      ]
+    },
+    {
+      "name": "DrugFormulary",
+      "fields": [
+        "id               String           @id @default(uuid())",
+        "brandName        String",
+        "labelAr          String",
+        "labelEn          String",
+        "genericName      String",
+        "strength         String",
+        "dosageForm       String",
+        "identityKey      String           @unique",
+        "unitPriceSdg     Decimal?",
+        "status           String           @default(\"INACTIVE\") // ACTIVE, INACTIVE",
+        "updatedAt        DateTime         @updatedAt",
+        "prescribedDrugs  PrescribedDrug[]",
+        "inventoryBatches InventoryBatch[]",
+        "stockMovements   StockMovement[]"
+      ],
+      "relationships": [
+        {
+          "field": "prescribedDrugs",
+          "target": "PrescribedDrug",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "inventoryBatches",
+          "target": "InventoryBatch",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "stockMovements",
+          "target": "StockMovement",
+          "cardinality": "many",
+          "annotation": ""
+        }
+      ]
+    },
+    {
+      "name": "PrescribedDrug",
+      "fields": [
+        "id             String       @id @default(uuid())",
+        "prescriptionId String",
+        "prescription   Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)",
+        "drugId String?",
+        "drug   DrugFormulary? @relation(fields: [drugId], references: [id])",
+        "customDrugName String?",
+        "dosage         String",
+        "duration       String",
+        "instructionsAr String",
+        "instructionsEn String",
+        "qtyPrescribed  Int",
+        "qtyDispensed   Int    @default(0)",
+        "ledgerVersion  Int    @default(0)",
+        "pharmacyReviewStatus String    @default(\"NOT_REQUIRED\")",
+        "pharmacyReviewedAt   DateTime?",
+        "pharmacyReviewNote   String?",
+        "@@index([pharmacyReviewStatus])"
+      ],
+      "relationships": [
+        {
+          "field": "prescription",
+          "target": "Prescription",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [prescriptionId], references: [id], onDelete: Cascade)"
+        },
+        {
+          "field": "drug",
+          "target": "DrugFormulary",
+          "cardinality": "optional",
+          "annotation": "@relation(fields: [drugId], references: [id])"
+        }
+      ]
+    },
+    {
+      "name": "InventoryBatch",
+      "fields": [
+        "id                    String          @id @default(uuid())",
+        "drugId                String",
+        "drug                  DrugFormulary   @relation(fields: [drugId], references: [id])",
+        "batchNumber           String",
+        "normalizedBatchNumber String",
+        "expiryDate            String // YYYY-MM-DD",
+        "qtyOnHand             Int",
+        "minReorderLevel       Int             @default(10)",
+        "ledgerVersion         Int             @default(0)",
+        "stockMovements        StockMovement[]",
+        "@@unique([drugId, normalizedBatchNumber, expiryDate])",
+        "@@index([expiryDate])"
+      ],
+      "relationships": [
+        {
+          "field": "drug",
+          "target": "DrugFormulary",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [drugId], references: [id])"
+        },
+        {
+          "field": "stockMovements",
+          "target": "StockMovement",
+          "cardinality": "many",
+          "annotation": ""
+        }
+      ]
+    },
+    {
+      "name": "StockMovement",
+      "fields": [
+        "id               String         @id @default(uuid())",
+        "drugId           String",
+        "drug             DrugFormulary  @relation(fields: [drugId], references: [id], onDelete: Restrict)",
+        "inventoryBatchId String",
+        "inventoryBatch   InventoryBatch @relation(fields: [inventoryBatchId], references: [id], onDelete: Restrict)",
+        "movementType     String",
+        "quantityDelta    Int",
+        "resultingBalance Int",
+        "actorUserId      String?",
+        "actor            User?          @relation(\"StockMovementActor\", fields: [actorUserId], references: [id], onDelete: Restrict)",
+        "referenceType    String?",
+        "referenceId      String?",
+        "reason           String?",
+        "idempotencyKey   String?        @unique",
+        "createdAt        DateTime       @default(now())",
+        "@@index([drugId, createdAt])",
+        "@@index([inventoryBatchId, createdAt])",
+        "@@index([actorUserId, createdAt])"
+      ],
+      "relationships": [
+        {
+          "field": "drug",
+          "target": "DrugFormulary",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [drugId], references: [id], onDelete: Restrict)"
+        },
+        {
+          "field": "inventoryBatch",
+          "target": "InventoryBatch",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [inventoryBatchId], references: [id], onDelete: Restrict)"
+        },
+        {
+          "field": "actor",
+          "target": "User",
+          "cardinality": "optional",
+          "annotation": "@relation(\"StockMovementActor\", fields: [actorUserId], references: [id], onDelete: Restrict)"
+        }
+      ]
+    },
+    {
+      "name": "ClinicalService",
+      "fields": [
+        "code          String?        @unique",
+        "id            String         @id @default(uuid())",
+        "labelAr       String",
+        "labelEn       String",
+        "baseFeeSdg    Decimal?",
+        "baseFeeUsd    Decimal?",
+        "category      String // CONSULTATION, LABORATORY, RADIOLOGY, CLINICAL_PROCEDURE",
+        "status        String         @default(\"ACTIVE\") // ACTIVE, INACTIVE",
+        "updatedAt     DateTime       @updatedAt",
+        "labOrderItems LabOrderItem[]"
+      ],
+      "relationships": [
+        {
+          "field": "labOrderItems",
+          "target": "LabOrderItem",
+          "cardinality": "many",
+          "annotation": ""
+        }
+      ]
+    },
+    {
+      "name": "LabOrder",
+      "fields": [
+        "id                  String         @id @default(uuid())",
+        "medicalRecordId     String",
+        "medicalRecord       MedicalRecord  @relation(fields: [medicalRecordId], references: [id])",
+        "patientId           String",
+        "patient             Patient        @relation(fields: [patientId], references: [id])",
+        "doctorId            String",
+        "doctor              Doctor         @relation(fields: [doctorId], references: [id])",
+        "orderDate           DateTime       @default(now())",
+        "status              String         @default(\"PENDING_BILLING\") // PENDING_BILLING, PAID, SAMPLE_COLLECTED, COMPLETED",
+        "items               LabOrderItem[]",
+        "invoices            Invoice[]",
+        "releasedToPatientAt DateTime?",
+        "@@index([patientId, releasedToPatientAt, orderDate])"
+      ],
+      "relationships": [
+        {
+          "field": "medicalRecord",
+          "target": "MedicalRecord",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [medicalRecordId], references: [id])"
+        },
+        {
+          "field": "patient",
+          "target": "Patient",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [patientId], references: [id])"
+        },
+        {
+          "field": "doctor",
+          "target": "Doctor",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [doctorId], references: [id])"
+        },
+        {
+          "field": "items",
+          "target": "LabOrderItem",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "invoices",
+          "target": "Invoice",
+          "cardinality": "many",
+          "annotation": ""
+        }
+      ]
+    },
+    {
+      "name": "UserExternalIdentity",
+      "fields": [
+        "id                   String   @id @default(uuid())",
+        "userId               String",
+        "user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)",
+        "provider             String",
+        "providerSubject      String",
+        "normalizedEmailAtLink String",
+        "createdAt            DateTime @default(now())",
+        "updatedAt            DateTime @updatedAt",
+        "@@unique([provider, providerSubject])",
+        "@@unique([userId, provider])",
+        "@@index([userId])"
+      ],
+      "relationships": [
+        {
+          "field": "user",
+          "target": "User",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [userId], references: [id], onDelete: Cascade)"
+        }
+      ]
+    },
+    {
+      "name": "PendingExternalAuth",
+      "fields": [
+        "id              String   @id @default(uuid())",
+        "provider        String",
+        "providerSubject String",
+        "verifiedEmail   String",
+        "capabilityHash  String   @unique",
+        "expiresAt       DateTime",
+        "consumedAt      DateTime?",
+        "createdAt       DateTime @default(now())",
+        "updatedAt       DateTime @updatedAt",
+        "@@unique([provider, providerSubject])",
+        "@@index([expiresAt, consumedAt])"
+      ],
+      "relationships": []
+    },
+    {
+      "name": "VerificationChallenge",
+      "fields": [
+        "authVersion      Int?",
+        "id               String    @id @default(uuid())",
+        "userId           String",
+        "user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)",
+        "type             String",
+        "targetNormalized String",
+        "codeHash         String",
+        "expiresAt        DateTime",
+        "attemptCount     Int       @default(0)",
+        "maxAttempts      Int       @default(5)",
+        "usedAt           DateTime?",
+        "createdAt        DateTime  @default(now())",
+        "@@index([userId, type, createdAt])"
+      ],
+      "relationships": [
+        {
+          "field": "user",
+          "target": "User",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [userId], references: [id], onDelete: Cascade)"
+        }
+      ]
+    },
+    {
+      "name": "MfaConfiguration",
+      "fields": [
+        "userId              String    @id",
+        "user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)",
+        "secretEncrypted     String",
+        "state               String    @default(\"PENDING\") // PENDING, ACTIVE",
+        "enrollmentExpiresAt DateTime?",
+        "lastTotpStep        BigInt?",
+        "createdAt           DateTime  @default(now())",
+        "updatedAt           DateTime  @updatedAt"
+      ],
+      "relationships": [
+        {
+          "field": "user",
+          "target": "User",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [userId], references: [id], onDelete: Cascade)"
+        }
+      ]
+    },
+    {
+      "name": "MfaRecoveryCode",
+      "fields": [
+        "id        String    @id @default(uuid())",
+        "userId    String",
+        "user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)",
+        "codeHash  String",
+        "usedAt    DateTime?",
+        "createdAt DateTime  @default(now())",
+        "@@index([userId, usedAt])"
+      ],
+      "relationships": [
+        {
+          "field": "user",
+          "target": "User",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [userId], references: [id], onDelete: Cascade)"
+        }
+      ]
+    },
+    {
+      "name": "MfaChallenge",
+      "fields": [
+        "id           String    @id @default(uuid())",
+        "userId       String",
+        "user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)",
+        "purpose      String    @default(\"LOGIN\")",
+        "authVersion  Int?",
+        "tokenHash    String    @unique",
+        "expiresAt    DateTime",
+        "attemptCount Int       @default(0)",
+        "maxAttempts  Int       @default(5)",
+        "usedAt       DateTime?",
+        "createdAt    DateTime  @default(now())",
+        "@@index([userId, purpose, createdAt])"
+      ],
+      "relationships": [
+        {
+          "field": "user",
+          "target": "User",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [userId], references: [id], onDelete: Cascade)"
+        }
+      ]
+    },
+    {
+      "name": "PatientClaimCode",
+      "fields": [
+        "id                String    @id @default(uuid())",
+        "patientId         String",
+        "patient           Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)",
+        "codeHash          String",
+        "publicId          String?   @unique",
+        "expiresAt         DateTime",
+        "attemptCount      Int       @default(0)",
+        "maxAttempts       Int       @default(5)",
+        "usedAt            DateTime?",
+        "createdById       String",
+        "createdBy         User      @relation(\"ClaimCodeIssuer\", fields: [createdById], references: [id])",
+        "issuerAuthVersion Int?",
+        "createdAt         DateTime  @default(now())",
+        "@@index([patientId, createdAt])"
+      ],
+      "relationships": [
+        {
+          "field": "patient",
+          "target": "Patient",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [patientId], references: [id], onDelete: Cascade)"
+        },
+        {
+          "field": "createdBy",
+          "target": "User",
+          "cardinality": "required",
+          "annotation": "@relation(\"ClaimCodeIssuer\", fields: [createdById], references: [id])"
+        }
+      ]
+    },
+    {
+      "name": "PatientRegistration",
+      "fields": [
+        "userId            String   @id",
+        "user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)",
+        "fullNameAr        String",
+        "fullNameEn        String",
+        "firstNameAr       String?",
+        "fatherNameAr      String?",
+        "grandfatherNameAr String?",
+        "familyNameAr      String?",
+        "firstNameEn       String?",
+        "fatherNameEn      String?",
+        "grandfatherNameEn String?",
+        "familyNameEn      String?",
+        "gender            String",
+        "dateOfBirth       String",
+        "addressStateId    Int",
+        "createdAt         DateTime @default(now())"
+      ],
+      "relationships": [
+        {
+          "field": "user",
+          "target": "User",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [userId], references: [id], onDelete: Cascade)"
+        }
+      ]
+    },
+    {
+      "name": "LabOrderItem",
+      "fields": [
+        "id         String   @id @default(uuid())",
+        "labOrderId String",
+        "labOrder   LabOrder @relation(fields: [labOrderId], references: [id], onDelete: Cascade)",
+        "serviceId String?",
+        "service   ClinicalService? @relation(fields: [serviceId], references: [id])",
+        "customTestName String?",
+        "labReviewStatus String    @default(\"NOT_REQUIRED\")",
+        "labReviewedAt   DateTime?",
+        "labReviewNote   String?",
+        "resultValue        String?",
+        "referenceRangeMin  Decimal?",
+        "referenceRangeMax  Decimal?",
+        "isOutOfRange       Boolean  @default(false)",
+        "fileAttachmentPath String?",
+        "resultVersion      Int      @default(0)",
+        "@@index([labReviewStatus])"
+      ],
+      "relationships": [
+        {
+          "field": "labOrder",
+          "target": "LabOrder",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [labOrderId], references: [id], onDelete: Cascade)"
+        },
+        {
+          "field": "service",
+          "target": "ClinicalService",
+          "cardinality": "optional",
+          "annotation": "@relation(fields: [serviceId], references: [id])"
+        }
+      ]
+    },
+    {
+      "name": "Invoice",
+      "fields": [
+        "id                  String             @id @default(uuid())",
+        "patientId           String",
+        "patient             Patient            @relation(fields: [patientId], references: [id])",
+        "appointmentId       String?",
+        "appointment         Appointment?       @relation(fields: [appointmentId], references: [id])",
+        "labOrderId          String?",
+        "labOrder            LabOrder?          @relation(fields: [labOrderId], references: [id], onDelete: SetNull)",
+        "prescriptionId      String?",
+        "prescription        Prescription?      @relation(fields: [prescriptionId], references: [id], onDelete: SetNull)",
+        "invoiceDate         DateTime           @default(now())",
+        "totalAmountSdg      Decimal",
+        "totalAmountUsd      Decimal",
+        "invoiceExchangeRate Decimal",
+        "paymentStatus       String             @default(\"UNPAID\") // UNPAID, PAID, PARTIALLY_PAID, PARTIALLY_REFUNDED, REFUNDED",
+        "invoiceType         String             @default(\"GENERAL\") // GENERAL, CONSULTATION, LABORATORY, PHARMACY",
+        "ledgerVersion       Int                @default(0)",
+        "insuranceClaimId    String?            @unique",
+        "insuranceClaim      InsuranceClaim?    @relation(fields: [insuranceClaimId], references: [id])",
+        "createdBy           String // User UUID",
+        "items               InvoiceItem[]",
+        "payments            Payment[]",
+        "paymentOperations   PaymentOperation[]",
+        "refunds             Refund[]",
+        "@@index([invoiceDate])",
+        "@@index([appointmentId, invoiceType, paymentStatus])",
+        "@@index([labOrderId, invoiceType, paymentStatus])",
+        "@@index([prescriptionId, invoiceType, paymentStatus])",
+        "@@index([patientId, invoiceDate])"
+      ],
+      "relationships": [
+        {
+          "field": "patient",
+          "target": "Patient",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [patientId], references: [id])"
+        },
+        {
+          "field": "appointment",
+          "target": "Appointment",
+          "cardinality": "optional",
+          "annotation": "@relation(fields: [appointmentId], references: [id])"
+        },
+        {
+          "field": "labOrder",
+          "target": "LabOrder",
+          "cardinality": "optional",
+          "annotation": "@relation(fields: [labOrderId], references: [id], onDelete: SetNull)"
+        },
+        {
+          "field": "prescription",
+          "target": "Prescription",
+          "cardinality": "optional",
+          "annotation": "@relation(fields: [prescriptionId], references: [id], onDelete: SetNull)"
+        },
+        {
+          "field": "insuranceClaim",
+          "target": "InsuranceClaim",
+          "cardinality": "optional",
+          "annotation": "@relation(fields: [insuranceClaimId], references: [id])"
+        },
+        {
+          "field": "items",
+          "target": "InvoiceItem",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "payments",
+          "target": "Payment",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "paymentOperations",
+          "target": "PaymentOperation",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "refunds",
+          "target": "Refund",
+          "cardinality": "many",
+          "annotation": ""
+        }
+      ]
+    },
+    {
+      "name": "InvoiceItem",
+      "fields": [
+        "id            String  @id @default(uuid())",
+        "invoiceId     String",
+        "invoice       Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)",
+        "descriptionAr String",
+        "descriptionEn String",
+        "qty           Int     @default(1)",
+        "unitPriceSdg  Decimal",
+        "unitPriceUsd  Decimal"
+      ],
+      "relationships": [
+        {
+          "field": "invoice",
+          "target": "Invoice",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [invoiceId], references: [id], onDelete: Cascade)"
+        }
+      ]
+    },
+    {
+      "name": "PaymentMethod",
+      "fields": [
+        "code      String    @id",
+        "labelAr   String",
+        "labelEn   String",
+        "active    Boolean   @default(true)",
+        "createdAt DateTime  @default(now())",
+        "updatedAt DateTime  @default(now()) @updatedAt",
+        "payments  Payment[]",
+        "refunds   Refund[]"
+      ],
+      "relationships": [
+        {
+          "field": "payments",
+          "target": "Payment",
+          "cardinality": "many",
+          "annotation": ""
+        },
+        {
+          "field": "refunds",
+          "target": "Refund",
+          "cardinality": "many",
+          "annotation": ""
+        }
+      ]
+    },
+    {
+      "name": "Payment",
+      "fields": [
+        "id                   String            @id @default(uuid())",
+        "invoiceId            String",
+        "invoice              Invoice           @relation(fields: [invoiceId], references: [id])",
+        "amountSdg            Decimal",
+        "amountUsd            Decimal",
+        "paymentMethod        String // CASH, CARD, BANKAK, FAWRY",
+        "method               PaymentMethod @relation(fields: [paymentMethod], references: [code], onDelete: Restrict)",
+        "transactionReference String?           @unique",
+        "verificationStatus   String            @default(\"VERIFIED\") // PENDING_MANUAL, VERIFIED, REJECTED",
+        "receivedBy           String // User UUID",
+        "createdAt            DateTime          @default(now())",
+        "paymentOperationId   String?",
+        "paymentOperation     PaymentOperation? @relation(fields: [paymentOperationId], references: [id])",
+        "@@index([paymentOperationId])",
+        "@@index([invoiceId, createdAt])"
+      ],
+      "relationships": [
+        {
+          "field": "invoice",
+          "target": "Invoice",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [invoiceId], references: [id])"
+        },
+        {
+          "field": "method",
+          "target": "PaymentMethod",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [paymentMethod], references: [code], onDelete: Restrict)"
+        },
+        {
+          "field": "paymentOperation",
+          "target": "PaymentOperation",
+          "cardinality": "optional",
+          "annotation": "@relation(fields: [paymentOperationId], references: [id])"
+        }
+      ]
+    },
+    {
+      "name": "PaymentOperation",
+      "fields": [
+        "id             String    @id @default(uuid())",
+        "invoiceId      String",
+        "invoice        Invoice   @relation(fields: [invoiceId], references: [id])",
+        "idempotencyKey String    @unique",
+        "requestHash    String",
+        "receivedBy     String",
+        "payments       Payment[]",
+        "createdAt      DateTime  @default(now())",
+        "@@index([invoiceId, createdAt])"
+      ],
+      "relationships": [
+        {
+          "field": "invoice",
+          "target": "Invoice",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [invoiceId], references: [id])"
+        },
+        {
+          "field": "payments",
+          "target": "Payment",
+          "cardinality": "many",
+          "annotation": ""
+        }
+      ]
+    },
+    {
+      "name": "Refund",
+      "fields": [
+        "id                   String   @id @default(uuid())",
+        "invoiceId            String",
+        "invoice              Invoice  @relation(fields: [invoiceId], references: [id])",
+        "amountSdg            Decimal",
+        "amountUsd            Decimal",
+        "refundMethod         String // CASH, CARD, BANKAK, FAWRY",
+        "method               PaymentMethod @relation(fields: [refundMethod], references: [code], onDelete: Restrict)",
+        "transactionReference String?  @unique",
+        "reason               String?",
+        "processedBy          String",
+        "operator             User     @relation(\"RefundOperator\", fields: [processedBy], references: [id])",
+        "createdAt            DateTime @default(now())",
+        "@@index([invoiceId, createdAt])"
+      ],
+      "relationships": [
+        {
+          "field": "invoice",
+          "target": "Invoice",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [invoiceId], references: [id])"
+        },
+        {
+          "field": "method",
+          "target": "PaymentMethod",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [refundMethod], references: [code], onDelete: Restrict)"
+        },
+        {
+          "field": "operator",
+          "target": "User",
+          "cardinality": "required",
+          "annotation": "@relation(\"RefundOperator\", fields: [processedBy], references: [id])"
+        }
+      ]
+    },
+    {
+      "name": "InsuranceCompany",
+      "fields": [
+        "id               String           @id @default(uuid())",
+        "labelAr          String",
+        "labelEn          String",
+        "copayPercentage  Decimal",
+        "billingCycleDays Int              @default(30)",
+        "claims           InsuranceClaim[]"
+      ],
+      "relationships": [
+        {
+          "field": "claims",
+          "target": "InsuranceClaim",
+          "cardinality": "many",
+          "annotation": ""
+        }
+      ]
+    },
+    {
+      "name": "InsuranceClaim",
+      "fields": [
+        "id                 String           @id @default(uuid())",
+        "insuranceCompanyId String",
+        "insuranceCompany   InsuranceCompany @relation(fields: [insuranceCompanyId], references: [id])",
+        "patientId          String",
+        "patient            Patient          @relation(fields: [patientId], references: [id])",
+        "invoiceId          String           @unique",
+        "invoice            Invoice?",
+        "claimAmountSdg     Decimal",
+        "claimStatus        String           @default(\"DRAFT\") // DRAFT, SUBMITTED, UNDER_REVIEW, APPROVED, REJECTED, PAID",
+        "submissionDate     DateTime?",
+        "paymentDate        DateTime?"
+      ],
+      "relationships": [
+        {
+          "field": "insuranceCompany",
+          "target": "InsuranceCompany",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [insuranceCompanyId], references: [id])"
+        },
+        {
+          "field": "patient",
+          "target": "Patient",
+          "cardinality": "required",
+          "annotation": "@relation(fields: [patientId], references: [id])"
+        },
+        {
+          "field": "invoice",
+          "target": "Invoice",
+          "cardinality": "optional",
+          "annotation": ""
+        }
+      ]
+    },
+    {
+      "name": "NotificationLog",
+      "fields": [
+        "id             String    @id @default(uuid())",
+        "recipientPhone String",
+        "messageType    String // SMS, EMAIL, BOOKING_CONFIRM, CANCELLATION, REMINDER, RESULTS_READY",
+        "messageBody    String",
+        "language       String    @default(\"ar\") // ar, en",
+        "status         String    @default(\"QUEUED\") // QUEUED, SIMULATED, ACCEPTED, DELIVERED, FAILED",
+        "retryCount     Int       @default(0)",
+        "lastAttempt    DateTime?",
+        "createdAt      DateTime  @default(now())"
+      ],
+      "relationships": []
+    },
+    {
+      "name": "TenantAuditLog",
+      "fields": [
+        "id        String   @id @default(uuid())",
+        "userId    String?",
+        "action    String",
+        "details   String",
+        "ipAddress String",
+        "timestamp DateTime @default(now())"
+      ],
+      "relationships": []
+    },
+    {
+      "name": "Notification",
+      "fields": [
+        "id        String   @id @default(uuid())",
+        "userId    String",
+        "title     String",
+        "message   String",
+        "isRead    Boolean  @default(false)",
+        "createdAt DateTime @default(now())",
+        "@@index([userId, isRead])"
+      ],
+      "relationships": []
+    }
+  ],
+  "migrations": [
+    {
+      "name": "20260814182612_postgresql_baseline",
+      "checksum": "fdf7acea2a3c87a207b6b94a36b8501f170a024b92523ebcb57e81efdbafe3d1"
+    },
+    {
+      "name": "20260815085729_custom_prescribed_medications",
+      "checksum": "255be79798a2977cc0ac3f9507b6bc888b2fbb1a654e80a7eb78a266491c5e5a"
+    },
+    {
+      "name": "20260816072906_add_custom_lab_tests",
+      "checksum": "c40377c4af1977cc95d44b2d504ed66cf41d086abed5e2dceb36407823621eda"
+    },
+    {
+      "name": "20260816180946_add_patient_blood_type",
+      "checksum": "d7b6c083e3cb4e0c36fe35c1fe5539e90626a4b2eec1c7c86b7058e4c9170892"
+    },
+    {
+      "name": "20260818184717_consultation_payment_gate",
+      "checksum": "1a35003fd166a1b8f732b8f82c9485cebca43e292d8d148031e0e34103f350ef"
+    },
+    {
+      "name": "20260819080000_link_lab_orders_to_invoices",
+      "checksum": "5ce2cf82a6600a85474080f22c6ca8cd9192fbff100b61a9ec5e20a05f872205"
+    },
+    {
+      "name": "20260819092727_pharmacy_billing_foundation",
+      "checksum": "6ec10b4f0e803c62f05f41c9198ea75bbd9b61cc8b63ddb8209dc3418eee622e"
+    },
+    {
+      "name": "20260819160937_pharmacy_medication_review",
+      "checksum": "c85dd82de9a8ba7136e626b570112ce1f52960d30e34a2af8d1be77ce8f113fa"
+    },
+    {
+      "name": "20260820120000_lab_test_review",
+      "checksum": "4b79db12aab457660b2c213a2666dacfd25e9e68bf679337e6bc4a277219574b"
+    },
+    {
+      "name": "20260821120000_staff_mfa_foundation",
+      "checksum": "cd3c04bae42945b0d269eafa9670ea62f517a8d1333348a1c96b0905f28ecdfc"
+    },
+    {
+      "name": "20260822110000_access_token_generation",
+      "checksum": "0ec51c79702e713457c5d76e84690008654e7eb8f12a3a51123e941828593afa"
+    },
+    {
+      "name": "20260823100000_socket_auth_revocation",
+      "checksum": "a99d8bba493ca9437569ad4aa637aac47895b437a1e49738440f935e0e7d35c5"
+    },
+    {
+      "name": "20260823110000_pricing_management",
+      "checksum": "a8684b53f7db7f49b873b06bd7087a0efa0616b2331c5a2778dbfa9db49cd93b"
+    },
+    {
+      "name": "20260823120000_lab_result_optimistic_concurrency",
+      "checksum": "0da7856cb865c114f0aa92e3d8c3534b8b8871938bcd765691c16ff88717caa7"
+    },
+    {
+      "name": "20260825090000_medicine_management_phase1",
+      "checksum": "c7384727e03e08ffe585d15d0961215b20c1e7c9ce879016af896c0db02a11b6"
+    },
+    {
+      "name": "20260828100000_patient_file_number_foundation",
+      "checksum": "9c93bbd93fea32b8623f7403be659047829206446af98314a5bc82b55be0030b"
+    },
+    {
+      "name": "20260914000000_verification_generation",
+      "checksum": "f3ac62477e0ac8c6cb420b7c5f4ac86e1c19d2c97690655716235042ca2ab951"
+    },
+    {
+      "name": "20260914010000_offline_patient_activation",
+      "checksum": "d7258bb982e5edcf41353c0c991e2bdc6e06e323514a09636d3e2f5999cab56e"
+    },
+    {
+      "name": "20260914100000_password_lifecycle",
+      "checksum": "5ab701e9cc47b883c630d1969e3d0ecab72d73fd897b5895cc4f205091067063"
+    },
+    {
+      "name": "20260915000000_patient_identity_specialty_foundation",
+      "checksum": "af9a9e844f0224b61f465a29b3b315ca08998077f80f250efd53b960fa10a9eb"
+    },
+    {
+      "name": "20260916000000_normalized_doctor_scheduling_foundation",
+      "checksum": "d89b3f4fdcceff0f8a0f49200ccd52f3b713fd53cf4a360dfdc8a1740860278b"
+    },
+    {
+      "name": "20260916000000_specialty_safe_deletion",
+      "checksum": "b247db950b7858e7dfb5b48887952cc6d14d892d75ccfddc48d784a59b7337be"
+    },
+    {
+      "name": "20260916120000_external_identity_foundation",
+      "checksum": "177d5340e1c852b1239f13ebd959c6c4437020da8acd25a0ce0fdf207abb2042"
+    },
+    {
+      "name": "20260916213000_pending_external_auth_capability",
+      "checksum": "718e3f29f7fb5399b85ec03e39cf2c5311e8a22445927cad52e16ff2b680edc6"
+    },
+    {
+      "name": "20261022100000_patient_workflow_query_indexes",
+      "checksum": "e22824191a81a9ea356c05fd33bb04b78426beace5bd0e2c7159eedf04319824"
+    },
+    {
+      "name": "20261022110000_admin_catalog_configuration",
+      "checksum": "2dfc7ce5a2558916afdc7ef4bbe00b78a5c0ce7bf431f3a4728e34a65d721188"
+    }
+  ]
+}

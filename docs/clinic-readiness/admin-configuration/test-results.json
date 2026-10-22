@@ -1,0 +1,272 @@
+{
+  "backend": {
+    "selectedFiles": 16,
+    "completedFiles": 16,
+    "totals": {
+      "tests": 349,
+      "pass": 349,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0
+    },
+    "files": [
+      {
+        "file": "test/admin-configuration-migration.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/admin-configuration.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/admin-doctor-management.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/admin-scheduling.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 21,
+          "pass": 21,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/audit-atomicity.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/clinic-readiness-migration.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/clinic-readiness.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/clinical-audit.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/integration.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 235,
+          "pass": 235,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/medicine-management.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/money.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/reference-bootstrap.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/scheduling.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/seed-security.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/state-reference-contract.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/test-runner.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      }
+    ],
+    "excluded": "One ordinary general-seed execution test; remaining seed guard tests included. No general seed executed."
+  },
+  "frontend": {
+    "tests": 299,
+    "pass": 299,
+    "fail": 0,
+    "build": "PASSED",
+    "lintErrors": 0,
+    "preExistingLintWarnings": 6,
+    "scheduleLocalizationFollowup": "Focused schedule regression passed after Arabic specialty display completion."
+  },
+  "browser": {
+    "matrix": {
+      "captures": 162,
+      "checks": 564,
+      "failed": []
+    },
+    "actualAdminNavigation": {
+      "captures": 5,
+      "checks": 8,
+      "failed": []
+    },
+    "widths": [
+      360,
+      390,
+      768,
+      1024,
+      1366,
+      1600
+    ],
+    "languages": [
+      "ar",
+      "en"
+    ],
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "api": "All requests mocked; sockets blocked; no Neon access"
+  },
+  "prisma": {
+    "validation": "PASSED",
+    "migrationReplay": "All 26 migrations replayed in isolated local schemas",
+    "preparedMigration": "20261022110000_admin_catalog_configuration",
+    "schemaChanges": [
+      "ClinicalService.code nullable unique",
+      "PaymentMethod",
+      "Payment/Refund restrictive method FKs"
+    ],
+    "dataPreservation": "Existing invoice/payment/refund snapshots unchanged in populated migration proof",
+    "newReferenceRows": [
+      "CASH",
+      "CARD",
+      "BANKAK",
+      "FAWRY"
+    ]
+  },
+  "syntax": "PASSED",
+  "gitDiffCheck": "PASSED",
+  "neon": {
+    "reads": 0,
+    "writes": 0,
+    "migrations": 0,
+    "deployedDrift": "UNVERIFIED; requires explicit preflight and approval"
+  }
+}

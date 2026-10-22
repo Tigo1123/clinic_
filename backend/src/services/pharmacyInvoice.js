@@ -1,3 +1,4 @@
+import { usdFromSdg, addMoney, multiplyMoney } from '../utils/money.js';
 import { Prisma } from '../generated/prisma/index.js';
 import prisma from '../db.js';
 
@@ -164,20 +165,20 @@ export async function ensurePharmacyInvoiceInTransaction(tx, {
   let totalAmountSdg = 0;
   const invoiceItems = billableItems.map(({ item, quantity }) => {
     const unitPriceSdg = Number(item.drug.unitPriceSdg);
-    const lineTotal = quantity * unitPriceSdg;
-    if (!Number.isSafeInteger(lineTotal) || !Number.isSafeInteger(totalAmountSdg + lineTotal)) {
+    const lineTotal = multiplyMoney(unitPriceSdg, quantity);
+    if (!Number.isSafeInteger(lineTotal) || !Number.isSafeInteger(addMoney(totalAmountSdg, lineTotal))) {
       throw Object.assign(new Error('Pharmacy invoice total exceeds the supported range.'), {
         status: 422,
         code: 'PHARMACY_INVOICE_TOTAL_INVALID'
       });
     }
-    totalAmountSdg += lineTotal;
+    totalAmountSdg = addMoney(totalAmountSdg, lineTotal);
     return {
       descriptionAr: item.drug.labelAr,
       descriptionEn: item.drug.labelEn,
       qty: quantity,
       unitPriceSdg,
-      unitPriceUsd: unitPriceSdg / LOCKED_EXCHANGE_RATE
+      unitPriceUsd: usdFromSdg(unitPriceSdg, LOCKED_EXCHANGE_RATE)
     };
   });
 
@@ -188,7 +189,7 @@ export async function ensurePharmacyInvoiceInTransaction(tx, {
       prescriptionId: prescription.id,
       invoiceType: 'PHARMACY',
       totalAmountSdg,
-      totalAmountUsd: totalAmountSdg / LOCKED_EXCHANGE_RATE,
+      totalAmountUsd: usdFromSdg(totalAmountSdg, LOCKED_EXCHANGE_RATE),
       invoiceExchangeRate: LOCKED_EXCHANGE_RATE,
       paymentStatus: 'UNPAID',
       createdBy: actorUserId,

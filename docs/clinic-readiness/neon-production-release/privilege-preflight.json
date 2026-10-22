@@ -1,0 +1,177 @@
+{
+  "capturedAt": "2026-10-22T08:51:40.619Z",
+  "readOnly": true,
+  "targetFingerprint": "082a234b31a142af",
+  "permissions": {
+    "schema_create": true,
+    "schema_usage": true,
+    "uuid_function_available": true
+  },
+  "ownership": [
+    {
+      "table_name": "Appointment",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "ClinicalService",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "Consent",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "Doctor",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "DoctorSchedule",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "DoctorScheduleBreak",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "DoctorScheduleException",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "DoctorScheduleExceptionPeriod",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "DoctorSchedulePeriod",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "DrugFormulary",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "EmergencyOverride",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "InsuranceClaim",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "InsuranceCompany",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "InventoryBatch",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "Invoice",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "InvoiceItem",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "LabOrder",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "LabOrderItem",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "MedicalRecord",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "MfaChallenge",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "MfaConfiguration",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "MfaRecoveryCode",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "Notification",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "NotificationLog",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "Patient",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "PatientClaimCode",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "PatientRegistration",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "Payment",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "PaymentOperation",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "PendingExternalAuth",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "PrescribedDrug",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "Prescription",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "Refund",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "Specialty",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "State",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "StockMovement",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "TenantAuditLog",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "User",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "UserExternalIdentity",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "VerificationChallenge",
+      "usable_owner_role": true
+    },
+    {
+      "table_name": "_prisma_migrations",
+      "usable_owner_role": true
+    }
+  ],
+  "allExistingTablesOwnedOrInherited": true
+}

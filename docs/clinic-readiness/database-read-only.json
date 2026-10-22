@@ -1,0 +1,15 @@
+{
+  "status": "UNVERIFIED",
+  "connectionResult": "ETIMEDOUT",
+  "transactionStarted": false,
+  "databaseWritesAttempted": 0,
+  "applicationRowsFetched": 0,
+  "target": {
+    "configuredNeonHost": true,
+    "configuredPooler": true,
+    "fingerprint": "082a234b31a142af"
+  },
+  "limitations": [
+    "Configured target metadata only; no successful server identity, counts, privilege, migration or schema verification."
+  ]
+}

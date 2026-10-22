@@ -1,0 +1,124 @@
+{
+  "preparedAt": "2026-10-22T08:50:01.205Z",
+  "databaseWritesExecuted": false,
+  "target": "Configured Neon neondb/public; verify fingerprint against fresh preflight before approval/execution",
+  "bundleDirectory": "/tmp/shifa-neon-release-62cAcC",
+  "schemaChecksum": "a4e4598195eb740d590814c1b05780350321e432e5b21e3aaf1d55479a37713e",
+  "reviewedPending": [
+    "20261022100000_patient_workflow_query_indexes",
+    "20261022110000_admin_catalog_configuration"
+  ],
+  "migrations": [
+    {
+      "name": "20260814182612_postgresql_baseline",
+      "checksum": "fdf7acea2a3c87a207b6b94a36b8501f170a024b92523ebcb57e81efdbafe3d1"
+    },
+    {
+      "name": "20260815085729_custom_prescribed_medications",
+      "checksum": "255be79798a2977cc0ac3f9507b6bc888b2fbb1a654e80a7eb78a266491c5e5a"
+    },
+    {
+      "name": "20260816072906_add_custom_lab_tests",
+      "checksum": "c40377c4af1977cc95d44b2d504ed66cf41d086abed5e2dceb36407823621eda"
+    },
+    {
+      "name": "20260816180946_add_patient_blood_type",
+      "checksum": "d7b6c083e3cb4e0c36fe35c1fe5539e90626a4b2eec1c7c86b7058e4c9170892"
+    },
+    {
+      "name": "20260818184717_consultation_payment_gate",
+      "checksum": "1a35003fd166a1b8f732b8f82c9485cebca43e292d8d148031e0e34103f350ef"
+    },
+    {
+      "name": "20260819080000_link_lab_orders_to_invoices",
+      "checksum": "5ce2cf82a6600a85474080f22c6ca8cd9192fbff100b61a9ec5e20a05f872205"
+    },
+    {
+      "name": "20260819092727_pharmacy_billing_foundation",
+      "checksum": "6ec10b4f0e803c62f05f41c9198ea75bbd9b61cc8b63ddb8209dc3418eee622e"
+    },
+    {
+      "name": "20260819160937_pharmacy_medication_review",
+      "checksum": "c85dd82de9a8ba7136e626b570112ce1f52960d30e34a2af8d1be77ce8f113fa"
+    },
+    {
+      "name": "20260820120000_lab_test_review",
+      "checksum": "4b79db12aab457660b2c213a2666dacfd25e9e68bf679337e6bc4a277219574b"
+    },
+    {
+      "name": "20260821120000_staff_mfa_foundation",
+      "checksum": "cd3c04bae42945b0d269eafa9670ea62f517a8d1333348a1c96b0905f28ecdfc"
+    },
+    {
+      "name": "20260822110000_access_token_generation",
+      "checksum": "0ec51c79702e713457c5d76e84690008654e7eb8f12a3a51123e941828593afa"
+    },
+    {
+      "name": "20260823100000_socket_auth_revocation",
+      "checksum": "a99d8bba493ca9437569ad4aa637aac47895b437a1e49738440f935e0e7d35c5"
+    },
+    {
+      "name": "20260823110000_pricing_management",
+      "checksum": "a8684b53f7db7f49b873b06bd7087a0efa0616b2331c5a2778dbfa9db49cd93b"
+    },
+    {
+      "name": "20260823120000_lab_result_optimistic_concurrency",
+      "checksum": "0da7856cb865c114f0aa92e3d8c3534b8b8871938bcd765691c16ff88717caa7"
+    },
+    {
+      "name": "20260825090000_medicine_management_phase1",
+      "checksum": "c7384727e03e08ffe585d15d0961215b20c1e7c9ce879016af896c0db02a11b6"
+    },
+    {
+      "name": "20260828100000_patient_file_number_foundation",
+      "checksum": "9c93bbd93fea32b8623f7403be659047829206446af98314a5bc82b55be0030b"
+    },
+    {
+      "name": "20260914000000_verification_generation",
+      "checksum": "f3ac62477e0ac8c6cb420b7c5f4ac86e1c19d2c97690655716235042ca2ab951"
+    },
+    {
+      "name": "20260914010000_offline_patient_activation",
+      "checksum": "d7258bb982e5edcf41353c0c991e2bdc6e06e323514a09636d3e2f5999cab56e"
+    },
+    {
+      "name": "20260914100000_password_lifecycle",
+      "checksum": "5ab701e9cc47b883c630d1969e3d0ecab72d73fd897b5895cc4f205091067063"
+    },
+    {
+      "name": "20260915000000_patient_identity_specialty_foundation",
+      "checksum": "af9a9e844f0224b61f465a29b3b315ca08998077f80f250efd53b960fa10a9eb"
+    },
+    {
+      "name": "20260916000000_normalized_doctor_scheduling_foundation",
+      "checksum": "d89b3f4fdcceff0f8a0f49200ccd52f3b713fd53cf4a360dfdc8a1740860278b"
+    },
+    {
+      "name": "20260916000000_specialty_safe_deletion",
+      "checksum": "b247db950b7858e7dfb5b48887952cc6d14d892d75ccfddc48d784a59b7337be"
+    },
+    {
+      "name": "20260916120000_external_identity_foundation",
+      "checksum": "177d5340e1c852b1239f13ebd959c6c4437020da8acd25a0ce0fdf207abb2042"
+    },
+    {
+      "name": "20260916213000_pending_external_auth_capability",
+      "checksum": "718e3f29f7fb5399b85ec03e39cf2c5311e8a22445927cad52e16ff2b680edc6"
+    },
+    {
+      "name": "20261022100000_patient_workflow_query_indexes",
+      "checksum": "e22824191a81a9ea356c05fd33bb04b78426beace5bd0e2c7159eedf04319824"
+    },
+    {
+      "name": "20261022110000_admin_catalog_configuration",
+      "checksum": "2dfc7ce5a2558916afdc7ef4bbe00b78a5c0ce7bf431f3a4728e34a65d721188"
+    }
+  ],
+  "reference": {
+    "file": "backend/reference-data/production-specialties.sql",
+    "checksum": "7b914f5d4cb174d16e7c108609c18cb2afd6e7af0a04b03f3f22d614561ebbda",
+    "expectedNewSpecialties": 5,
+    "existingRowsPolicy": "Preserve UUID/status/timestamps for exact matches; abort on label/code conflicts"
+  },
+  "directFingerprint": "c9f8bb593c61b80e"
+}

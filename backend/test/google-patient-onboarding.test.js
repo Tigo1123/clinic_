@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto';
 import prisma from '../src/db.js';
 import { app, shutdown } from '../src/server.js';
 import { generateOnboardingCapability, hashOnboardingCapability } from '../src/services/externalAuthCapability.js';
+import { PrismaClient } from '../src/generated/prisma/index.js';
+import { completeGooglePatientOnboarding } from '../src/services/googlePatientOnboarding.js';
 
 const createdPending = [], createdUsers = [], createdPatients = [];
 after(async () => {
@@ -50,6 +52,50 @@ test('new Google patient completes with trusted email, active account, Patient, 
   assert.ok(user.patient?.fileNumber); assert.equal(user.externalIdentities.length, 1); assert.equal(user.externalIdentities[0].providerSubject, pending.providerSubject);
   assert.equal(await prisma.verificationChallenge.count({ where: { userId: user.id } }), 0);
   assert.ok((await prisma.pendingExternalAuth.findUnique({ where: { id: pending.id } })).consumedAt);
+});
+
+test('Google completion waits beyond the default acquisition budget for a busy connection', async () => {
+  const url = new URL(process.env.DATABASE_URL);
+  assert.ok(['localhost', '127.0.0.1'].includes(url.hostname), 'Contention test requires local PostgreSQL');
+  url.searchParams.set('connection_limit', '1');
+  const db = new PrismaClient({ datasources: { db: { url: url.href } } });
+  const { pending, token } = await createPending();
+  let release;
+  let acquired;
+  const held = new Promise(resolve => { release = resolve; });
+  const ready = new Promise(resolve => { acquired = resolve; });
+  const blocker = db.$transaction(async () => { acquired(); await held; }, { timeout: 15000 });
+  // Also surface startup failures rather than leaving the test waiting for ready.
+  let timer;
+  try {
+    await Promise.race([ready, blocker]);
+    await assert.rejects(db.$transaction(async () => {}, { timeout: 15000 }), error => {
+      assert.equal(error.code, 'P2028');
+      assert.match(error.message, /Unable to start a transaction in the given time/);
+      return true;
+    });
+    const fields = payload(token);
+    // Finish bcrypt before occupying the acquisition queue so the delay is deterministic.
+    const completion = completeGooglePatientOnboarding({ onboardingToken: token, fields, db: {
+      $transaction(callback, options) {
+        assert.deepEqual(options, { maxWait: 10000, timeout: 15000 });
+        timer = setTimeout(release, 2500);
+        return db.$transaction(callback, options);
+      }
+    } });
+    const result = await completion;
+    assert.equal(result.status, 'AUTHENTICATED');
+    assert.ok(result.token);
+    const user = await findCreatedUser(pending.verifiedEmail);
+    assert.equal(user.externalIdentities.length, 1);
+    assert.ok(user.patient?.fileNumber);
+    assert.ok((await prisma.pendingExternalAuth.findUnique({ where: { id: pending.id } })).consumedAt);
+  } finally {
+    clearTimeout(timer);
+    release();
+    await blocker;
+    await db.$disconnect();
+  }
 });
 
 test('Google completion never auto-links a legacy Patient without phone verification', async () => {

@@ -1,0 +1,34 @@
+{
+  "preparedAt": "2026-10-22T08:50:01.205Z",
+  "productionAuthority": "Neon",
+  "renderMigration": "canceled by user",
+  "neonWrites": 0,
+  "pendingMigrations": [
+    "20261022100000_patient_workflow_query_indexes",
+    "20261022110000_admin_catalog_configuration"
+  ],
+  "schemaDrift": false,
+  "migrationDrift": false,
+  "proposedReferenceRows": {
+    "paymentMethods": 4,
+    "specialties": 5,
+    "states": 0,
+    "services": 0,
+    "medicines": 0,
+    "doctors": 0
+  },
+  "localMigrationRehearsalPassed": true,
+  "existingTablesExactlyPreserved": 40,
+  "foreignKeysValidated": 53,
+  "uniqueIndexesValidated": 69,
+  "localReferenceRehearsalPassed": true,
+  "newSafetyTests": 4,
+  "newReferenceTests": 4,
+  "prismaValidation": "passed",
+  "frontendBuild": "passed; existing chunk advisory",
+  "adminAccount": "not present; separate real provisioning required",
+  "medicineWriteRole": "PHARMACIST; ADMIN pricing/activation only",
+  "approval": "pending",
+  "syntax": "passed",
+  "gitDiffCheck": "passed"
+}

@@ -12,7 +12,7 @@ test('admin scheduling is mounted behind the existing ADMIN dashboard and uses a
   assert.match(dashboard, /activeTab === 'scheduling'/);
   assert.match(dashboard, /user\?\.role === 'ADMIN'/);
   assert.match(dashboard, /<AdminSchedulePanel lang=\{lang\} t=\{t\} \/>/);
-  assert.match(panel, /\/api\/appointments\/doctors/);
+  assert.match(panel, /\/api\/admin\/doctors/);
   assert.match(panel, /\/api\/admin\/doctors\/\$\{id\}\/schedules/);
   assert.match(panel, /schedule-exceptions/);
 });

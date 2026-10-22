@@ -5,13 +5,21 @@ import { useTheme } from '../../app/theme/ThemeContext';
 const GIS_SCRIPT_ID = 'google-identity-services-script';
 const GIS_SCRIPT_SRC = 'https://accounts.google.com/gsi/client';
 let gisScriptPromise;
+let gisScriptLanguage;
 let initializedClientId;
 let activeCredentialConsumer;
 
-function loadGoogleIdentityServices() {
+function loadGoogleIdentityServices(language) {
   if (typeof window === 'undefined' || typeof document === 'undefined') return Promise.reject(new Error('Google Identity Services is unavailable.'));
-  if (window.google?.accounts?.id) return Promise.resolve(window.google);
-  if (gisScriptPromise) return gisScriptPromise;
+  if (gisScriptPromise && gisScriptLanguage === language) return gisScriptPromise;
+  if (window.google?.accounts?.id && (!gisScriptLanguage || gisScriptLanguage === language)) {
+    gisScriptLanguage = language;
+    return Promise.resolve(window.google);
+  }
+  if (gisScriptLanguage && gisScriptLanguage !== language) {
+    document.getElementById(GIS_SCRIPT_ID)?.remove();
+  }
+  gisScriptLanguage = language;
   gisScriptPromise = new Promise((resolve, reject) => {
     const existing = document.getElementById(GIS_SCRIPT_ID);
     const script = existing || document.createElement('script');
@@ -24,12 +32,12 @@ function loadGoogleIdentityServices() {
     script.addEventListener('error', () => fail('Google Identity Services failed to load.'), { once: true });
     if (!existing) {
       script.id = GIS_SCRIPT_ID;
-      script.src = GIS_SCRIPT_SRC;
+      script.src = `${GIS_SCRIPT_SRC}?hl=${language}`;
       script.async = true;
       script.defer = true;
       document.head.appendChild(script);
     }
-  }).catch((error) => { gisScriptPromise = undefined; throw error; });
+  }).catch((error) => { if (gisScriptLanguage === language) gisScriptPromise = undefined; throw error; });
   return gisScriptPromise;
 }
 
@@ -40,6 +48,7 @@ export function GoogleIdentityButton({ onCredential, text = 'continue_with', cla
   const consumerRef = useRef({ callback: onCredential });
   const [state, setState] = useState('loading');
   const clientId = import.meta.env?.VITE_GOOGLE_CLIENT_ID?.trim();
+  const language = (i18n.resolvedLanguage || i18n.language || 'en').startsWith('ar') ? 'ar' : 'en';
   consumerRef.current.callback = onCredential;
 
   useEffect(() => {
@@ -50,7 +59,8 @@ export function GoogleIdentityButton({ onCredential, text = 'continue_with', cla
       setState('unavailable');
       return () => { active = false; };
     }
-    loadGoogleIdentityServices().then((google) => {
+    setState('loading');
+    loadGoogleIdentityServices(language).then((google) => {
       if (!active || !buttonRef.current) return;
       activeCredentialConsumer = consumer;
       if (initializedClientId !== clientId) {
@@ -63,13 +73,14 @@ export function GoogleIdentityButton({ onCredential, text = 'continue_with', cla
         });
         initializedClientId = clientId;
       }
+      buttonRef.current.replaceChildren();
       google.accounts.id.renderButton(buttonRef.current, {
         type: 'standard',
         theme: theme === 'dark' ? 'outline_dark' : 'outline',
         size: 'large',
         text,
         shape: 'rectangular',
-        locale: i18n.language,
+        locale: language,
         width: Math.max(1, Math.min(400, Math.floor(buttonRef.current.clientWidth || 400))),
       });
       setState('ready');
@@ -78,8 +89,9 @@ export function GoogleIdentityButton({ onCredential, text = 'continue_with', cla
       active = false;
       if (activeCredentialConsumer === consumer) activeCredentialConsumer = undefined;
     };
-  }, [clientId, i18n.language, text, theme]);
+  }, [clientId, language, text, theme]);
 
   if (state === 'unavailable') return <p className={`patient-google-unavailable ${className}`.trim()} role="status">{t('googleSignInUnavailable')}</p>;
-  return <div className={`patient-google-button${loading ? ' is-loading' : ''} ${className}`.trim()} aria-busy={state !== 'ready' || loading}><div ref={buttonRef} /></div>;
+  const busy = state !== 'ready' || loading;
+  return <div className={`patient-google-button${busy ? ' is-loading' : ''} ${className}`.trim()} aria-busy={busy}><div ref={buttonRef} /></div>;
 }

@@ -26,7 +26,7 @@ test('pending reminder derives only from existing appointment data', () => {
   assert.equal(hasPendingAppointments([{ status: 'CONFIRMED' }, { status: 'COMPLETED' }]), false);
   assert.equal(hasPendingAppointments([]), false);
   const page = source('src/features/patient-dashboard/PatientPages.jsx');
-  assert.match(page, /hasPending&&<aside/);
+  assert.match(page, /hasPendingAppointments\(appointments\.data\)\s*&&\s*<aside/);
   assert.match(page, /appointmentPendingReminder/);
 });
 
@@ -44,7 +44,7 @@ test('bounded polling runs only while pending and is cancelled on unmount', () =
   assert.match(page, /pollInterval=45000/);
   assert.match(page, /if\(pollWhen\?\.\(data\)\)pollTimer=setTimeout/);
   assert.match(page, /clearTimeout\(pollTimer\)/);
-  assert.match(page, /pollWhen:hasPendingAppointments/);
+  assert.match(page, /pollWhen:\s*hasPendingAppointments/);
 });
 
 test('patient appointment queries remain authenticated and patient-scoped', () => {

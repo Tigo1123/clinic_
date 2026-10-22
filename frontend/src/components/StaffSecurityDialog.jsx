@@ -11,12 +11,13 @@ import {
 } from '../services/staffMfa';
 import MfaCodeInput from './MfaCodeInput';
 import { fetchWithAuth, apiErrorMessage } from '../services/staffApi.js';
+import PasswordField from './PasswordField.jsx';
 
 function ProofFields({ currentPassword, setCurrentPassword, proofType, setProofType, proof, setProof, proofRef, t }) {
   return <>
     <div className="form-group">
       <label className="form-label" htmlFor="mfa-current-password">{t('currentPassword')}</label>
-      <input id="mfa-current-password" className="form-input" type="password" autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
+      <PasswordField id="mfa-current-password" label={t('currentPassword')} autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
     </div>
     <fieldset className="security-proof-options">
       <legend>{t('mfaVerificationMethod')}</legend>
@@ -169,15 +170,15 @@ export default function StaffSecurityDialog({ user, onClose, t }) {
 
       {mode === 'password' && <form className="staff-login-form" onSubmit={async (event) => { event.preventDefault(); setError(''); if (newPassword !== confirmPassword) return setError(t('passwordsDoNotMatch')); setPending(true); try { const response = await fetchWithAuth('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }); const body = await response.json(); if (!response.ok) throw new Error(apiErrorMessage(body, t('passwordChangeFailed'))); clearStaffSession(); disconnectStaffSocket(); window.location.reload(); } catch (requestError) { setError(requestError.message); } finally { setPending(false); } }}>
         <p className="staff-login-description">{t('passwordChangeSignInAgain')}</p>
-        <div className="form-group"><label className="form-label">{t('currentPassword')}</label><input className="form-input" type="password" autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></div>
-        <div className="form-group"><label className="form-label">{t('newPassword')}</label><input className="form-input" type="password" autoComplete="new-password" required minLength={10} maxLength={200} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></div>
-        <div className="form-group"><label className="form-label">{t('confirmNewPassword')}</label><input className="form-input" type="password" autoComplete="new-password" required value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></div>
+        <div className="form-group"><PasswordField label={t('currentPassword')} autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></div>
+        <div className="form-group"><PasswordField label={t('newPassword')} autoComplete="new-password" required minLength={10} maxLength={200} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} helperText={t('passwordRequirementsSummary')} /></div>
+        <div className="form-group"><PasswordField label={t('confirmNewPassword')} autoComplete="new-password" required value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} error={Boolean(confirmPassword && newPassword !== confirmPassword)} helperText={confirmPassword && newPassword !== confirmPassword ? t('passwordsDoNotMatch') : undefined} /></div>
         <button className="btn btn-primary" disabled={pending} type="submit">{pending ? t('loading') : t('changePassword')}</button><button className="btn btn-secondary" disabled={pending} type="button" onClick={() => resetSensitive()}>{t('cancel')}</button>
       </form>}
 
       {mode === 'enroll' && <form className="staff-login-form" onSubmit={requestEnrollment}>
         <p className="staff-login-description">{t('mfaPasswordPrompt')}</p>
-        <div className="form-group"><label className="form-label" htmlFor="mfa-enroll-password">{t('currentPassword')}</label><input id="mfa-enroll-password" className="form-input" type="password" autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></div>
+        <div className="form-group"><PasswordField id="mfa-enroll-password" label={t('currentPassword')} autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></div>
         <button className="btn btn-primary" disabled={pending} type="submit">{pending ? t('loading') : t('continue')}</button>
         <button className="btn btn-secondary" disabled={pending} type="button" onClick={() => resetSensitive()}>{t('cancel')}</button>
       </form>}

@@ -68,6 +68,10 @@ export function validateEnvironment() {
   if (socketRevocationDatabaseUrl && /(?:pgbouncer=true|pool_mode=transaction)/i.test(socketRevocationDatabaseUrl)) {
     errors.push('SOCKET_REVOCATION_DATABASE_URL must not use transaction pooling.');
   }
+  if (!production && process.env.VERIFICATION_PROVIDER === 'development'
+      && !['development', 'test'].includes(process.env.NODE_ENV)) {
+    errors.push('VERIFICATION_PROVIDER=development requires NODE_ENV=development or test. Set NODE_ENV explicitly, or configure VERIFICATION_PROVIDER=email with SMTP.');
+  }
 
   if (production) {
     if (!jwtSecret || jwtSecret.length < 32 || INSECURE_SECRETS.has(jwtSecret.toLowerCase())) errors.push('JWT_SECRET must be a unique secret of at least 32 characters.');

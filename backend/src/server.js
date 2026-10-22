@@ -1,3 +1,4 @@
+import adminCatalogRoutes from './routes/adminCatalogs.js';
 import express from 'express';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
@@ -122,6 +123,7 @@ app.use('/api/records', recordRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/admin', adminCatalogRoutes);
 app.use('/api/admin', adminSchedulingRoutes);
 app.use('/api/admin', adminDoctorRoutes);
 app.use('/api/notifications', notificationRoutes);

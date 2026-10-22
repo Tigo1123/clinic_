@@ -11,7 +11,7 @@ test('Profile component renders Linked Accounts section with status badge and lo
   assert.match(pages, /\{t\('linkedAccounts'\)\}/);
   assert.match(pages, /\{t\('googleAccount'\)\}/);
   assert.match(pages, /data\.googleAccount\?\.linked\s*\?\s*`\$\{t\('connected'\)\}:\s*\$\{data\.googleAccount\.email\}`\s*:\s*t\('notConnected'\)/);
-  assert.match(pages, /StatusBadge\s+status=\{data\.googleAccount\?\.linked \? 'CONFIRMED' : 'PENDING'\}/);
+  assert.match(pages, /t\(data\.googleAccount\?\.linked \? 'connected' : 'notConnected'\)/);
 });
 
 test('connect flow presents GoogleIdentityButton and requires password re-authentication', () => {

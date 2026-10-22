@@ -1,0 +1,11 @@
+{
+  "capturedAt": "2026-10-22T08:51:16.850Z",
+  "target": "isolated local neon_upgrade only",
+  "specialtiesBefore": 0,
+  "specialtiesAfter": 5,
+  "allOtherTablesExactlyUnchanged": true,
+  "otherTablesVerified": 41,
+  "paymentMethods": 4,
+  "states": 18,
+  "passed": true
+}

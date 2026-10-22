@@ -1,3 +1,6 @@
+import { Prisma } from '../generated/prisma/index.js';
+import { activePaymentMethods, requireActivePaymentMethods, PAYMENT_METHOD_CODES } from '../services/paymentMethods.js';
+import { usdFromSdg, money, addMoney, subtractMoney, multiplyMoney } from '../utils/money.js';
 import express from 'express';
 import { asyncRouter } from '../utils/asyncRouter.js';
 import { createHash } from 'node:crypto';
@@ -20,7 +23,7 @@ const MAX_MONEY_SDG = 1_000_000_000;
 const MAX_GENERAL_QUANTITY = 100;
 const MAX_GENERAL_INVOICE_ITEMS = 100;
 const MAX_INVOICE_QUANTITY = 10_000;
-const PAYMENT_METHODS = ['CASH', 'CARD', 'BANKAK', 'FAWRY'];
+const PAYMENT_METHODS = PAYMENT_METHOD_CODES;
 const paymentRequestSchema = z.object({
   payments: z.array(z.object({
     amountSdg: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
@@ -87,7 +90,7 @@ function calculateInsuranceAmounts(totalSdg, company) {
   );
   return {
     grossTotalSdg: totalSdg,
-    insuranceCoverageSdg: totalSdg - patientShareSdg,
+    insuranceCoverageSdg: subtractMoney(totalSdg, patientShareSdg),
     patientShareSdg,
     copayPercentage: Number(company.copayPercentage)
   };
@@ -101,7 +104,7 @@ function invoicePatientLiability(invoice) {
   return {
     grossTotalSdg,
     insuranceCoverageSdg,
-    patientShareSdg: Math.max(0, grossTotalSdg - insuranceCoverageSdg)
+    patientShareSdg: Math.max(0, subtractMoney(grossTotalSdg, insuranceCoverageSdg))
   };
 }
 
@@ -164,11 +167,11 @@ router.post('/insurance-preview', authenticate, allowRoles(ROLES.ADMIN, ROLES.RE
         if (!service || service.status !== 'ACTIVE') return sendError(res, 404, 'SERVICE_NOT_AVAILABLE', 'The selected active clinical service was not found.');
         const price = Number(service.baseFeeSdg);
         if (!isConfiguredPrice(price)) return sendError(res, 409, 'SERVICE_PRICE_NOT_CONFIGURED', 'The selected service does not have a valid configured price.');
-        const lineTotal = price * item.quantity;
-        if (!Number.isSafeInteger(lineTotal) || !Number.isSafeInteger(grossTotalSdg + lineTotal)) {
+        const lineTotal = multiplyMoney(price, item.quantity);
+        if (!Number.isSafeInteger(lineTotal) || !Number.isSafeInteger(addMoney(grossTotalSdg, lineTotal))) {
           return sendError(res, 422, 'INVOICE_TOTAL_INVALID', 'Invoice total exceeds the supported financial range.');
         }
-        grossTotalSdg += lineTotal;
+        grossTotalSdg = addMoney(grossTotalSdg, lineTotal);
       }
     }
 
@@ -456,6 +459,7 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
       // Security: diagnostic prices always come from ClinicalService,
       // never from browser-supplied invoice items.
       resolvedItems = billableLabItems.map((item) => ({
+        sourceServiceId: item.service.id,
         descriptionAr: item.service.labelAr,
         descriptionEn: item.service.labelEn,
         qty: 1,
@@ -511,6 +515,7 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
       resolvedItems = items.map((item) => {
         const catalogService = servicesById.get(item.serviceId);
         return {
+          sourceServiceId: catalogService.id,
           descriptionAr: catalogService.labelAr,
           descriptionEn: catalogService.labelEn,
           qty: item.quantity,
@@ -537,7 +542,7 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
         );
       }
 
-      const lineTotalSdg = priceSdg * qty;
+      const lineTotalSdg = multiplyMoney(priceSdg, qty);
       if (!Number.isSafeInteger(lineTotalSdg) || lineTotalSdg < 0) {
         throw Object.assign(new Error('Invoice line total exceeds the supported financial range.'), {
           status: 422,
@@ -545,7 +550,7 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
         });
       }
 
-      const nextTotalSdg = totalSdg + lineTotalSdg;
+      const nextTotalSdg = addMoney(totalSdg, lineTotalSdg);
       if (!Number.isSafeInteger(nextTotalSdg) || nextTotalSdg < 0) {
         throw Object.assign(new Error('Invoice total exceeds the supported financial range.'), {
           status: 422,
@@ -559,11 +564,11 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
         descriptionEn: item.descriptionEn,
         qty,
         unitPriceSdg: priceSdg,
-        unitPriceUsd: priceSdg / lockedExchangeRate
+        unitPriceUsd: usdFromSdg(priceSdg, lockedExchangeRate)
       };
     });
 
-    const totalUsd = totalSdg / lockedExchangeRate;
+    const totalUsd = usdFromSdg(totalSdg, lockedExchangeRate);
 
     const runCreateTransaction = () =>
       prisma.$transaction(async (tx) => {
@@ -591,7 +596,7 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
               insuranceClaim: existingInvoice.insuranceClaim || null,
               grossTotalSdg,
               insuranceCoverageSdg: claimAmount,
-              patientShareSdg: Math.max(0, grossTotalSdg - claimAmount),
+              patientShareSdg: Math.max(0, subtractMoney(grossTotalSdg, claimAmount)),
               existing: true
             };
           }
@@ -628,9 +633,19 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
               insuranceClaim: existingInvoice.insuranceClaim || null,
               grossTotalSdg,
               insuranceCoverageSdg: claimAmount,
-              patientShareSdg: Math.max(0, grossTotalSdg - claimAmount),
+              patientShareSdg: Math.max(0, subtractMoney(grossTotalSdg, claimAmount)),
               existing: true
             };
+          }
+        }
+
+        const catalogIds = [...new Set(resolvedItems.map(item => item.sourceServiceId).filter(Boolean))].sort();
+        if (catalogIds.length) {
+          await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "ClinicalService" WHERE "id" IN (${Prisma.join(catalogIds)}) ORDER BY "id" FOR SHARE`);
+          const currentServices = await tx.clinicalService.findMany({ where: { id: { in: catalogIds } } });
+          const byId = new Map(currentServices.map(service => [service.id, service]));
+          if (resolvedItems.some(item => item.sourceServiceId && (!byId.get(item.sourceServiceId) || byId.get(item.sourceServiceId).status !== 'ACTIVE' || !byId.get(item.sourceServiceId).baseFeeSdg?.equals(String(item.unitPriceSdg))))) {
+            throw Object.assign(new Error('The catalog changed. Refresh before creating this invoice.'), { status: 409, code: 'CATALOG_CHANGED' });
           }
         }
 
@@ -824,9 +839,9 @@ router.post('/invoice/:id/payments', authenticate,
           throw Object.assign(new Error('Idempotency key was already used for a different payment request.'), { status: 409, code: 'IDEMPOTENCY_KEY_REUSED' });
         }
         const replayInvoice = await tx.invoice.findUnique({ where: { id: invoiceId }, include: { payments: true, insuranceClaim: true } });
-        const replayPaid = replayInvoice.payments.reduce((sum, payment) => sum + Number(payment.amountSdg), 0);
+        const replayPaid = replayInvoice.payments.reduce((sum, payment) => addMoney(sum, payment.amountSdg), 0);
         const replayLiability = invoicePatientLiability(replayInvoice);
-        return { ...replayInvoice, ...replayLiability, totalPaidSdg: replayPaid, remainingBalanceSdg: Math.max(0, replayLiability.patientShareSdg - replayPaid), idempotentReplay: true };
+        return { ...replayInvoice, ...replayLiability, totalPaidSdg: replayPaid, remainingBalanceSdg: Math.max(0, subtractMoney(replayLiability.patientShareSdg, replayPaid)), idempotentReplay: true };
       }
 
       if (invoice.refunds.length) throw Object.assign(new Error('Payments cannot be added after a refund has been recorded.'), { status: 409, code: 'REFUNDED_INVOICE_LOCKED' });
@@ -838,9 +853,11 @@ router.post('/invoice/:id/payments', authenticate,
         }
       }
 
-      const priorPaidSdg = invoice.payments.reduce((sum, payment) => sum + Number(payment.amountSdg), 0);
-      const newPaidSdg = normalizedPayments.reduce((sum, payment) => sum + payment.amountSdg, 0);
-      const resultingPaidSdg = priorPaidSdg + newPaidSdg;
+      await requireActivePaymentMethods(tx, normalizedPayments.map(payment => payment.paymentMethod));
+
+      const priorPaidSdg = invoice.payments.reduce((sum, payment) => addMoney(sum, payment.amountSdg), 0);
+      const newPaidSdg = normalizedPayments.reduce((sum, payment) => addMoney(sum, payment.amountSdg), 0);
+      const resultingPaidSdg = addMoney(priorPaidSdg, newPaidSdg);
       const liability = invoicePatientLiability(invoice);
       const patientShareSdg = liability.patientShareSdg;
       if (![priorPaidSdg, newPaidSdg, resultingPaidSdg, patientShareSdg].every(Number.isSafeInteger)) {
@@ -868,7 +885,7 @@ router.post('/invoice/:id/payments', authenticate,
         createdPayments.push(await tx.payment.create({ data: {
           invoiceId,
           amountSdg: pay.amountSdg,
-          amountUsd: pay.amountSdg / Number(invoice.invoiceExchangeRate),
+          amountUsd: usdFromSdg(pay.amountSdg, invoice.invoiceExchangeRate),
           paymentMethod: pay.paymentMethod,
           transactionReference: pay.transactionReference,
           verificationStatus: 'VERIFIED',
@@ -901,7 +918,7 @@ router.post('/invoice/:id/payments', authenticate,
           patientShareSdg,
           insuranceCoverageSdg: liability.insuranceCoverageSdg,
           grossTotalSdg: liability.grossTotalSdg,
-          remainingBalanceSdg: Math.max(0, patientShareSdg - resultingPaidSdg)
+          remainingBalanceSdg: Math.max(0, subtractMoney(patientShareSdg, resultingPaidSdg))
         }),
         ipAddress: req.ip || 'unknown'
       } });
@@ -953,7 +970,7 @@ router.post('/invoice/:id/payments', authenticate,
         totalPaidSdg: resultingPaidSdg,
         remainingBalanceSdg: Math.max(
           0,
-          patientShareSdg - resultingPaidSdg
+          subtractMoney(patientShareSdg, resultingPaidSdg)
         )
       };
     }, { maxWait: 5000, timeout: 10000 });
@@ -1013,9 +1030,9 @@ router.post('/invoice/:id/payments', authenticate,
         ) {
           return sendError(res, 403, 'INVOICE_PAYMENT_ROLE_FORBIDDEN', 'You do not have permission to record this invoice payment.');
         }
-        const replayPaid = replayInvoice.payments.reduce((sum, payment) => sum + Number(payment.amountSdg), 0);
+        const replayPaid = replayInvoice.payments.reduce((sum, payment) => addMoney(sum, payment.amountSdg), 0);
         const replayLiability = invoicePatientLiability(replayInvoice);
-        return res.json({ ...replayInvoice, ...replayLiability, totalPaidSdg: replayPaid, remainingBalanceSdg: Math.max(0, replayLiability.patientShareSdg - replayPaid), idempotentReplay: true });
+        return res.json({ ...replayInvoice, ...replayLiability, totalPaidSdg: replayPaid, remainingBalanceSdg: Math.max(0, subtractMoney(replayLiability.patientShareSdg, replayPaid)), idempotentReplay: true });
       }
       return sendError(res, 409, 'IDEMPOTENCY_KEY_REUSED', 'Idempotency key was already used for a different payment request.');
     }
@@ -1079,11 +1096,11 @@ router.post('/invoice/:id/refund', authenticate, allowRoles(ROLES.ADMIN, ROLES.R
       });
 
       const paidSdg = financial.payments.reduce(
-        (sum, payment) => sum + Number(payment.amountSdg),
+        (sum, payment) => addMoney(sum, payment.amountSdg),
         0
       );
-      const previouslyRefundedSdg = financial.refunds.reduce((sum, refund) => sum + Number(refund.amountSdg), 0);
-      const refundableSdg = paidSdg - previouslyRefundedSdg;
+      const previouslyRefundedSdg = financial.refunds.reduce((sum, refund) => addMoney(sum, refund.amountSdg), 0);
+      const refundableSdg = subtractMoney(paidSdg, previouslyRefundedSdg);
       if (paidSdg <= 0) {
         throw Object.assign(
           new Error('No paid funds are available to refund.'),
@@ -1091,7 +1108,7 @@ router.post('/invoice/:id/refund', authenticate, allowRoles(ROLES.ADMIN, ROLES.R
         );
       }
 
-      if (amountSdg > refundableSdg + 0.001) {
+      if (amountSdg > addMoney(refundableSdg, '0.001')) {
         throw Object.assign(
           new Error('Refund exceeds the paid amount still available.'),
           { status: 409, code: 'REFUND_EXCEEDS_PAID_AMOUNT' }
@@ -1128,7 +1145,7 @@ router.post('/invoice/:id/refund', authenticate, allowRoles(ROLES.ADMIN, ROLES.R
         // any refund. A partial laboratory refund would therefore strand the
         // order in an unpayable state. Require reversal of all currently
         // collected funds instead.
-        if (Math.abs(amountSdg - refundableSdg) > 0.001) {
+        if (money(amountSdg).minus(refundableSdg).abs().toNumber() > 0.001) {
           throw Object.assign(
             new Error(
               'Laboratory refunds must reverse the full refundable amount before sample collection.'
@@ -1191,14 +1208,14 @@ router.post('/invoice/:id/refund', authenticate, allowRoles(ROLES.ADMIN, ROLES.R
       const refund = await tx.refund.create({ data: {
         invoiceId: invoice.id,
         amountSdg,
-        amountUsd: amountSdg / Number(financial.invoiceExchangeRate),
+        amountUsd: usdFromSdg(amountSdg, financial.invoiceExchangeRate),
         refundMethod,
         transactionReference: transactionReference?.trim() || null,
         reason: reason?.trim() || null,
         processedBy: req.user.id
       } });
-      const totalRefundedSdg = previouslyRefundedSdg + amountSdg;
-      const paymentStatus = totalRefundedSdg >= paidSdg - 0.001 ? 'REFUNDED' : 'PARTIALLY_REFUNDED';
+      const totalRefundedSdg = addMoney(previouslyRefundedSdg, amountSdg);
+      const paymentStatus = totalRefundedSdg >= subtractMoney(paidSdg, '0.001') ? 'REFUNDED' : 'PARTIALLY_REFUNDED';
       const updatedInvoice = await tx.invoice.update({ where: { id: invoice.id }, data: { paymentStatus } });
       await tx.tenantAuditLog.create({ data: {
         userId: req.user.id,
@@ -1211,9 +1228,9 @@ router.post('/invoice/:id/refund', authenticate, allowRoles(ROLES.ADMIN, ROLES.R
         refund,
         paidSdg,
         refundedSdg: totalRefundedSdg,
-        netCollectedSdg: paidSdg - totalRefundedSdg,
-        refundableSdg: Math.max(0, paidSdg - totalRefundedSdg),
-        remainingBalanceSdg: Math.max(0, invoicePatientLiability(financial).patientShareSdg - (paidSdg - totalRefundedSdg))
+        netCollectedSdg: subtractMoney(paidSdg, totalRefundedSdg),
+        refundableSdg: Math.max(0, subtractMoney(paidSdg, totalRefundedSdg)),
+        remainingBalanceSdg: Math.max(0, subtractMoney(invoicePatientLiability(financial).patientShareSdg, subtractMoney(paidSdg, totalRefundedSdg)))
       };
     });
     return res.status(201).json(result);
@@ -1300,7 +1317,7 @@ router.get(
         const billableItems = order.items.filter((item) => item.labReviewStatus !== 'EXTERNAL');
         const estimatedTotalSdg = billableItems.reduce((sum, item) => {
           const price = configuredPriceOrNull(item.service?.baseFeeSdg);
-          return item.service?.status === 'ACTIVE' && price != null ? sum + price : sum;
+          return item.service?.status === 'ACTIVE' && price != null ? addMoney(sum, price) : sum;
         }, 0);
 
         const reviewPending = order.items.some((item) => item.labReviewStatus === 'PENDING_REVIEW');
@@ -1316,23 +1333,23 @@ router.get(
 
         if (invoice) {
           totalPaidSdg = invoice.payments.reduce(
-            (sum, payment) => sum + Number(payment.amountSdg),
+            (sum, payment) => addMoney(sum, payment.amountSdg),
             0
           );
 
           refundedSdg = invoice.refunds.reduce(
-            (sum, refund) => sum + Number(refund.amountSdg),
+            (sum, refund) => addMoney(sum, refund.amountSdg),
             0
           );
 
           const netCollectedSdg = Math.max(
             0,
-            totalPaidSdg - refundedSdg
+            subtractMoney(totalPaidSdg, refundedSdg)
           );
 
           remainingBalanceSdg = Math.max(
             0,
-            Number(invoice.totalAmountSdg) - netCollectedSdg
+            subtractMoney(Number(invoice.totalAmountSdg), netCollectedSdg)
           );
         }
 
@@ -1528,7 +1545,7 @@ router.get(
               return sum;
             }
 
-            return sum + (price * item.remainingQty);
+            return addMoney(sum, multiplyMoney(price, item.remainingQty));
           },
           0
         );
@@ -1539,23 +1556,23 @@ router.get(
 
         if (invoice) {
           totalPaidSdg = invoice.payments.reduce(
-            (sum, payment) => sum + Number(payment.amountSdg),
+            (sum, payment) => addMoney(sum, payment.amountSdg),
             0
           );
 
           refundedSdg = invoice.refunds.reduce(
-            (sum, refund) => sum + Number(refund.amountSdg),
+            (sum, refund) => addMoney(sum, refund.amountSdg),
             0
           );
 
           const netCollectedSdg = Math.max(
             0,
-            totalPaidSdg - refundedSdg
+            subtractMoney(totalPaidSdg, refundedSdg)
           );
 
           remainingBalanceSdg = Math.max(
             0,
-            Number(invoice.totalAmountSdg) - netCollectedSdg
+            subtractMoney(Number(invoice.totalAmountSdg), netCollectedSdg)
           );
         }
 
@@ -1624,7 +1641,7 @@ router.post('/shift/reconcile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECE
   }
 
   try {
-    const diff = parseFloat(actualAmountSdg) - parseFloat(expectedAmountSdg);
+    const diff = subtractMoney(actualAmountSdg, expectedAmountSdg);
 
     await prisma.tenantAuditLog.create({
       data: {
@@ -1650,6 +1667,8 @@ router.post('/shift/reconcile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECE
  * GET /api/billing/services
  * Returns list of clinical services.
  */
+router.get('/payment-methods', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.PHARMACIST), async (req, res) => res.json(await activePaymentMethods(prisma)));
+
 router.get('/services', async (req, res) => {
   try {
     const services = await prisma.clinicalService.findMany({
@@ -1697,18 +1716,18 @@ router.get('/analytics', authenticate, checkRoles('ADMIN'), async (req, res) => 
     const methodBreakdown = { CASH: 0, BANKAK: 0, FAWRY: 0, INSURANCE: 0 };
 
     payments.forEach(p => {
-      totalSdg += Number(p.amountSdg || 0);
-      totalUsd += Number(p.amountUsd || 0);
+      totalSdg = addMoney(totalSdg, p.amountSdg || 0);
+      totalUsd = addMoney(totalUsd, p.amountUsd || 0);
       const method = p.paymentMethod || 'CASH';
       if (methodBreakdown[method] !== undefined) {
-        methodBreakdown[method] += Number(p.amountSdg || 0);
+        methodBreakdown[method] = addMoney(methodBreakdown[method], p.amountSdg || 0);
       }
     });
     refunds.forEach((refund) => {
       const amount = Number(refund.amountSdg);
-      totalSdg -= amount;
-      totalUsd -= Number(refund.amountUsd);
-      if (methodBreakdown[refund.refundMethod] !== undefined) methodBreakdown[refund.refundMethod] -= amount;
+      totalSdg = subtractMoney(totalSdg, amount);
+      totalUsd = subtractMoney(totalUsd, refund.amountUsd);
+      if (methodBreakdown[refund.refundMethod] !== undefined) methodBreakdown[refund.refundMethod] = subtractMoney(methodBreakdown[refund.refundMethod], amount);
     });
 
     // 2. Doctor workload
@@ -1780,11 +1799,11 @@ router.get('/analytics', authenticate, checkRoles('ADMIN'), async (req, res) => 
     const dailyRevenueTrend = last7Days.map(date => {
       const dayTotal = payments
         .filter(p => instantToClinicDateString(p.createdAt) === date)
-        .reduce((sum, p) => sum + parseFloat(p.amountSdg), 0);
-      const refundTotal = refunds.filter((refund) => instantToClinicDateString(refund.createdAt) === date).reduce((sum, refund) => sum + Number(refund.amountSdg), 0);
+        .reduce((sum, p) => addMoney(sum, p.amountSdg), 0);
+      const refundTotal = refunds.filter((refund) => instantToClinicDateString(refund.createdAt) === date).reduce((sum, refund) => addMoney(sum, refund.amountSdg), 0);
       return {
         date,
-        amount: dayTotal - refundTotal
+        amount: subtractMoney(dayTotal, refundTotal)
       };
     });
 
@@ -1795,8 +1814,10 @@ router.get('/analytics', authenticate, checkRoles('ADMIN'), async (req, res) => 
     const monthlyRevenueTrend = last6Months.map(({ start, end, label }) => {
       return {
         month: label,
-        amount: payments.filter((payment) => payment.createdAt >= start && payment.createdAt < end).reduce((sum, payment) => sum + Number(payment.amountSdg), 0)
-          - refunds.filter((refund) => refund.createdAt >= start && refund.createdAt < end).reduce((sum, refund) => sum + Number(refund.amountSdg), 0)
+        amount: subtractMoney(
+          payments.filter((payment) => payment.createdAt >= start && payment.createdAt < end).reduce((sum, payment) => addMoney(sum, payment.amountSdg), 0),
+          refunds.filter((refund) => refund.createdAt >= start && refund.createdAt < end).reduce((sum, refund) => addMoney(sum, refund.amountSdg), 0)
+        )
       };
     });
 

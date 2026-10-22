@@ -23,7 +23,7 @@ async function mount(fn = () => reply([]), t) {
  requests = []; handler = fn;
  globalThis.scheduleFetch = async (url, options) => {
   requests.push({ url, options });
-  if (url === '/api/appointments/doctors') return reply([{ id: 'A', fullNameEn: 'Doctor A' }, { id: 'B', fullNameEn: 'Doctor B' }]);
+  if (url === '/api/admin/doctors') return reply([{ id: 'A', fullNameEn: 'Doctor A' }, { id: 'B', fullNameEn: 'Doctor B' }]);
   if (url === '/api/public-config') return reply({ clinicTimeZone: 'Africa/Khartoum' });
   return handler(url, options);
  };

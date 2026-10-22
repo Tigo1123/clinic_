@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "status": "PROPOSAL_ONLY_NOT_AN_EXECUTABLE_BOOTSTRAP",
+  "source": "backend/prisma/seed.js specialties array; preserve existing UUIDs by code",
+  "specialties": [
+    {
+      "code": "surgery",
+      "nameAr": "الجراحة",
+      "nameEn": "Surgery"
+    },
+    {
+      "code": "dentistry",
+      "nameAr": "طب الأسنان",
+      "nameEn": "Dentistry"
+    },
+    {
+      "code": "orthopedics",
+      "nameAr": "جراحة العظام",
+      "nameEn": "Orthopedics"
+    },
+    {
+      "code": "internal-medicine",
+      "nameAr": "الباطنية",
+      "nameEn": "Internal Medicine"
+    },
+    {
+      "code": "neurology",
+      "nameAr": "طب الأعصاب",
+      "nameEn": "Neurology"
+    }
+  ]
+}

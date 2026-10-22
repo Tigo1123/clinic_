@@ -1,0 +1,196 @@
+{
+  "backend": {
+    "selectedFiles": 13,
+    "completedFiles": 13,
+    "totals": {
+      "tests": 337,
+      "pass": 337,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0
+    },
+    "files": [
+      {
+        "file": "test/admin-doctor-management.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/admin-scheduling.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 21,
+          "pass": 21,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/audit-atomicity.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/clinic-readiness-migration.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/clinic-readiness.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/clinical-audit.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/integration.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 235,
+          "pass": 235,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/medicine-management.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/reference-bootstrap.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/scheduling.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/seed-security.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/state-reference-contract.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/test-runner.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      }
+    ],
+    "excludedTest": "ordinary seed opening balances are ledger-consistent and idempotent (would execute the prohibited general seed)",
+    "isolation": "Fresh localhost:5433/clinic_test schemas, all Prisma/socket URLs pinned, guarded minimal fixtures, no general seed"
+  },
+  "frontend": {
+    "tests": 289,
+    "pass": 289,
+    "fail": 0,
+    "build": "PASSED",
+    "lintErrors": 0,
+    "existingLintWarnings": 6,
+    "browserMatrix": "Not rerun in this source/schema audit; no UI files changed. Existing theme/RTL/layout tests included in full frontend suite."
+  },
+  "prisma": {
+    "validation": "PASSED",
+    "datamodelDiff": "Exactly six CREATE INDEX statements; no data/type/FK changes",
+    "migrationReplay": "All 25 migrations replayed in isolated local schemas",
+    "populatedMigrationProof": "Clinical and financial row snapshots unchanged; active-slot constraint/index retained"
+  },
+  "syntax": "PASSED",
+  "gitDiffCheck": "PASSED",
+  "neon": {
+    "writes": 0,
+    "readOnlyAudit": "CONNECTION_TIMED_OUT",
+    "deployedDriftAndCounts": "UNVERIFIED"
+  }
+}

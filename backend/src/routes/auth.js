@@ -506,15 +506,7 @@ router.post('/users', authenticate, checkRoles('ADMIN'), validate(staffCreationS
       if (role === 'DOCTOR') {
         const specialty = await tx.specialty.findFirst({ where: { id: req.body.specialtyId, active: true } });
         if (!specialty) throw Object.assign(new Error('Active specialty not found.'), { status: 422, code: 'SPECIALTY_INACTIVE_OR_NOT_FOUND' });
-        const docSchedule = JSON.stringify([
-          { day: 'Sunday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
-          { day: 'Monday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
-          { day: 'Tuesday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
-          { day: 'Wednesday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
-          { day: 'Thursday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
-          { day: 'Friday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 },
-          { day: 'Saturday', startTime: '09:00', endTime: '15:00', slotDurationInMinutes: 15 }
-        ]);
+        const docSchedule = '[]'; // Working hours must be entered explicitly by an administrator.
 
         await tx.doctor.create({
           data: {
@@ -805,7 +797,19 @@ router.put('/users/:id/status', authenticate, checkRoles('ADMIN'), validate(z.ob
       });
       if (!current) throw new Error('STAFF_STATUS_TARGET_NOT_FOUND');
       if (!STAFF_ROLES.includes(current.role)) throw new Error('STAFF_STATUS_UNSUPPORTED');
-      if (current.status === status) return current;
+      let doctorStateChanged = false;
+      if (current.role === 'DOCTOR') {
+        const doctor = await tx.doctor.findUnique({ where: { userId: current.id }, select: { id: true, status: true } });
+        if (doctor) {
+          await tx.$queryRaw`SELECT "id" FROM "Doctor" WHERE "id" = ${doctor.id} FOR UPDATE`;
+          doctorStateChanged = doctor.status !== status;
+          await tx.doctor.update({ where: { id: doctor.id }, data: { status } });
+        }
+      }
+      if (current.status === status) {
+        if (doctorStateChanged) await tx.tenantAuditLog.create({ data: { userId: req.user.id, action: 'DOCTOR_ACCOUNT_STATUS_SYNCHRONIZED', details: JSON.stringify({ userId: current.id, status }), ipAddress: req.ip || 'unknown' } });
+        return current;
+      }
 
       const transitioned = await tx.user.update({
         where: { id: current.id },

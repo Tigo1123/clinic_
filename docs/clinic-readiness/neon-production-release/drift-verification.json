@@ -1,0 +1,86 @@
+{
+  "capturedAt": "2026-10-22T08:49:58.456Z",
+  "targetFingerprint": "082a234b31a142af",
+  "database": "neondb",
+  "schema": "public",
+  "readOnly": true,
+  "expectedAppliedMigrations": 24,
+  "pending": [
+    "20261022100000_patient_workflow_query_indexes",
+    "20261022110000_admin_catalog_configuration"
+  ],
+  "migrationDrift": {
+    "pending": [
+      "20261022100000_patient_workflow_query_indexes",
+      "20261022110000_admin_catalog_configuration"
+    ],
+    "unknown": [],
+    "checksumMismatches": [],
+    "failed": []
+  },
+  "comparisons": {
+    "columns": {
+      "matches": true,
+      "actualCount": 367,
+      "expectedCount": 367,
+      "actualOnly": [],
+      "expectedOnly": []
+    },
+    "constraints": {
+      "matches": true,
+      "actualCount": 401,
+      "expectedCount": 401,
+      "actualOnly": [],
+      "expectedOnly": []
+    },
+    "indexes": {
+      "matches": true,
+      "actualCount": 95,
+      "expectedCount": 95,
+      "actualOnly": [],
+      "expectedOnly": []
+    },
+    "enums": {
+      "matches": true,
+      "actualCount": 7,
+      "expectedCount": 7,
+      "actualOnly": [],
+      "expectedOnly": []
+    },
+    "triggers": {
+      "matches": true,
+      "actualCount": 5,
+      "expectedCount": 5,
+      "actualOnly": [],
+      "expectedOnly": []
+    },
+    "functions": {
+      "matches": true,
+      "actualCount": 5,
+      "expectedCount": 5,
+      "actualOnly": [],
+      "expectedOnly": []
+    },
+    "sequences": {
+      "matches": true,
+      "actualCount": 1,
+      "expectedCount": 1,
+      "actualOnly": [],
+      "expectedOnly": []
+    },
+    "policies": {
+      "matches": true,
+      "actualCount": 0,
+      "expectedCount": 0,
+      "actualOnly": [],
+      "expectedOnly": []
+    },
+    "tables": {
+      "matches": true,
+      "actualCount": 40,
+      "expectedCount": 40
+    }
+  },
+  "noAssessedSchemaDrift": true,
+  "scope": "public tables/columns/defaults/nullability/Decimal/timestamp precision, constraints, indexes, enums, triggers, function definition hashes/security, sequence definitions, RLS flags and policies. Ownership, grants, provider extensions and database settings are not schema-equivalence claims."
+}

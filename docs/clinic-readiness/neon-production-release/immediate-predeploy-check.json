@@ -1,0 +1,38 @@
+{
+  "capturedAt": "2026-10-22T09:06:01.760Z",
+  "targetFingerprint": "c9f8bb593c61b80e",
+  "database": "neondb",
+  "schema": "public",
+  "readOnly": true,
+  "status": "checked",
+  "migrationHistoryMatches": true,
+  "unknownMigrations": [],
+  "failedMigrations": [],
+  "checksumMismatches": [],
+  "pendingMigrations": [
+    "20261022100000_patient_workflow_query_indexes",
+    "20261022110000_admin_catalog_configuration"
+  ],
+  "expectedPending": [
+    "20261022100000_patient_workflow_query_indexes",
+    "20261022110000_admin_catalog_configuration"
+  ],
+  "appliedMigrationCount": 24,
+  "schemaComparisons": {
+    "columns": true,
+    "constraints": true,
+    "indexes": true,
+    "enums": true,
+    "triggers": true,
+    "functions": true,
+    "sequences": true,
+    "policies": true,
+    "tables": true
+  },
+  "rowCountsMatchApprovedSnapshot": true,
+  "originalTableRowHashesMatchPrivateReviewedExport": true,
+  "originalTablesChecked": 40,
+  "statesRemainCanonicalCount": true,
+  "specialtiesAndPaymentMethodsStillAbsent": true,
+  "allChecksPass": true
+}

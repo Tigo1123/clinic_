@@ -231,7 +231,7 @@ router.delete(
 );
 
 router.get('/doctors', async (req, res) => {
-  const doctors = await prisma.doctor.findMany({ where: { status: 'ACTIVE', OR: [{ specialtyId: null }, { specialty: { active: true } }] }, select: doctorSelect, orderBy: { fullNameEn: 'asc' } });
+  const doctors = await prisma.doctor.findMany({ where: { status: 'ACTIVE', user: { status: 'ACTIVE' }, OR: [{ specialtyId: null }, { specialty: { active: true } }] }, select: doctorSelect, orderBy: { fullNameEn: 'asc' } });
   return res.json(doctors);
 });
 
@@ -241,7 +241,7 @@ router.get('/specialties', async (req, res) => {
 });
 
 router.get('/doctors/:id', async (req, res) => {
-  const doctor = await prisma.doctor.findFirst({ where: { id: req.params.id, status: 'ACTIVE' }, select: doctorSelect });
+  const doctor = await prisma.doctor.findFirst({ where: { id: req.params.id, status: 'ACTIVE', user: { status: 'ACTIVE' }, OR: [{ specialtyId: null }, { specialty: { active: true } }] }, select: doctorSelect });
   if (!doctor) return sendError(res, 404, 'DOCTOR_NOT_FOUND', 'Doctor not found.');
   return res.json(doctor);
 });

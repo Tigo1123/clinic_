@@ -38,6 +38,7 @@ export async function completeGooglePatientOnboarding({ onboardingToken, fields,
   if (!phoneNormalized) throw new ApiError(422, 'PHONE_INVALID', 'Phone number is invalid.');
   const passwordHash = await bcrypt.hash(fields.password, bcryptRounds);
 
+  // Allow pooled connection acquisition separately from the transaction's run time.
   return db.$transaction(async (tx) => {
     const pendingByHash = await tx.pendingExternalAuth.findUnique({ where: { capabilityHash }, select: pendingSelect() });
     assertPending(pendingByHash, now);
@@ -101,7 +102,7 @@ export async function completeGooglePatientOnboarding({ onboardingToken, fields,
       identity: finalized.patient || patientIdentitySummary({ ...name, gender: fields.gender, dateOfBirth: fields.dateOfBirth, phone: phoneNormalized, addressStateId: state.id }),
       user: finalized.user
     };
-  }, { timeout: 15000 }).then((result) => {
+  }, { maxWait: 10000, timeout: 15000 }).then((result) => {
     if (result.state !== 'CLAIMED') return { state: result.state, ...(result.reason ? { reason: result.reason } : {}) };
     const user = result.user;
     const token = signAccessToken({ id: user.id, username: user.username, role: user.role, authVersion: user.authVersion });

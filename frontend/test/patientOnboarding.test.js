@@ -4,6 +4,7 @@ import i18n from '../src/i18n.js';
 import { readFileSync } from 'node:fs';
 import { INITIAL_ONBOARDING_FORM, NAME_FIELDS, normaliseOnboardingForm, ONBOARDING_STEPS, onboardingErrorMessage, registrationPayload, RESEND_COOLDOWN_SECONDS, resendSecondsRemaining, validateOnboardingStep } from '../src/features/patient-auth/onboarding.js';
 import { DEFAULT_PHONE_COUNTRY, normalisePatientPhone, PATIENT_PHONE_COUNTRIES, splitInternationalPhone } from '../src/features/patient-auth/phoneCountries.js';
+const passwordField = readFileSync(new URL('../src/components/PasswordField.jsx', import.meta.url), 'utf8');
 
 const messages = { required:'required', nameInvalid:'name', dateInvalid:'dob', phoneInvalid:'phone', emailInvalid:'email', passwordInvalid:'password', passwordMismatch:'mismatch', rateLimited:'rate', addressStateInvalid:'state invalid', emailDuplicate:'email duplicate', phoneDuplicate:'phone duplicate', manualReview:'review', verificationFailed:'verify', requestFailed:'failed' };
 const complete = { ...INITIAL_ONBOARDING_FORM, firstNameAr:'محمد', fatherNameAr:'أحمد', grandfatherNameAr:'علي', familyNameAr:'النور', firstNameEn:'José', fatherNameEn:'Ahmed', grandfatherNameEn:'Ali', familyNameEn:"O’Neill", dateOfBirth:'1990-01-02', gender:'MALE', phone:'+250788123456', email:'patient@example.test', password:'SecurePass1', confirmPassword:'SecurePass1' };
@@ -162,5 +163,6 @@ test('patient login identifier uses explicit visible LTR text styling without ch
   assert.match(styles, /\.patient-auth \.patient-auth-identifier \{[^}]*-webkit-text-fill-color: #142b37;[^}]*caret-color: #142b37/);
   assert.match(styles, /\.patient-auth \.patient-auth-identifier::placeholder/);
   assert.match(styles, /\.patient-auth \.patient-auth-identifier:-webkit-autofill/);
-  assert.match(page, /type=\{showPassword\?'text':'password'\}/);
+  assert.match(page, /type==='password'\)return <PasswordField/);
+  assert.match(passwordField, /t\('showPassword'\)/);
 });

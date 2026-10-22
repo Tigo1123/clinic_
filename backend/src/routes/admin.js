@@ -1,3 +1,5 @@
+import { lockDoctorLifecycle, synchronizeDoctorAccount } from '../services/doctorLifecycle.js';
+import { usdFromSdg, subtractMoney } from '../utils/money.js';
 import express from 'express';
 import { asyncRouter } from '../utils/asyncRouter.js';
 import prisma from '../db.js';
@@ -32,7 +34,7 @@ router.get('/pricing', authenticate, checkRoles('ADMIN'), async (req, res) => {
       prisma.doctor.findMany({
         select: {
           id: true, fullNameAr: true, fullNameEn: true, specialtyAr: true,
-          specialtyEn: true, consultationFee: true, status: true, updatedAt: true
+          specialtyEn: true, consultationFee: true, status: true, updatedAt: true, user: { select: { status: true } }
         },
         orderBy: { fullNameEn: 'asc' }
       }),
@@ -51,7 +53,7 @@ router.get('/pricing', authenticate, checkRoles('ADMIN'), async (req, res) => {
         orderBy: { labelEn: 'asc' }
       })
     ]);
-    return res.json({ doctors, services, medicines });
+    return res.json({ doctors: doctors.map(({ user, ...doctor }) => ({ ...doctor, status: doctor.status === 'ACTIVE' && user?.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE' })), services, medicines });
   } catch (error) {
     console.error('Pricing catalogue fetch error:', error);
     return sendError(res, 500, 'PRICING_CATALOGUE_FAILED', 'Failed to retrieve clinic pricing.');
@@ -61,8 +63,10 @@ router.get('/pricing', authenticate, checkRoles('ADMIN'), async (req, res) => {
 router.patch('/pricing/doctors/:id', authenticate, checkRoles('ADMIN'), validate(priceUpdateSchema), async (req, res) => {
   try {
     const doctor = await prisma.$transaction(async (tx) => {
+      await lockDoctorLifecycle(tx, req.params.id);
       const existing = await tx.doctor.findUnique({ where: { id: req.params.id } });
       if (!existing) throw Object.assign(new Error('Doctor not found.'), { status: 404, code: 'DOCTOR_NOT_FOUND' });
+      if (req.body.status) await synchronizeDoctorAccount(tx, existing.userId, req.body.status);
       const updated = await tx.doctor.update({
         where: { id: existing.id },
         data: { consultationFee: req.body.priceSdg, ...(req.body.status && { status: req.body.status }) }
@@ -92,7 +96,7 @@ router.patch('/pricing/services/:id', authenticate, checkRoles('ADMIN'), validat
         where: { id: existing.id },
         data: {
           baseFeeSdg: req.body.priceSdg,
-          baseFeeUsd: req.body.priceSdg / 1500,
+          baseFeeUsd: usdFromSdg(req.body.priceSdg),
           ...(req.body.status && { status: req.body.status })
         }
       });
@@ -273,7 +277,7 @@ router.get('/analytics', authenticate, checkRoles('ADMIN'), async (req, res) => 
       prisma.payment.aggregate({ _sum: { amountSdg: true } }),
       prisma.refund.aggregate({ _sum: { amountSdg: true } })
     ]);
-    const totalRevenueSdg = Number(paymentTotals._sum.amountSdg || 0) - Number(refundTotals._sum.amountSdg || 0);
+    const totalRevenueSdg = subtractMoney(paymentTotals._sum.amountSdg || 0, refundTotals._sum.amountSdg || 0);
     const trendDays = clinicDateSequence(7, now);
     const trendCounts = await prisma.appointment.groupBy({
       by: ['appointmentDate'],
