@@ -1,5 +1,11 @@
+import { CacheProvider } from '@emotion/react';
+import { ThemeProvider as MuiThemeProvider } from '@mui/material/styles';
+import { Box, Button, Card, Chip, Grid, Paper, Stack, Typography } from '@mui/material';
+import { useTheme } from '../../app/theme/ThemeContext.jsx';
+import { patientStyleCaches, createPatientMuiTheme } from '../../utils/patientMuiTheme';
+import { patientGreeting } from '../../utils/patientGreeting';
 import { clearPatientSession } from '../../services/authStorage.js';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { patientApiRequest as apiRequest } from '../../services/apiClient';
@@ -8,16 +14,16 @@ import { GoogleIdentityButton } from '../patient-auth/GoogleIdentityButton.jsx';
 import { CalendarDays, FileHeart, FlaskConical, HeartPulse, Pill, Search, Stethoscope, UserRound } from 'lucide-react';
 import Dialog from '../../components/ui/Dialog';
 import { EmptyState, ErrorState, Skeleton } from '../../components/feedback/States';
-import HealthcareIllustration from '../../components/healthcare/HealthcareIllustration';
 import { clinicCalendarDays } from '../../utils/clinicTime';
 import { formatPatientDateTime } from '../../utils/patientRecord';
 import { doctorMatchesDirectorySearch, doctorSpecialtyKey, doctorSpecialtyOptions, localizeDoctorSpecialty } from '../../utils/doctorSpecialty';
 import { hasPendingAppointments } from '../../utils/appointmentStatus';
+import PasswordField from '../../components/PasswordField.jsx';
 
 function useApi(path,{pollWhen=null,pollInterval=45000}={}){
   const [result,setResult]=useState({path:null,data:null,error:null,loading:true});
   const [reloadToken,setReloadToken]=useState(0);
-  const reload=()=>setReloadToken(token=>token+1);
+  const reload=useCallback(()=>{setResult(current=>({...current,error:null,loading:true}));setReloadToken(token=>token+1)},[]);
   useEffect(()=>{
     let current=true;
     let pollTimer;
@@ -28,42 +34,111 @@ function useApi(path,{pollWhen=null,pollInterval=45000}={}){
     return()=>{current=false;clearTimeout(pollTimer)};
   },[path,reloadToken,pollWhen,pollInterval]);
   const isCurrent=result.path===path;
-  return{data:isCurrent?result.data:null,error:isCurrent?result.error?.message||'':'',errorStatus:isCurrent?result.error?.status:null,loading:!isCurrent||result.loading,reload};
+  return{data:isCurrent?result.data:null,error:isCurrent?result.error?.message||'':'',errorCode:isCurrent?result.error?.code:null,errorStatus:isCurrent?result.error?.status:null,loading:!isCurrent||result.loading,reload};
 }
-function State({loading,error,children}){if(loading)return <div className="patient-card"><Skeleton/></div>;if(error)return <ErrorState message={error}/>;return children}
+function State({loading,error,onRetry,children}){if(loading)return <div className="patient-card"><Skeleton/></div>;if(error)return <ErrorState message={error} onRetry={onRetry}/>;return children}
 function Empty({children}){return <div className="patient-card patient-empty">{children}</div>}
 const doctorName=(doctor,lang)=>
   lang==='ar'
     ? (doctor?.fullNameAr || doctor?.fullNameEn)
     : (doctor?.fullNameEn || doctor?.fullNameAr);
 
-const patientGreeting = (profile, language) => {
-  const lang = language?.startsWith('ar') ? 'ar' : 'en';
-  const hour = new Date().getHours();
+export function Dashboard() {
+  const { t, i18n } = useTranslation();
+  const { theme: mode } = useTheme();
+  const language = i18n.language?.startsWith('ar') ? 'ar' : 'en';
+  const direction = language === 'ar' ? 'rtl' : 'ltr';
+  const muiTheme = useMemo(() => createPatientMuiTheme(mode, direction), [mode, direction]);
+  const profile = useApi('/api/patient/me');
+  const appointments = useApi('/api/patient/appointments?group=upcoming', { pollWhen: hasPendingAppointments });
+  const labs = useApi('/api/patient/lab-results');
+  const prescriptions = useApi('/api/patient/prescriptions');
+  const records = useApi('/api/patient/medical-records');
+  const doctors = useApi('/api/patient/doctors');
+  // The list API returns descending dates; the dashboard needs the nearest visit.
+  const next = [...(appointments.data || [])].sort((a, b) =>
+    `${a.appointmentDate}T${a.appointmentTime}`.localeCompare(`${b.appointmentDate}T${b.appointmentTime}`)
+  )[0];
+  const noDoctors = !doctors.loading && !doctors.error && doctors.data?.length === 0;
+  const value = result => result.error ? t('patientDataUnavailable') : result.loading ? '…' : (result.data?.length || 0).toLocaleString(language);
+  const activity = [
+    ...(labs.data || []).map(item => ({ id: `lab-${item.id}`, date: item.releasedAt || item.orderDate, title: t('laboratoryReport'), doctor: item.doctor, to: '/patient/lab-results', icon: <FlaskConical size={18}/> })),
+    ...(records.data || []).map(item => ({ id: `record-${item.id}`, date: item.visitDate, title: t('medicalRecords'), doctor: item.doctor, to: '/patient/records', icon: <FileHeart size={18}/> })),
+  ].sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0)).slice(0, 3);
+  if (profile.errorCode === 'PATIENT_RECORD_NOT_LINKED') return <><h1>{t('claimRecord')}</h1><p className="patient-alert info">{t('claimInstructions')}</p><Link className="patient-button" to="/patient/claim">{t('claimRecord')}</Link></>;
+  return <CacheProvider value={patientStyleCaches[direction]}><MuiThemeProvider theme={muiTheme}>
+    <State loading={profile.loading} error={profile.error} onRetry={profile.reload}>
+      <Stack className="patient-dashboard" spacing={5} dir={direction}>
+        <Paper component="section" className="patient-hero patient-dashboard__greeting" sx={{ p: { xs: 4, sm: 5 }, m: 0 }}>
+          <Box className="patient-hero__copy">
+            <Typography component="span" variant="body2" className="patient-hero__eyebrow"><HeartPulse size={16} aria-hidden="true"/>{t('patientPortalShort')}</Typography>
+            <Typography component="h1" variant="h1">{patientGreeting(profile.data, language)}</Typography>
+            <Typography color="text.secondary">{t('patientHeroText')}</Typography>
+          </Box>
+          <Stack spacing={1} className="patient-dashboard__booking">
+            <Button variant="contained" component={noDoctors || doctors.loading ? 'button' : Link} to={noDoctors || doctors.loading ? undefined : '/patient/doctors'} disabled={noDoctors || doctors.loading} aria-busy={doctors.loading} aria-describedby={noDoctors ? 'dashboard-booking-status' : undefined}><CalendarDays size={18} aria-hidden="true"/>{t('dashboardBookAppointment')}</Button>
+            {noDoctors && <Typography id="dashboard-booking-status" variant="body2" color="text.secondary">{t('dashboardBookingUnavailable')}</Typography>}
+          </Stack>
+        </Paper>
 
-  const name =
-    lang === 'ar'
-      ? (profile?.fullNameAr || profile?.fullNameEn || '')
-      : (profile?.fullNameEn || profile?.fullNameAr || '');
+        <Grid container spacing={3} aria-label={t('recentPatientInfo')}>
+          {[['/patient/appointments', CalendarDays, 'upcomingAppointments', appointments, 'primary'], ['/patient/lab-results', FlaskConical, 'recentLabResults', labs, 'success'], ['/patient/prescriptions', Pill, 'prescriptions', prescriptions, 'warning'], ['/patient/records', FileHeart, 'medicalRecords', records, 'primary']].map(([to, Icon, title, result, accent]) => <Grid key={to} size={{ xs: 6, md: 3 }}>
+            <Card component={Link} to={to} className="health-summary-card patient-dashboard__summary" sx={{ p: { xs: 3, sm: 4 }, height: '100%' }}>
+              <Box className="patient-dashboard__icon" sx={{ color: `var(--color-${accent === 'primary' ? 'primary-strong' : accent})`, bgcolor: `var(--color-${accent}-soft)` }}><Icon size={20} aria-hidden="true"/></Box>
+              <Typography component="h2" variant="body2" color="text.secondary">{t(title)}</Typography>
+              <Typography component="strong" className="patient-dashboard__count" aria-live="polite">{value(result)}</Typography>
+            </Card>
+          </Grid>)}
+        </Grid>
 
-  if (lang === 'ar') {
-    return hour >= 5 && hour < 12
-      ? `صباح الخير${name ? ` ${name}` : ''}`
-      : `مساء الخير${name ? ` ${name}` : ''}`;
-  }
+        {hasPendingAppointments(appointments.data) && <aside className="patient-alert warning patient-pending-reminder"><strong>{t('appointmentPendingTitle')}</strong><p>{t('appointmentPendingReminder')}</p><Link className="patient-button secondary" to="/patient/appointments">{t('followMyAppointments')}</Link></aside>}
 
-  return hour >= 5 && hour < 12
-    ? `Good morning${name ? `, ${name}` : ''}`
-    : `Good evening${name ? `, ${name}` : ''}`;
-};
+        <Grid container spacing={4} sx={{ alignItems: 'stretch' }}>
+          <Grid size={{ xs: 12, md: 7 }}>
+            <Paper component="section" className="patient-dashboard__panel" sx={{ p: { xs: 4, sm: 5 }, height: '100%' }} aria-labelledby="dashboard-upcoming-title">
+              <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 4 }}><Typography id="dashboard-upcoming-title" component="h2" variant="h2">{t('upcomingAppointments')}</Typography><Button component={Link} to="/patient/appointments" size="small">{t('all')}</Button></Stack>
+              <State loading={appointments.loading} error={appointments.error} onRetry={appointments.reload}>
+                {next ? <Stack component="article" spacing={4}>
+                  <Stack direction="row" spacing={3} sx={{ alignItems: 'center' }}>
+                    <Box className="patient-dashboard__date"><Typography variant="body2">{new Date(`${next.appointmentDate}T00:00:00`).toLocaleDateString(language, { month: 'short' })}</Typography><Typography component="strong">{new Date(`${next.appointmentDate}T00:00:00`).getDate().toLocaleString(language)}</Typography></Box>
+                    <Box sx={{ flex: 1, minWidth: 0 }}><Typography component="h3" variant="h3">{doctorName(next.doctor, language)}</Typography><Typography variant="body2" color="text.secondary">{localizeDoctorSpecialty(next.doctor, language)}</Typography><Typography variant="body2"><bdi dir="ltr">{next.appointmentTime}</bdi></Typography></Box>
+                  </Stack>
+                  <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}><StatusBadge status={next.status} language={language}/><Button component={Link} to={`/patient/appointments/${next.id}`} variant="text">{t('details')}</Button></Stack>
+                </Stack> : <DashboardEmpty icon={<CalendarDays size={24}/>} title={t('dashboardNoUpcoming')} description={t(noDoctors ? 'dashboardNoDoctorsHelp' : 'dashboardAppointmentsHelp')}/>}
+              </State>
+            </Paper>
+          </Grid>
+          <Grid size={{ xs: 12, md: 5 }}>
+            <Paper component="section" className="patient-dashboard__panel" sx={{ p: { xs: 4, sm: 5 }, height: '100%' }} aria-labelledby="dashboard-actions-title">
+              <Typography id="dashboard-actions-title" component="h2" variant="h2" sx={{ mb: 4 }}>{t('dashboardQuickActions')}</Typography>
+              <Stack spacing={2} className="patient-dashboard__actions">
+                {[[Stethoscope, 'doctors', '/patient/doctors'], [FileHeart, 'medicalRecords', '/patient/records'], [UserRound, 'profile', '/patient/profile']].map(([Icon, label, to]) => <Button key={to} component={Link} to={to} className="patient-dashboard__action" fullWidth><Box className="patient-dashboard__icon"><Icon size={19} aria-hidden="true"/></Box><span>{t(label)}</span></Button>)}
+              </Stack>
+            </Paper>
+          </Grid>
+        </Grid>
 
-export function Dashboard(){const{t,i18n}=useTranslation();const profile=useApi('/api/patient/me');const appointments=useApi('/api/patient/appointments?group=upcoming',{pollWhen:hasPendingAppointments});const labs=useApi('/api/patient/lab-results');const prescriptions=useApi('/api/patient/prescriptions');if(profile.error?.includes('not linked'))return <><div className="patient-alert error">{profile.error}</div><Link className="patient-button" to="/patient/claim">{t('claimRecord')}</Link></>;const next=appointments.data?.[0];const hasPending=hasPendingAppointments(appointments.data);return <State loading={profile.loading} error={profile.error}><section className="patient-hero patient-hero--care"><div className="patient-hero__copy"><span className="patient-hero__eyebrow"><HeartPulse size={15}/>{t('welcome')}</span><h1>{patientGreeting(profile.data, i18n.language)}</h1><p>{t('patientHeroText')}</p><Link className="patient-button" to="/patient/doctors"><CalendarDays size={18}/>{t('bookAppointment')}</Link></div><HealthcareIllustration variant="patient"/></section>{hasPending&&<aside className="patient-alert warning patient-pending-reminder"><strong>{t('appointmentPendingTitle')}</strong><p>{t('appointmentPendingReminder')}</p><Link className="patient-button secondary" to="/patient/appointments">{t('followMyAppointments')}</Link></aside>}<div className="section-heading-row"><h2>{t('healthServices')}</h2></div><div className="service-grid"><Service to="/patient/doctors" icon={<Stethoscope/>} label={t('doctors')}/><Service to="/patient/appointments" icon={<CalendarDays/>} label={t('myAppointments')}/><Service to="/patient/lab-results" icon={<FlaskConical/>} label={t('labResults')}/><Service to="/patient/records" icon={<FileHeart/>} label={t('medicalRecords')}/></div><div className="section-heading-row"><h2>{t('upcomingAppointments')}</h2><Link to="/patient/appointments">{t('all')}</Link></div>{next?<article className="patient-card appointment-card"><div className="appointment-card__date"><span>{new Date(`${next.appointmentDate}T00:00:00`).toLocaleDateString(i18n.language,{month:'short'})}</span><strong>{new Date(`${next.appointmentDate}T00:00:00`).getDate()}</strong></div><div><h2>{doctorName(next.doctor,i18n.language)}</h2><p>{next.doctor?.specialtyEn}</p><p>{next.appointmentTime} · <StatusBadge status={next.status} language={i18n.language}/></p></div><Link className="patient-button secondary" to={`/patient/appointments/${next.id}`}>{t('details')}</Link></article>:<Empty>{t('noAppointments')}</Empty>}<div className="section-heading-row"><h2>{t('recentPatientInfo')}</h2></div><div className="patient-grid"><Summary to="/patient/appointments" icon={<CalendarDays/>} title={t('upcomingAppointments')} value={appointments.data?.length||0}/><Summary to="/patient/lab-results" icon={<FlaskConical/>} title={t('recentLabResults')} value={labs.data?.length||0}/><Summary to="/patient/prescriptions" icon={<Pill/>} title={t('prescriptions')} value={prescriptions.data?.length||0}/></div></State>}
-function Service({to,icon,label}){return <Link className="service-card" to={to}><span className="service-card__icon">{icon}</span><strong>{label}</strong></Link>}
-function Summary({to,icon,title,value}){return <Link className="patient-card health-summary-card" to={to}><div style={{color:'var(--color-primary-strong)'}}>{icon}</div><h3>{title}</h3><strong>{value}</strong></Link>}
+        <Paper component="section" className="patient-dashboard__panel" sx={{ p: { xs: 4, sm: 5 } }} aria-labelledby="dashboard-activity-title">
+          <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 3 }}><Typography id="dashboard-activity-title" component="h2" variant="h2">{t('dashboardRecentActivity')}</Typography>{activity.length > 0 && <Chip size="small" label={t('released')}/>}</Stack>
+          {activity.length > 0 ? <Stack component="ul" spacing={0} sx={{ listStyle: 'none', m: 0, p: 0 }}>{activity.map(item => <Box component="li" key={item.id}><Button className="patient-dashboard__activity" component={Link} to={item.to} fullWidth>
+            <Box className="patient-dashboard__icon" aria-hidden="true">{item.icon}</Box><Box sx={{ flex: 1, textAlign: 'start' }}><Typography component="span" variant="h3" sx={{ display: 'block' }}>{item.title}</Typography><Typography component="span" variant="body2" color="text.secondary">{doctorName(item.doctor, language) || t('patientPortalShort')}</Typography></Box>{item.date && !Number.isNaN(Date.parse(item.date)) && <Typography component="time" dateTime={item.date} variant="body2" color="text.secondary">{new Date(item.date).toLocaleDateString(language, { month: 'short', day: 'numeric' })}</Typography>}
+          </Button></Box>)}</Stack> : labs.error || records.error ? <ErrorState message={t('patientDataUnavailable')} onRetry={() => { labs.reload(); records.reload(); }}/> : labs.loading || records.loading ? <Skeleton/> : <DashboardEmpty icon={<FileHeart size={24}/>} title={t('dashboardNoActivity')} description={t('dashboardActivityHelp')}/>}
+          {activity.length > 0 && (labs.error || records.error) && <Typography role="status" variant="body2" color="text.secondary" sx={{ mt: 2 }}>{t('dashboardPartialActivity')}</Typography>}
+        </Paper>
+      </Stack>
+    </State>
+  </MuiThemeProvider></CacheProvider>;
+}
+
+function DashboardEmpty({ icon, title, description }) {
+  return <Stack className="patient-dashboard__empty" direction="row" spacing={3} sx={{ alignItems: 'flex-start', py: 3 }}>
+    <Box className="patient-dashboard__icon" aria-hidden="true">{icon}</Box><Box><Typography component="h3" variant="h3">{title}</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: 1, maxWidth: '60ch' }}>{description}</Typography></Box>
+  </Stack>;
+}
 
 export function Doctors(){
   const { t, i18n } = useTranslation();
-  const { data, error, loading } = useApi('/api/patient/doctors');
+  const { data, error, loading, reload } = useApi('/api/patient/doctors');
   const [query, setQuery] = useState('');
   const [specialty, setSpecialty] = useState('');
   const language = i18n.language?.startsWith('ar') ? 'ar' : 'en';
@@ -81,7 +156,7 @@ export function Doctors(){
   });
 
   return (
-    <State loading={loading} error={error}>
+    <State loading={loading} error={error} onRetry={reload}>
       <div className="patient-doctors-directory" dir={language === 'ar' ? 'rtl' : 'ltr'}>
       <header className="doctor-search-header">
         <div>
@@ -107,6 +182,7 @@ export function Doctors(){
         >
           <button
             className={!specialty ? 'selected' : ''}
+            aria-pressed={!specialty}
             onClick={() => setSpecialty('')}
           >
             {t('all')}
@@ -115,6 +191,7 @@ export function Doctors(){
           {specialties.map((item) => (
             <button
               className={specialty === item.key ? 'selected' : ''}
+              aria-pressed={specialty === item.key}
               onClick={() => setSpecialty(item.key)}
               key={item.key}
             >
@@ -192,6 +269,7 @@ export function BookAppointment() {
   const { t, i18n } = useTranslation();
   const [date, setDate] = useState('');
   const [slots, setSlots] = useState([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
   const [time, setTime] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -199,13 +277,20 @@ export function BookAppointment() {
   const days = clinicCalendarDays(7);
 
   useEffect(() => {
+    let current = true;
+    setSlots([]);
+    setTime('');
+    setError('');
     if (date) {
+      setSlotsLoading(true);
       apiRequest(`/api/appointments/slots?doctorId=${doctorId}&date=${date}`)
-        .then(setSlots)
-        .catch((requestError) => setError(requestError.message));
+        .then(value => { if (current) setSlots(value); })
+        .catch((requestError) => { if (current) setError(requestError.message); })
+        .finally(() => { if (current) setSlotsLoading(false); });
     } else {
-      setSlots([]);
+      setSlotsLoading(false);
     }
+    return () => { current = false; };
   }, [doctorId, date]);
 
   async function submit(event) {
@@ -227,7 +312,7 @@ export function BookAppointment() {
 
   if (successAppointmentId) {
     return <section className="patient-card patient-booking-pending">
-      <div className="patient-alert success">
+      <div className="patient-alert success" role="status">
         <strong>{t('bookingRequestSent')}</strong>
         <p>{t('bookingPendingReview')}</p>
         <p>{t('bookingFollowStatus')}</p>
@@ -245,18 +330,19 @@ export function BookAppointment() {
       <div className="section-heading-row"><h2>{t('selectDate')}</h2></div>
       <div className="date-strip">{days.map((day) => {
         const value = day.date;
-        return <button type="button" className={`date-chip ${date === value ? 'selected' : ''}`} key={value} onClick={() => { setDate(value); setTime(''); }} aria-pressed={date === value}>
+        return <button type="button" className={`date-chip ${date === value ? 'selected' : ''}`} key={value} onClick={() => { setDate(value); setTime(''); }} aria-pressed={date === value} aria-label={day.calendarDate.toLocaleDateString(i18n.language, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })}>
           <span>{day.calendarDate.toLocaleDateString(i18n.language, { weekday: 'short', timeZone: 'UTC' })}</span>
-          <strong>{day.calendarDate.getUTCDate()}</strong>
+          <strong>{day.calendarDate.getUTCDate().toLocaleString(i18n.language)}</strong>
+          <span>{day.calendarDate.toLocaleDateString(i18n.language, { month: 'short', timeZone: 'UTC' })}</span>
         </button>;
       })}</div>
       {date && <fieldset className="patient-card">
         <legend>{t('selectTime')}</legend>
         <div className="slot-grid">{slots.map((slot) => <button type="button" className={`slot-chip ${time === slot ? 'selected' : ''}`} key={slot} onClick={() => setTime(slot)} aria-pressed={time === slot}>{slot}</button>)}</div>
-        {!slots.length && <p>{t('noSlots')}</p>}
+        {slotsLoading ? <p role="status">{t('loading')}</p> : !slots.length && !error && <p>{t('noSlots')}</p>}
       </fieldset>}
-      {error && <div className="patient-alert error">{error}</div>}
-      <button className="patient-button" style={{ width: '100%' }} disabled={!time || loading}>{loading ? t('loading') : t('confirmBooking')}</button>
+      {error && <div className="patient-alert error" role="alert">{error}</div>}
+      <button className="patient-button" style={{ width: '100%' }} disabled={!time || loading || slotsLoading} aria-busy={loading}>{loading ? t('loading') : t('confirmBooking')}</button>
     </form>
   </section>;
 }
@@ -264,14 +350,14 @@ export function BookAppointment() {
 export function Appointments() {
   const { t, i18n } = useTranslation();
   const [group, setGroup] = useState('upcoming');
-  const { data, error, loading } = useApi(`/api/patient/appointments?group=${group}`, { pollWhen: hasPendingAppointments });
-  return <State loading={loading} error={error}>
+  const { data, error, loading, reload } = useApi(`/api/patient/appointments?group=${group}`, { pollWhen: hasPendingAppointments });
+  return <State loading={loading} error={error} onRetry={reload}>
     <h1>{t('myAppointments')}</h1>
-    <div className="patient-tabs">{['upcoming', 'past', 'cancelled', 'all'].map((item) => <button className={`patient-button ${group === item ? '' : 'secondary'}`} onClick={() => setGroup(item)} key={item}>{t(item)}</button>)}</div>
+    <div className="patient-tabs" role="group" aria-label={t('myAppointments')}>{['upcoming', 'past', 'cancelled', 'all'].map((item) => <button className={`patient-button ${group === item ? '' : 'secondary'}`} aria-pressed={group === item} onClick={() => setGroup(item)} key={item}>{t(item)}</button>)}</div>
     {!data?.length ? <Empty>{t('noAppointments')}</Empty> : <div className="patient-list">{data.map((appointment) => <article className="patient-card patient-row" key={appointment.id}>
       <div>
         <h2>{doctorName(appointment.doctor, i18n.language)}</h2>
-        <p>{appointment.appointmentDate} · {appointment.appointmentTime}</p>
+        <p><bdi dir="ltr">{appointment.appointmentDate} · {appointment.appointmentTime}</bdi></p>
         <StatusBadge status={appointment.status} language={i18n.language}/>
       </div>
       <Link className="patient-button secondary" to={`/patient/appointments/${appointment.id}`}>{t('details')}</Link>
@@ -302,7 +388,7 @@ export function AppointmentDetails(){
   if(!appointment)return <EmptyState title={t('appointmentNotFound')} message={t('appointmentNotFoundMessage')}/>;
 
   const canModify=['PENDING','SCHEDULED','CONFIRMED'].includes(appointment.status);
-  return <article className="patient-card"><h1>{t('appointmentDetails')}</h1><StatusBadge status={appointment.status} language={i18n.language}/><h2 style={{marginTop:'1.25rem'}}>{doctorName(appointment.doctor,i18n.language)}</h2><p>{appointment.appointmentDate} · {appointment.appointmentTime}</p><p>#{String(appointment.id).slice(0,8).toUpperCase()}</p>{actionError&&<div className="patient-alert error">{actionError}</div>}{canModify&&<div className="patient-actions" style={{marginTop:'1.25rem'}}><Link className="patient-button secondary" to={`/patient/appointments/${id}/reschedule`}>{t('rescheduleAppointment')}</Link><button className="patient-button" onClick={()=>setConfirming(true)}>{t('cancelAppointment')}</button></div>}<Dialog open={confirming} onClose={()=>!cancelling&&setConfirming(false)} title={t('cancelAppointmentQuestion')} description={t('cancelWarning')}><div className="ui-dialog__details"><strong>{doctorName(appointment.doctor,i18n.language)}</strong><span>{appointment.appointmentDate}</span><span>{appointment.appointmentTime}</span></div>{actionError&&<div className="patient-alert error" role="alert">{actionError}</div>}<div className="ui-dialog__actions"><button className="ui-button ui-button--outline" autoFocus onClick={()=>setConfirming(false)} disabled={cancelling}>{t('keepAppointment')}</button><button className="ui-button ui-button--danger" onClick={cancel} disabled={cancelling} aria-busy={cancelling}>{cancelling?t('loading'):t('cancelAppointment')}</button></div></Dialog></article>;
+  return <article className="patient-card"><h1>{t('appointmentDetails')}</h1><StatusBadge status={appointment.status} language={i18n.language}/><h2 style={{marginTop:'1.25rem'}}>{doctorName(appointment.doctor,i18n.language)}</h2><p><bdi dir="ltr">{appointment.appointmentDate} · {appointment.appointmentTime}</bdi></p><p>#{String(appointment.id).slice(0,8).toUpperCase()}</p>{actionError&&<div className="patient-alert error" role="alert">{actionError}</div>}{canModify&&<div className="patient-actions" style={{marginTop:'1.25rem'}}><Link className="patient-button secondary" to={`/patient/appointments/${id}/reschedule`}>{t('rescheduleAppointment')}</Link><button className="patient-button" onClick={()=>setConfirming(true)}>{t('cancelAppointment')}</button></div>}<Dialog open={confirming} onClose={()=>!cancelling&&setConfirming(false)} title={t('cancelAppointmentQuestion')} description={t('cancelWarning')}><div className="ui-dialog__details"><strong>{doctorName(appointment.doctor,i18n.language)}</strong><span dir="ltr">{appointment.appointmentDate}</span><span dir="ltr">{appointment.appointmentTime}</span></div>{actionError&&<div className="patient-alert error" role="alert">{actionError}</div>}<div className="ui-dialog__actions"><button className="ui-button ui-button--outline" onClick={()=>setConfirming(false)} disabled={cancelling}>{t('keepAppointment')}</button><button className="ui-button ui-button--danger" onClick={cancel} disabled={cancelling} aria-busy={cancelling}>{cancelling?t('loading'):t('cancelAppointment')}</button></div></Dialog></article>;
 }
 
 export function LabResults() {
@@ -418,7 +504,7 @@ export function LabResults() {
                     <div className="patient-lab-test__heading">
                       <div>
                         <span className="patient-lab-test__category">
-                          {test.service?.category || t('customLabTest')}
+                          {t('laboratoryReport')}
                         </span>
 
                         <h3>{getTestName(test)}</h3>
@@ -439,13 +525,13 @@ export function LabResults() {
 
                     <div className="patient-lab-test__result">
                       <span>{t('result')}</span>
-                      <strong>{test.resultValue || t('notAvailable')}</strong>
+                      <strong><bdi dir="auto">{test.resultValue ?? t('notAvailable')}</bdi></strong>
                     </div>
 
                     <div className="patient-lab-test__details">
                       <div>
                         <span>{t('referenceRange')}</span>
-                        <strong>{getReferenceRange(test)}</strong>
+                        <strong><bdi dir="ltr">{getReferenceRange(test)}</bdi></strong>
                       </div>
 
                       <div>
@@ -499,8 +585,8 @@ export function Prescriptions(){
           {item.medicines.map(m=>(
             <p key={m.id}>
               {lang === 'ar'
-                ? m.medicine.labelAr || m.medicine.labelEn
-                : m.medicine.labelEn || m.medicine.labelAr
+                ? m.medicine?.labelAr || m.medicine?.labelEn || m.customDrugName
+                : m.medicine?.labelEn || m.medicine?.labelAr || m.customDrugName
               }
               {' — '}
               {m.dosage}, {m.duration}
@@ -516,12 +602,14 @@ export function MedicalRecords(){
   const {
     data,
     error,
-    loading
+    loading,
+    reload
   } = useApi('/api/patient/medical-records');
 
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
+  const detailRequest = useRef(0);
 
   const lang =
     i18n.language?.startsWith('ar')
@@ -529,6 +617,7 @@ export function MedicalRecords(){
       : 'en';
 
   const openRecord = async (recordId) => {
+    const requestId = ++detailRequest.current;
     setDetailLoading(true);
     setDetailError('');
     setSelectedRecord({ id: recordId });
@@ -538,9 +627,9 @@ export function MedicalRecords(){
         `/api/patient/medical-records/${recordId}`
       );
 
-      setSelectedRecord(details);
+      if (requestId === detailRequest.current) setSelectedRecord(details);
     } catch (requestError) {
-      setDetailError(
+      if (requestId === detailRequest.current) setDetailError(
         requestError?.message ||
         (
           lang === 'ar'
@@ -549,18 +638,19 @@ export function MedicalRecords(){
         )
       );
     } finally {
-      setDetailLoading(false);
+      if (requestId === detailRequest.current) setDetailLoading(false);
     }
   };
 
   const closeRecord = () => {
+    detailRequest.current += 1;
     setSelectedRecord(null);
     setDetailError('');
     setDetailLoading(false);
   };
 
   return (
-    <State loading={loading} error={error}>
+    <State loading={loading} error={error} onRetry={reload}>
       <h1>{t('medicalRecords')}</h1>
 
       {!data?.length ? (
@@ -649,7 +739,7 @@ export function MedicalRecords(){
             <Skeleton/>
           </div>
         ) : detailError ? (
-          <div className="patient-alert error">
+          <div className="patient-alert error" role="alert">
             {detailError}
           </div>
         ) : selectedRecord?.visitDate ? (
@@ -761,11 +851,11 @@ export function MedicalRecords(){
                   ).map(([key, value]) => (
                     <div key={key}>
                       <span>
-                        {key.replaceAll('_', ' ')}
+                        {t(`patientVital_${key}`, { defaultValue: key.replaceAll('_', ' ') })}
                       </span>
 
-                      <strong>
-                        {value || '—'}
+                      <strong dir="ltr">
+                        {value ?? '—'}
                       </strong>
                     </div>
                   ))}
@@ -897,20 +987,20 @@ export function MedicalRecords(){
                           ? 'النتيجة'
                           : 'Result'}
                         :{' '}
-                        {result.resultValue || '—'}
+                        {result.resultValue ?? '—'}
                       </p>
 
-                      {(result.referenceRangeMin ||
-                        result.referenceRangeMax) && (
+                      {(result.referenceRangeMin != null ||
+                        result.referenceRangeMax != null) && (
                         <p>
                           {lang === 'ar'
                             ? 'المدى المرجعي'
                             : 'Reference range'}
                           :{' '}
 
-                          {result.referenceRangeMin || '—'}
+                          <bdi dir="ltr">{result.referenceRangeMin ?? '—'}
                           {' – '}
-                          {result.referenceRangeMax || '—'}
+                          {result.referenceRangeMax ?? '—'}</bdi>
                         </p>
                       )}
 
@@ -967,7 +1057,7 @@ export function MedicalRecords(){
   );
 }
 
-function Collection({path,titleKey,render}){const{t}=useTranslation();const{data,error,loading}=useApi(path);return <State loading={loading} error={error}><h1>{t(titleKey)}</h1>{!data?.length?<Empty>{t('noRecords')}</Empty>:data.map(item=><article className="patient-card" key={item.id}>{render(item)}</article>)}</State>}
+function Collection({path,titleKey,render}){const{t}=useTranslation();const{data,error,loading,reload}=useApi(path);return <State loading={loading} error={error} onRetry={reload}><h1>{t(titleKey)}</h1>{!data?.length?<Empty>{t('noRecords')}</Empty>:data.map(item=><article className="patient-card" key={item.id}>{render(item)}</article>)}</State>}
 export function Profile() {
   const { t, i18n } = useTranslation();
   const {
@@ -977,7 +1067,7 @@ export function Profile() {
     reload
   } = useApi('/api/patient/me');
 
-  const lang = i18n.language === 'ar' ? 'ar' : 'en';
+  const lang = i18n.language?.startsWith('ar') ? 'ar' : 'en';
 
   const [form, setForm] = useState(null);
   const [message, setMessage] = useState('');
@@ -1325,9 +1415,10 @@ export function Profile() {
     <State
       loading={loading}
       error={error}
+      onRetry={reload}
     >
       {form && data && (
-        <>
+        <div className="patient-profile">
           <section className="patient-card">
             <h1>{t('profile')}</h1>
 
@@ -1337,8 +1428,8 @@ export function Profile() {
                 : data.fullNameEn || data.fullNameAr}
             </h2>
 
-            <p dir="ltr" style={{ color: 'var(--color-primary-strong)', fontWeight: 800, letterSpacing: '.08em' }}>
-              {lang === 'ar' ? 'رقم الملف: ' : 'File number: '}{data.fileNumber || '—'}
+            <p style={{ color: 'var(--color-primary-strong)', fontWeight: 700 }}>
+              {lang === 'ar' ? 'رقم الملف: ' : 'File number: '}<bdi dir="ltr">{data.fileNumber || '—'}</bdi>
             </p>
 
             <div
@@ -1354,11 +1445,11 @@ export function Profile() {
                     ? 'رقم الهاتف:'
                     : 'Phone:'}
                 </strong>{' '}
-                {data.phone || (
+                <bdi dir="ltr">{data.phone || (
                   lang === 'ar'
                     ? 'غير متوفر'
                     : 'Not available'
-                )}
+                )}</bdi>
               </p>
 
               <p style={{ margin: 0 }}>
@@ -1367,11 +1458,11 @@ export function Profile() {
                     ? 'البريد الإلكتروني:'
                     : 'Email:'}
                 </strong>{' '}
-                {data.email || (
+                <bdi dir="ltr">{data.email || (
                   lang === 'ar'
                     ? 'غير متوفر'
                     : 'Not available'
-                )}
+                )}</bdi>
               </p>
             </div>
 
@@ -1380,6 +1471,7 @@ export function Profile() {
                 {t('addressState')}
 
                 <select
+                  required
                   value={form.addressStateId || ''}
                   onChange={(event) =>
                     setForm({
@@ -1419,6 +1511,7 @@ export function Profile() {
                   : 'Blood Type'}
 
                 <select
+                  dir="ltr"
                   value={form.bloodType || ''}
                   onChange={(event) =>
                     setForm({
@@ -1462,6 +1555,7 @@ export function Profile() {
                 {t('emergencyContact')}
 
                 <input
+                  required
                   value={form.emergencyContact}
                   onChange={(event) =>
                     setForm({
@@ -1507,9 +1601,9 @@ export function Profile() {
             <div style={{ padding: '0 0 1rem', borderBottom: '1px solid var(--border-color)' }}>
               <strong>{t('changePassword')}</strong><p style={{ margin: '.3rem 0 1rem' }}>{t('passwordChangeSignInAgain')}</p>
               <form onSubmit={changePassword} style={{ display: 'grid', gap: '.7rem', maxWidth: 420 }}>
-                <input type="password" autoComplete="current-password" placeholder={t('currentPassword')} value={passwordForm.currentPassword} onChange={(event) => setPasswordForm({ ...passwordForm, currentPassword: event.target.value })} required />
-                <input type="password" autoComplete="new-password" placeholder={t('newPassword')} value={passwordForm.newPassword} onChange={(event) => setPasswordForm({ ...passwordForm, newPassword: event.target.value })} required minLength={10} maxLength={200} />
-                <input type="password" autoComplete="new-password" placeholder={t('confirmNewPassword')} value={passwordForm.confirmPassword} onChange={(event) => setPasswordForm({ ...passwordForm, confirmPassword: event.target.value })} required />
+                <PasswordField label={t('currentPassword')} autoComplete="current-password" value={passwordForm.currentPassword} onChange={(event) => setPasswordForm({ ...passwordForm, currentPassword: event.target.value })} required />
+                <PasswordField label={t('newPassword')} autoComplete="new-password" value={passwordForm.newPassword} onChange={(event) => setPasswordForm({ ...passwordForm, newPassword: event.target.value })} required minLength={10} maxLength={200} helperText={t('passwordRequirementsSummary')} />
+                <PasswordField label={t('confirmNewPassword')} autoComplete="new-password" value={passwordForm.confirmPassword} onChange={(event) => setPasswordForm({ ...passwordForm, confirmPassword: event.target.value })} required error={Boolean(passwordForm.confirmPassword && passwordForm.newPassword !== passwordForm.confirmPassword)} helperText={passwordForm.confirmPassword && passwordForm.newPassword !== passwordForm.confirmPassword ? t('passwordsDoNotMatch') : undefined} />
                 {passwordChangeError && <div className="patient-alert error" role="alert">{passwordChangeError}</div>}
                 <button className="patient-button" disabled={passwordChanging}>{passwordChanging ? t('loading') : t('changePassword')}</button>
               </form>
@@ -1539,16 +1633,10 @@ export function Profile() {
                   </strong>
 
                   <p style={{ margin: '.3rem 0' }}>
-                    {data.email || '-'}
+                    <bdi dir="ltr">{data.email || '-'}</bdi>
                   </p>
 
-                  <StatusBadge
-                    status={
-                      data.emailVerified
-                        ? 'CONFIRMED'
-                        : 'PENDING'
-                    }
-                  />
+                  <span className={`status-badge status-badge--${data.emailVerified ? 'success' : 'warning'}`}>{t(data.emailVerified ? 'patientVerified' : 'patientNotVerified')}</span>
                 </div>
 
                 <button
@@ -1570,9 +1658,7 @@ export function Profile() {
                 <div style={{ marginTop: '1rem' }}>
                   {!emailChallengeId ? (
                     <form onSubmit={requestEmailChange}>
-                      <label className="patient-field">{lang === 'ar' ? 'كلمة المرور الحالية' : 'Current password'}
-                        <input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
-                      </label>
+                      <PasswordField label={t('currentPassword')} autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
                       <label className="patient-field">
                         {lang === 'ar'
                           ? 'البريد الإلكتروني الجديد'
@@ -1610,6 +1696,8 @@ export function Profile() {
 
                         <input
                           inputMode="numeric"
+                          autoComplete="one-time-code"
+                          dir="ltr"
                           maxLength={6}
                           value={emailCode}
                           onChange={(event) =>
@@ -1640,13 +1728,13 @@ export function Profile() {
                   )}
 
                   {emailChangeError && (
-                    <div className="patient-alert error">
+                    <div className="patient-alert error" role="alert">
                       {emailChangeError}
                     </div>
                   )}
 
                   {emailChangeMessage && (
-                    <div className="patient-alert success">
+                    <div className="patient-alert success" role="status">
                       {emailChangeMessage}
                     </div>
                   )}
@@ -1673,16 +1761,10 @@ export function Profile() {
                   </strong>
 
                   <p style={{ margin: '.3rem 0' }}>
-                    {data.phone || '-'}
+                    <bdi dir="ltr">{data.phone || '-'}</bdi>
                   </p>
 
-                  <StatusBadge
-                    status={
-                      data.phoneVerified
-                        ? 'CONFIRMED'
-                        : 'PENDING'
-                    }
-                  />
+                  <span className={`status-badge status-badge--${data.phoneVerified ? 'success' : 'warning'}`}>{t(data.phoneVerified ? 'patientVerified' : 'patientNotVerified')}</span>
                 </div>
 
                 <button
@@ -1710,6 +1792,9 @@ export function Profile() {
                           : 'New phone number'}
 
                         <input
+                          type="tel"
+                          dir="ltr"
+                          autoComplete="tel"
                           value={newPhone}
                           onChange={(event) =>
                             setNewPhone(event.target.value)
@@ -1741,6 +1826,8 @@ export function Profile() {
 
                         <input
                           inputMode="numeric"
+                          autoComplete="one-time-code"
+                          dir="ltr"
                           maxLength={6}
                           value={phoneCode}
                           onChange={(event) =>
@@ -1771,13 +1858,13 @@ export function Profile() {
                   )}
 
                   {phoneChangeError && (
-                    <div className="patient-alert error">
+                    <div className="patient-alert error" role="alert">
                       {phoneChangeError}
                     </div>
                   )}
 
                   {phoneChangeMessage && (
-                    <div className="patient-alert success">
+                    <div className="patient-alert success" role="status">
                       {phoneChangeMessage}
                     </div>
                   )}
@@ -1831,9 +1918,7 @@ export function Profile() {
                       ? `${t('connected')}: ${data.googleAccount.email}`
                       : t('notConnected')}
                   </p>
-                  <StatusBadge
-                    status={data.googleAccount?.linked ? 'CONFIRMED' : 'PENDING'}
-                  />
+                  <span className={`status-badge status-badge--${data.googleAccount?.linked ? 'success' : 'neutral'}`}>{t(data.googleAccount?.linked ? 'connected' : 'notConnected')}</span>
                 </div>
 
                 {!data.googleAccount?.linked ? (
@@ -1884,16 +1969,7 @@ export function Profile() {
                       <p style={{ margin: '0 0 .75rem 0', fontSize: '.9rem' }}>
                         {t('enterPasswordToLink')}
                       </p>
-                      <label className="patient-field">
-                        {t('confirmPassword')}
-                        <input
-                          type="password"
-                          autoComplete="current-password"
-                          value={googleLinkPassword}
-                          onChange={(e) => setGoogleLinkPassword(e.target.value)}
-                          required
-                        />
-                      </label>
+                      <PasswordField label={t('confirmPassword')} autoComplete="current-password" value={googleLinkPassword} onChange={(e) => setGoogleLinkPassword(e.target.value)} required />
                       <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
                         <button
                           className="patient-button"
@@ -1918,12 +1994,12 @@ export function Profile() {
                   )}
 
                   {googleLinkError && (
-                    <div className="patient-alert error" style={{ marginTop: '.75rem' }}>
+                    <div className="patient-alert error" style={{ marginTop: '.75rem' }} role="alert">
                       {googleLinkError}
                     </div>
                   )}
                   {googleLinkMessage && (
-                    <div className="patient-alert success" style={{ marginTop: '.75rem' }}>
+                    <div className="patient-alert success" style={{ marginTop: '.75rem' }} role="status">
                       {googleLinkMessage}
                     </div>
                   )}
@@ -1936,16 +2012,7 @@ export function Profile() {
                     <p style={{ margin: '0 0 .75rem 0', fontSize: '.9rem' }}>
                       {t('disconnectGoogleConfirm')}
                     </p>
-                    <label className="patient-field">
-                      {t('enterPasswordToUnlink')}
-                      <input
-                        type="password"
-                        autoComplete="current-password"
-                        value={googleUnlinkPassword}
-                        onChange={(e) => setGoogleUnlinkPassword(e.target.value)}
-                        required
-                      />
-                    </label>
+                    <PasswordField label={t('enterPasswordToUnlink')} autoComplete="current-password" value={googleUnlinkPassword} onChange={(e) => setGoogleUnlinkPassword(e.target.value)} required />
                     <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
                       <button
                         className="patient-button secondary"
@@ -1969,7 +2036,7 @@ export function Profile() {
                     </div>
                   </form>
                   {googleUnlinkError && (
-                    <div className="patient-alert error" style={{ marginTop: '.75rem' }}>
+                    <div className="patient-alert error" style={{ marginTop: '.75rem' }} role="alert">
                       {googleUnlinkError}
                     </div>
                   )}
@@ -1977,7 +2044,7 @@ export function Profile() {
               )}
             </div>
           </section>
-        </>
+        </div>
       )}
     </State>
   );

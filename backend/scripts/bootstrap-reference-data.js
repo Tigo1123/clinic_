@@ -50,6 +50,12 @@ function printResult(result) {
   console.log(`Existing: ${counts.states.existing}`);
   console.log(`Missing: ${counts.states.missing}`);
   console.log(`Conflicts: ${counts.states.conflicts}`);
+  for (const state of result.report.states.missing) {
+    console.log(`Missing State: ${state.id} | ${state.labelEn} | ${state.labelAr}`);
+  }
+  if (counts.states.missing > 0) {
+    console.log('Registration reference data is incomplete. Review the missing States before explicitly enabling write mode.');
+  }
   console.log('ClinicalServices:');
   console.log(`Requested: ${counts.clinicalServices.requested}`);
   console.log(`Existing: ${counts.clinicalServices.existing}`);

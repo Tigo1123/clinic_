@@ -24,10 +24,12 @@ test('first administrator is an explicit one-shot with a file-backed password', 
   assert.match(block, /profiles: \["first-admin"\]/);
   assert.match(block, /restart: "no"/);
   assert.match(block, /FIRST_ADMIN_PASSWORD_FILE: \/run\/secrets\/first-admin-password/);
+  assert.match(block, /FIRST_ADMIN_TARGET_MODE: \$\{FIRST_ADMIN_TARGET_MODE/);
   assert.match(block, /first-admin-password:ro,Z/);
   assert.doesNotMatch(service('backend'), /FIRST_ADMIN|first-admin-password/);
   assert.match(env, /FIRST_ADMIN_PASSWORD_SOURCE_FILE=\/secure\/path\/first-admin-password/);
   assert.match(env, /CONFIRM_FIRST_ADMIN_DATABASE=clinic_lan_placeholder/);
+  assert.match(env, /FIRST_ADMIN_TARGET_MODE=lan/);
 });
 
 test('first administrator provisioning is fail-closed, policy preserving, and audited', () => {
@@ -38,9 +40,13 @@ test('first administrator provisioning is fail-closed, policy preserving, and au
   assert.match(provisioner, /isolationLevel: 'Serializable'/);
   assert.match(provisioner, /current_database\(\)/);
   assert.match(provisioner, /CONFIRM_FIRST_ADMIN_DATABASE/);
+  assert.match(provisioner, /FIRST_ADMIN_TARGET_MODE/);
+  assert.match(provisioner, /--preflight/);
+  assert.match(provisioner, /--execute/);
   assert.match(provisioner, /RUNTIME_LOGIN_ROLE/);
   assert.match(provisioner, /admin@example\.invalid/);
-  assert.match(provisioner, /lstatSync/);
+  assert.match(provisioner, /openSync/);
+  assert.match(provisioner, /O_NOFOLLOW/);
   assert.match(provisioner, /0o600/);
   assert.match(provisioner, /metadata\.size > 4096/);
   assert.match(provisioner, /must contain one line only/);

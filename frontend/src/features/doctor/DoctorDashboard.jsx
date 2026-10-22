@@ -676,6 +676,9 @@ export default function DoctorDashboard({ user, lang, t }) {
             </div>}
             {queue.map((appt) => {
               const isEmergency = appt.emergencyOverride;
+              const queueStatusClass = appt.status === 'CHECKED_IN'
+                ? (appt.consultationReady ? 'waiting' : 'payment-pending')
+                : ({ IN_CONSULTATION: 'in-consultation', COMPLETED: 'completed', WAITING_LAB: 'lab-pending', CANCELLED: 'cancelled', NO_SHOW: 'no-show', SCHEDULED: 'scheduled', CONFIRMED: 'confirmed' }[appt.status] || 'scheduled');
               return (
                 <button
                   type="button"
@@ -687,17 +690,12 @@ export default function DoctorDashboard({ user, lang, t }) {
                   <span className="doctor-queue-card__top">
                     <strong>{(lang === 'ar' ? appt.patient.fullNameAr : appt.patient.fullNameEn) || appt.patient.fullNameAr || appt.patient.fullNameEn}</strong>
                     <span
-                      className={
-                        appt.status === 'WAITING_LAB' ||
-                        (appt.status === 'CHECKED_IN' && !appt.consultationReady)
-                          ? 'badge badge-warning'
-                          : 'badge badge-success'
-                      }
+                      className={`badge doctor-status doctor-status--${queueStatusClass}`}
                     >
                       {appt.status === 'CHECKED_IN'
                         ? (
                           appt.consultationReady
-                            ? (lang === 'ar' ? 'جاهز للكشف' : 'Ready')
+                            ? (lang === 'ar' ? 'بانتظار الكشف' : 'Waiting')
                             : (lang === 'ar' ? 'بانتظار الدفع' : 'Payment Pending')
                         )
                       : getAppointmentStatusLabel(appt.status)}
@@ -1215,7 +1213,7 @@ export default function DoctorDashboard({ user, lang, t }) {
                 <h2 id="doctor-workspace-empty-title">{lang === 'ar' ? 'اختر مريضاً من طابور الطبيب لبدء الكشف الطبي.' : 'Select a patient from the doctor queue to start the consultation.'}</h2>
                 <p>{lang === 'ar' ? 'ستظهر بيانات المريض وسجل الزيارات وأدوات التوثيق السريري هنا.' : 'Patient details, visit history, and clinical documentation tools will appear here.'}</p>
                 <ol className="doctor-workflow-steps">
-                  {[lang === 'ar' ? 'اختيار المريض' : 'Select patient', lang === 'ar' ? 'مراجعة ملف المريض' : 'Review patient file', lang === 'ar' ? 'تسجيل العلامات والأعراض' : 'Record vitals and symptoms', lang === 'ar' ? 'التشخيص وخطة العلاج' : 'Diagnose and plan treatment', lang === 'ar' ? 'الوصفة والفحوصات' : 'Prescription and investigations', lang === 'ar' ? 'إكمال الكشف' : 'Complete consultation'].map((step, index) => <li key={step}><span>{index + 1}</span>{step}</li>)}
+                  {[lang === 'ar' ? 'اختيار المريض' : 'Select patient', lang === 'ar' ? 'مراجعة ملف المريض' : 'Review patient file', lang === 'ar' ? 'تسجيل العلامات والأعراض' : 'Record vitals and symptoms', lang === 'ar' ? 'التشخيص وخطة العلاج' : 'Diagnose and plan treatment', lang === 'ar' ? 'الوصفة والفحوصات' : 'Prescription and investigations', lang === 'ar' ? 'إكمال الكشف' : 'Complete consultation'].map((step, index) => <li key={step} className={index === 0 ? 'is-active' : undefined} aria-current={index === 0 ? 'step' : undefined}><span>{index + 1}</span>{step}</li>)}
                 </ol>
               </section>
             )}

@@ -17,28 +17,43 @@ const specialtySchema = z.object({
 const specialtyUpdateSchema = specialtySchema.omit({ code: true }).extend({ code: specialtySchema.shape.code.optional() }).strict();
 const safeSelect = { id: true, code: true, nameAr: true, nameEn: true, active: true, createdAt: true, updatedAt: true };
 
+
+const normalizeName = value => value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+async function assertUniqueNames(tx, data, id) {
+  for (const name of [data.nameAr, data.nameEn].map(normalizeName).sort()) {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${'specialty-name:' + name})) IS NULL AS locked`;
+  }
+  const entries = await tx.specialty.findMany({ where: id ? { id: { not: id } } : {}, select: { nameAr: true, nameEn: true } });
+  if (entries.some(item => normalizeName(item.nameAr) === normalizeName(data.nameAr) || normalizeName(item.nameEn) === normalizeName(data.nameEn))) {
+    throw Object.assign(new Error('A specialty with one of these names already exists.'), { status: 409, code: 'SPECIALTY_NAME_EXISTS' });
+  }
+}
+
 router.get('/', authenticate, checkRoles('ADMIN'), async (req, res, next) => {
   try { return res.json(await prisma.specialty.findMany({ select: safeSelect, orderBy: { nameEn: 'asc' } })); } catch (error) { next(error); }
 });
 router.post('/', authenticate, checkRoles('ADMIN'), validate(specialtySchema), async (req, res, next) => {
   try {
     const specialty = await prisma.$transaction(async (tx) => {
+      await assertUniqueNames(tx, req.body);
       const created = await tx.specialty.create({ data: req.body, select: safeSelect });
       await tx.tenantAuditLog.create({ data: { userId: req.user.id, action: 'SPECIALTY_CREATED', details: JSON.stringify({ specialtyId: created.id, code: created.code }), ipAddress: req.ip || 'unknown' } });
       return created;
     });
     return res.status(201).json(specialty);
-  } catch (error) { if (error.code === 'P2002') return sendError(res, 409, 'SPECIALTY_CODE_EXISTS', 'A specialty with this code already exists.'); next(error); }
+  } catch (error) { if (error.status) return sendError(res, error.status, error.code, error.message); if (error.code === 'P2002') return sendError(res, 409, 'SPECIALTY_CODE_EXISTS', 'A specialty with this code already exists.'); next(error); }
 });
 router.patch('/:id', authenticate, checkRoles('ADMIN'), validate(specialtyUpdateSchema), async (req, res, next) => {
   try {
     const specialty = await prisma.$transaction(async (tx) => {
+      const existing = await tx.specialty.findUniqueOrThrow({ where: { id: req.params.id } });
+      if (req.body.nameAr !== existing.nameAr || req.body.nameEn !== existing.nameEn) await assertUniqueNames(tx, req.body, existing.id);
       const updated = await tx.specialty.update({ where: { id: req.params.id }, data: req.body, select: safeSelect });
       await tx.tenantAuditLog.create({ data: { userId: req.user.id, action: 'SPECIALTY_UPDATED', details: JSON.stringify({ specialtyId: updated.id, active: updated.active }), ipAddress: req.ip || 'unknown' } });
       return updated;
     });
     return res.json(specialty);
-  } catch (error) { if (error.code === 'P2025') return sendError(res, 404, 'SPECIALTY_NOT_FOUND', 'Specialty not found.'); if (error.code === 'P2002') return sendError(res, 409, 'SPECIALTY_CODE_EXISTS', 'A specialty with this code already exists.'); next(error); }
+  } catch (error) { if (error.status) return sendError(res, error.status, error.code, error.message); if (error.code === 'P2025') return sendError(res, 404, 'SPECIALTY_NOT_FOUND', 'Specialty not found.'); if (error.code === 'P2002') return sendError(res, 409, 'SPECIALTY_CODE_EXISTS', 'A specialty with this code already exists.'); next(error); }
 });
 
 router.delete('/:id', authenticate, checkRoles('ADMIN'), validate(z.object({ id: z.string().uuid() }), 'params'), async (req, res, next) => {

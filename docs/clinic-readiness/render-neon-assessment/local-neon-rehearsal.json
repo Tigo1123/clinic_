@@ -1,0 +1,1203 @@
+{
+  "capturedAt": "2026-10-22T08:42:31.738Z",
+  "scope": "Neon export restored and upgraded locally; Render source unavailable; no merge rehearsed",
+  "container": "shifa-migration-rehearsal-1792658023392",
+  "port": 55487,
+  "originalCloneUnchanged": true,
+  "baselineMatchesUpgradeInput": true,
+  "localMigrationExit": 0,
+  "baselineCounts": {
+    "Appointment": 0,
+    "ClinicalService": 0,
+    "Consent": 0,
+    "Doctor": 0,
+    "DoctorSchedule": 0,
+    "DoctorScheduleBreak": 0,
+    "DoctorScheduleException": 0,
+    "DoctorScheduleExceptionPeriod": 0,
+    "DoctorSchedulePeriod": 0,
+    "DrugFormulary": 0,
+    "EmergencyOverride": 0,
+    "InsuranceClaim": 0,
+    "InsuranceCompany": 0,
+    "InventoryBatch": 0,
+    "Invoice": 0,
+    "InvoiceItem": 0,
+    "LabOrder": 0,
+    "LabOrderItem": 0,
+    "MedicalRecord": 0,
+    "MfaChallenge": 0,
+    "MfaConfiguration": 0,
+    "MfaRecoveryCode": 0,
+    "Notification": 0,
+    "NotificationLog": 1,
+    "Patient": 1,
+    "PatientClaimCode": 0,
+    "PatientRegistration": 1,
+    "Payment": 0,
+    "PaymentOperation": 0,
+    "PendingExternalAuth": 1,
+    "PrescribedDrug": 0,
+    "Prescription": 0,
+    "Refund": 0,
+    "Specialty": 0,
+    "State": 18,
+    "StockMovement": 0,
+    "TenantAuditLog": 5,
+    "User": 1,
+    "UserExternalIdentity": 1,
+    "VerificationChallenge": 1,
+    "_prisma_migrations": 24
+  },
+  "upgradedCounts": {
+    "Appointment": 0,
+    "ClinicalService": 0,
+    "Consent": 0,
+    "Doctor": 0,
+    "DoctorSchedule": 0,
+    "DoctorScheduleBreak": 0,
+    "DoctorScheduleException": 0,
+    "DoctorScheduleExceptionPeriod": 0,
+    "DoctorSchedulePeriod": 0,
+    "DrugFormulary": 0,
+    "EmergencyOverride": 0,
+    "InsuranceClaim": 0,
+    "InsuranceCompany": 0,
+    "InventoryBatch": 0,
+    "Invoice": 0,
+    "InvoiceItem": 0,
+    "LabOrder": 0,
+    "LabOrderItem": 0,
+    "MedicalRecord": 0,
+    "MfaChallenge": 0,
+    "MfaConfiguration": 0,
+    "MfaRecoveryCode": 0,
+    "Notification": 0,
+    "NotificationLog": 1,
+    "Patient": 1,
+    "PatientClaimCode": 0,
+    "PatientRegistration": 1,
+    "Payment": 0,
+    "PaymentMethod": 4,
+    "PaymentOperation": 0,
+    "PendingExternalAuth": 1,
+    "PrescribedDrug": 0,
+    "Prescription": 0,
+    "Refund": 0,
+    "Specialty": 0,
+    "State": 18,
+    "StockMovement": 0,
+    "TenantAuditLog": 5,
+    "User": 1,
+    "UserExternalIdentity": 1,
+    "VerificationChallenge": 1,
+    "_prisma_migrations": 26
+  },
+  "preservation": [
+    {
+      "table": "Appointment",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "ClinicalService",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "Consent",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "Doctor",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "DoctorSchedule",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "DoctorScheduleBreak",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "DoctorScheduleException",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "DoctorScheduleExceptionPeriod",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "DoctorSchedulePeriod",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "DrugFormulary",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "EmergencyOverride",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "InsuranceClaim",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "InsuranceCompany",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "InventoryBatch",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "Invoice",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "InvoiceItem",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "LabOrder",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "LabOrderItem",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "MedicalRecord",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "MfaChallenge",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "MfaConfiguration",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "MfaRecoveryCode",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "Notification",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "NotificationLog",
+      "before": 1,
+      "after": 1,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "Patient",
+      "before": 1,
+      "after": 1,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "PatientClaimCode",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "PatientRegistration",
+      "before": 1,
+      "after": 1,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "Payment",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "PaymentOperation",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "PendingExternalAuth",
+      "before": 1,
+      "after": 1,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "PrescribedDrug",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "Prescription",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "Refund",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "Specialty",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "State",
+      "before": 18,
+      "after": 18,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "StockMovement",
+      "before": 0,
+      "after": 0,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "TenantAuditLog",
+      "before": 5,
+      "after": 5,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "User",
+      "before": 1,
+      "after": 1,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "UserExternalIdentity",
+      "before": 1,
+      "after": 1,
+      "exactRowsPreserved": true
+    },
+    {
+      "table": "VerificationChallenge",
+      "before": 1,
+      "after": 1,
+      "exactRowsPreserved": true
+    }
+  ],
+  "passwordHashesAuthVersionsIdentitiesAndTimestampsPreserved": true,
+  "canonicalStatesPreserved": true,
+  "foreignKeys": [
+    {
+      "name": "Appointment_doctorId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "Appointment_patientId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "Consent_patientId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "DoctorScheduleBreak_periodId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "DoctorScheduleExceptionPeriod_exceptionId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "DoctorScheduleException_doctorId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "DoctorSchedulePeriod_scheduleId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "DoctorSchedule_doctorId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "Doctor_specialtyId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "Doctor_userId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "EmergencyOverride_appointmentId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "InsuranceClaim_insuranceCompanyId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "InsuranceClaim_patientId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "InventoryBatch_drugId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "InvoiceItem_invoiceId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "Invoice_appointmentId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "Invoice_insuranceClaimId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "Invoice_labOrderId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "Invoice_patientId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "Invoice_prescriptionId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "LabOrderItem_labOrderId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "LabOrderItem_serviceId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "LabOrder_doctorId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "LabOrder_medicalRecordId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "LabOrder_patientId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "MedicalRecord_appointmentId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "MedicalRecord_doctorId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "MedicalRecord_patientId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "MfaChallenge_userId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "MfaConfiguration_userId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "MfaRecoveryCode_userId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "PatientClaimCode_createdById_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "PatientClaimCode_patientId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "PatientRegistration_userId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "Patient_addressStateId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "Patient_userId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "PaymentOperation_invoiceId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "Payment_invoiceId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "Payment_paymentMethod_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "Payment_paymentOperationId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "PrescribedDrug_drugId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "PrescribedDrug_prescriptionId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "Prescription_doctorId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "Prescription_medicalRecordId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "Prescription_patientId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "Refund_invoiceId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "Refund_processedBy_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "Refund_refundMethod_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "StockMovement_actorUserId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "StockMovement_drugId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "StockMovement_inventoryBatchId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "UserExternalIdentity_userId_fkey",
+      "validated": true,
+      "orphans": "0"
+    },
+    {
+      "name": "VerificationChallenge_userId_fkey",
+      "validated": true,
+      "orphans": "0"
+    }
+  ],
+  "uniqueness": [
+    {
+      "name": "Appointment_active_doctor_slot_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "Appointment_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "ClinicalService_code_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "ClinicalService_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "Consent_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "DoctorScheduleBreak_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "DoctorScheduleExceptionPeriod_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "DoctorScheduleException_doctorId_date_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "DoctorScheduleException_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "DoctorSchedulePeriod_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "DoctorSchedule_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "Doctor_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "Doctor_userId_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "DrugFormulary_identityKey_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "DrugFormulary_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "EmergencyOverride_appointmentId_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "EmergencyOverride_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "InsuranceClaim_invoiceId_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "InsuranceClaim_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "InsuranceCompany_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "InventoryBatch_drugId_normalizedBatchNumber_expiryDate_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "InventoryBatch_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "InvoiceItem_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "Invoice_insuranceClaimId_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "Invoice_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "LabOrderItem_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "LabOrder_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "MedicalRecord_appointmentId_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "MedicalRecord_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "MfaChallenge_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "MfaChallenge_tokenHash_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "MfaConfiguration_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "MfaRecoveryCode_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "NotificationLog_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "Notification_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "PatientClaimCode_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "PatientClaimCode_publicId_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "PatientRegistration_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "Patient_fileNumber_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "Patient_nationalId_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "Patient_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "Patient_userId_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "PaymentMethod_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "PaymentOperation_idempotencyKey_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "PaymentOperation_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "Payment_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "Payment_transactionReference_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "PendingExternalAuth_capabilityHash_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "PendingExternalAuth_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "PendingExternalAuth_provider_providerSubject_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "PrescribedDrug_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "Prescription_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "Refund_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "Refund_transactionReference_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "Specialty_code_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "Specialty_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "State_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "StockMovement_idempotencyKey_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "StockMovement_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "TenantAuditLog_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "UserExternalIdentity_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "UserExternalIdentity_provider_providerSubject_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "UserExternalIdentity_userId_provider_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "User_email_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "User_phoneNormalized_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "User_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "User_username_key",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "VerificationChallenge_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    },
+    {
+      "name": "_prisma_migrations_pkey",
+      "valid": true,
+      "duplicate_groups": "0"
+    }
+  ],
+  "money": [
+    {
+      "table": "ClinicalService",
+      "column": "baseFeeSdg",
+      "precision": 65,
+      "scale": 30,
+      "populated": "0",
+      "total": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "table": "ClinicalService",
+      "column": "baseFeeUsd",
+      "precision": 65,
+      "scale": 30,
+      "populated": "0",
+      "total": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "table": "Doctor",
+      "column": "consultationFee",
+      "precision": 65,
+      "scale": 30,
+      "populated": "0",
+      "total": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "table": "DrugFormulary",
+      "column": "unitPriceSdg",
+      "precision": 65,
+      "scale": 30,
+      "populated": "0",
+      "total": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "table": "InsuranceClaim",
+      "column": "claimAmountSdg",
+      "precision": 65,
+      "scale": 30,
+      "populated": "0",
+      "total": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "table": "InsuranceCompany",
+      "column": "copayPercentage",
+      "precision": 65,
+      "scale": 30,
+      "populated": "0",
+      "total": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "table": "Invoice",
+      "column": "totalAmountSdg",
+      "precision": 65,
+      "scale": 30,
+      "populated": "0",
+      "total": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "table": "Invoice",
+      "column": "totalAmountUsd",
+      "precision": 65,
+      "scale": 30,
+      "populated": "0",
+      "total": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "table": "Invoice",
+      "column": "invoiceExchangeRate",
+      "precision": 65,
+      "scale": 30,
+      "populated": "0",
+      "total": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "table": "InvoiceItem",
+      "column": "unitPriceSdg",
+      "precision": 65,
+      "scale": 30,
+      "populated": "0",
+      "total": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "table": "InvoiceItem",
+      "column": "unitPriceUsd",
+      "precision": 65,
+      "scale": 30,
+      "populated": "0",
+      "total": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "table": "LabOrderItem",
+      "column": "referenceRangeMin",
+      "precision": 65,
+      "scale": 30,
+      "populated": "0",
+      "total": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "table": "LabOrderItem",
+      "column": "referenceRangeMax",
+      "precision": 65,
+      "scale": 30,
+      "populated": "0",
+      "total": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "table": "Payment",
+      "column": "amountSdg",
+      "precision": 65,
+      "scale": 30,
+      "populated": "0",
+      "total": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "table": "Payment",
+      "column": "amountUsd",
+      "precision": 65,
+      "scale": 30,
+      "populated": "0",
+      "total": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "table": "Refund",
+      "column": "amountSdg",
+      "precision": 65,
+      "scale": 30,
+      "populated": "0",
+      "total": null,
+      "min": null,
+      "max": null
+    },
+    {
+      "table": "Refund",
+      "column": "amountUsd",
+      "precision": 65,
+      "scale": 30,
+      "populated": "0",
+      "total": null,
+      "min": null,
+      "max": null
+    }
+  ],
+  "scalarAuditOrphans": {
+    "unresolved_actor_ids": "0"
+  },
+  "patientFileSequence": {
+    "before": {
+      "last_value": "1",
+      "is_called": true,
+      "largest_patient_suffix": "1"
+    },
+    "after": {
+      "last_value": "1",
+      "is_called": true,
+      "largest_patient_suffix": "1"
+    }
+  },
+  "columnChanges": {
+    "added": [
+      {
+        "table_name": "ClinicalService",
+        "column_name": "code",
+        "data_type": "text",
+        "numeric_precision": null,
+        "numeric_scale": null,
+        "datetime_precision": null
+      },
+      {
+        "table_name": "PaymentMethod",
+        "column_name": "code",
+        "data_type": "text",
+        "numeric_precision": null,
+        "numeric_scale": null,
+        "datetime_precision": null
+      },
+      {
+        "table_name": "PaymentMethod",
+        "column_name": "labelAr",
+        "data_type": "text",
+        "numeric_precision": null,
+        "numeric_scale": null,
+        "datetime_precision": null
+      },
+      {
+        "table_name": "PaymentMethod",
+        "column_name": "labelEn",
+        "data_type": "text",
+        "numeric_precision": null,
+        "numeric_scale": null,
+        "datetime_precision": null
+      },
+      {
+        "table_name": "PaymentMethod",
+        "column_name": "active",
+        "data_type": "boolean",
+        "numeric_precision": null,
+        "numeric_scale": null,
+        "datetime_precision": null
+      },
+      {
+        "table_name": "PaymentMethod",
+        "column_name": "createdAt",
+        "data_type": "timestamp without time zone",
+        "numeric_precision": null,
+        "numeric_scale": null,
+        "datetime_precision": 3
+      },
+      {
+        "table_name": "PaymentMethod",
+        "column_name": "updatedAt",
+        "data_type": "timestamp without time zone",
+        "numeric_precision": null,
+        "numeric_scale": null,
+        "datetime_precision": 3
+      }
+    ],
+    "changed": []
+  },
+  "passed": true
+}

@@ -90,7 +90,7 @@ test('dashboard integrates bounded APIs, server payment state, and read-only mov
   assert.match(payment, /Idempotency-Key/);
   assert.match(payment, /reconciliationRequired/);
   assert.match(payment, /Reconcile payment state/);
-  assert.match(payment, /disabled=\{submitting \|\| reconciliationRequired\}/);
+  assert.match(payment, /disabled=\{submitting \|\| reconciliationRequired \|\| !state.allowedPaymentMethods\?\.includes\(method\)\}/);
   assert.match(payment, /disabled=\{reconciliationRequired\}/);
   assert.match(payment, /if \(!responseReceived\) requireReconciliation\(true\)/);
   assert.match(payment, /attemptRef\.current = null/);

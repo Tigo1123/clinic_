@@ -1,9 +1,29 @@
 .doctor-dashboard {
-  --doctor-border: var(--border-color, #dbe5ee);
-  --doctor-surface: var(--card-bg, #fff);
-  --doctor-muted: var(--text-secondary, #64748b);
-  --doctor-ink: var(--text-primary, #17324d);
-  background: color-mix(in srgb, var(--primary, #1769e0) 2.5%, var(--bg-color, #f7f9fc));
+  --doctor-border: var(--mui-palette-divider, var(--color-border, #dbe5ee));
+  --doctor-surface: var(--mui-palette-background-paper, var(--color-surface, #fff));
+  --doctor-muted: var(--mui-palette-text-secondary, var(--color-text-secondary, #526175));
+  --doctor-ink: var(--mui-palette-text-primary, var(--color-text, #142033));
+  --doctor-primary: var(--mui-palette-primary-main, var(--color-primary, #1769e0));
+  --doctor-danger: var(--color-danger, #c43d4f);
+  --doctor-success: var(--color-success, #087547);
+  --doctor-warning: var(--color-warning, #8b4500);
+  --doctor-disabled: var(--mui-palette-action-disabled, var(--color-text-secondary, #526175));
+  --doctor-disabled-surface: var(--mui-palette-action-disabledBackground, var(--color-surface-muted, #f8fafc));
+  --border-color: var(--doctor-border);
+  --card-bg: var(--doctor-surface);
+  --text-primary: var(--doctor-ink);
+  --text-secondary: var(--doctor-muted);
+  --text-muted: var(--doctor-muted);
+  --primary: var(--doctor-primary);
+  --danger: var(--doctor-danger);
+  --success: var(--doctor-success);
+  --warning: var(--doctor-warning);
+  color: var(--doctor-ink);
+  background: color-mix(in srgb, var(--doctor-primary) 2.5%, var(--mui-palette-background-default, var(--color-bg, #f7f9fc)));
+}
+
+[data-theme='light'] .doctor-dashboard {
+  --doctor-border: color-mix(in srgb, var(--mui-palette-divider, var(--color-border, #dbe5ee)) 72%, var(--mui-palette-text-primary, var(--color-text, #142033)) 28%);
 }
 
 .doctor-dashboard__workspace { padding: 1rem; overflow-x: clip; }
@@ -130,4 +150,147 @@
 
 @media (prefers-reduced-motion: reduce) {
   .doctor-dashboard *, .doctor-dashboard *::before, .doctor-dashboard *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+}
+
+/* Clinical contrast pass: bridge MUI semantic palette tokens into the legacy
+   workspace, while keeping the shared blue medical palette in both themes. */
+.doctor-dashboard .doctor-section-heading span,
+.doctor-dashboard .doctor-section-heading time,
+.doctor-dashboard .doctor-metric span:last-child,
+.doctor-dashboard .doctor-queue-card__identity,
+.doctor-dashboard .doctor-queue-card__meta,
+.doctor-dashboard .doctor-date-picker,
+.doctor-dashboard .doctor-patient-context__identity > span,
+.doctor-dashboard .doctor-patient-context__identity > div,
+.doctor-dashboard .doctor-patient-context__visit,
+.doctor-dashboard .doctor-consultation-actions span,
+.doctor-dashboard .doctor-workspace-empty p,
+.doctor-dashboard .doctor-clinical-section :is(small, .helper-text, .form-help) {
+  color: var(--mui-palette-text-secondary, var(--color-text-secondary, #526175));
+}
+
+.doctor-dashboard .doctor-metric,
+.doctor-dashboard .doctor-queue-panel,
+.doctor-dashboard .doctor-clinical-workspace,
+.doctor-dashboard .doctor-clinical-section,
+.doctor-dashboard .doctor-lab-order-card,
+.doctor-dashboard .doctor-patient-context {
+  border-color: var(--doctor-border);
+  background-color: var(--mui-palette-background-paper, var(--color-surface, #fff));
+}
+
+.doctor-dashboard .doctor-metric { box-shadow: 0 2px 8px color-mix(in srgb, var(--doctor-ink) 7%, transparent); }
+.doctor-dashboard .doctor-metric span:last-child { font-size: .76rem; font-weight: 650; }
+.doctor-dashboard .doctor-metric__icon { color: var(--doctor-primary); }
+.doctor-dashboard .doctor-metric--completed .doctor-metric__icon { color: var(--doctor-success); }
+.doctor-dashboard .doctor-metric--laboratory .doctor-metric__icon { color: var(--doctor-warning); }
+.doctor-dashboard .doctor-metric--total { border-block-start: 3px solid var(--doctor-primary); }
+
+.doctor-dashboard .doctor-queue-header { background: color-mix(in srgb, var(--doctor-surface) 92%, var(--doctor-primary) 8%); }
+.doctor-dashboard .doctor-queue-title-row .panel-title { color: var(--doctor-ink); }
+.doctor-dashboard .doctor-queue-count { color: var(--doctor-primary); border: 1px solid color-mix(in srgb, var(--doctor-primary) 35%, var(--doctor-border)); }
+.doctor-dashboard .doctor-queue-card { background: var(--doctor-surface); border-color: var(--doctor-border); }
+.doctor-dashboard .doctor-queue-card__identity,
+.doctor-dashboard .doctor-queue-card__meta { font-size: .76rem; }
+.doctor-dashboard .doctor-queue-card__top strong { font-size: .84rem; }
+.doctor-dashboard .doctor-queue-card.selected:not(.emergency-border) { border-inline-start: 3px solid var(--doctor-primary); }
+.doctor-dashboard .doctor-queue-empty span { font-size: .76rem; }
+
+.doctor-dashboard .doctor-status {
+  display: inline-flex;
+  justify-content: center;
+  border: 1px solid currentColor;
+  font-size: .68rem;
+  font-weight: 750;
+  line-height: 1.35;
+  white-space: normal;
+  text-align: center;
+}
+.doctor-dashboard .doctor-status--waiting,
+.doctor-dashboard .doctor-status--payment-pending,
+.doctor-dashboard .doctor-status--lab-pending {
+  color: var(--doctor-warning);
+  background: var(--color-warning-soft, #fff5df);
+}
+.doctor-dashboard .doctor-status--in-consultation,
+.doctor-dashboard .doctor-status--scheduled,
+.doctor-dashboard .doctor-status--confirmed {
+  color: var(--color-primary-strong, var(--doctor-primary));
+  background: var(--color-primary-soft, #eaf4ff);
+}
+.doctor-dashboard .doctor-status--completed {
+  color: var(--doctor-success);
+  background: var(--color-success-soft, #e9f8f0);
+}
+.doctor-dashboard .doctor-status--cancelled,
+.doctor-dashboard .doctor-status--no-show {
+  color: var(--doctor-danger);
+  background: var(--color-danger-soft, #fff0f2);
+}
+
+.doctor-dashboard .doctor-workflow-steps li {
+  min-height: 48px;
+  border-color: var(--doctor-border);
+  color: var(--doctor-ink);
+  background: color-mix(in srgb, var(--doctor-surface) 94%, var(--doctor-primary) 6%);
+  font-size: .76rem;
+  font-weight: 600;
+}
+.doctor-dashboard .doctor-workflow-steps li span {
+  color: var(--color-primary-strong, var(--doctor-primary));
+  background: var(--color-primary-soft, #eaf4ff);
+  border: 1px solid color-mix(in srgb, var(--doctor-primary) 28%, var(--doctor-border));
+}
+.doctor-dashboard .doctor-workflow-steps li.is-active {
+  border: 2px solid var(--doctor-primary);
+  color: var(--doctor-ink);
+  background: color-mix(in srgb, var(--doctor-surface) 86%, var(--doctor-primary) 14%);
+  box-shadow: inset 3px 0 var(--doctor-primary);
+}
+[dir='rtl'] .doctor-dashboard .doctor-workflow-steps li.is-active { box-shadow: inset -3px 0 var(--doctor-primary); }
+.doctor-dashboard .doctor-workflow-steps li.is-active span {
+  color: var(--color-on-primary, #fff);
+  background: var(--doctor-primary);
+  border-color: var(--doctor-primary);
+}
+
+.doctor-dashboard :is(input, select, textarea, button, a, [tabindex]):focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--doctor-primary) 48%, transparent);
+  outline-offset: 2px;
+}
+.doctor-dashboard .doctor-queue-card:focus-visible { outline-offset: 2px; }
+.doctor-dashboard :is(input.form-input, select.form-input, textarea.form-input, .doctor-custom-test-form input, .doctor-lab-search input) {
+  border-color: var(--doctor-border);
+  background: var(--mui-palette-background-paper, var(--color-surface, #fff));
+  color: var(--doctor-ink);
+}
+.doctor-dashboard :is(input.form-input, select.form-input, textarea.form-input, .doctor-custom-test-form input, .doctor-lab-search input):hover {
+  border-color: var(--color-control-border, var(--doctor-border));
+}
+.doctor-dashboard :is(input.form-input, select.form-input, textarea.form-input, .doctor-custom-test-form input, .doctor-lab-search input):focus-visible {
+  border-color: var(--doctor-primary);
+  outline-offset: 0;
+}
+.doctor-dashboard :disabled,
+.doctor-dashboard [aria-disabled='true'] {
+  color: var(--doctor-disabled) !important;
+  background-color: var(--doctor-disabled-surface) !important;
+  border-color: var(--doctor-border) !important;
+  opacity: .82;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.doctor-dashboard :disabled svg,
+.doctor-dashboard [aria-disabled='true'] svg { color: currentColor; }
+.doctor-dashboard .doctor-date-picker input:focus-visible { outline-offset: 0; }
+
+.doctor-dashboard .role-hero {
+  background: linear-gradient(135deg, var(--color-primary-action, #0750aa), var(--color-primary-action-hover, #06458f));
+}
+.doctor-dashboard .role-hero p { color: #fff; }
+
+@media (max-width: 620px) {
+  .doctor-dashboard .doctor-metric { min-height: 82px; padding: .7rem; }
+  .doctor-dashboard .doctor-metric span:last-child { white-space: normal; }
+  .doctor-dashboard .doctor-workflow-steps { grid-template-columns: 1fr; }
 }

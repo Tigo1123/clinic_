@@ -1,3 +1,5 @@
+import './clinicSetup.css';
+import ClinicSetupPanel from './ClinicSetupPanel';
 import { useEffect, useState } from 'react';
 import { Activity, Building, CalendarDays, DollarSign, Sliders, Users } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
@@ -10,6 +12,7 @@ import AnalyticsPanel from './AnalyticsPanel';
 import ClinicProfilePanel from './ClinicProfilePanel';
 import SpecialtyRow from './SpecialtyRow';
 import AdminSchedulePanel from './AdminSchedulePanel';
+import PasswordField from '../../components/PasswordField.jsx';
 
 export default function AdminDashboard({ user, lang, t }) {
   const [activeTab, setActiveTab] = useState('profile');
@@ -37,7 +40,7 @@ export default function AdminDashboard({ user, lang, t }) {
     setNewSpecialtyId((current) => current === id ? '' : current);
   };
   const showSpecialtyFeedback = (feedback) => { setSpecialtyError(''); setSpecialtyFeedback(feedback); };
-  const [newConsultationFee, setNewConsultationFee] = useState('20000');
+  const [newConsultationFee, setNewConsultationFee] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [resetTarget, setResetTarget] = useState(null);
@@ -216,7 +219,7 @@ export default function AdminDashboard({ user, lang, t }) {
         setNewFullNameAr('');
         setNewFullNameEn('');
         setNewSpecialtyId('');
-        setNewConsultationFee('20000');
+        setNewConsultationFee('');
         // Reload list
         fetchWithAuth('/api/auth/users')
           .then((r) => r.json())
@@ -349,7 +352,7 @@ export default function AdminDashboard({ user, lang, t }) {
   };
 
   return (
-    <div className="dashboard-wrapper">
+    <div className="dashboard-wrapper admin-workspace">
       {/* Side menu */}
       <aside className="sidebar-menu no-print-section">
         <div className="menu-items">
@@ -375,6 +378,7 @@ export default function AdminDashboard({ user, lang, t }) {
             {lang === 'ar' ? 'إدارة الأسعار' : 'Pricing Management'}
           </button>
           <button className={`menu-btn ${activeTab === 'specialties' ? 'active' : ''}`} onClick={() => setActiveTab('specialties')}><Sliders size={18}/>{lang === 'ar' ? 'التخصصات' : 'Specialties'}</button>
+          <button className={`menu-btn ${activeTab === 'clinic-setup' ? 'active' : ''}`} onClick={() => setActiveTab('clinic-setup')}><Sliders size={18}/>{lang === 'ar' ? 'الأطباء والكتالوجات' : 'Doctors & catalogs'}</button>
           <button className={`menu-btn ${activeTab === 'scheduling' ? 'active' : ''}`} onClick={() => setActiveTab('scheduling')}><CalendarDays size={18}/>{lang === 'ar' ? 'جداول الأطباء' : 'Doctor schedules'}</button>
           <button
             className={`menu-btn ${activeTab === 'analytics' ? 'active' : ''}`}
@@ -395,7 +399,8 @@ export default function AdminDashboard({ user, lang, t }) {
 
       {/* Main Panel Content */}
       <div className="workspace-panel">
-        <RoleHero role="admin" lang={lang}/>
+        {activeTab !== 'clinic-setup' && <RoleHero role="admin" lang={lang}/>}
+        {activeTab === 'clinic-setup' && <ClinicSetupPanel lang={lang} t={t}/>}
         {activeTab === 'profile' && (
           <ClinicProfilePanel lang={lang} t={t}/>
         )}
@@ -420,18 +425,7 @@ export default function AdminDashboard({ user, lang, t }) {
                   />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">{t('password')}</label>
-                  <input
-                    type="password"
-                    required
-                    autoComplete="new-password"
-                    minLength={10}
-                    maxLength={STAFF_PASSWORD_MAX_LENGTH}
-                    placeholder="••••••••"
-                    className="form-input"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                  />
+                  <PasswordField label={t('password')} required autoComplete="new-password" minLength={10} maxLength={STAFF_PASSWORD_MAX_LENGTH} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} helperText={t('passwordRequirementsSummary')} />
                   <div className="password-requirements" aria-live="polite">
                     {Object.entries({
                       minimumLength: lang === 'ar' ? '10 أحرف على الأقل' : 'At least 10 characters',
@@ -566,8 +560,7 @@ export default function AdminDashboard({ user, lang, t }) {
                 {resetError && <div role="alert" className="badge badge-danger" style={{ width: '100%', marginBottom: '1rem', padding: '0.5rem' }}>{resetError}</div>}
                 <form onSubmit={handlePasswordReset} style={{ display: 'grid', gap: '1rem' }}>
                   <div className="form-group">
-                    <label className="form-label" htmlFor="staff-reset-new-password">{lang === 'ar' ? 'كلمة المرور الجديدة' : 'New Password'}</label>
-                    <input id="staff-reset-new-password" className="form-input" type="password" autoComplete="new-password" required minLength={10} maxLength={STAFF_PASSWORD_MAX_LENGTH} value={resetNewPassword} onChange={(event) => setResetNewPassword(event.target.value)} />
+                    <PasswordField id="staff-reset-new-password" label={lang === 'ar' ? 'كلمة المرور الجديدة' : 'New Password'} autoComplete="new-password" required minLength={10} maxLength={STAFF_PASSWORD_MAX_LENGTH} value={resetNewPassword} onChange={(event) => setResetNewPassword(event.target.value)} helperText={t('passwordRequirementsSummary')} />
                     <div className="password-requirements" aria-live="polite">
                       {Object.entries({
                         minimumLength: lang === 'ar' ? '10 أحرف على الأقل' : 'At least 10 characters',
@@ -579,12 +572,10 @@ export default function AdminDashboard({ user, lang, t }) {
                     </div>
                   </div>
                   <div className="form-group">
-                    <label className="form-label" htmlFor="staff-reset-confirm-password">{lang === 'ar' ? 'تأكيد كلمة المرور الجديدة' : 'Confirm New Password'}</label>
-                    <input id="staff-reset-confirm-password" className="form-input" type="password" autoComplete="new-password" required value={resetConfirmPassword} onChange={(event) => setResetConfirmPassword(event.target.value)} />
+                    <PasswordField id="staff-reset-confirm-password" label={lang === 'ar' ? 'تأكيد كلمة المرور الجديدة' : 'Confirm New Password'} autoComplete="new-password" required value={resetConfirmPassword} onChange={(event) => setResetConfirmPassword(event.target.value)} error={Boolean(resetConfirmPassword && resetNewPassword !== resetConfirmPassword)} helperText={resetConfirmPassword && resetNewPassword !== resetConfirmPassword ? t('passwordsDoNotMatch') : undefined} />
                   </div>
                   <div className="form-group">
-                    <label className="form-label" htmlFor="staff-reset-admin-password">{lang === 'ar' ? 'كلمة مرور المدير الحالية' : 'Current Admin Password'}</label>
-                    <input id="staff-reset-admin-password" className="form-input" type="password" autoComplete="current-password" required value={resetAdminPassword} onChange={(event) => setResetAdminPassword(event.target.value)} />
+                    <PasswordField id="staff-reset-admin-password" label={lang === 'ar' ? 'كلمة مرور المدير الحالية' : 'Current Admin Password'} autoComplete="current-password" required value={resetAdminPassword} onChange={(event) => setResetAdminPassword(event.target.value)} />
                   </div>
                   {user?.mfaEnabled && <div className="form-group">
                     <label className="form-label" htmlFor="staff-reset-mfa-code">{lang === 'ar' ? 'رمز المصادقة' : 'Authenticator Code'}</label>

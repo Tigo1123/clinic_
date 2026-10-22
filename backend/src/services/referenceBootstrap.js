@@ -95,7 +95,7 @@ function classifyStates(existingStates) {
       state.id !== expected.id
       && (state.labelAr === expected.labelAr || state.labelEn === expected.labelEn)
     ));
-    if (!actual && identityAtAnotherId) conflicting.push({ expected, actual: identityAtAnotherId });
+    if (identityAtAnotherId) conflicting.push({ expected, actual: identityAtAnotherId });
     else if (!actual) missing.push(expected);
     else if (stateMatches(actual, expected)) existing.push(expected);
     else conflicting.push({ expected, actual });
@@ -142,7 +142,7 @@ function assertConflictFree(report) {
   if (report.states.conflicting.length > 0) {
     throw new ReferenceBootstrapError(
       'REFERENCE_STATE_CONFLICT',
-      'An expected State ID exists with incompatible labels.',
+      'A canonical State has incompatible labels or appears under another ID.',
       report
     );
   }

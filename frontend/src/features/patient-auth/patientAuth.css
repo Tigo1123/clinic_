@@ -1,19 +1,23 @@
 .patient-auth-shell {
-  --auth-ink: #0f2837;
-  --auth-muted: #647885;
-  --auth-line: #dbe4e8;
-  --auth-blue: #0b72a6;
-  --auth-blue-hover: #085e8a;
-  --auth-blue-active: #064c70;
-  --auth-surface: #f2f5f7;
+  --auth-ink: var(--color-text);
+  --auth-muted: var(--color-text-secondary);
+  --auth-line: var(--color-control-border);
+  --auth-blue: var(--color-primary-action);
+  --auth-blue-hover: var(--color-primary-action-hover);
+  --auth-blue-active: var(--color-primary-action-hover);
+  --auth-surface: var(--color-surface);
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
   position: relative;
   color: var(--auth-ink);
-  background: #fbfbfc;
+  background: var(--color-bg);
   animation: auth-page-in 260ms ease-out both;
 }
+
+/* Patient authentication uses the same accessible controls as the workspace. */
+.patient-auth-shell:not(.patient-auth-shell--staff) .patient-auth-language button { min-height: 44px; }
+.patient-auth-shell:not(.patient-auth-shell--staff) .theme-toggle-btn { min-width: 44px; min-height: 44px; }
 
 /* ==========================================
    Centered Topbar Header
@@ -339,14 +343,14 @@
   transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
 }
 
-.patient-auth :is(input, select):focus {
+.patient-auth :is(input, select):focus:not(.MuiOutlinedInput-input) {
   background-color: #ffffff;
   border-color: var(--auth-blue);
   box-shadow: 0 0 0 3px rgba(11, 114, 166, 0.12);
   outline: none;
 }
 
-.patient-auth :is(input, select)[aria-invalid="true"] {
+.patient-auth :is(input, select)[aria-invalid="true"]:not(.MuiOutlinedInput-input) {
   border-color: #c53030;
   box-shadow: 0 0 0 3px rgba(197, 48, 48, 0.12);
 }
@@ -1261,15 +1265,15 @@
    Calm, professional medical navy/slate palette
    ========================================== */
 [data-theme='dark'] .patient-auth-shell {
-  --auth-ink: #f0f6fc;
-  --auth-muted: #8b9bb0;
-  --auth-line: #223246;
-  --auth-blue: #1976d2;
-  --auth-blue-hover: #1e88e5;
-  --auth-blue-active: #1565c0;
-  --auth-surface: #131f2d;
+  --auth-ink: var(--color-text);
+  --auth-muted: var(--color-text-secondary);
+  --auth-line: var(--color-border);
+  --auth-blue: var(--color-primary-action);
+  --auth-blue-hover: var(--color-primary-strong);
+  --auth-blue-active: var(--color-primary-action-hover);
+  --auth-surface: var(--color-surface);
   color: var(--auth-ink);
-  background: #0b131e;
+  background: var(--color-bg);
 }
 
 [data-theme='dark'] .patient-auth-topbar {
@@ -1277,142 +1281,142 @@
 }
 
 [data-theme='dark'] .patient-auth-brand {
-  color: #f0f6fc;
+  color: var(--color-text);
 }
 
 [data-theme='dark'] .patient-auth-language {
-  background: #152232;
-  border-color: #24354a;
+  background: var(--color-surface);
+  border-color: var(--color-control-border);
 }
 
 [data-theme='dark'] .patient-auth-language button {
-  color: #8b9bb0;
+  color: var(--color-text-secondary);
 }
 
 [data-theme='dark'] .patient-auth-language button.active {
-  color: #64b5f6;
-  background: #1e3046;
+  color: var(--color-primary-strong);
+  background: var(--color-primary-soft);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
 
 [data-theme='dark'] .staff-topbar-patient-link {
-  background: #152232;
-  border-color: #24354a;
-  color: #8b9bb0;
+  background: var(--color-surface);
+  border-color: var(--color-control-border);
+  color: var(--color-text-secondary);
 }
 
 [data-theme='dark'] .staff-topbar-patient-link:hover {
-  color: #64b5f6;
-  background: #1b2c40;
-  border-color: #355070;
+  color: var(--color-primary-strong);
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary-strong);
 }
 
 [data-theme='dark'] .theme-toggle-btn,
 [data-theme='dark'] .staff-theme-toggle-btn {
-  background: #152232;
-  border-color: #24354a;
-  color: #8b9bb0;
+  background: var(--color-surface);
+  border-color: var(--color-control-border);
+  color: var(--color-text-secondary);
 }
 
 [data-theme='dark'] .theme-toggle-btn:hover,
 [data-theme='dark'] .staff-theme-toggle-btn:hover {
-  color: #64b5f6;
-  background: #1b2c40;
-  border-color: #355070;
+  color: var(--color-primary-strong);
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary-strong);
 }
 
 [data-theme='dark'] .patient-auth h1 {
-  color: #f0f6fc;
+  color: var(--color-text);
 }
 
 [data-theme='dark'] .patient-auth .patient-field {
-  color: #cdd9e5;
+  color: var(--color-text-secondary);
 }
 
 [data-theme='dark'] .patient-auth .patient-field input,
 [data-theme='dark'] .patient-auth .patient-field select,
 [data-theme='dark'] .patient-auth .patient-phone-control input,
 [data-theme='dark'] .patient-auth .patient-phone-control select {
-  background: #131f2d;
-  border-color: #24354a;
-  color: #f0f6fc;
+  background: var(--color-surface);
+  border-color: var(--color-control-border);
+  color: var(--color-text);
 }
 
-[data-theme='dark'] .patient-auth :is(input, select):focus {
-  background-color: #172637;
-  border-color: #1e88e5;
+[data-theme='dark'] .patient-auth :is(input, select):focus:not(.MuiOutlinedInput-input) {
+  background-color: var(--color-surface);
+  border-color: var(--color-primary-strong);
   box-shadow: 0 0 0 3px rgba(30, 136, 229, 0.22);
 }
 
 [data-theme='dark'] .patient-auth .patient-auth-identifier {
-  color: #f0f6fc;
-  -webkit-text-fill-color: #f0f6fc;
-  caret-color: #f0f6fc;
+  color: var(--color-text);
+  -webkit-text-fill-color: var(--color-text);
+  caret-color: var(--color-text);
 }
 
 [data-theme='dark'] .patient-auth .patient-auth-identifier::placeholder {
-  color: #63778a;
-  -webkit-text-fill-color: #63778a;
+  color: var(--color-text-secondary);
+  -webkit-text-fill-color: var(--color-text-secondary);
 }
 
 [data-theme='dark'] .patient-field__password-toggle {
-  color: #8b9bb0;
+  color: var(--color-text-secondary);
 }
 
 [data-theme='dark'] .patient-field__password-toggle:hover {
-  color: #f0f6fc;
+  color: var(--color-text);
 }
 
 [data-theme='dark'] .patient-auth .patient-button.secondary {
-  color: #64b5f6;
-  background: #152232;
-  border-color: #26384d;
+  color: var(--color-primary-strong);
+  background: var(--color-surface);
+  border-color: var(--color-control-border);
 }
 
 [data-theme='dark'] .patient-auth .patient-button.secondary:hover {
-  background: #1b2c40;
-  border-color: #395270;
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary-strong);
 }
 
 [data-theme='dark'] .patient-auth-forgot,
 [data-theme='dark'] .patient-auth-secondary-button {
-  color: #64b5f6;
+  color: var(--color-primary-strong);
 }
 
 [data-theme='dark'] .patient-auth-forgot:hover,
 [data-theme='dark'] .patient-auth-secondary-button:hover {
-  color: #90caf9;
+  color: var(--color-primary-strong);
 }
 
 [data-theme='dark'] .patient-auth-divider {
-  color: #63778a;
+  color: var(--color-text-secondary);
 }
 
 [data-theme='dark'] .patient-auth-divider::before,
 [data-theme='dark'] .patient-auth-divider::after {
-  background: #223246;
+  background: var(--color-border);
 }
 
 [data-theme='dark'] .onboarding-progress button span {
-  background: #24354a;
+  background: var(--color-control-border);
 }
 
 [data-theme='dark'] .onboarding-progress li.complete button span,
 [data-theme='dark'] .onboarding-progress li.active button span {
-  background: #1e88e5;
+  background: var(--color-primary-strong);
 }
 
 [data-theme='dark'] .onboarding-progress-meta {
-  color: #64b5f6;
+  color: var(--color-primary-strong);
 }
 
 [data-theme='dark'] .onboarding-step-panel h2 {
-  color: #f0f6fc;
+  color: var(--color-text);
 }
 
 [data-theme='dark'] .onboarding-review {
-  background: #131f2d;
-  border-color: #24354a;
+  background: var(--color-surface);
+  border-color: var(--color-control-border);
 }
 
 [data-theme='dark'] .onboarding-review p {
@@ -1420,11 +1424,11 @@
 }
 
 [data-theme='dark'] .onboarding-resend {
-  border-top-color: #223246;
+  border-top-color: var(--color-border);
 }
 
 [data-theme='dark'] .onboarding-resend-button {
-  color: #64b5f6;
+  color: var(--color-primary-strong);
 }
 
 /* Focused login screens: use the shared palette and keep the header compact. */
@@ -1629,8 +1633,8 @@
 }
 
 .patient-auth-shell--staff :is(a, button):focus-visible,
-.patient-auth-shell--login .patient-auth :is(input, select):focus-visible,
-.patient-auth-shell--staff .patient-auth :is(input, select):focus-visible {
+.patient-auth-shell--login .patient-auth :is(input, select):focus-visible:not(.MuiOutlinedInput-input),
+.patient-auth-shell--staff .patient-auth :is(input, select):focus-visible:not(.MuiOutlinedInput-input) {
   outline: 3px solid var(--secondary);
   outline-offset: 3px;
 }
@@ -2033,3 +2037,24 @@
     flex: 0 0 auto;
   }
 }
+
+/* Keep patient login contrast aligned with the semantic palette. */
+.patient-auth-shell--login .patient-auth .patient-button {
+  background: var(--color-primary-action);
+  border-color: var(--color-primary-action);
+}
+.patient-auth-shell--login .patient-auth .patient-button:hover:not(:disabled) {
+  background: var(--color-primary-action-hover);
+  border-color: var(--color-primary-action-hover);
+}
+.patient-auth-shell--login .patient-auth .patient-button:disabled {
+  background: var(--color-surface-muted);
+  border-color: var(--color-control-border);
+  color: var(--color-text-secondary);
+}
+.patient-auth-shell--login .patient-auth .patient-field input { border-color: var(--color-control-border); }
+.patient-auth-shell--login .patient-auth-forgot,
+.patient-auth-shell--login .patient-auth-secondary-button,
+.patient-auth-shell--flow .patient-auth a { color: var(--color-primary-strong); }
+.patient-auth-shell--login :is(a, button):focus-visible { outline-color: var(--color-primary-strong); }
+.patient-auth-shell--flow .patient-field__password-toggle { width: 44px; height: 44px; }

@@ -61,3 +61,21 @@ test('doctor layout is RTL-aware, responsive, and avoids fixed-width page overfl
   assert.match(css, /prefers-reduced-motion: reduce/);
   assert.doesNotMatch(css, /min-width:\s*\d{4,}px/);
 });
+
+test('doctor workspace uses readable theme tokens and distinct textual workflow states', () => {
+  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
+  const css = source('src/features/doctor/doctorDashboard.css');
+  assert.match(css, /--doctor-ink:\s*var\(--mui-palette-text-primary/);
+  assert.match(css, /--doctor-muted:\s*var\(--mui-palette-text-secondary/);
+  assert.match(css, /--doctor-border:\s*var\(--mui-palette-divider/);
+  assert.match(css, /--doctor-surface:\s*var\(--mui-palette-background-paper/);
+  assert.match(css, /--doctor-disabled:\s*var\(--mui-palette-action-disabled/);
+  assert.match(css, /\.doctor-status--waiting/);
+  assert.match(css, /\.doctor-status--in-consultation/);
+  assert.match(css, /\.doctor-status--completed/);
+  assert.match(css, /\.doctor-status--lab-pending/);
+  assert.match(css, /\.doctor-workflow-steps li\.is-active/);
+  assert.match(dashboard, /className=\{`badge doctor-status doctor-status--\$\{queueStatusClass\}`\}/);
+  assert.match(dashboard, /aria-current=\{index === 0 \? 'step' : undefined\}/);
+  assert.match(css, /:disabled,[\s\S]*?background-color:\s*var\(--doctor-disabled-surface\)/);
+});

@@ -46,7 +46,7 @@ test('real child failures, signals, and spawn errors propagate', () => {
 });
 function simulate(base, spawn) {
  const reportPath = path.join(base, 'report.json');
- const code = runTests(['test/access-token.test.js', 'test/async-router.test.js'], { environment: { TEST_DATABASE_URL: 'postgresql://localhost:5433/clinic_test', TEST_REPORT_PATH: reportPath }, spawn, output: sink });
+ const code = runTests(['test/access-token.test.js', 'test/async-router.test.js'], { environment: { TEST_DATABASE_URL: 'postgresql://localhost:5433/clinic_test', DIRECT_URL: 'postgresql://unintended.example/production', TEST_REPORT_PATH: reportPath }, spawn, output: sink });
  return { code, report: JSON.parse(fs.readFileSync(reportPath, 'utf8')) };
 }
 test('generation and seed failure stop setup and return nonzero', () => fixture(base => {
@@ -62,6 +62,7 @@ test('test failure remains nonzero while every selected file runs sequentially i
  const result = simulate(base, (_command, args, { env }) => {
   steps.push(args[0]);
   assert.equal(env.DATABASE_URL, env.SOCKET_REVOCATION_DATABASE_URL);
+  assert.equal(env.DIRECT_URL, env.DATABASE_URL, 'Prisma migrations must never inherit a different direct database target');
   if (args[0] !== '--test') return { status: 0 };
   assert.ok(args.includes('--test-concurrency=1'));
   tests.push({ file: args.at(-1), schema: new URL(env.DATABASE_URL).searchParams.get('schema') });

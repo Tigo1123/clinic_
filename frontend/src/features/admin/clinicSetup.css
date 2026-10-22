@@ -1,0 +1,9 @@
+/* Scope administrative navigation density without changing other staff roles. */
+.admin-workspace .workspace-panel { min-width: 0; }
+@media (max-width: 900px) {
+  .admin-workspace { flex-direction: column; }
+  .admin-workspace > .sidebar-menu { width: 100%; min-width: 0; padding: .5rem; }
+  .admin-workspace .menu-items { flex-direction: row; overflow-x: auto; gap: .25rem; scrollbar-width: thin; }
+  .admin-workspace .menu-btn { width: auto; flex: 0 0 auto; min-height: 44px; padding: .6rem .8rem; white-space: nowrap; }
+  .admin-workspace .menu-btn.active { border-inline-start: 0; border-bottom: 2px solid var(--color-primary-strong); border-radius: var(--radius-sm); color: var(--color-primary-strong); background: var(--color-primary-soft); }
+}

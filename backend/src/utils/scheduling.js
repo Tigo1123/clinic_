@@ -78,6 +78,8 @@ function generatePeriods(periods, date, now = DateTime.now().setZone(clinicTimeZ
 
 export async function getConfiguredSlots(doctor, date, now = DateTime.now().setZone(clinicTimeZone()), client = prisma) {
   if (!doctor || doctor.status !== 'ACTIVE' || !validDate(date) || date < todayString(now.toJSDate())) return [];
+  const eligible = await client.doctor.findFirst({ where: { id: doctor.id, status: 'ACTIVE', user: { status: 'ACTIVE' }, OR: [{ specialtyId: null }, { specialty: { active: true } }] }, select: { id: true } });
+  if (!eligible) return [];
   const effective = await getEffectiveSchedule(doctor.id, date, { client });
   return effective ? generatePeriods(effective.periods, date, now) : [];
 }

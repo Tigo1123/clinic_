@@ -1,0 +1,27 @@
+{
+  "capturedAt": "2026-10-22T10:22:15.755Z",
+  "targetFingerprint": "c9f8bb593c61b80e",
+  "readOnly": true,
+  "mode": "after-reviewed-bootstrap",
+  "migrationCount": 26,
+  "migrationHistoryMatches": true,
+  "pending": [],
+  "checksumMismatches": [],
+  "failedMigrations": [],
+  "allPreExistingRowsPreserved": true,
+  "approvedReferenceInsertAccountedFor": true,
+  "unaccountedRowFingerprintDifferences": [],
+  "originalTablesChecked": 40,
+  "paymentMethodsMatch": true,
+  "statesMatch": true,
+  "statesCount": 18,
+  "specialtiesMatch": true,
+  "specialtyCount": 5,
+  "newForeignKeysValid": true,
+  "allApprovedIndexesValid": true,
+  "verifiedRows": {
+    "paymentMethods": 4,
+    "specialties": 5
+  },
+  "passed": true
+}

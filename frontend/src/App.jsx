@@ -1,13 +1,7 @@
 import { logoutAccount } from './services/logout.js';
 import React, { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  LogOut,
-  HeartPulse,
-  ShieldCheck,
-  Eye,
-  EyeOff
-} from 'lucide-react';
+import { LogOut, HeartPulse, ShieldCheck } from 'lucide-react';
 import ThemeToggle from './components/ui/ThemeToggle';
 import './features/patient-auth/patientAuth.css';
 
@@ -27,6 +21,7 @@ import './App.css';
 import { useFacilityBranding } from './app/branding/FacilityBrandingContext.js';
 import { brandingSubline } from './app/branding/brandingConfig';
 import { withLoginSubmissionLock } from './features/patient-auth/loginSubmission.js';
+import PasswordField from './components/PasswordField.jsx';
 
 const AdminDashboard = lazy(() => import('./features/admin/AdminDashboard'));
 const LaboratoryDashboard = lazy(() => import('./features/laboratory/LaboratoryDashboard'));
@@ -221,9 +216,9 @@ function RequiredPasswordChange({ t, onComplete }) {
     <div className="staff-mfa-icon"><ShieldCheck size={30} /></div>
     <h2>{t('passwordChangeRequired')}</h2><p>{t('passwordChangeRequiredDescription')}</p>
     <form onSubmit={submit} className="staff-login-form">
-      <input className="form-input" type="password" autoComplete="current-password" placeholder={t('currentPassword')} value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
-      <input className="form-input" type="password" autoComplete="new-password" placeholder={t('newPassword')} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required minLength={10} maxLength={200} />
-      <input className="form-input" type="password" autoComplete="new-password" placeholder={t('confirmNewPassword')} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required />
+      <PasswordField label={t('currentPassword')} value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} autoComplete="current-password" required />
+      <PasswordField label={t('newPassword')} value={newPassword} onChange={event => setNewPassword(event.target.value)} autoComplete="new-password" required minLength={10} maxLength={200} helperText={t('passwordRequirementsSummary')} />
+      <PasswordField label={t('confirmNewPassword')} value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} autoComplete="new-password" required error={Boolean(confirmPassword && newPassword !== confirmPassword)} helperText={confirmPassword && newPassword !== confirmPassword ? t('passwordsDoNotMatch') : undefined} />
       {error && <div role="alert" className="badge badge-danger">{error}</div>}
       <button className="btn btn-primary" disabled={saving}>{saving ? t('loading') : t('savePassword')}</button>
     </form>
@@ -236,7 +231,6 @@ function RequiredPasswordChange({ t, onComplete }) {
 function LoginView({ onLogin, t, lang, productName, productDescriptor, showProductIdentity }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [mfaChallenge, setMfaChallenge] = useState(null);
   const [mfaMethod, setMfaMethod] = useState('totp');
   const [errorMsg, setErrorMsg] = useState('');
@@ -433,30 +427,7 @@ function LoginView({ onLogin, t, lang, productName, productDescriptor, showProdu
           />
         </label>
 
-        <label className="patient-field">
-          {t('password')}
-          <span className="patient-field__password-wrap">
-            <input
-              id="staff-password"
-              className="patient-field__password-input"
-              type={showPassword ? 'text' : 'password'}
-              required
-              autoComplete="current-password"
-              dir="ltr"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <button
-              type="button"
-              className="patient-field__password-toggle"
-              aria-label={showPassword ? t('hidePassword') : t('showPassword')}
-              aria-pressed={showPassword}
-              onClick={() => setShowPassword(!showPassword)}
-            >
-              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-            </button>
-          </span>
-        </label>
+        <PasswordField id="staff-password" label={t('password')} required autoComplete="current-password" dir="ltr" value={password} onChange={(e) => setPassword(e.target.value)} />
 
         <button
           type="submit"

@@ -1,3 +1,4 @@
+import { lockDoctorLifecycle, synchronizeDoctorAccount } from '../services/doctorLifecycle.js';
 import express from 'express';
 import { asyncRouter } from '../utils/asyncRouter.js';
 import { z } from 'zod';
@@ -18,13 +19,15 @@ const doctorSelect = {
   id: true, userId: true, fullNameAr: true, fullNameEn: true,
   specialtyAr: true, specialtyEn: true, specialtyId: true,
   specialty: { select: { id: true, code: true, nameAr: true, nameEn: true, active: true } },
-  consultationFee: true, status: true, weeklySchedule: false,
+  consultationFee: true, status: true,
+  schedules: { select: { id: true, active: true } }, weeklySchedule: true,
   updatedAt: true, user: { select: { id: true, username: true, status: true } }
 };
 const toDoctorDto = (doctor) => ({
   id: doctor.id, userId: doctor.userId, fullNameAr: doctor.fullNameAr, fullNameEn: doctor.fullNameEn,
   specialtyAr: doctor.specialtyAr, specialtyEn: doctor.specialtyEn, specialtyId: doctor.specialtyId,
   specialty: doctor.specialty || null, consultationFee: Number(doctor.consultationFee), status: doctor.status,
+  hasSchedule: Boolean((doctor.schedules?.length ? doctor.schedules.some(schedule => schedule.active) : (() => { try { return JSON.parse(doctor.weeklySchedule || '[]').length > 0; } catch { return false; } })())),
   updatedAt: doctor.updatedAt, account: doctor.user ? { id: doctor.user.id, username: doctor.user.username, status: doctor.user.status } : null
 });
 
@@ -48,11 +51,11 @@ router.get('/doctors/:id', async (req, res, next) => {
 router.patch('/doctors/:id', validate(doctorUpdateSchema), async (req, res, next) => {
   try {
     const doctor = await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT "id" FROM "Doctor" WHERE "id" = ${req.params.id} FOR UPDATE`;
+      await lockDoctorLifecycle(tx, req.params.id);
       const existing = await tx.doctor.findUnique({ where: { id: req.params.id }, include: { specialty: true } });
       if (!existing) throw Object.assign(new Error('Doctor not found.'), { status: 404, code: 'DOCTOR_NOT_FOUND' });
       let specialty = existing.specialty;
-      if (req.body.specialtyId !== undefined) {
+      if (req.body.specialtyId !== undefined && req.body.specialtyId !== existing.specialtyId) {
         specialty = req.body.specialtyId ? await tx.specialty.findFirst({ where: { id: req.body.specialtyId, active: true } }) : null;
         if (req.body.specialtyId && !specialty) throw Object.assign(new Error('Selected specialty is unavailable.'), { status: 422, code: 'SPECIALTY_INACTIVE_OR_NOT_FOUND' });
       }
@@ -63,6 +66,7 @@ router.patch('/doctors/:id', validate(doctorUpdateSchema), async (req, res, next
         ...(req.body.status !== undefined ? { status: req.body.status } : {}),
         ...(req.body.specialtyId !== undefined ? { specialtyId: req.body.specialtyId, specialtyAr: specialty?.nameAr || existing.specialtyAr, specialtyEn: specialty?.nameEn || existing.specialtyEn } : {})
       };
+      if (req.body.status) await synchronizeDoctorAccount(tx, existing.userId, req.body.status);
       const updated = await tx.doctor.update({ where: { id: existing.id }, data, select: doctorSelect });
       await tx.tenantAuditLog.create({ data: { userId: req.user.id, action: 'DOCTOR_PROFILE_UPDATED', details: JSON.stringify({ doctorId: updated.id, changedFields: Object.keys(data), status: updated.status, specialtyId: updated.specialtyId }), ipAddress: req.ip || 'unknown' } });
       return updated;

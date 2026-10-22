@@ -224,10 +224,12 @@ First-administrator provisioning is available through the explicit
 [the provisioning procedure](#phase-1a7-acceptance-gate) and the
 [shared deployment guide](../../DEPLOYMENT.md#first-administrator).
 
-The provisioner verifies the database and runtime login/effective role,
-requires a protected single-line password file with mode 0600, and
-refuses if any ADMIN already exists. Account creation and its audit
-record occur in one transaction. The password-reset script is for
+The provisioner requires `FIRST_ADMIN_TARGET_MODE=lan`, uses the private
+`postgres` service hostname, verifies the database, schema, migration state,
+and runtime login/effective role, requires a protected single-line password
+file with mode 0600, and refuses if any ADMIN already exists. The profile
+passes `--execute`; account creation and its audit record occur in one
+transaction. The password-reset script is for
 an existing account and is not an installation substitute.
 
 ### Safety and rollback

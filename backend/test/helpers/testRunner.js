@@ -79,7 +79,7 @@ export function runTests(requested = [], { environment = process.env, spawn = sp
   output.write(`Discovered ${report.discovered.length} test files; selected ${files.length}. Report: ${reportPath}\n`);
   const baseEnv = { ...environment, NODE_ENV: 'test', DEPLOYMENT_ENV: 'test', CLINIC_TIME_ZONE: 'Africa/Khartoum', JWT_SECRET: 'test-jwt-secret-at-least-thirty-two-characters', MEDICAL_ENCRYPTION_KEY: 'test-medical-key-separate-at-least-thirty-two', MFA_ENCRYPTION_KEY: 'test-mfa-key-separate-at-least-thirty-two-characters', CORS_ALLOWED_ORIGINS: 'http://localhost:5173', NOTIFICATIONS_DISABLED: 'true', VERIFICATION_PROVIDER: 'development', PHONE_VERIFICATION_PROVIDER: 'development', PHONE_DEFAULT_COUNTRY: 'RW' };
   // All children, including seed scripts and socket server forks, inherit this URL pair.
-  const environmentFor = schema => { const url = isolatedDatabaseUrl(environment.TEST_DATABASE_URL, schema); return { ...baseEnv, DATABASE_URL: url, SOCKET_REVOCATION_DATABASE_URL: url, TEST_DATABASE_URL: url }; };
+  const environmentFor = schema => { const url = isolatedDatabaseUrl(environment.TEST_DATABASE_URL, schema); return { ...baseEnv, DATABASE_URL: url, DIRECT_URL: url, SOCKET_REVOCATION_DATABASE_URL: url, TEST_DATABASE_URL: url }; };
   let exitCode = 0;
   try {
     runStep(['node_modules/prisma/build/index.js', 'generate'], { env: environmentFor(`test_${runId}_generate`), spawn, output });

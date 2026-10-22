@@ -54,7 +54,7 @@ Reference data is a separate reviewed step, not startup behavior. `npm run boots
 
 ### First administrator
 
-The repository **does** provide [provision-first-admin.js](backend/scripts/provision-first-admin.js); resetting a pre-existing account is a different operation. For LAN, use the explicit `first-admin` profile after database bootstrap. Create the unique password through an approved local secret-handling process in a regular, non-symlink, single-line file outside Git, mode `0600`. Set `FIRST_ADMIN_USERNAME` to the real administrator identity, `FIRST_ADMIN_PREFERRED_LANGUAGE` to `en` or `ar`, and `FIRST_ADMIN_PASSWORD_SOURCE_FILE` to that file in the private Compose environment.
+The repository **does** provide [provision-first-admin.js](backend/scripts/provision-first-admin.js); resetting a pre-existing account is a different operation. Both LAN and Neon require an explicit target mode and `--execute` for writes. Create the unique password through an approved secret-handling process in a regular, non-symlink, single-line file outside Git, mode `0600`. Set `FIRST_ADMIN_USERNAME` to the real administrator identity, `FIRST_ADMIN_PREFERRED_LANGUAGE` to `en` or `ar`, and `FIRST_ADMIN_PASSWORD_FILE` (or the LAN profile's `FIRST_ADMIN_PASSWORD_SOURCE_FILE`) to that file.
 
 ```sh
 # From the repository root, only for an approved new installation:
@@ -62,9 +62,9 @@ docker compose --env-file /secure/path/clinic-lan.env -f compose.lan.yml \
   --profile first-admin run --rm first-admin
 ```
 
-The profile mounts the file as `FIRST_ADMIN_PASSWORD_FILE` and supplies `LAN_DATABASE_NAME`, `CONFIRM_FIRST_ADMIN_DATABASE`, and `RUNTIME_LOGIN_ROLE`. The script verifies the connected database and both login/effective role identities, rejects the documented placeholder username, refuses if any ADMIN already exists, applies password policy, and writes an audit record. Remove the temporary password file securely after successful provisioning/login and enroll staff MFA.
+The profile mounts the file as `FIRST_ADMIN_PASSWORD_FILE`, sets `FIRST_ADMIN_TARGET_MODE=lan`, and supplies `LAN_DATABASE_NAME`, `CONFIRM_FIRST_ADMIN_DATABASE`, and `RUNTIME_LOGIN_ROLE`. The script verifies the connected database, schema, migration history, and both login/effective role identities, rejects the documented placeholder username, refuses if any ADMIN already exists, applies password policy, stores only a bcrypt hash, and writes an audit record. The profile passes the explicit `--execute` flag. Remove the temporary password file securely after successful provisioning/login and enroll staff MFA.
 
-For non-LAN infrastructure, the same script can be invoked as `node scripts/provision-first-admin.js` from `backend/` only after supplying those same identity guards (their names remain LAN-prefixed), the runtime `DATABASE_URL`, and the protected file. Adapt and review the installation procedure; no generic hosted bootstrap automation is supplied. `npm run admin:reset-password` targets an already existing fixed account and is not a first-admin creator.
+For Neon production, first run the `--preflight` mode, review its result, and obtain separate approval before `--execute`. The exact required variables, hostname/database/schema checks, and command templates are documented in [the Neon first-administrator procedure](docs/clinic-readiness/neon-production-release/first-admin-provisioning.md). Neon mode requires an exact direct Neon hostname, `neondb/public`, verified TLS, the expected runtime role, production mode, and a complete migration history. `npm run admin:reset-password` targets an already existing fixed account and is not a first-admin creator.
 
 ## Backend runtime configuration
 

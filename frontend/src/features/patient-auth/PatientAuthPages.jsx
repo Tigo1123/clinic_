@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, Navigate } from 'react-router-dom';
-import { Check, Eye, EyeOff, HeartPulse } from 'lucide-react';
+import { Check, HeartPulse } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { patientApiRequest, publicApiRequest as apiRequest } from '../../services/apiClient';
 import { useAuth } from '../../app/auth/auth-context';
@@ -15,6 +15,7 @@ import ThemeToggle from '../../components/ui/ThemeToggle.jsx';
 import { useFacilityBranding } from '../../app/branding/FacilityBrandingContext.js';
 import { brandingSubline } from '../../app/branding/brandingConfig';
 import { withLoginSubmissionLock } from './loginSubmission.js';
+import PasswordField from '../../components/PasswordField.jsx';
 
 export function PatientLogin(){
   const{t}=useTranslation();
@@ -29,7 +30,6 @@ export function PatientLogin(){
   const[error,setError]=useState('');
   const[loading,setLoading]=useState(false);
   const submitInFlight = useRef(false);
-  const[showPassword,setShowPassword]=useState(false);
   const[pendingVerification,setPendingVerification]=useState(false);
   const[challenge,setChallenge]=useState(null);
   const[code,setCode]=useState('');
@@ -147,7 +147,10 @@ export function PatientLogin(){
           <Field
             label={t('verificationCode')}
             value={code}
-            onChange={setCode}
+            onChange={value => setCode(value.replace(/\D/g, ''))}
+            inputMode="numeric"
+            maxLength={6}
+            dir="ltr"
           />
 
           {error&&<Alert>{error}</Alert>}
@@ -188,30 +191,7 @@ export function PatientLogin(){
           dir="ltr"
         />
 
-        <label className="patient-field">
-          {t('password')}
-          <span className="patient-field__password-wrap">
-            <input
-              className="patient-field__password-input"
-              type={showPassword?'text':'password'}
-              dir="ltr"
-              value={form.password}
-              onChange={event=>setForm({...form,password:event.target.value})}
-              autoComplete="current-password"
-              required
-            />
-
-            <button
-              type="button"
-              aria-label={showPassword?t('hidePassword'):t('showPassword')}
-              aria-pressed={showPassword}
-              onClick={()=>setShowPassword(!showPassword)}
-              className="patient-field__password-toggle"
-            >
-              {showPassword?<EyeOff size={19}/>:<Eye size={19}/>}
-            </button>
-          </span>
-        </label>
+        <Field label={t('password')} type="password" dir="ltr" value={form.password} onChange={password=>setForm({...form,password})} autoComplete="current-password" />
 
         <Link className="patient-auth-forgot" to="/forgot-password">
           {t('forgotPassword')}
@@ -269,7 +249,6 @@ export function PatientForgotPassword(){
   const [code, setCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -401,39 +380,14 @@ export function PatientForgotPassword(){
           <Field
             label={t('verificationCode')}
             value={code}
-            onChange={setCode}
+            onChange={value => setCode(value.replace(/\D/g, ''))}
+            inputMode="numeric"
+            maxLength={6}
+            dir="ltr"
             autoComplete="one-time-code"
           />
 
-          <label className="patient-field">
-            {t('newPassword')}
-            <span style={{position:'relative'}}>
-              <input
-                style={{width:'100%',paddingInlineEnd:'3rem'}}
-                type={showPassword ? 'text' : 'password'}
-                value={newPassword}
-                onChange={event=>setNewPassword(event.target.value)}
-                autoComplete="new-password"
-                required
-              />
-
-              <button
-                type="button"
-                aria-label={showPassword ? t('hidePassword') : t('showPassword')}
-                onClick={()=>setShowPassword(!showPassword)}
-                style={{
-                  position:'absolute',
-                  insetInlineEnd:'.45rem',
-                  top:'.35rem',
-                  background:'transparent',
-                  border:0,
-                  cursor:'pointer'
-                }}
-              >
-                {showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}
-              </button>
-            </span>
-          </label>
+          <Field label={t('newPassword')} type="password" value={newPassword} onChange={setNewPassword} autoComplete="new-password" helperText={t('passwordRequirementsSummary')} />
 
           <div className="password-requirements">
             {passwordChecks.map(([key, valid, label]) => (
@@ -447,13 +401,7 @@ export function PatientForgotPassword(){
             ))}
           </div>
 
-          <Field
-            label={t('confirmPassword')}
-            type="password"
-            value={confirmPassword}
-            onChange={setConfirmPassword}
-            autoComplete="new-password"
-          />
+          <Field label={t('confirmPassword')} type="password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" error={Boolean(confirmPassword && newPassword !== confirmPassword)} helperText={confirmPassword && newPassword !== confirmPassword ? t('passwordMismatch') : undefined} />
 
           {error && <Alert>{error}</Alert>}
 
@@ -482,6 +430,8 @@ export function PatientRegister() {
   const [stepDirection, setStepDirection] = useState('forward');
   const [stepLeaving, setStepLeaving] = useState(false);
   const stepTimer = useRef(null);
+  const stepPanel = useRef(null);
+  useEffect(() => { if (step > 0) stepPanel.current?.querySelector('h2')?.focus(); }, [step]);
   const [challenge, setChallenge] = useState(null); const [code, setCode] = useState(''); const [identity, setIdentity] = useState(null);
   const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [fieldErrors, setFieldErrors] = useState({}); const [loading, setLoading] = useState(false); const [resending, setResending] = useState(false); const [verified, setVerified] = useState(false); const [googleReviewState, setGoogleReviewState] = useState(''); const [googleExpired, setGoogleExpired] = useState(false); const [resendAvailableAt, setResendAvailableAt] = useState(0); const [now, setNow] = useState(Date.now());
   const googleOnboardingToken = getGoogleOnboardingToken();
@@ -506,7 +456,7 @@ export function PatientRegister() {
     window.clearTimeout(stepTimer.current);
     stepTimer.current = window.setTimeout(() => { setStep(target); setStepLeaving(false); }, 105);
   };
-  const next = () => { const errors = validateOnboardingStep(form, step, messages, undefined, { requireEmail: !googleOnboarding }); setFieldErrors(errors); if (!Object.keys(errors).length) goToStep(step + 1); };
+  const next = () => { const errors = validateOnboardingStep(form, step, messages, undefined, { requireEmail: !googleOnboarding }); setFieldErrors(errors); if (!Object.keys(errors).length) goToStep(step + 1); else requestAnimationFrame(() => stepPanel.current?.querySelector('[aria-invalid="true"]')?.focus()); };
   async function submit(event) {
     event.preventDefault(); if (loading) return;
     const errors = validateOnboardingStep(form, 5, messages, undefined, { requireEmail: !googleOnboarding });
@@ -548,12 +498,12 @@ export function PatientRegister() {
         <button type="button" disabled={index > step || stepLeaving} onClick={() => goToStep(index)} aria-label={`${t('onboardingStepOf', { current:index + 1, total:ONBOARDING_STEPS.length })}: ${title(key)}`} aria-current={index === step ? 'step' : undefined}><span aria-hidden="true" /></button>
       </li>)}
     </ol>
-    <div key={step} className={`onboarding-step-panel${stepLeaving ? ' is-leaving' : ''}`} data-direction={stepDirection}>
-      <h2>{title(ONBOARDING_STEPS[step])}</h2>
+    <div ref={stepPanel} key={step} className={`onboarding-step-panel${stepLeaving ? ' is-leaving' : ''}`} data-direction={stepDirection}>
+      <h2 tabIndex={-1}>{title(ONBOARDING_STEPS[step])}</h2>
       <p className="onboarding-caption">{t(`onboarding${ONBOARDING_STEPS[step][0].toUpperCase()}${ONBOARDING_STEPS[step].slice(1)}Help`)}</p>
   {step < 2 && <div className="onboarding-grid">{nameFields.map(field => <Field key={field} label={t(`onboarding${field[0].toUpperCase()}${field.slice(1)}`)} value={form[field]} onChange={value => update(field, value)} error={fieldErrors[field]} autoComplete="name" dir={step === 0 ? 'rtl' : 'ltr'}/>)}</div>}
   {step === 2 && <div className="onboarding-grid"><Field label={t('dateOfBirth')} type="date" value={form.dateOfBirth} onChange={value => update('dateOfBirth', value)} error={fieldErrors.dateOfBirth}/><label className="patient-field">{t('gender')}<select value={form.gender} onChange={event => update('gender', event.target.value)}><option value="">{t('onboardingSelectGender')}</option><option value="MALE">{t('male')}</option><option value="FEMALE">{t('female')}</option></select></label>{fieldErrors.gender&&<span className="field-error">{fieldErrors.gender}</span>}</div>}
-  {step === 3 && <div className="onboarding-grid onboarding-contact-grid"><div className="onboarding-contact-phone"><label className="patient-field">{t('phone')}<div className="patient-phone-control"><select value={form.phoneCountry} onChange={event => update('phoneCountry', event.target.value)} aria-label={t('selectCountry')} dir={i18n.language === 'ar' ? 'rtl' : 'ltr'}>{PATIENT_PHONE_COUNTRIES.map(country => <option key={country} value={country}>{countryFlag(country)} {countryName(country, i18n.language)} ({callingCode(country)})</option>)}</select><input type="tel" inputMode="tel" dir="ltr" value={form.phone} onChange={event => updatePhone(event.target.value)} placeholder={t('phoneExample')} autoComplete="tel-national" required aria-invalid={Boolean(fieldErrors.phone)}/></div></label>{fieldErrors.phone&&<span className="field-error">{fieldErrors.phone}</span>}</div>{!googleOnboarding && <Field label={t('email')} type="email" value={form.email} onChange={value => update('email', value)} error={fieldErrors.email} autoComplete="email"/>}</div>}
+  {step === 3 && <div className="onboarding-grid onboarding-contact-grid"><div className="onboarding-contact-phone"><label className="patient-field">{t('phone')}<div className="patient-phone-control"><select value={form.phoneCountry} onChange={event => update('phoneCountry', event.target.value)} aria-label={t('selectCountry')} dir={i18n.language === 'ar' ? 'rtl' : 'ltr'}>{PATIENT_PHONE_COUNTRIES.map(country => <option key={country} value={country}>{countryFlag(country)} {countryName(country, i18n.language)} ({callingCode(country)})</option>)}</select><input type="tel" inputMode="tel" dir="ltr" aria-label={t('phone')} aria-describedby={fieldErrors.phone?'onboarding-phone-error':undefined} value={form.phone} onChange={event => updatePhone(event.target.value)} placeholder={t('phoneExample')} autoComplete="tel-national" required aria-invalid={Boolean(fieldErrors.phone)}/></div></label>{fieldErrors.phone&&<span id="onboarding-phone-error" className="field-error">{fieldErrors.phone}</span>}</div>{!googleOnboarding && <Field label={t('email')} type="email" value={form.email} onChange={value => update('email', value)} error={fieldErrors.email} autoComplete="email"/>}</div>}
   {step === 4 && <><label className="patient-field">{t('addressState')}<select value={form.addressStateId} onChange={event => update('addressStateId', event.target.value)}>{SUDANESE_STATES.map(state => <option key={state.id} value={state.id}>{i18n.language === 'ar' ? state.labelAr : state.labelEn}</option>)}</select></label><p className="onboarding-note">{t('onboardingContactAfterActivation')}</p></>}
   {step === 5 && <div dir="ltr"><Field label={t('password')} type="password" value={form.password} onChange={value => update('password', value)} error={fieldErrors.password} autoComplete="new-password"/><div className="password-requirements">{Object.entries(passwordChecks(form.password)).map(([key, valid]) => <span className={valid?'valid':''} key={key}><Check size={14}/>{t(`password${key[0].toUpperCase()}${key.slice(1)}`)}</span>)}</div><Field label={t('confirmPassword')} type="password" value={form.confirmPassword} onChange={value => update('confirmPassword', value)} error={fieldErrors.confirmPassword} autoComplete="new-password"/></div>}
   {step === 6 && <div className="onboarding-review"><p>{form.firstNameAr} {form.fatherNameAr} {form.grandfatherNameAr} {form.familyNameAr}</p><p dir="ltr">{form.firstNameEn} {form.fatherNameEn} {form.grandfatherNameEn} {form.familyNameEn}</p><p>{form.dateOfBirth} · {form.gender === 'MALE' ? t('male') : t('female')}</p><p dir="ltr">{reviewPhone}{!googleOnboarding && ` · ${form.email}`}</p><p>{t('addressState')}: {(SUDANESE_STATES.find(state => String(state.id) === form.addressStateId)?.[i18n.language === 'ar' ? 'labelAr' : 'labelEn'])}</p><p className="onboarding-note">{t('onboardingPasswordHidden')}</p></div>}
@@ -836,7 +786,7 @@ function OfflineActivation(){
   const { t } = useTranslation(); const navigate = useNavigate();
   const [form,setForm]=useState({code:'',dateOfBirth:'',email:'',password:'',confirmPassword:''}); const [error,setError]=useState(''); const [loading,setLoading]=useState(false);
   async function submit(event){event.preventDefault();if(form.password!==form.confirmPassword){setError(t('passwordMismatch'));return;}setLoading(true);setError('');try{await apiRequest('/api/patient-auth/offline-activation',{method:'POST',body:JSON.stringify({code:form.code.trim(),dateOfBirth:form.dateOfBirth,email:form.email.trim()||undefined,password:form.password})});navigate('/patient-login',{state:{message:t('offlineActivationSuccess')}});}catch(e){setError(e.code==='CLAIM_VERIFICATION_FAILED'?t('claimCredentialInvalid'):e.message);}finally{setLoading(false);}}
-  return <AuthShell title={t('offlineActivation')}><p>{t('offlineActivationInstructions')}</p><form onSubmit={submit}><Field label={t('claimCode')} value={form.code} onChange={code=>setForm({...form,code})} autoComplete="one-time-code"/><Field label={t('dateOfBirth')} type="date" value={form.dateOfBirth} onChange={dateOfBirth=>setForm({...form,dateOfBirth})}/><Field label={t('emailOptional')} type="email" value={form.email} onChange={email=>setForm({...form,email})}/><Field label={t('newPassword')} type="password" value={form.password} onChange={password=>setForm({...form,password})} autoComplete="new-password"/><Field label={t('confirmPassword')} type="password" value={form.confirmPassword} onChange={confirmPassword=>setForm({...form,confirmPassword})} autoComplete="new-password"/>{error&&<Alert>{error}</Alert>}<button className="patient-button" style={{width:'100%'}} disabled={loading}>{loading?t('loading'):t('activatePatientAccount')}</button></form></AuthShell>;
+  return <AuthShell title={t('offlineActivation')}><p>{t('offlineActivationInstructions')}</p><form onSubmit={submit}><Field label={t('claimCode')} value={form.code} onChange={code=>setForm({...form,code})} autoComplete="one-time-code"/><Field label={t('dateOfBirth')} type="date" value={form.dateOfBirth} onChange={dateOfBirth=>setForm({...form,dateOfBirth})}/><Field label={t('emailOptional')} type="email" value={form.email} onChange={email=>setForm({...form,email})}/><Field label={t('newPassword')} type="password" value={form.password} onChange={password=>setForm({...form,password})} autoComplete="new-password" helperText={t('passwordRequirementsSummary')}/><Field label={t('confirmPassword')} type="password" value={form.confirmPassword} onChange={confirmPassword=>setForm({...form,confirmPassword})} autoComplete="new-password" error={Boolean(form.confirmPassword && form.password !== form.confirmPassword)} helperText={form.confirmPassword && form.password !== form.confirmPassword ? t('passwordMismatch') : undefined}/>{error&&<Alert>{error}</Alert>}<button className="patient-button" style={{width:'100%'}} disabled={loading}>{loading?t('loading'):t('activatePatientAccount')}</button></form></AuthShell>;
 }
 
 function AuthShell({ title, children, onboarding = false }) {
@@ -888,6 +838,6 @@ function AuthShell({ title, children, onboarding = false }) {
     </div>
   </main>;
 }
-function Field({label,type='text',value,onChange,autoComplete,error,inputMode,maxLength,dir,className}){const {t}=useTranslation();const [visible,setVisible]=useState(false);const password=type==='password';return <><label className="patient-field">{label}<span className={password?'patient-field__password-wrap':undefined}><input className={className} type={password&&visible?'text':type} value={value} onChange={event=>onChange(event.target.value)} autoComplete={autoComplete} inputMode={inputMode} maxLength={maxLength} dir={dir} required aria-invalid={Boolean(error)}/>{password&&<button type="button" className="patient-field__password-toggle" aria-label={visible?t('hidePassword'):t('showPassword')} onClick={()=>setVisible(current=>!current)}>{visible?<EyeOff size={18}/>:<Eye size={18}/>}</button>}</span></label>{error&&<span className="field-error">{error}</span>}</>}
+function Field({label,type='text',value,onChange,autoComplete,error,inputMode,maxLength,dir,className,helperText}){const id=useId();if(type==='password')return <PasswordField id={id} label={label} value={value} onChange={event=>onChange(event.target.value)} autoComplete={autoComplete || 'current-password'} required error={Boolean(error)} helperText={helperText || error} maxLength={maxLength} dir={dir || 'ltr'} />;return <><label className="patient-field" htmlFor={id}>{label}<input id={id} className={className} type={type} value={value} onChange={event=>onChange(event.target.value)} autoComplete={autoComplete} inputMode={inputMode} maxLength={maxLength} dir={dir || (['email','tel'].includes(type)?'ltr':undefined)} required aria-invalid={Boolean(error)} aria-describedby={error?`${id}-error`:undefined}/></label>{error&&<span id={`${id}-error`} className="field-error">{error}</span>}</>}
 function Alert({children}){return <div className="patient-alert error" role="alert">{children}</div>}
 function googleErrorMessageKey(code){if(code==='ACCOUNT_LINK_REQUIRED')return 'googleAccountLinkRequired';if(code==='REGISTRATION_PENDING')return 'googleRegistrationPending';if(code==='GOOGLE_SIGN_IN_CONFLICT')return 'googleAccountConflict';if(code==='GOOGLE_ONBOARDING_BUSY')return 'googleOnboardingBusy';if(code==='GOOGLE_AUTH_UNAVAILABLE')return 'googleSignInUnavailable';if(code==='GOOGLE_CREDENTIAL_INVALID'||code?.startsWith('GOOGLE_CREDENTIAL_')||code==='GOOGLE_EMAIL_UNVERIFIED')return 'googleCredentialInvalid';if(code==='GOOGLE_SIGN_IN_NETWORK_ERROR'||code==='GOOGLE_VERIFICATION_UNAVAILABLE'||code==='REQUEST_FAILED')return 'googleNetworkError';return 'googleSignInUnexpectedError'}

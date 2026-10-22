@@ -1,0 +1,15 @@
+{
+  "capturedAt": "2026-10-22T08:35:53.952Z",
+  "fingerprint": "5bef91fd9604802c",
+  "schema": "public",
+  "status": "connection_failed",
+  "readOnly": false,
+  "tables": [],
+  "errors": [
+    {
+      "stage": "connect",
+      "code": "PSQL_CONNECTION_OR_QUERY_FAILED",
+      "reason": "unclassified"
+    }
+  ]
+}

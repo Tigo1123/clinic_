@@ -57,9 +57,10 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: ["node", "scripts/provision-first-admin.js"]
+    command: ["node", "scripts/provision-first-admin.js", "--execute"]
     environment:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      FIRST_ADMIN_TARGET_MODE: ${FIRST_ADMIN_TARGET_MODE:?FIRST_ADMIN_TARGET_MODE is required}
       LAN_DATABASE_NAME: ${LAN_DATABASE_NAME:?LAN_DATABASE_NAME is required}
       RUNTIME_LOGIN_ROLE: ${RUNTIME_LOGIN_ROLE:?RUNTIME_LOGIN_ROLE is required}
       CONFIRM_FIRST_ADMIN_DATABASE: ${CONFIRM_FIRST_ADMIN_DATABASE:?CONFIRM_FIRST_ADMIN_DATABASE is required}

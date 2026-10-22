@@ -5,9 +5,9 @@
   "main": "src/server.js",
   "type": "module",
   "scripts": {
-    "start": "node src/server.js",
-    "start:container": "node src/server.js",
-    "dev": "nodemon src/server.js",
+    "start": "NODE_OPTIONS=\"--no-network-family-autoselection --dns-result-order=ipv4first\" node src/server.js",
+    "start:container": "NODE_OPTIONS=\"--no-network-family-autoselection --dns-result-order=ipv4first\" node src/server.js",
+    "dev": "NODE_OPTIONS=\"--no-network-family-autoselection --dns-result-order=ipv4first\" nodemon src/server.js",
     "db:init": "prisma migrate dev --name init",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:grant:patient-mrn-sequence": "sh scripts/provision-patient-mrn-sequence.sh",

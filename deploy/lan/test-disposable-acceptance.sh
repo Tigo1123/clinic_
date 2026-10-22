@@ -65,9 +65,10 @@ services:
     restart: 'no'
   first-admin:
     build: {context: $PWD/backend, dockerfile: Dockerfile}
-    command: [node, scripts/provision-first-admin.js]
+    command: [node, scripts/provision-first-admin.js, --execute]
     environment:
       DATABASE_URL: postgresql://$runtime_login:$runtime_password@postgres:5432/$database
+      FIRST_ADMIN_TARGET_MODE: lan
       LAN_DATABASE_NAME: $database
       RUNTIME_LOGIN_ROLE: $runtime_login
       CONFIRM_FIRST_ADMIN_DATABASE: $database

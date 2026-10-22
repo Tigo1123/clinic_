@@ -55,7 +55,8 @@ test('ADMIN can update doctor profile, specialty, and status without changing sc
   assert.equal(updated.status, 200); assert.equal(updated.body.status, 'INACTIVE');
   assert.equal(await prisma.doctorSchedule.count({ where: { doctorId: doctor.id } }), scheduleCount);
   assert.equal((await api.get('/api/appointments/doctors')).body.some((item) => item.id === doctor.id), false);
-  await prisma.doctor.update({ where: { id: doctor.id }, data: original });
+  await api.patch(`/api/admin/doctors/${doctor.id}`).set(auth(adminToken)).send(original).expect(200);
+  doctorToken = await login('doctor@cms.com', 'Doctor@123');
 });
 
 test('inactive specialties are excluded from patient doctor discovery while legacy doctors remain safe', async () => {

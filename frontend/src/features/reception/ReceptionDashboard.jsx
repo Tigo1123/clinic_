@@ -63,7 +63,10 @@ export default function ReceptionDashboard({ lang, t }) {
   const [addedServices, setAddedServices] = useState([]);
 
   // Payment Allocation
+  const [paymentMethods, setPaymentMethods] = useState([]);
+  const [paymentMethodsError, setPaymentMethodsError] = useState(false);
   const [paymentRows, setPaymentRows] = useState([{ amountSdg: '', paymentMethod: 'CASH', transactionReference: '' }]);
+  useEffect(() => { const codes = paymentMethods.map(method => method.code); setPaymentRows(rows => rows.map(row => codes.includes(row.paymentMethod) ? row : { ...row, paymentMethod: codes[0] || '' })); }, [paymentMethods]);
   const [billingSubmitting, setBillingSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -142,32 +145,6 @@ export default function ReceptionDashboard({ lang, t }) {
     return lang === 'ar' ? labels.ar : labels.en;
   };
 
-  const getPaymentMethodLabel = (method) => {
-    const labels = {
-      CASH: {
-        ar: 'نقدًا',
-        en: 'Cash'
-      },
-      CARD: {
-        ar: 'بطاقة',
-        en: 'Card'
-      },
-      BANKAK: {
-        ar: 'بنكك',
-        en: 'Bankak'
-      },
-      FAWRY: {
-        ar: 'فوري',
-        en: 'Fawry'
-      }
-    };
-
-    const value = labels[method];
-
-    return value
-      ? (lang === 'ar' ? value.ar : value.en)
-      : method;
-  };
 
   const fetchPendingAppointments = () => {
     fetchWithAuth('/api/appointments/pending')
@@ -335,6 +312,8 @@ export default function ReceptionDashboard({ lang, t }) {
         console.error(err);
         setDoctors([]);
       });
+
+    apiRequest('/api/billing/payment-methods').then(data => { setPaymentMethods(Array.isArray(data) ? data : []); setPaymentMethodsError(false); }).catch(() => { setPaymentMethods([]); setPaymentMethodsError(true); });
 
     apiRequest('/api/billing/services')
       .then((data) => setClinicalServices(Array.isArray(data) ? data : []))
@@ -796,16 +775,12 @@ export default function ReceptionDashboard({ lang, t }) {
     setAddedServices(addedServices.filter((_, idx) => idx !== index));
   };
 
-  const calculateInvoiceTotals = () => {
-    const totalSdg = addedServices.reduce((sum, service) => {
-      if (service.baseFeeSdg == null) return sum;
-      const price = Number(service.baseFeeSdg);
-      return Number.isFinite(price) ? sum + (price * service.qty) : sum;
-    }, 0);
-    // Fixed conversion rate of 1500 locked at checkout
-    const totalUsd = totalSdg / 1500;
-    return { totalSdg, totalUsd };
-  };
+  const calculateInvoiceTotals = () => ({
+    totalSdg: addedServices.reduce((sum, service) => {
+      const price = String(service.baseFeeSdg ?? '');
+      return /^\d+$/.test(price) && Number.isSafeInteger(service.qty) ? sum + BigInt(price) * BigInt(service.qty) : sum;
+    }, 0n)
+  });
 
   const handleCreateInvoice = async () => {
     if (billingSubmitting) return;
@@ -2129,6 +2104,8 @@ export default function ReceptionDashboard({ lang, t }) {
                       {insurancePreview.status === 'idle' && <div className="is-due"><span>{t('invoiceTotal')}</span><strong>{calculateInvoiceTotals().totalSdg.toLocaleString(lang === 'ar' ? 'ar' : 'en')} {lang === 'ar' ? 'ج.س' : 'SDG'}</strong></div>}
                     </div>
 
+                    {paymentMethodsError && <p role="alert">{lang === 'ar' ? 'تعذر تحميل طرق الدفع. أعد تحميل الصفحة للمحاولة.' : 'Payment methods could not be loaded. Reload to retry.'}</p>}
+                    {paymentMethods.length === 0 && !paymentMethodsError && <p role="status">{lang === 'ar' ? 'لا توجد طرق دفع نشطة. راجع مدير العيادة.' : 'No active payment methods. Contact the clinic administrator.'}</p>}
                     {/* Split Payments row configuration for receptionist-authorized invoice types */}
                     <div style={{ marginTop: '1rem' }}>
                       <label className="form-label">{lang === 'ar' ? 'توزيع الدفعات' : 'Payment Allocation'}</label>
@@ -2160,18 +2137,8 @@ export default function ReceptionDashboard({ lang, t }) {
                               setPaymentRows(updated);
                             }}
                           >
-                            <option value="CASH">
-                              {getPaymentMethodLabel('CASH')}
-                            </option>
-                            <option value="CARD">
-                              {getPaymentMethodLabel('CARD')}
-                            </option>
-                            <option value="BANKAK">
-                              {getPaymentMethodLabel('BANKAK')}
-                            </option>
-                            <option value="FAWRY">
-                              {getPaymentMethodLabel('FAWRY')}
-                            </option>
+                            <option value="">{lang === 'ar' ? 'اختر طريقة دفع متاحة' : 'Choose an available payment method'}</option>
+                            {paymentMethods.map(method => <option key={method.code} value={method.code}>{lang === 'ar' ? method.labelAr : method.labelEn}</option>)}
                           </select>
                           <input
                             type="text"
@@ -2210,7 +2177,7 @@ export default function ReceptionDashboard({ lang, t }) {
                       onClick={handleCreateInvoice}
                       disabled={
                         billingSubmitting ||
-                        (!selectedLabBillingOrder && insurancePreview.status !== 'ready') ||
+                        (!selectedLabBillingOrder && insurancePreview.status !== 'ready') || paymentMethodsError || paymentMethods.length === 0 || paymentRows.some(row => !paymentMethods.some(method => method.code === row.paymentMethod)) ||
                         selectedLabBillingOrder?.status === 'PAID' ||
                         selectedLabBillingOrder?.pricingRequired
                       }

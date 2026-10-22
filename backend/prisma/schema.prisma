@@ -1,6 +1,7 @@
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 generator client {
@@ -220,6 +221,8 @@ model Appointment {
 
   @@index([appointmentDate, appointmentTime])
   @@index([doctorId, appointmentDate, appointmentTime])
+
+  @@index([patientId, appointmentDate, appointmentTime])
 }
 
 model EmergencyOverride {
@@ -248,6 +251,8 @@ model MedicalRecord {
   attachmentPath         String?
   prescriptions          Prescription[]
   labOrders              LabOrder[]
+
+  @@index([patientId, visitDate])
 }
 
 model Consent {
@@ -274,6 +279,8 @@ model Prescription {
   status           String           @default("ACTIVE") // ACTIVE, FILLED, PARTIALLY_FILLED, CANCELLED
   prescribedDrugs  PrescribedDrug[]
   invoices         Invoice[]
+
+  @@index([patientId, prescriptionDate])
 }
 
 model DrugFormulary {
@@ -365,6 +372,7 @@ model StockMovement {
 }
 
 model ClinicalService {
+  code          String?        @unique
   id            String         @id @default(uuid())
   labelAr       String
   labelEn       String
@@ -389,6 +397,8 @@ model LabOrder {
   items               LabOrderItem[]
   invoices            Invoice[]
   releasedToPatientAt DateTime?
+
+  @@index([patientId, releasedToPatientAt, orderDate])
 }
 
 model UserExternalIdentity {
@@ -575,6 +585,8 @@ model Invoice {
   @@index([appointmentId, invoiceType, paymentStatus])
   @@index([labOrderId, invoiceType, paymentStatus])
   @@index([prescriptionId, invoiceType, paymentStatus])
+
+  @@index([patientId, invoiceDate])
 }
 
 model InvoiceItem {
@@ -588,6 +600,17 @@ model InvoiceItem {
   unitPriceUsd  Decimal
 }
 
+model PaymentMethod {
+  code      String    @id
+  labelAr   String
+  labelEn   String
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now()) @updatedAt
+  payments  Payment[]
+  refunds   Refund[]
+}
+
 model Payment {
   id                   String            @id @default(uuid())
   invoiceId            String
@@ -595,6 +618,7 @@ model Payment {
   amountSdg            Decimal
   amountUsd            Decimal
   paymentMethod        String // CASH, CARD, BANKAK, FAWRY
+  method               PaymentMethod @relation(fields: [paymentMethod], references: [code], onDelete: Restrict)
   transactionReference String?           @unique
   verificationStatus   String            @default("VERIFIED") // PENDING_MANUAL, VERIFIED, REJECTED
   receivedBy           String // User UUID
@@ -603,6 +627,8 @@ model Payment {
   paymentOperation     PaymentOperation? @relation(fields: [paymentOperationId], references: [id])
 
   @@index([paymentOperationId])
+
+  @@index([invoiceId, createdAt])
 }
 
 model PaymentOperation {
@@ -625,6 +651,7 @@ model Refund {
   amountSdg            Decimal
   amountUsd            Decimal
   refundMethod         String // CASH, CARD, BANKAK, FAWRY
+  method               PaymentMethod @relation(fields: [refundMethod], references: [code], onDelete: Restrict)
   transactionReference String?  @unique
   reason               String?
   processedBy          String

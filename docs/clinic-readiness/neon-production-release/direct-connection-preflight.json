@@ -1,0 +1,11 @@
+{
+  "capturedAt": "2026-10-22T08:52:47.460Z",
+  "readOnly": true,
+  "targetFingerprint": "c9f8bb593c61b80e",
+  "directEndpoint": true,
+  "status": "complete",
+  "database": "neondb",
+  "matchesReviewedMigrationHistory": true,
+  "canonicalStatesMatch": true,
+  "specialtyCount": "0"
+}

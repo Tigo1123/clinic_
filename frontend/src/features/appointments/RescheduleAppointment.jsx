@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { patientApiRequest as apiRequest } from '../../services/apiClient';
 import { clinicDateString } from '../../utils/clinicTime';
+import { ErrorState, Skeleton } from '../../components/feedback/States';
 
 export default function RescheduleAppointment() {
   const { id } = useParams();
@@ -12,23 +13,36 @@ export default function RescheduleAppointment() {
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
   const [slots, setSlots] = useState([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    let current = true;
+    setLoading(true);
+    setAppointment(null);
+    setDate('');
+    setError('');
     apiRequest(`/api/patient/appointments/${id}`)
-      .then((value) => { setAppointment(value); setDate(value.appointmentDate); })
-      .catch((requestError) => setError(requestError.message))
-      .finally(() => setLoading(false));
+      .then((value) => { if (current) { setAppointment(value); setDate(value.appointmentDate); } })
+      .catch((requestError) => { if (current) setError(requestError.message); })
+      .finally(() => { if (current) setLoading(false); });
+    return () => { current = false; };
   }, [id]);
 
   useEffect(() => {
-    if (!appointment || !date) return;
+    let current = true;
+    setSlots([]);
     setTime('');
+    if (!appointment || !date) { setSlotsLoading(false); return; }
+    setSlotsLoading(true);
+    setError('');
     apiRequest(`/api/appointments/slots?doctorId=${appointment.doctor.id}&date=${date}`)
-      .then(setSlots)
-      .catch((requestError) => setError(requestError.message));
+      .then(value => { if (current) setSlots(value); })
+      .catch((requestError) => { if (current) setError(requestError.message); })
+      .finally(() => { if (current) setSlotsLoading(false); });
+    return () => { current = false; };
   }, [appointment, date]);
 
   async function submit(event) {
@@ -52,15 +66,15 @@ export default function RescheduleAppointment() {
     }
   }
 
-  if (loading) return <div className="patient-card">{t('loading')}</div>;
-  if (error && !appointment) return <div className="patient-alert error" role="alert">{error}</div>;
+  if (loading) return <div className="patient-card"><Skeleton/></div>;
+  if (error && !appointment) return <ErrorState message={error}/>;
   return <section className="patient-card">
     <h1>{t('rescheduleAppointment')}</h1>
     <form onSubmit={submit}>
       <label className="patient-field">{t('selectDate')}<input type="date" min={clinicDateString()} value={date} onChange={(event) => setDate(event.target.value)} required /></label>
-      <fieldset className="patient-card"><legend>{t('selectTime')}</legend><div className="patient-actions">{slots.map((slot) => <button type="button" className={`patient-button ${time === slot ? '' : 'secondary'}`} key={slot} onClick={() => setTime(slot)}>{slot}</button>)}</div>{!slots.length && <p>{t('noSlots')}</p>}</fieldset>
+      <fieldset className="patient-card"><legend>{t('selectTime')}</legend><div className="patient-actions">{slots.map((slot) => <button type="button" aria-pressed={time === slot} className={`patient-button ${time === slot ? '' : 'secondary'}`} key={slot} onClick={() => setTime(slot)}>{slot}</button>)}</div>{slotsLoading ? <p role="status">{t('loading')}</p> : !slots.length && !error && <p>{t('noSlots')}</p>}</fieldset>
       {error && <div className="patient-alert error" role="alert">{error}</div>}
-      <button className="patient-button" disabled={!time || saving}>{saving ? t('loading') : t('rescheduleAppointment')}</button>
+      <button className="patient-button" disabled={!time || saving || slotsLoading} aria-busy={saving}>{saving ? t('loading') : t('rescheduleAppointment')}</button>
     </form>
   </section>;
 }

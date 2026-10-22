@@ -9,6 +9,19 @@ import { assertDemoSeedAllowed, DemoSeedPolicyError } from '../scripts/demo-seed
 
 const backendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+// This suite can invoke the demo seed. Refuse direct execution against a live
+// DATABASE_URL; the test runner supplies a disposable local schema instead.
+const testDatabase = new URL(process.env.DATABASE_URL || 'file:///missing');
+assert.ok(
+  process.env.NODE_ENV === 'test'
+    && ['postgres:', 'postgresql:'].includes(testDatabase.protocol)
+    && ['localhost', '127.0.0.1'].includes(testDatabase.hostname)
+    && testDatabase.port === '5433'
+    && testDatabase.pathname === '/clinic_test'
+    && /^test_[a-z0-9_]+$/.test(testDatabase.searchParams.get('schema') || ''),
+  'Seed-security tests require the isolated local test runner database and schema.'
+);
+
 function runSeed(extraEnv = {}) {
   return spawnSync(process.execPath, ['scripts/seed-staging.js'], {
     cwd: backendDir,

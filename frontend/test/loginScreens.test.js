@@ -7,6 +7,7 @@ const patientPage = await readFile(new URL('../src/features/patient-auth/Patient
 const staffPage = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
 const authStyles = await readFile(new URL('../src/features/patient-auth/patientAuth.css', import.meta.url), 'utf8');
 const translations = await readFile(new URL('../src/i18n.js', import.meta.url), 'utf8');
+const passwordField = await readFile(new URL('../src/components/PasswordField.jsx', import.meta.url), 'utf8');
 
 test('login submission lock keeps a delayed request single-flight and releases after server errors', async () => {
   const lock = { current: false };
@@ -91,8 +92,10 @@ test('both login screens keep the medical mark with the form introduction and us
   assert.match(patientShell, /\(!facilityName \|\| !isLogin\).*brand-product-descriptor/);
   assert.doesNotMatch(staffShell, /patient-auth-login-icon|Stethoscope/);
   assert.doesNotMatch(staffShell, /patient-auth-illustration|staff3dScene/);
-  assert.match(patientLogin, /type="button"[\s\S]*?aria-pressed=\{showPassword\}/);
-  assert.match(staffLogin, /type="button"[\s\S]*?aria-pressed=\{showPassword\}/);
+  assert.match(patientLogin, /<Field label=\{t\('password'\)\} type="password"/);
+  assert.match(staffLogin, /<PasswordField id="staff-password"/);
+  assert.match(passwordField, /aria-pressed=\{visible\}/);
+  assert.match(passwordField, /aria-label=\{visible \? t\('hidePassword'\) : t\('showPassword'\)\}/);
   assert.match(authStyles, /--auth-ink: var\(--text-primary\)/);
   assert.match(authStyles, /--auth-surface: var\(--bg-card\)/);
   assert.match(authStyles, /grid-template-columns: minmax\(0, 1fr\)/);
