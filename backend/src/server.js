@@ -116,6 +116,16 @@ app.get('/api/health/ready', async (req, res) => {
       || identity.database !== 'neondb' || identity.schema !== 'public'
       || identity.role !== environment.runtimeDatabaseRole
       || identity.superuser || identity.can_create_roles || identity.can_create_databases)) {
+      logger.warn('health.production_database_identity_or_limiter', {
+        database: identity?.database ?? null,
+        role: identity?.role ?? null,
+        schema: identity?.schema ?? null,
+        expectedRole: environment.runtimeDatabaseRole,
+        limiterTableAccess: identity?.limiter_table_access ?? null,
+        superuser: identity?.superuser ?? null,
+        canCreateRoles: identity?.can_create_roles ?? null,
+        canCreateDatabases: identity?.can_create_databases ?? null
+      });
       return res.status(503).json({ status: 'unhealthy', dependency: 'production_database_identity_or_limiter' });
     }
     if (!socketRevocation.isReady()) return res.status(503).json({ status: 'unhealthy' });
