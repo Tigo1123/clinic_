@@ -98,20 +98,41 @@ test('health, dependencies, private ports, persistence, and bounded logs are ret
   assert.match(compose, /max-file: "5"/);
 });
 
+test('both liveness endpoints return 200 without consulting unhealthy dependencies', async (t) => {
+  const database = t.mock.method(prisma, '$queryRaw', async () => { throw new Error('Synthetic database outage'); });
+  const ready = t.mock.method(socketRevocation, 'isReady', () => false);
+  for (const route of ['/api/health', '/api/health/live']) {
+    const response = await request(app).get(route);
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body, { status: 'alive' });
+  }
+  assert.equal(database.mock.callCount(), 0);
+  assert.equal(ready.mock.callCount(), 0);
+});
+
 test('readiness fails closed for database or revocation authority loss without disclosing internals', async (t) => {
   const database = t.mock.method(prisma, '$queryRaw', async () => [{ '?column?': 1 }]);
   const ready = t.mock.method(socketRevocation, 'isReady', () => false);
-  for (const route of ['/api/health', '/api/health/ready']) {
-    const response = await request(app).get(route);
-    assert.equal(response.status, 503);
-    assert.deepEqual(response.body, { status: 'unhealthy' });
-  }
+  const response = await request(app).get('/api/health/ready');
+  assert.equal(response.status, 503);
+  assert.deepEqual(response.body, { status: 'unhealthy' });
+  assert.equal(database.mock.callCount(), 2, 'readiness still checks database connectivity and identity');
+  assert.equal(ready.mock.callCount(), 1);
   ready.mock.mockImplementation(() => true);
-  const healthy = await request(app).get('/api/health/ready');
-  assert.equal(healthy.status, 200); assert.deepEqual(healthy.body, { status: 'healthy' });
   database.mock.mockImplementation(async () => { throw new Error('Synthetic database outage'); });
   const unavailable = await request(app).get('/api/health/ready');
-  assert.equal(unavailable.status, 503); assert.deepEqual(unavailable.body, { status: 'unhealthy' });
+  assert.equal(unavailable.status, 503);
+  assert.deepEqual(unavailable.body, { status: 'unhealthy' });
+});
+
+test('readiness returns 200 when database and socket dependencies are healthy', async (t) => {
+  const database = t.mock.method(prisma, '$queryRaw', async () => [{ '?column?': 1 }]);
+  const ready = t.mock.method(socketRevocation, 'isReady', () => true);
+  const response = await request(app).get('/api/health/ready');
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body, { status: 'healthy' });
+  assert.equal(database.mock.callCount(), 2);
+  assert.equal(ready.mock.callCount(), 1);
 });
 
 test('same-origin proxy re-resolves a recreated backend through Docker DNS', () => {

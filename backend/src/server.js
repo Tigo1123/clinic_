@@ -98,9 +98,9 @@ app.use(corsMiddleware(allowedOrigins));
 // Parse incoming request payloads
 app.use(express.json());
 
-// Heartbeat Health Check
-app.get('/api/health/live', (req, res) => res.json({ status: 'alive' }));
-app.get(['/api/health', '/api/health/ready'], async (req, res) => {
+// Liveness is independent of dependencies; readiness retains all dependency checks.
+app.get(['/api/health', '/api/health/live'], (req, res) => res.json({ status: 'alive' }));
+app.get('/api/health/ready', async (req, res) => {
   try {
     // Basic DB ping to ensure connection works
     await prisma.$queryRaw`SELECT 1`;
