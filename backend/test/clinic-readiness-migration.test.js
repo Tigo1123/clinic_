@@ -7,7 +7,7 @@ import { inspectDatabase, repositoryInventory } from '../scripts/audit-clinic-re
 
 test('index migration preserves populated clinical/financial rows and existing safeguards', async () => {
   const schema = `test_readiness_migration_${process.pid}_${Date.now()}`;
-  const url = isolatedDatabaseUrl(process.env.TEST_DATABASE_URL, schema);
+  const url = isolatedDatabaseUrl(process.env.TEST_DATABASE_URL, schema, process.env.TEST_DATABASE_PORT || '5433');
   const client = new Client({ connectionString: url });
   await client.connect();
   try {

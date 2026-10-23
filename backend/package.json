@@ -7,7 +7,7 @@
   "scripts": {
     "start": "NODE_OPTIONS=\"--no-network-family-autoselection --dns-result-order=ipv4first\" node src/server.js",
     "start:container": "NODE_OPTIONS=\"--no-network-family-autoselection --dns-result-order=ipv4first\" node src/server.js",
-    "dev": "NODE_OPTIONS=\"--no-network-family-autoselection --dns-result-order=ipv4first\" nodemon src/server.js",
+    "dev": "NODE_OPTIONS=\"--no-network-family-autoselection --dns-result-order=ipv4first\" node --watch src/server.js",
     "db:init": "prisma migrate dev --name init",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:grant:patient-mrn-sequence": "sh scripts/provision-patient-mrn-sequence.sh",
@@ -45,7 +45,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "nodemon": "^3.1.4",
     "socket.io-client": "^4.8.3",
     "supertest": "^7.2.2"
   }

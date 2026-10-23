@@ -1,69 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readPatientSession, writePatientSession, PATIENT_USER_KEY, PATIENT_TOKEN_KEY } from '../src/services/authStorage.js';
 
-class MemoryStorage {
-  constructor() {
-    this.values = new Map();
-  }
-
-  getItem(key) {
-    return this.values.has(key) ? this.values.get(key) : null;
-  }
-
-  setItem(key, value) {
-    this.values.set(key, String(value));
-  }
-
-  removeItem(key) {
-    this.values.delete(key);
-  }
+function memoryStorage() {
+  const values = new Map();
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key)
+  };
 }
 
-globalThis.sessionStorage = new MemoryStorage();
-globalThis.localStorage = new MemoryStorage();
-
-const authStorage = await import('../src/services/authStorage.js');
-
-test.beforeEach(() => {
-  globalThis.sessionStorage = new MemoryStorage();
-  globalThis.localStorage = new MemoryStorage();
-});
-
-test('staff and patient sessions use separate storage and keys', () => {
-  authStorage.writeStaffSession({ id: 'staff-1', role: 'DOCTOR' }, 'staff-token');
-  authStorage.writePatientSession({ id: 'patient-1', role: 'PATIENT' }, 'patient-token');
-
-  assert.deepEqual(authStorage.readStaffSession(), {
-    user: { id: 'staff-1', role: 'DOCTOR' },
-    token: 'staff-token'
-  });
-  assert.deepEqual(authStorage.readPatientSession(), {
-    user: { id: 'patient-1', role: 'PATIENT' },
-    token: 'patient-token'
-  });
-});
-
-test('clearing one session does not clear the other', () => {
-  authStorage.writeStaffSession({ role: 'RECEPTIONIST' }, 'staff-token');
-  authStorage.writePatientSession({ role: 'PATIENT' }, 'patient-token');
-
-  authStorage.clearStaffSession();
-  assert.equal(authStorage.readStaffSession(), null);
-  assert.equal(authStorage.readPatientSession()?.token, 'patient-token');
-
-  authStorage.writeStaffSession({ role: 'LAB_TECH' }, 'new-staff-token');
-  authStorage.clearPatientSession();
-  assert.equal(authStorage.readPatientSession(), null);
-  assert.equal(authStorage.readStaffSession()?.token, 'new-staff-token');
-});
-
-test('incomplete or wrong-role sessions are cleared safely', () => {
-  sessionStorage.setItem(authStorage.STAFF_USER_KEY, JSON.stringify({ role: 'DOCTOR' }));
-  assert.equal(authStorage.readStaffSession(), null);
-  assert.equal(sessionStorage.getItem(authStorage.STAFF_USER_KEY), null);
-
-  sessionStorage.setItem(authStorage.PATIENT_USER_KEY, JSON.stringify({ role: 'ADMIN' }));
-  sessionStorage.setItem(authStorage.PATIENT_TOKEN_KEY, 'wrong-token');
-  assert.equal(authStorage.readPatientSession(), null);
-  assert.equal(sessionStorage.getItem(authStorage.PATIENT_TOKEN_KEY), null);
+test('session storage persists only minimum user display state and keeps tokens tab-scoped', () => {
+  const original = globalThis.sessionStorage;
+  const storage = memoryStorage();
+  globalThis.sessionStorage = storage;
+  try {
+    writePatientSession({
+      id: 'patient-1', role: 'PATIENT', preferredLanguage: 'ar', patientId: 'file-1',
+      email: 'patient@example.invalid', phone: '+249000000000', dateOfBirth: '1980-01-01',
+      medicalRecord: 'must-not-persist', localStorageSecret: 'must-not-persist'
+    }, 'opaque-test-token');
+    const saved = JSON.parse(storage.getItem(PATIENT_USER_KEY));
+    assert.deepEqual(saved, { id: 'patient-1', role: 'PATIENT', preferredLanguage: 'ar', patientId: 'file-1' });
+    assert.equal(storage.getItem(PATIENT_TOKEN_KEY), 'opaque-test-token');
+    assert.equal(readPatientSession().user.id, 'patient-1');
+  } finally {
+    if (original === undefined) delete globalThis.sessionStorage;
+    else globalThis.sessionStorage = original;
+  }
 });

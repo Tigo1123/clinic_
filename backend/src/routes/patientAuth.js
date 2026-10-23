@@ -2,7 +2,6 @@ import crypto from 'crypto';
 import express from 'express';
 import { asyncRouter } from '../utils/asyncRouter.js';
 import bcrypt from 'bcryptjs';
-import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import prisma from '../db.js';
 import { authenticate } from '../middleware/auth.js';
@@ -12,6 +11,7 @@ import { normalizeEmail, normalizePhone } from '../utils/identity.js';
 import { createVerificationChallenge, consumeVerificationChallenge, registrationPurpose, invalidateChallenges, verificationUnavailable } from '../services/verification.js';
 import { ApiError, sendError } from '../utils/apiError.js';
 import { rateLimits } from '../config.js';
+import { createLoginLimiter } from '../utils/edgeSecurity.js';
 import { getClinicDateString } from '../utils/clinicTime.js';
 import { passwordSchema } from '../utils/passwordPolicy.js';
 import { markSensitiveResponse } from '../utils/edgeSecurity.js';
@@ -24,10 +24,10 @@ import { completeGooglePatientOnboarding } from '../services/googlePatientOnboar
 
 const router = asyncRouter();
 router.use((req, res, next) => { markSensitiveResponse(res); next(); });
-const limiter = (limit) => rateLimit({ windowMs: rateLimits.windowMs, limit, standardHeaders: 'draft-7', legacyHeaders: false, handler: (req, res) => sendError(res, 429, 'RATE_LIMITED', 'Too many attempts. Please try again later.') });
-const registrationLimiter = limiter(rateLimits.registration);
-const verificationLimiter = limiter(rateLimits.verification);
-const claimLimiter = limiter(rateLimits.claim);
+const limiter = (limit, prefix) => createLoginLimiter({ windowMs: rateLimits.windowMs, limit, prefix });
+const registrationLimiter = limiter(rateLimits.registration, 'patient-registration');
+const verificationLimiter = limiter(rateLimits.verification, 'patient-verification');
+const claimLimiter = limiter(rateLimits.claim, 'patient-claim');
 const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
 const verificationResendCooldownMs = 60 * 1000;
 const patientRegistrationFieldsSchema = structuredPatientNameSchema.extend({

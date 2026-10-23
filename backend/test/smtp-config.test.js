@@ -54,8 +54,10 @@ test('production email verification rejects disabled notifications', () => {
   try {
     Object.assign(process.env, {
       NODE_ENV: 'production',
-      DATABASE_URL: 'postgresql://clinic.invalid/clinic',
-      SOCKET_REVOCATION_DATABASE_URL: 'postgresql://clinic.invalid/clinic',
+      DATABASE_URL: 'postgresql://test:never-connect@ep-test-pooler.us-east-1.aws.neon.tech/neondb?schema=public&sslmode=verify-full&connection_limit=5&pool_timeout=10',
+      SOCKET_REVOCATION_DATABASE_URL: 'postgresql://test:never-connect@ep-test.us-east-1.aws.neon.tech/neondb?schema=public&sslmode=verify-full',
+      TRUST_PROXY_HOPS: '1', RATE_LIMIT_STORE: 'postgres',
+      RUNTIME_DATABASE_ROLE: 'clinic_runtime',
       JWT_SECRET: 'synthetic-jwt-secret-longer-than-thirty-two-characters',
       MEDICAL_ENCRYPTION_KEY: 'synthetic-medical-key-longer-than-thirty-two-characters',
       MFA_ENCRYPTION_KEY: 'synthetic-mfa-key-longer-than-thirty-two-characters',
@@ -76,8 +78,10 @@ test('production validation rejects malformed SMTP authentication values', () =>
   const previous = { ...process.env };
   const production = {
     NODE_ENV: 'production',
-    DATABASE_URL: 'postgresql://clinic.invalid/clinic',
-    SOCKET_REVOCATION_DATABASE_URL: 'postgresql://clinic.invalid/clinic',
+    DATABASE_URL: 'postgresql://test:never-connect@ep-test-pooler.us-east-1.aws.neon.tech/neondb?schema=public&sslmode=verify-full&connection_limit=5&pool_timeout=10',
+    SOCKET_REVOCATION_DATABASE_URL: 'postgresql://test:never-connect@ep-test.us-east-1.aws.neon.tech/neondb?schema=public&sslmode=verify-full',
+    TRUST_PROXY_HOPS: '1', RATE_LIMIT_STORE: 'postgres',
+    RUNTIME_DATABASE_ROLE: 'clinic_runtime',
     JWT_SECRET: 'synthetic-jwt-secret-longer-than-thirty-two-characters',
     MEDICAL_ENCRYPTION_KEY: 'synthetic-medical-key-longer-than-thirty-two-characters',
     MFA_ENCRYPTION_KEY: 'synthetic-mfa-key-longer-than-thirty-two-characters',

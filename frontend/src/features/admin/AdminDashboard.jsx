@@ -1,3 +1,5 @@
+import { useStaffPagedList } from '../../hooks/useStaffPagedList.js';
+import StaffListPaging from '../../components/StaffListPaging.jsx';
 import './clinicSetup.css';
 import ClinicSetupPanel from './ClinicSetupPanel';
 import { useEffect, useState } from 'react';
@@ -16,7 +18,8 @@ import PasswordField from '../../components/PasswordField.jsx';
 
 export default function AdminDashboard({ user, lang, t }) {
   const [activeTab, setActiveTab] = useState('profile');
-  const [users, setUsers] = useState([]);
+  const userList = useStaffPagedList('/api/auth/users');
+  const { data: users, setData: setUsers } = userList;
   const [analyticsData, setAnalyticsData] = useState(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [analyticsError, setAnalyticsError] = useState('');
@@ -102,15 +105,6 @@ export default function AdminDashboard({ user, lang, t }) {
 
   // Fetch users & logs on tab switch
   useEffect(() => {
-    if (activeTab === 'users') {
-      fetchWithAuth('/api/auth/users')
-        .then((res) => res.ok ? res.json() : [])
-        .then((data) => setUsers(Array.isArray(data) ? data : []))
-        .catch((err) => {
-          console.error(err);
-          setUsers([]);
-        });
-    }
     if (activeTab === 'analytics') {
       setLoadingAnalytics(true);
       setAnalyticsError('');
@@ -220,10 +214,7 @@ export default function AdminDashboard({ user, lang, t }) {
         setNewFullNameEn('');
         setNewSpecialtyId('');
         setNewConsultationFee('');
-        // Reload list
-        fetchWithAuth('/api/auth/users')
-          .then((r) => r.json())
-          .then((d) => setUsers(d));
+        await userList.reload();
       } else {
         const validationDetails = Array.isArray(data?.error?.details)
           ? data.error.details.map((detail) => {
@@ -405,6 +396,7 @@ export default function AdminDashboard({ user, lang, t }) {
           <ClinicProfilePanel lang={lang} t={t}/>
         )}
 
+        {activeTab === 'users' && <StaffListPaging list={userList} lang={lang} label={lang === 'ar' ? 'الموظفون' : 'Staff accounts'} />}
         {activeTab === 'users' && (
           <div style={{ display: 'grid', gridTemplateColumns: '350px 1fr', gap: '2rem' }}>
             <div className="glass-panel" style={{ padding: '1.5rem' }}>

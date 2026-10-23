@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import {
   completeStaffMfa,
   completeStaffMfaRecovery,
+  confirmRequiredMfaEnrollment,
   isTerminalMfaError,
-  startStaffLogin
+  startStaffLogin,
+  startRequiredMfaEnrollment
 } from '../src/services/staffLogin.js';
 import i18n from '../src/i18n.js';
 
@@ -13,6 +15,14 @@ class MemoryStorage {
   getItem(key) { return this.values.has(key) ? this.values.get(key) : null; }
   setItem(key, value) { this.values.set(key, String(value)); }
   removeItem(key) { this.values.delete(key); }
+}
+
+function capture() {
+  const calls = [];
+  return { calls, request: async (path, options) => {
+    calls.push({ path, options, body: options.body ? JSON.parse(options.body) : undefined });
+    return {};
+  } };
 }
 
 test.beforeEach(() => {
@@ -47,6 +57,26 @@ test('MFA challenge remains temporary and does not authenticate or persist', asy
   assert.equal(finalizeCalls, 0);
   assert.equal(sessionStorage.values.size, 0);
   assert.equal(localStorage.values.size, 0);
+});
+
+test('required production enrollment stays in memory and uses only restricted enrollment endpoints', async () => {
+  let finalized = false;
+  const login = await startStaffLogin({ username: 'doctor@example.test', password: 'correct-password' }, () => { finalized = true; }, async () => ({
+    mfaEnrollmentRequired: true, enrollmentToken: 'short-enrollment-credential'
+  }));
+  assert.equal(login.state, 'MFA_ENROLLMENT_REQUIRED');
+  assert.equal(finalized, false);
+  assert.equal(sessionStorage.values.size, 0);
+  assert.equal(localStorage.values.size, 0);
+  const enrollment = capture();
+  await startRequiredMfaEnrollment(login.enrollmentToken, enrollment.request);
+  assert.equal(enrollment.calls[0].path, '/api/auth/mfa/enroll/required');
+  assert.equal(enrollment.calls[0].options.headers.Authorization, 'Bearer short-enrollment-credential');
+  assert.equal(enrollment.calls[0].options.body, undefined);
+  const confirmation = capture();
+  await confirmRequiredMfaEnrollment(login.enrollmentToken, '123456', confirmation.request);
+  assert.equal(confirmation.calls[0].path, '/api/auth/mfa/enroll/required/confirm');
+  assert.deepEqual(confirmation.calls[0].body, { code: '123456' });
 });
 
 test('MFA completion uses a public request and the same final session path', async () => {

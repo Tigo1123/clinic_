@@ -1,12 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useStaffPagedList } from '../../hooks/useStaffPagedList.js';
+import StaffListPaging from '../../components/StaffListPaging.jsx';
+import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ClipboardCheck, FileSpreadsheet, FlaskConical, HelpCircle, History, Sliders, Stethoscope } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import RoleHero from '../../components/healthcare/RoleHero';
-import { createLatestRequestGate, mergeLabOrdersMonotonically } from '../../utils/labOrderVersions';
+import { mergeLabOrdersMonotonically } from '../../utils/labOrderVersions';
 import './laboratoryDashboard.css';
 
 export default function LaboratoryDashboard({ lang }) {
-  const [orders, setOrders] = useState([]);
+  const orderList = useStaffPagedList('/api/records/lab-orders/pending', mergeLabOrdersMonotonically);
+  const { data: orders, reload: fetchPendingLabOrders, setData: setOrders } = orderList;
   const [historyOrders, setHistoryOrders] = useState([]);
   const [orderView, setOrderView] = useState('work');
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -18,50 +21,16 @@ export default function LaboratoryDashboard({ lang }) {
   const [labServices, setLabServices] = useState([]);
   const [reviewForms, setReviewForms] = useState({});
   const [reviewingId, setReviewingId] = useState(null);
-  const queueRequestGateRef = useRef(null);
-  if (queueRequestGateRef.current === null) queueRequestGateRef.current = createLatestRequestGate();
   const visibleOrders = orderView === 'work' ? orders : historyOrders;
   const selectedOrder = [...orders, ...historyOrders].find((order) => order.id === selectedOrderId) || null;
 
-  const fetchPendingLabOrders = async (preferredOrderId = null) => {
-    const gate = queueRequestGateRef.current;
-    const generation = gate.begin();
-    try {
-      const res = await fetchWithAuth(
-        '/api/records/lab-orders/pending'
-      );
-
-      const data = await res.json().catch(() => []);
-
-      if (!gate.isCurrent(generation)) return;
-
-      if (!res.ok) {
-        setOrders([]);
-        return;
-      }
-
-      const nextOrders = Array.isArray(data) ? data : [];
-
-      setOrders((current) => mergeLabOrdersMonotonically(current, nextOrders));
-      if (preferredOrderId) setSelectedOrderId(nextOrders.some((order) => order.id === preferredOrderId) ? preferredOrderId : null);
-    } catch (err) {
-      if (!gate.isCurrent(generation)) return;
-      console.error(err);
-      setOrders([]);
-    }
-  };
-
   useEffect(() => {
-    const gate = createLatestRequestGate();
-    queueRequestGateRef.current = gate;
-    fetchPendingLabOrders();
     fetchLabHistory();
     fetchReviewRequests();
     fetchWithAuth('/api/billing/services')
       .then((res) => res.ok ? res.json() : [])
       .then((services) => setLabServices((Array.isArray(services) ? services : []).filter((service) => service.category === 'LABORATORY')))
       .catch(() => setLabServices([]));
-    return () => gate.invalidate();
   }, []);
 
   const fetchReviewRequests = async () => {
@@ -380,6 +349,7 @@ export default function LaboratoryDashboard({ lang }) {
                 <button type="button" role="tab" aria-selected={orderView === 'history'} className={orderView === 'history' ? 'is-active' : ''} onClick={() => { setOrderView('history'); setSelectedOrderId(null); }}><History size={15} />{lang === 'ar' ? 'السجل المختبري' : 'Lab History'}<span>{historyOrders.length}</span></button>
               </div>
             </div>
+            {orderView === 'work' && <StaffListPaging list={orderList} lang={lang} label={lang === 'ar' ? 'طلبات المختبر' : 'Laboratory orders'} />}
             {historyLoading && orderView === 'history' ? <div className="laboratory-orders-empty" role="status">{lang === 'ar' ? 'جارٍ تحميل السجل المختبري...' : 'Loading laboratory history...'}</div> : visibleOrders.length === 0 ? (
               <div className="laboratory-orders-empty" role="status">
                 <HelpCircle size={36} />

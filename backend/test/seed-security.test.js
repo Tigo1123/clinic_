@@ -16,7 +16,7 @@ assert.ok(
   process.env.NODE_ENV === 'test'
     && ['postgres:', 'postgresql:'].includes(testDatabase.protocol)
     && ['localhost', '127.0.0.1'].includes(testDatabase.hostname)
-    && testDatabase.port === '5433'
+    && testDatabase.port === (process.env.TEST_DATABASE_PORT || '5433')
     && testDatabase.pathname === '/clinic_test'
     && /^test_[a-z0-9_]+$/.test(testDatabase.searchParams.get('schema') || ''),
   'Seed-security tests require the isolated local test runner database and schema.'

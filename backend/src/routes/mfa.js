@@ -1,14 +1,13 @@
 import express from 'express';
 import { asyncRouter } from '../utils/asyncRouter.js';
 import bcrypt from 'bcryptjs';
-import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import prisma from '../db.js';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, authenticateMfaEnrollment } from '../middleware/auth.js';
 import { allowRoles, ROLES } from '../middleware/policies.js';
 import { validate } from '../middleware/validate.js';
 import { sendError } from '../utils/apiError.js';
-import { rateLimits } from '../config.js';
+import { rateLimits, staffMfaRequired } from '../config.js';
 import {
   MfaError,
   confirmMfaEnrollment,
@@ -22,18 +21,12 @@ import {
 } from '../services/mfa.js';
 import { signAccessToken } from '../services/accessTokens.js';
 import { logger } from '../utils/logger.js';
-import { markSensitiveResponse } from '../utils/edgeSecurity.js';
+import { createLoginLimiter, markSensitiveResponse } from '../utils/edgeSecurity.js';
 
 const router = asyncRouter();
 router.use((req, res, next) => { markSensitiveResponse(res); next(); });
 const STAFF_ROLES = [ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.DOCTOR, ROLES.LAB_TECH, ROLES.PHARMACIST];
-const mfaLimiter = rateLimit({
-  windowMs: rateLimits.windowMs,
-  limit: rateLimits.verification,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  handler: (req, res) => sendError(res, 429, 'MFA_RATE_LIMITED', 'Too many MFA attempts. Please try again later.')
-});
+const mfaLimiter = createLoginLimiter({ windowMs: rateLimits.windowMs, limit: rateLimits.verification, prefix: 'staff-mfa' });
 
 const currentPasswordSchema = z.string().min(1).max(200);
 const codeSchema = z.string().regex(/^\d{6}$/);
@@ -177,6 +170,41 @@ router.post('/recovery/verify', mfaLimiter, validate(recoveryLoginSchema), async
   } catch (error) { if (error instanceof MfaError) return handleMfaError(res, error); next(error); }
 });
 
+// Required-policy first login receives only a ten-minute enrollment credential.
+// These routes cannot authorize ordinary application API or Socket.IO access.
+router.post('/enroll/required', authenticateMfaEnrollment, mfaLimiter, async (req, res, next) => {
+  if (!staffMfaRequired()) return sendError(res, 404, 'NOT_FOUND', 'The requested resource was not found.');
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { id: true, username: true, role: true, authVersion: true, status: true }
+    });
+    if (!user || user.status !== 'ACTIVE' || user.authVersion !== req.user.av) {
+      return sendError(res, 401, 'SESSION_REVOKED', 'This enrollment is no longer active.');
+    }
+    const enrollment = await startMfaEnrollment(user, req.ip || 'unknown');
+    return markSensitiveResponse(res).status(201).json({
+      state: 'PENDING', secret: enrollment.secret, otpauthUri: enrollment.otpauthUri,
+      expiresAt: enrollment.expiresAt
+    });
+  } catch (error) {
+    if (error instanceof MfaError) return handleMfaError(res, error);
+    return next(error);
+  }
+});
+
+router.post('/enroll/required/confirm', authenticateMfaEnrollment, mfaLimiter, validate(z.object({ code: codeSchema }).strict()), async (req, res, next) => {
+  if (!staffMfaRequired()) return sendError(res, 404, 'NOT_FOUND', 'The requested resource was not found.');
+  try {
+    const recoveryCodes = await confirmMfaEnrollment(req.user.id, req.body.code, Date.now(), req.ip || 'unknown', req.user.av);
+    logger.security('auth.mfa_required_enrollment_completed', { requestId: req.id, userId: req.user.id, role: req.user.role, ip: req.ip });
+    return markSensitiveResponse(res).json({ state: 'ENABLED', recoveryCodes });
+  } catch (error) {
+    if (error instanceof MfaError) return handleMfaError(res, error);
+    return next(error);
+  }
+});
+
 router.use(authenticate, allowRoles(...STAFF_ROLES), mfaLimiter);
 
 router.post('/enroll', validate(z.object({ currentPassword: currentPasswordSchema }).strict()), async (req, res, next) => {
@@ -253,6 +281,9 @@ router.post('/recovery/regenerate', validate(proofSchema), async (req, res, next
 });
 
 router.delete('/', validate(proofSchema), async (req, res, next) => {
+  if (staffMfaRequired()) {
+    return sendError(res, 403, 'MFA_REQUIRED_POLICY', 'Staff MFA is required by production policy and cannot be disabled.');
+  }
   try {
     const user = await loadStaffUser(req);
     if (!user?.mfaEnabled || user.authVersion !== req.user.av || user.mfaConfiguration?.state !== 'ACTIVE') {

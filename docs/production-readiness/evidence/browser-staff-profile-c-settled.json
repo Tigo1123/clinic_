@@ -1,0 +1,266 @@
+{
+  "generatedAt": "2026-10-22T16:38:44.475Z",
+  "environment": "local production build served by vite preview; unauthenticated public pages only; no API/production data source",
+  "profile": {
+    "name": "C",
+    "latency": 500,
+    "down": 38400,
+    "up": 12800,
+    "cpu": 6,
+    "viewport": 390
+  },
+  "postLoadWaitMs": 5000,
+  "authenticatedWorkflows": "Not measured: requires isolated staging data and role-specific accounts.",
+  "results": [
+    {
+      "route": "/staff",
+      "mode": "cold",
+      "navigationMs": 15284,
+      "requests": 35,
+      "encodedBytes": 320236,
+      "failedRequests": [],
+      "title": "شفاء — نظام إدارة المنشآت الصحية",
+      "readyState": "complete",
+      "lang": "ar",
+      "dir": "rtl",
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "scrollWidth": 390
+      },
+      "domElements": 88,
+      "inputs": 2,
+      "buttons": 5,
+      "usableForm": 7,
+      "loadingText": [],
+      "errorBoundary": false,
+      "navigation": {
+        "ttfb": 2.6000000089406967,
+        "domContentLoaded": 10234.60000000894,
+        "load": 10250.20000000298,
+        "transfer": 1194,
+        "decoded": 2451
+      },
+      "paint": {},
+      "lcp": null,
+      "longTasks": [],
+      "resources": [
+        {
+          "name": "/assets/index-CwwEYT_F.js",
+          "transfer": 145887,
+          "decoded": 512748,
+          "duration": 5668.9000000059605
+        },
+        {
+          "name": "/assets/PasswordField-TazzxvHA.js",
+          "transfer": 73069,
+          "decoded": 224139,
+          "duration": 9253.29999999702
+        },
+        {
+          "name": "/assets/App-4uUWNV2f.js",
+          "transfer": 14970,
+          "decoded": 46890,
+          "duration": 2083.5999999940395
+        },
+        {
+          "name": "/assets/user-round-LelTM9na.js",
+          "transfer": 14926,
+          "decoded": 41220,
+          "duration": 5077.29999999702
+        },
+        {
+          "name": "/assets/staffSocket-Dj2WZgU4.js",
+          "transfer": 13904,
+          "decoded": 42800,
+          "duration": 2122.5
+        },
+        {
+          "name": "/assets/index-CWH4xlHF.css",
+          "transfer": 11593,
+          "decoded": 58111,
+          "duration": 2143
+        },
+        {
+          "name": "/assets/App-GNcVhXcc.css",
+          "transfer": 6470,
+          "decoded": 32313,
+          "duration": 750.0999999940395
+        },
+        {
+          "name": "/assets/loginSubmission-CeTaLuXz.css",
+          "transfer": 6334,
+          "decoded": 38759,
+          "duration": 1713.7999999970198
+        },
+        {
+          "name": "/assets/Stack-Dk-oQXr9.js",
+          "transfer": 5916,
+          "decoded": 19699,
+          "duration": 8002.20000000298
+        },
+        {
+          "name": "/assets/heart-pulse-CvTRjhm0.js",
+          "transfer": 4395,
+          "decoded": 10130,
+          "duration": 783.7000000029802
+        },
+        {
+          "name": "/assets/ThemeContext-BkRnD7aF.js",
+          "transfer": 3295,
+          "decoded": 6679,
+          "duration": 3751.2999999970198
+        },
+        {
+          "name": "/favicon.svg",
+          "transfer": 1790,
+          "decoded": 9522,
+          "duration": 594.2999999970198
+        },
+        {
+          "name": "/assets/react-dom-Crkav1NX.js",
+          "transfer": 1640,
+          "decoded": 3546,
+          "duration": 704.2999999970198
+        },
+        {
+          "name": "/assets/ThemeToggle-tEer19TU.js",
+          "transfer": 1583,
+          "decoded": 2342,
+          "duration": 3788.2999999970198
+        },
+        {
+          "name": "/assets/apiClient-CruNKCkC.js",
+          "transfer": 1402,
+          "decoded": 2345,
+          "duration": 4374.20000000298
+        }
+      ]
+    },
+    {
+      "route": "/staff",
+      "mode": "warm",
+      "navigationMs": 9336,
+      "requests": 34,
+      "encodedBytes": 94579,
+      "failedRequests": [],
+      "title": "شفاء — نظام إدارة المنشآت الصحية",
+      "readyState": "complete",
+      "lang": "ar",
+      "dir": "rtl",
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "scrollWidth": 390
+      },
+      "domElements": 88,
+      "inputs": 2,
+      "buttons": 5,
+      "usableForm": 7,
+      "loadingText": [],
+      "errorBoundary": false,
+      "navigation": {
+        "ttfb": 3.4000000059604645,
+        "domContentLoaded": 4305,
+        "load": 4319.4000000059605,
+        "transfer": 300,
+        "decoded": 2451
+      },
+      "paint": {},
+      "lcp": null,
+      "longTasks": [],
+      "resources": [
+        {
+          "name": "/assets/cairo-latin-800-normal-BBdTpBXf.woff2",
+          "transfer": 15620,
+          "decoded": 15320,
+          "duration": 2229.6000000089407
+        },
+        {
+          "name": "/assets/cairo-latin-400-normal-Dh7otpdh.woff2",
+          "transfer": 15316,
+          "decoded": 15016,
+          "duration": 2197.300000011921
+        },
+        {
+          "name": "/assets/cairo-arabic-400-normal-DN15VWMM.woff2",
+          "transfer": 13592,
+          "decoded": 13292,
+          "duration": 1963
+        },
+        {
+          "name": "/assets/index-CwwEYT_F.js",
+          "transfer": 300,
+          "decoded": 512748,
+          "duration": 521.7999999970198
+        },
+        {
+          "name": "/assets/heart-pulse-CvTRjhm0.js",
+          "transfer": 300,
+          "decoded": 10130,
+          "duration": 556.6999999880791
+        },
+        {
+          "name": "/assets/react-dom-Crkav1NX.js",
+          "transfer": 300,
+          "decoded": 3546,
+          "duration": 595.3999999910593
+        },
+        {
+          "name": "/assets/ThemeContext-BkRnD7aF.js",
+          "transfer": 300,
+          "decoded": 6679,
+          "duration": 1141.4000000059605
+        },
+        {
+          "name": "/assets/ThemeToggle-tEer19TU.js",
+          "transfer": 300,
+          "decoded": 2342,
+          "duration": 1569.5999999940395
+        },
+        {
+          "name": "/assets/user-round-LelTM9na.js",
+          "transfer": 300,
+          "decoded": 41220,
+          "duration": 1608.7999999970198
+        },
+        {
+          "name": "/assets/apiClient-CruNKCkC.js",
+          "transfer": 300,
+          "decoded": 2345,
+          "duration": 1647.5
+        },
+        {
+          "name": "/assets/loginSubmission-DJAzLGWD.js",
+          "transfer": 300,
+          "decoded": 1178,
+          "duration": 2077
+        },
+        {
+          "name": "/assets/clinicData-TdeqsOz4.js",
+          "transfer": 300,
+          "decoded": 1601,
+          "duration": 2115.5
+        },
+        {
+          "name": "/assets/brandingConfig-WwFqhAeZ.js",
+          "transfer": 300,
+          "decoded": 668,
+          "duration": 2154.7000000029802
+        },
+        {
+          "name": "/assets/search-KWKOilRW.js",
+          "transfer": 300,
+          "decoded": 984,
+          "duration": 2583.2000000029802
+        },
+        {
+          "name": "/assets/FacilityBrandingContext-B5ESOPXk.js",
+          "transfer": 300,
+          "decoded": 203,
+          "duration": 2622.7000000029802
+        }
+      ]
+    }
+  ]
+}

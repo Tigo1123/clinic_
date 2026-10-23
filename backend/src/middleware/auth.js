@@ -2,6 +2,7 @@ import { sendError } from "../utils/apiError.js";
 import { logger } from "../utils/logger.js";
 import {
   AccessTokenError,
+  verifyActiveMfaEnrollmentToken,
   verifyActiveAccessToken,
 } from "../services/accessTokens.js";
 import { markSensitiveResponse } from "../utils/edgeSecurity.js";
@@ -70,6 +71,31 @@ export function createAuthenticate({ verify = verifyActiveAccessToken } = {}) {
 }
 
 export const authenticate = createAuthenticate();
+
+export function createMfaEnrollmentAuthenticate({ verify = verifyActiveMfaEnrollmentToken } = {}) {
+  return async function authenticateMfaEnrollment(req, res, next) {
+    markSensitiveResponse(res);
+    const header = req.headers.authorization || '';
+    if (!header.startsWith('Bearer ')) {
+      return sendError(res, 401, 'MFA_ENROLLMENT_REQUIRED', 'A valid MFA enrollment credential is required.');
+    }
+    try {
+      req.user = await verify(header.slice(7));
+      return next();
+    } catch (error) {
+      if (error instanceof AccessTokenError) {
+        return sendError(res, 401, error.code, error.message);
+      }
+      logger.error('auth.mfa_enrollment_verification_unavailable', {
+        error: { name: error?.name, message: error?.message }
+      });
+      res.set('Retry-After', '5');
+      return sendError(res, 503, 'SERVICE_UNAVAILABLE', 'The service is temporarily unavailable. Please try again.');
+    }
+  };
+}
+
+export const authenticateMfaEnrollment = createMfaEnrollmentAuthenticate();
 
 /**
  * Builds the Socket.IO authentication middleware. `verify` is injectable for

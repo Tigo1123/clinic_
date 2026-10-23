@@ -8,8 +8,8 @@ import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { allowRoles, ROLES } from '../middleware/policies.js';
 import { ApiError, sendError } from '../utils/apiError.js';
-import rateLimit from 'express-rate-limit';
 import { rateLimits } from '../config.js';
+import { createAuthenticatedMutationLimiter, createLoginLimiter } from '../utils/edgeSecurity.js';
 import crypto from 'crypto';
 import { emitQueueUpdate } from '../utils/socketEvents.js';
 import { markSensitiveResponse } from '../utils/edgeSecurity.js';
@@ -18,11 +18,15 @@ import { findPossiblePatientDuplicates, normalizeNationalId, normalizePatientPho
 import { publicDoctorSelect, toPublicBookingConfirmation, toPublicDoctor } from '../utils/publicDto.js';
 import { structuredPatientName, structuredPatientNameSchema } from '../utils/patientName.js';
 import { finishAppointmentOtp, issueAppointmentOtp, reserveAppointmentOtp } from '../services/appointmentOtp.js';
+import { parsePagination, paginationHeaders } from '../utils/pagination.js';
+import { queueDoctorSelect, queuePatientSelect } from '../utils/queueDtos.js';
 
 import { lockPatientIdentity, patientDateOfBirthSchema } from '../utils/patientOnboarding.js';
 
 const router = asyncRouter();
-const otpLimiter = rateLimit({ windowMs: rateLimits.windowMs, limit: rateLimits.verification, standardHeaders: 'draft-7', legacyHeaders: false });
+const otpLimiter = createLoginLimiter({ windowMs: rateLimits.windowMs, limit: rateLimits.verification, prefix: 'appointment-otp' });
+const appointmentMutationLimiter = createAuthenticatedMutationLimiter({ prefix: 'appointment-mutations' });
+const bookingLimiter = createLoginLimiter({ windowMs: rateLimits.windowMs, limit: rateLimits.claim, prefix: 'appointment-booking' });
 
 /**
  * GET /api/appointments/slots
@@ -145,7 +149,7 @@ router.post('/otp/request', otpLimiter, async (req, res) => {
  * POST /api/appointments/book
  * Public patient booking submission. Handles verification check & rate limit check (2 per day per phone).
  */
-router.post('/book', validate(structuredPatientNameSchema.extend({
+router.post('/book', bookingLimiter, validate(structuredPatientNameSchema.extend({
   doctorId: z.string().uuid(), appointmentDate: z.string().regex(DATE_PATTERN), appointmentTime: z.string().regex(TIME_PATTERN),
   gender: z.enum(['MALE', 'FEMALE']), dateOfBirth: patientDateOfBirthSchema, nationalId: z.string().trim().max(30).optional(),
   phone: z.string().trim().min(7).max(30), addressStateId: z.coerce.number().int().min(1).max(18), otpCode: z.string().length(6)
@@ -319,20 +323,25 @@ router.post('/book', validate(structuredPatientNameSchema.extend({
  */
 router.get('/pending', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
   try {
+    const page = parsePagination(req.query, { defaultPageSize: 50, maxPageSize: 100 });
     const pendingAppointments = await prisma.appointment.findMany({
       where: {
         status: 'PENDING'
       },
-      include: {
-        patient: true,
-        doctor: true
+      select: {
+        id: true, patientId: true, doctorId: true, appointmentDate: true, appointmentTime: true, status: true,
+        createdAt: true,
+        patient: { select: queuePatientSelect },
+        doctor: { select: { ...queueDoctorSelect, specialtyAr: true, specialtyEn: true } }
       },
       orderBy: [
         { appointmentDate: 'asc' },
-        { appointmentTime: 'asc' }
-      ]
+        { appointmentTime: 'asc' },
+        { id: 'asc' }
+      ], skip: page.skip, take: page.take + 1
     });
-    return res.json(pendingAppointments);
+    const hasMore = pendingAppointments.length > page.take;
+    return paginationHeaders(res, { ...page, hasMore }).json(pendingAppointments.slice(0, page.take));
   } catch (error) {
     console.error('Pending appointments fetch error:', error);
     return res.status(500).json({ error: 'Failed to retrieve pending appointments.' });
@@ -343,7 +352,7 @@ router.get('/pending', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST)
  * POST /api/appointments/walk-in
  * Creates a same-day receptionist walk-in and immediately checks it in.
  */
-router.post('/walk-in', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), validate(walkInSchema), async (req, res) => {
+router.post('/walk-in', authenticate, appointmentMutationLimiter, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), validate(walkInSchema), async (req, res) => {
   const { mode, patientId, doctorId, appointmentDate, appointmentTime, patient } = req.body;
 
   if (appointmentDate !== todayString()) {
@@ -470,14 +479,24 @@ router.get('/queue/:doctorId', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEP
     if (req.user.role === ROLES.DOCTOR && req.user.doctorId !== doctorId) {
       return sendError(res, 403, 'DOCTOR_QUEUE_FORBIDDEN', 'Doctors may only access their own queue.');
     }
-    const queue = await prisma.appointment.findMany({
+    const page = parsePagination(req.query, { defaultPageSize: 50, maxPageSize: 100 });
+    // Select page membership in PostgreSQL, including emergency priority.
+    const pageIds = await prisma.$queryRaw`
+      SELECT a.id FROM "Appointment" a
+      LEFT JOIN "EmergencyOverride" e ON e."appointmentId" = a.id
+      WHERE a."doctorId" = ${doctorId} AND a."appointmentDate" = ${targetDate}
+        AND a.status NOT IN ('CANCELLED', 'NO_SHOW', 'PENDING')
+      ORDER BY (e.id IS NOT NULL) DESC, a.status DESC, a."appointmentTime" ASC, a.id ASC
+      OFFSET ${page.skip} LIMIT ${page.take + 1}
+    `;
+    const fetchedQueue = await prisma.appointment.findMany({
       where: {
-        doctorId,
-        appointmentDate: targetDate,
-        status: { notIn: ['CANCELLED', 'NO_SHOW', 'PENDING'] }
+        id: { in: pageIds.map((row) => row.id) }
       },
-      include: {
-        patient: true,
+      select: {
+        id: true, doctorId: true, patientId: true, appointmentDate: true,
+        appointmentTime: true, status: true, createdAt: true,
+        patient: { select: queuePatientSelect },
         doctor: {
           select: {
             id: true,
@@ -486,7 +505,7 @@ router.get('/queue/:doctorId', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEP
             consultationFee: true
           }
         },
-        emergencyOverride: true,
+        emergencyOverride: { select: { id: true } },
         medicalRecord: {
           select: {
             id: true
@@ -510,9 +529,14 @@ router.get('/queue/:doctorId', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEP
       },
       orderBy: [
         { status: 'desc' }, // In Consultation, Checked In, Scheduled
-        { appointmentTime: 'asc' }
+        { appointmentTime: 'asc' },
+        { id: 'asc' }
       ]
     });
+
+    const hasMore = pageIds.length > page.take;
+    const byId = new Map(fetchedQueue.map((row) => [row.id, row]));
+    const queue = pageIds.slice(0, page.take).map((row) => byId.get(row.id)).filter(Boolean);
 
     const paymentAwareQueue = queue.map((appointment) => {
       const consultationInvoice = appointment.invoices?.[0] || null;
@@ -530,17 +554,7 @@ router.get('/queue/:doctorId', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEP
       };
     });
 
-    // Custom sorting: If emergencyOverride exists, put at the top of Checked In queue
-    const sortedQueue = paymentAwareQueue.sort((a, b) => {
-      const aHasEmergency = a.emergencyOverride ? 1 : 0;
-      const bHasEmergency = b.emergencyOverride ? 1 : 0;
-      if (aHasEmergency !== bHasEmergency) {
-        return bHasEmergency - aHasEmergency; // put emergency first
-      }
-      return 0; // maintain default date/status sorting otherwise
-    });
-
-    return res.json(sortedQueue);
+    return paginationHeaders(res, { ...page, hasMore }).json(paymentAwareQueue);
   } catch (error) {
     console.error('Queue retrieval error:', error);
     return res.status(500).json({ error: 'Failed to retrieve active doctor queue.' });
@@ -551,7 +565,7 @@ router.get('/queue/:doctorId', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEP
  * PUT /api/appointments/:id/status
  * Updates status of an appointment.
  */
-router.put('/:id/status', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.DOCTOR), validate(z.object({ status: z.enum(appointmentStatuses) })), async (req, res) => {
+router.put('/:id/status', authenticate, appointmentMutationLimiter, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.DOCTOR), validate(z.object({ status: z.enum(appointmentStatuses) })), async (req, res) => {
   const { status } = req.body;
 
   try {
@@ -632,7 +646,7 @@ router.put('/:id/status', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONI
  * POST /api/appointments/:id/override
  * Emergency Queue Override. Places patient at top of waitlist.
  */
-router.post('/:id/override', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
+router.post('/:id/override', authenticate, appointmentMutationLimiter, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
   const { justification } = req.body;
 
   if (typeof justification !== 'string' || justification.trim().length < 20) {
@@ -695,7 +709,7 @@ router.post('/:id/override', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTI
  * POST /api/appointments/:id/transfer
  * Internally transfers a checked-in patient to another doctor's queue.
  */
-router.post('/:id/transfer', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
+router.post('/:id/transfer', authenticate, appointmentMutationLimiter, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
   const { targetDoctorId } = req.body;
 
   if (!targetDoctorId) {

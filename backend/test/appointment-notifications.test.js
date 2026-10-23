@@ -10,7 +10,7 @@ import { structuredPatientName } from '../src/utils/patientName.js';
 import { isolatedDatabaseUrl } from './helpers/testRunner.js';
 
 // Never run these fixtures against an application database, even directly.
-isolatedDatabaseUrl(process.env.DATABASE_URL, 'test_notification_guard');
+isolatedDatabaseUrl(process.env.DATABASE_URL, 'test_notification_guard', process.env.TEST_DATABASE_PORT || '5433');
 assert.match(new URL(process.env.DATABASE_URL).searchParams.get('schema'), /^test_/);
 const app = express();
 app.use(express.json());

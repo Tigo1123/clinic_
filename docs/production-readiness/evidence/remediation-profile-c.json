@@ -1,0 +1,550 @@
+{
+  "generatedAt": "2026-10-22T17:30:13.565Z",
+  "environment": "local production build served by vite preview; unauthenticated public pages only; no API/production data source",
+  "profile": {
+    "name": "C",
+    "latency": 500,
+    "down": 38400,
+    "up": 12800,
+    "cpu": 6,
+    "viewport": 390
+  },
+  "postLoadWaitMs": 5000,
+  "authenticatedWorkflows": "Not measured: requires isolated staging data and role-specific accounts.",
+  "results": [
+    {
+      "route": "/patient-login",
+      "mode": "cold",
+      "navigationMs": 9737,
+      "requests": 16,
+      "encodedBytes": 265666,
+      "failedRequests": [],
+      "title": "شفاء — نظام إدارة المنشآت الصحية",
+      "readyState": "complete",
+      "lang": "ar",
+      "dir": "rtl",
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "scrollWidth": 390
+      },
+      "domElements": 22,
+      "inputs": 0,
+      "buttons": 0,
+      "usableForm": 0,
+      "loadingText": [
+        "Loading healthcare workspace…"
+      ],
+      "errorBoundary": false,
+      "navigation": {
+        "ttfb": 3.1000000089406967,
+        "domContentLoaded": 4686.5,
+        "load": 4686.600000008941,
+        "transfer": 1281,
+        "decoded": 981
+      },
+      "paint": {
+        "first-paint": 1900,
+        "first-contentful-paint": 5248
+      },
+      "lcp": 5248,
+      "longTasks": [
+        {
+          "startTime": 4586.29999999702,
+          "duration": 102
+        }
+      ],
+      "resources": [
+        {
+          "name": "/assets/index-BJUD3HRh.js",
+          "transfer": 111379,
+          "decoded": 354616,
+          "duration": 3657.2999999970198
+        },
+        {
+          "name": "/assets/PasswordField-lqu20N7y.js",
+          "transfer": 73008,
+          "decoded": 223851,
+          "duration": 4386.79999999702
+        },
+        {
+          "name": "/assets/PatientAuthPages-BtYEnIV2.js",
+          "transfer": 39784,
+          "decoded": 154834,
+          "duration": 3494.5999999940395
+        },
+        {
+          "name": "/assets/cairo-latin-800-normal-BBdTpBXf.woff2",
+          "transfer": 15620,
+          "decoded": 15320,
+          "duration": 2304.5999999940395
+        },
+        {
+          "name": "/assets/index-DSdap4vu.css",
+          "transfer": 7999,
+          "decoded": 35912,
+          "duration": 958.6999999880791
+        },
+        {
+          "name": "/assets/loginSubmission-CeTaLuXz.css",
+          "transfer": 6334,
+          "decoded": 38759,
+          "duration": 1341.5
+        },
+        {
+          "name": "/favicon.svg",
+          "transfer": 1790,
+          "decoded": 9522,
+          "duration": 583.7000000029802
+        },
+        {
+          "name": "/assets/GoogleIdentityButton-eHkdkb7J.js",
+          "transfer": 1468,
+          "decoded": 2203,
+          "duration": 2193.2000000029802
+        },
+        {
+          "name": "/assets/createLucideIcon-BuM5VdJR.js",
+          "transfer": 1075,
+          "decoded": 1379,
+          "duration": 602
+        },
+        {
+          "name": "/assets/apiClient-C9e_I1_N.js",
+          "transfer": 1067,
+          "decoded": 1346,
+          "duration": 1843.4000000059605
+        },
+        {
+          "name": "/assets/ThemeToggle-Cy50o6RR.js",
+          "transfer": 972,
+          "decoded": 1162,
+          "duration": 1297.6000000089407
+        },
+        {
+          "name": "/assets/clinicData-Ca_MI9BI.js",
+          "transfer": 867,
+          "decoded": 1271,
+          "duration": 1959.7000000029802
+        },
+        {
+          "name": "/assets/heart-pulse-DfZUlhWH.js",
+          "transfer": 633,
+          "decoded": 333,
+          "duration": 1221.5999999940395
+        },
+        {
+          "name": "/api/public-config",
+          "transfer": 616,
+          "decoded": 316,
+          "duration": 516.6000000089407
+        },
+        {
+          "name": "/assets/loginSubmission-CyrIha36.js",
+          "transfer": 553,
+          "decoded": 253,
+          "duration": 562.4000000059605
+        }
+      ]
+    },
+    {
+      "route": "/patient-login",
+      "mode": "warm",
+      "navigationMs": 6232,
+      "requests": 27,
+      "encodedBytes": 76075,
+      "failedRequests": [],
+      "title": "شفاء — نظام إدارة المنشآت الصحية",
+      "readyState": "complete",
+      "lang": "ar",
+      "dir": "rtl",
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "scrollWidth": 390
+      },
+      "domElements": 79,
+      "inputs": 2,
+      "buttons": 5,
+      "usableForm": 7,
+      "loadingText": [],
+      "errorBoundary": false,
+      "navigation": {
+        "ttfb": 2.7000000029802322,
+        "domContentLoaded": 1187,
+        "load": 1189.2000000029802,
+        "transfer": 300,
+        "decoded": 981
+      },
+      "paint": {
+        "first-paint": 1180,
+        "first-contentful-paint": 1748
+      },
+      "lcp": 5824,
+      "longTasks": [
+        {
+          "startTime": 3065.2999999970198,
+          "duration": 70
+        }
+      ],
+      "resources": [
+        {
+          "name": "/assets/cairo-latin-700-normal-C3GYtKbV.woff2",
+          "transfer": 15584,
+          "decoded": 15284,
+          "duration": 2881.5999999940395
+        },
+        {
+          "name": "/assets/cairo-latin-400-normal-Dh7otpdh.woff2",
+          "transfer": 15316,
+          "decoded": 15016,
+          "duration": 2920.3999999910593
+        },
+        {
+          "name": "/assets/cairo-arabic-700-normal-D3nDedWX.woff2",
+          "transfer": 14252,
+          "decoded": 13952,
+          "duration": 2649
+        },
+        {
+          "name": "/assets/cairo-arabic-800-normal-G1qvPr6G.woff2",
+          "transfer": 14188,
+          "decoded": 13888,
+          "duration": 2801.2999999970198
+        },
+        {
+          "name": "/assets/cairo-arabic-400-normal-DN15VWMM.woff2",
+          "transfer": 13592,
+          "decoded": 13292,
+          "duration": 2725.5999999940395
+        },
+        {
+          "name": "/assets/index-BJUD3HRh.js",
+          "transfer": 300,
+          "decoded": 0,
+          "duration": 530.6000000089407
+        },
+        {
+          "name": "/assets/index-DSdap4vu.css",
+          "transfer": 300,
+          "decoded": 0,
+          "duration": 566.9000000059605
+        },
+        {
+          "name": "/api/public-config",
+          "transfer": 300,
+          "decoded": 316,
+          "duration": 510
+        },
+        {
+          "name": "/assets/PatientAuthPages-BtYEnIV2.js",
+          "transfer": 300,
+          "decoded": 0,
+          "duration": 530.5999999940395
+        },
+        {
+          "name": "/assets/loginSubmission-CyrIha36.js",
+          "transfer": 300,
+          "decoded": 0,
+          "duration": 568.6999999880791
+        },
+        {
+          "name": "/assets/createLucideIcon-BuM5VdJR.js",
+          "transfer": 300,
+          "decoded": 0,
+          "duration": 603.8999999910593
+        },
+        {
+          "name": "/assets/loginSubmission-CeTaLuXz.css",
+          "transfer": 300,
+          "decoded": 0,
+          "duration": 637.4000000059605
+        },
+        {
+          "name": "/assets/PasswordField-lqu20N7y.js",
+          "transfer": 300,
+          "decoded": 0,
+          "duration": 673.2000000029802
+        },
+        {
+          "name": "/assets/heart-pulse-DfZUlhWH.js",
+          "transfer": 300,
+          "decoded": 0,
+          "duration": 711.1000000089407
+        },
+        {
+          "name": "/assets/ThemeToggle-Cy50o6RR.js",
+          "transfer": 300,
+          "decoded": 0,
+          "duration": 1061.300000011921
+        }
+      ]
+    },
+    {
+      "route": "/staff",
+      "mode": "cold",
+      "navigationMs": 10393,
+      "requests": 22,
+      "encodedBytes": 259866,
+      "failedRequests": [],
+      "title": "شفاء — نظام إدارة المنشآت الصحية",
+      "readyState": "complete",
+      "lang": "ar",
+      "dir": "rtl",
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "scrollWidth": 390
+      },
+      "domElements": 75,
+      "inputs": 2,
+      "buttons": 5,
+      "usableForm": 7,
+      "loadingText": [],
+      "errorBoundary": false,
+      "navigation": {
+        "ttfb": 3.0999999940395355,
+        "domContentLoaded": 5360.79999999702,
+        "load": 5361.20000000298,
+        "transfer": 1281,
+        "decoded": 981
+      },
+      "paint": {
+        "first-paint": 1764,
+        "first-contentful-paint": 5932
+      },
+      "lcp": 5932,
+      "longTasks": [
+        {
+          "startTime": 10246.40000000596,
+          "duration": 68
+        }
+      ],
+      "resources": [
+        {
+          "name": "/assets/index-BJUD3HRh.js",
+          "transfer": 111379,
+          "decoded": 354616,
+          "duration": 4751.0999999940395
+        },
+        {
+          "name": "/assets/PasswordField-lqu20N7y.js",
+          "transfer": 73008,
+          "decoded": 223851,
+          "duration": 4226.100000008941
+        },
+        {
+          "name": "/assets/App-D18z9wV3.js",
+          "transfer": 28403,
+          "decoded": 90464,
+          "duration": 2827.7000000029802
+        },
+        {
+          "name": "/assets/cairo-latin-800-normal-BBdTpBXf.woff2",
+          "transfer": 15620,
+          "decoded": 15320,
+          "duration": 2536.2000000029802
+        },
+        {
+          "name": "/assets/index-DSdap4vu.css",
+          "transfer": 7999,
+          "decoded": 35912,
+          "duration": 1155.2999999970198
+        },
+        {
+          "name": "/assets/App-GNcVhXcc.css",
+          "transfer": 6470,
+          "decoded": 32313,
+          "duration": 1292.2999999970198
+        },
+        {
+          "name": "/assets/loginSubmission-CeTaLuXz.css",
+          "transfer": 6334,
+          "decoded": 38759,
+          "duration": 1142
+        },
+        {
+          "name": "/favicon.svg",
+          "transfer": 1790,
+          "decoded": 9522,
+          "duration": 594.5
+        },
+        {
+          "name": "/assets/createLucideIcon-BuM5VdJR.js",
+          "transfer": 1075,
+          "decoded": 1379,
+          "duration": 560.2999999970198
+        },
+        {
+          "name": "/assets/apiClient-C9e_I1_N.js",
+          "transfer": 1067,
+          "decoded": 1346,
+          "duration": 1996.7000000029802
+        },
+        {
+          "name": "/assets/ThemeToggle-Cy50o6RR.js",
+          "transfer": 972,
+          "decoded": 1162,
+          "duration": 1763.2999999970198
+        },
+        {
+          "name": "/assets/log-out-B-lurD8Y.js",
+          "transfer": 767,
+          "decoded": 467,
+          "duration": 598.2000000029802
+        },
+        {
+          "name": "/assets/x-9ypps626.js",
+          "transfer": 721,
+          "decoded": 421,
+          "duration": 1919.300000011921
+        },
+        {
+          "name": "/assets/heart-pulse-DfZUlhWH.js",
+          "transfer": 633,
+          "decoded": 333,
+          "duration": 1334.7999999970198
+        },
+        {
+          "name": "/api/public-config",
+          "transfer": 616,
+          "decoded": 316,
+          "duration": 524.7999999970198
+        }
+      ]
+    },
+    {
+      "route": "/staff",
+      "mode": "warm",
+      "navigationMs": 6373,
+      "requests": 21,
+      "encodedBytes": 74180,
+      "failedRequests": [],
+      "title": "شفاء — نظام إدارة المنشآت الصحية",
+      "readyState": "complete",
+      "lang": "ar",
+      "dir": "rtl",
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "scrollWidth": 390
+      },
+      "domElements": 75,
+      "inputs": 2,
+      "buttons": 5,
+      "usableForm": 7,
+      "loadingText": [],
+      "errorBoundary": false,
+      "navigation": {
+        "ttfb": 3.2000000029802322,
+        "domContentLoaded": 1325.2000000029802,
+        "load": 1325.4000000059605,
+        "transfer": 300,
+        "decoded": 981
+      },
+      "paint": {
+        "first-paint": 1288,
+        "first-contentful-paint": 1892
+      },
+      "lcp": 5316,
+      "longTasks": [
+        {
+          "startTime": 3226.7000000029802,
+          "duration": 66
+        }
+      ],
+      "resources": [
+        {
+          "name": "/assets/cairo-latin-400-normal-Dh7otpdh.woff2",
+          "transfer": 15316,
+          "decoded": 15016,
+          "duration": 2177.2999999970198
+        },
+        {
+          "name": "/assets/cairo-arabic-800-normal-G1qvPr6G.woff2",
+          "transfer": 14188,
+          "decoded": 13888,
+          "duration": 2098.8999999910593
+        },
+        {
+          "name": "/assets/cairo-latin-700-normal-C3GYtKbV.woff2",
+          "transfer": 14084,
+          "decoded": 15284,
+          "duration": 2530.5999999940395
+        },
+        {
+          "name": "/assets/cairo-arabic-400-normal-DN15VWMM.woff2",
+          "transfer": 13592,
+          "decoded": 13292,
+          "duration": 1983.7999999970198
+        },
+        {
+          "name": "/assets/cairo-arabic-700-normal-D3nDedWX.woff2",
+          "transfer": 12752,
+          "decoded": 13952,
+          "duration": 2453.2999999970198
+        },
+        {
+          "name": "/assets/index-BJUD3HRh.js",
+          "transfer": 300,
+          "decoded": 0,
+          "duration": 554.1000000089407
+        },
+        {
+          "name": "/assets/index-DSdap4vu.css",
+          "transfer": 300,
+          "decoded": 0,
+          "duration": 513.3999999910593
+        },
+        {
+          "name": "/api/public-config",
+          "transfer": 300,
+          "decoded": 316,
+          "duration": 527.6999999880791
+        },
+        {
+          "name": "/assets/App-D18z9wV3.js",
+          "transfer": 300,
+          "decoded": 0,
+          "duration": 530.1000000089407
+        },
+        {
+          "name": "/assets/createLucideIcon-BuM5VdJR.js",
+          "transfer": 300,
+          "decoded": 0,
+          "duration": 568.2000000029802
+        },
+        {
+          "name": "/assets/log-out-B-lurD8Y.js",
+          "transfer": 300,
+          "decoded": 0,
+          "duration": 605.6000000089407
+        },
+        {
+          "name": "/assets/loginSubmission-CyrIha36.js",
+          "transfer": 300,
+          "decoded": 0,
+          "duration": 643.9000000059605
+        },
+        {
+          "name": "/assets/loginSubmission-CeTaLuXz.css",
+          "transfer": 300,
+          "decoded": 0,
+          "duration": 679.9000000059605
+        },
+        {
+          "name": "/assets/PasswordField-lqu20N7y.js",
+          "transfer": 300,
+          "decoded": 0,
+          "duration": 717.3999999910593
+        },
+        {
+          "name": "/assets/heart-pulse-DfZUlhWH.js",
+          "transfer": 300,
+          "decoded": 0,
+          "duration": 1107.5999999940395
+        }
+      ]
+    }
+  ]
+}

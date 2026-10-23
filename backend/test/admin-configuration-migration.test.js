@@ -7,7 +7,7 @@ import { repositoryInventory } from '../scripts/audit-clinic-readiness.js';
 
 test('catalog migration preserves existing money/IDs, initializes only four payment references, and retains historical methods', async () => {
   const schema = `test_catalog_migration_${process.pid}_${Date.now()}`;
-  const url = isolatedDatabaseUrl(process.env.TEST_DATABASE_URL, schema);
+  const url = isolatedDatabaseUrl(process.env.TEST_DATABASE_URL, schema, process.env.TEST_DATABASE_PORT || '5433');
   const client = new Client({ connectionString: url });
   await client.connect();
   try {
@@ -42,7 +42,9 @@ test('catalog migration preserves existing money/IDs, initializes only four paym
     assert.equal(service.id, 'service'); assert.equal(service.code, null); assert.equal(Number(service.price), 17001);
     await client.query(`UPDATE "PaymentMethod" SET active = false WHERE code IN ('CASH', 'CARD')`);
     assert.equal((await client.query('SELECT count(*)::int AS n FROM "Payment" WHERE "paymentMethod" = $1', ['CASH'])).rows[0].n, 1);
-    await assert.rejects(client.query(`DELETE FROM "PaymentMethod" WHERE code = 'CASH'`), error => error.code === '23503');
+    // PostgreSQL reports the RESTRICT action as SQLSTATE 23001; some supported
+    // server versions surface it through the FK violation class 23503.
+    await assert.rejects(client.query(`DELETE FROM "PaymentMethod" WHERE code = 'CASH'`), error => ['23001', '23503'].includes(error.code));
     await assert.rejects(client.query(`INSERT INTO "PaymentMethod" (code, "labelAr", "labelEn") VALUES ('RAW_CARD', 'غير مسموح', 'Unsupported')`), error => error.code === '23514');
   } finally { await client.query('ROLLBACK'); await client.end(); }
 });

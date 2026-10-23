@@ -8,7 +8,7 @@ import { clearPatientSession } from '../../services/authStorage.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { patientApiRequest as apiRequest } from '../../services/apiClient';
+import { patientApiRequest as apiRequest, apiFetch } from '../../services/apiClient';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { GoogleIdentityButton } from '../patient-auth/GoogleIdentityButton.jsx';
 import { CalendarDays, FileHeart, FlaskConical, HeartPulse, Pill, Search, Stethoscope, UserRound } from 'lucide-react';
@@ -19,6 +19,8 @@ import { formatPatientDateTime } from '../../utils/patientRecord';
 import { doctorMatchesDirectorySearch, doctorSpecialtyKey, doctorSpecialtyOptions, localizeDoctorSpecialty } from '../../utils/doctorSpecialty';
 import { hasPendingAppointments } from '../../utils/appointmentStatus';
 import PasswordField from '../../components/PasswordField.jsx';
+
+const patientApiFetch = (path) => apiFetch(path, {}, 'patient');
 
 function useApi(path,{pollWhen=null,pollInterval=45000}={}){
   const [result,setResult]=useState({path:null,data:null,error:null,loading:true});
@@ -36,6 +38,41 @@ function useApi(path,{pollWhen=null,pollInterval=45000}={}){
   const isCurrent=result.path===path;
   return{data:isCurrent?result.data:null,error:isCurrent?result.error?.message||'':'',errorCode:isCurrent?result.error?.code:null,errorStatus:isCurrent?result.error?.status:null,loading:!isCurrent||result.loading,reload};
 }
+function usePagedList(path, { pageSize = 25, pollWhen = null, pollInterval = 45000 } = {}) {
+  const [result, setResult] = useState({ data: null, error: null, loading: true, loadingMore: false, hasMore: false, page: 1 });
+  const [reloadToken, setReloadToken] = useState(0);
+  const reload = useCallback(() => setReloadToken((value) => value + 1), []);
+  useEffect(() => {
+    let active = true;
+    let pollTimer;
+    setResult({ data: null, error: null, loading: true, loadingMore: false, hasMore: false, page: 1 });
+    const url = `${path}${path.includes('?') ? '&' : '?'}page=1&pageSize=${pageSize}`;
+    patientApiFetch(url).then(async (response) => {
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error?.message || body?.error || 'Unable to load this list.');
+      if (!active) return;
+      const data = Array.isArray(body) ? body : [];
+      setResult({ data, error: null, loading: false, loadingMore: false, hasMore: response.headers.get('X-Has-More') === 'true', page: 1 });
+      if (pollWhen?.(data)) pollTimer = setTimeout(() => setReloadToken((value) => value + 1), pollInterval);
+    }).catch((error) => { if (active) setResult({ data: null, error: error.message, loading: false, loadingMore: false, hasMore: false, page: 1 }); });
+    return () => { active = false; clearTimeout(pollTimer); };
+  }, [path, pageSize, reloadToken, pollWhen, pollInterval]);
+  const loadMore = useCallback(async () => {
+    if (result.loadingMore || !result.hasMore) return;
+    const nextPage = result.page + 1;
+    setResult((current) => ({ ...current, loadingMore: true, error: null }));
+    try {
+      const url = `${path}${path.includes('?') ? '&' : '?'}page=${nextPage}&pageSize=${pageSize}`;
+      const response = await patientApiFetch(url);
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error?.message || body?.error || 'Unable to load more records.');
+      setResult((current) => ({ ...current, data: [...(current.data || []), ...(Array.isArray(body) ? body : [])], loadingMore: false, hasMore: response.headers.get('X-Has-More') === 'true', page: nextPage }));
+    } catch (error) {
+      setResult((current) => ({ ...current, loadingMore: false, error: error.message }));
+    }
+  }, [path, pageSize, result.loadingMore, result.hasMore, result.page]);
+  return { ...result, reload, loadMore };
+}
 function State({loading,error,onRetry,children}){if(loading)return <div className="patient-card"><Skeleton/></div>;if(error)return <ErrorState message={error} onRetry={onRetry}/>;return children}
 function Empty({children}){return <div className="patient-card patient-empty">{children}</div>}
 const doctorName=(doctor,lang)=>
@@ -51,16 +88,16 @@ export function Dashboard() {
   const muiTheme = useMemo(() => createPatientMuiTheme(mode, direction), [mode, direction]);
   const profile = useApi('/api/patient/me');
   const appointments = useApi('/api/patient/appointments?group=upcoming', { pollWhen: hasPendingAppointments });
-  const labs = useApi('/api/patient/lab-results');
-  const prescriptions = useApi('/api/patient/prescriptions');
-  const records = useApi('/api/patient/medical-records');
+  const summary = useApi('/api/patient/summary');
+  const labs = useApi('/api/patient/lab-results?pageSize=3');
+  const records = useApi('/api/patient/medical-records?pageSize=3');
   const doctors = useApi('/api/patient/doctors');
   // The list API returns descending dates; the dashboard needs the nearest visit.
   const next = [...(appointments.data || [])].sort((a, b) =>
     `${a.appointmentDate}T${a.appointmentTime}`.localeCompare(`${b.appointmentDate}T${b.appointmentTime}`)
   )[0];
   const noDoctors = !doctors.loading && !doctors.error && doctors.data?.length === 0;
-  const value = result => result.error ? t('patientDataUnavailable') : result.loading ? '…' : (result.data?.length || 0).toLocaleString(language);
+  const value = key => summary.error ? t('patientDataUnavailable') : summary.loading ? '…' : (summary.data?.[key] || 0).toLocaleString(language);
   const activity = [
     ...(labs.data || []).map(item => ({ id: `lab-${item.id}`, date: item.releasedAt || item.orderDate, title: t('laboratoryReport'), doctor: item.doctor, to: '/patient/lab-results', icon: <FlaskConical size={18}/> })),
     ...(records.data || []).map(item => ({ id: `record-${item.id}`, date: item.visitDate, title: t('medicalRecords'), doctor: item.doctor, to: '/patient/records', icon: <FileHeart size={18}/> })),
@@ -82,11 +119,11 @@ export function Dashboard() {
         </Paper>
 
         <Grid container spacing={3} aria-label={t('recentPatientInfo')}>
-          {[['/patient/appointments', CalendarDays, 'upcomingAppointments', appointments, 'primary'], ['/patient/lab-results', FlaskConical, 'recentLabResults', labs, 'success'], ['/patient/prescriptions', Pill, 'prescriptions', prescriptions, 'warning'], ['/patient/records', FileHeart, 'medicalRecords', records, 'primary']].map(([to, Icon, title, result, accent]) => <Grid key={to} size={{ xs: 6, md: 3 }}>
+          {[['/patient/appointments', CalendarDays, 'upcomingAppointments', 'upcomingAppointments', 'primary'], ['/patient/lab-results', FlaskConical, 'recentLabResults', 'releasedLabResults', 'success'], ['/patient/prescriptions', Pill, 'prescriptions', 'prescriptions', 'warning'], ['/patient/records', FileHeart, 'medicalRecords', 'medicalRecords', 'primary']].map(([to, Icon, title, metric, accent]) => <Grid key={to} size={{ xs: 6, md: 3 }}>
             <Card component={Link} to={to} className="health-summary-card patient-dashboard__summary" sx={{ p: { xs: 3, sm: 4 }, height: '100%' }}>
               <Box className="patient-dashboard__icon" sx={{ color: `var(--color-${accent === 'primary' ? 'primary-strong' : accent})`, bgcolor: `var(--color-${accent}-soft)` }}><Icon size={20} aria-hidden="true"/></Box>
               <Typography component="h2" variant="body2" color="text.secondary">{t(title)}</Typography>
-              <Typography component="strong" className="patient-dashboard__count" aria-live="polite">{value(result)}</Typography>
+              <Typography component="strong" className="patient-dashboard__count" aria-live="polite">{value(metric)}</Typography>
             </Card>
           </Grid>)}
         </Grid>
@@ -350,7 +387,7 @@ export function BookAppointment() {
 export function Appointments() {
   const { t, i18n } = useTranslation();
   const [group, setGroup] = useState('upcoming');
-  const { data, error, loading, reload } = useApi(`/api/patient/appointments?group=${group}`, { pollWhen: hasPendingAppointments });
+  const { data, error, loading, loadingMore, hasMore, loadMore, reload } = usePagedList(`/api/patient/appointments?group=${group}`, { pageSize: 25, pollWhen: hasPendingAppointments });
   return <State loading={loading} error={error} onRetry={reload}>
     <h1>{t('myAppointments')}</h1>
     <div className="patient-tabs" role="group" aria-label={t('myAppointments')}>{['upcoming', 'past', 'cancelled', 'all'].map((item) => <button className={`patient-button ${group === item ? '' : 'secondary'}`} aria-pressed={group === item} onClick={() => setGroup(item)} key={item}>{t(item)}</button>)}</div>
@@ -362,6 +399,7 @@ export function Appointments() {
       </div>
       <Link className="patient-button secondary" to={`/patient/appointments/${appointment.id}`}>{t('details')}</Link>
     </article>)}</div>}
+    {hasMore && <button type="button" className="patient-button secondary" onClick={loadMore} disabled={loadingMore}>{loadingMore ? t('loading') : t('loadMore')}</button>}
   </State>;
 }
 export function AppointmentDetails(){
@@ -603,8 +641,9 @@ export function MedicalRecords(){
     data,
     error,
     loading,
-    reload
-  } = useApi('/api/patient/medical-records');
+    reload,
+    loadingMore, hasMore, loadMore
+  } = usePagedList('/api/patient/medical-records');
 
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -719,6 +758,8 @@ export function MedicalRecords(){
           ))}
         </div>
       )}
+
+      {hasMore && <button type="button" className="patient-button secondary" onClick={loadMore} disabled={loadingMore}>{loadingMore ? t('loading') : t('loadMore')}</button>}
 
       <Dialog
         open={Boolean(selectedRecord)}
@@ -1057,7 +1098,7 @@ export function MedicalRecords(){
   );
 }
 
-function Collection({path,titleKey,render}){const{t}=useTranslation();const{data,error,loading,reload}=useApi(path);return <State loading={loading} error={error} onRetry={reload}><h1>{t(titleKey)}</h1>{!data?.length?<Empty>{t('noRecords')}</Empty>:data.map(item=><article className="patient-card" key={item.id}>{render(item)}</article>)}</State>}
+function Collection({path,titleKey,render}){const{t}=useTranslation();const{data,error,loading,loadingMore,hasMore,loadMore,reload}=usePagedList(path);return <State loading={loading} error={error} onRetry={reload}><h1>{t(titleKey)}</h1>{!data?.length?<Empty>{t('noRecords')}</Empty>:data.map(item=><article className="patient-card" key={item.id}>{render(item)}</article>)}{hasMore&&<button type="button" className="patient-button secondary" onClick={loadMore} disabled={loadingMore}>{loadingMore?t('loading'):t('loadMore')}</button>}</State>}
 export function Profile() {
   const { t, i18n } = useTranslation();
   const {

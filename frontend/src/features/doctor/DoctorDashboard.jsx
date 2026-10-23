@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useState, useRef } from 'react';
+import { useStaffPagedList } from '../../hooks/useStaffPagedList.js';
+import StaffListPaging from '../../components/StaffListPaging.jsx';
+import { useEffect, useState, useRef } from 'react';
 import { Activity, CalendarDays, CheckCircle2, Clock3, FlaskConical, Lock, MessageCircle, Printer, RefreshCw, Search, Sliders, Stethoscope, User, Users } from 'lucide-react';
 import { PatientProfileModal, PostVisitSummaryModal } from '../clinical/ClinicalModals';
 import { getWhatsAppLink } from '../reception/clinicData';
@@ -15,8 +17,10 @@ import FacilityIdentityLine from '../../components/FacilityIdentityLine';
 
 export default function DoctorDashboard({ user, lang, t }) {
   const branding = useFacilityBranding();
-  const [queue, setQueue] = useState([]);
+
   const [filterDate, setFilterDate] = useState(clinicDateString());
+  const queueList = useStaffPagedList(user.doctorId ? `/api/appointments/queue/${user.doctorId}?date=${filterDate}` : null);
+  const { data: queue, reload: fetchDoctorQueue } = queueList;
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [selectedAppointmentId, setSelectedAppointmentId] = useState('');
   const [selectedAppointmentStatus, setSelectedAppointmentStatus] = useState('');
@@ -149,30 +153,6 @@ export default function DoctorDashboard({ user, lang, t }) {
     if (beforeBirthday) age -= 1;
     return age >= 0 ? age : null;
   };
-
-  const fetchDoctorQueue = useCallback(() => {
-    if (user.doctorId) {
-      fetchWithAuth(`/api/appointments/queue/${user.doctorId}?date=${filterDate}`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (Array.isArray(data)) {
-            setQueue(data);
-          } else {
-            setQueue([]);
-            console.error('Queue response is not an array:', data);
-          }
-        })
-        .catch((err) => {
-          console.error(err);
-          setQueue([]);
-        });
-    }
-  }, [user.doctorId, filterDate]);
-
-  // Fetch queue on filterDate change
-  useEffect(() => {
-    fetchDoctorQueue();
-  }, [fetchDoctorQueue]);
 
   useEffect(() => {
     const handleQueueUpdate = (data) => {
@@ -674,6 +654,7 @@ export default function DoctorDashboard({ user, lang, t }) {
               <strong>{lang === 'ar' ? 'لا يوجد مرضى في طابورك لهذا اليوم.' : 'There are no patients in your queue for this day.'}</strong>
               <span>{lang === 'ar' ? 'يمكنك اختيار تاريخ آخر من الأعلى.' : 'You can choose another date above.'}</span>
             </div>}
+            <StaffListPaging list={queueList} lang={lang} label={lang === 'ar' ? 'طابور الطبيب' : 'Doctor queue'} />
             {queue.map((appt) => {
               const isEmergency = appt.emergencyOverride;
               const queueStatusClass = appt.status === 'CHECKED_IN'

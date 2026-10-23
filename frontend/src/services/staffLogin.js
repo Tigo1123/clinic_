@@ -28,9 +28,29 @@ export async function startStaffLogin(credentials, finalizeLogin, request = publ
     };
   }
 
+  if (data?.mfaEnrollmentRequired === true) {
+    if (typeof data.enrollmentToken !== 'string' || !data.enrollmentToken) {
+      throw new Error('Authentication response is incomplete.');
+    }
+    return { state: 'MFA_ENROLLMENT_REQUIRED', enrollmentToken: data.enrollmentToken };
+  }
+
   const completed = requireCompletedLogin(data);
   finalizeLogin(completed.user, completed.token);
   return { state: 'AUTHENTICATED' };
+}
+
+export function startRequiredMfaEnrollment(enrollmentToken, request = publicApiRequest) {
+  return request('/api/auth/mfa/enroll/required', {
+    method: 'POST', headers: { Authorization: `Bearer ${enrollmentToken}` }
+  });
+}
+
+export function confirmRequiredMfaEnrollment(enrollmentToken, code, request = publicApiRequest) {
+  return request('/api/auth/mfa/enroll/required/confirm', {
+    method: 'POST', headers: { Authorization: `Bearer ${enrollmentToken}` },
+    body: JSON.stringify({ code })
+  });
 }
 
 export async function completeStaffMfa(challengeToken, code, finalizeLogin, request = publicApiRequest) {

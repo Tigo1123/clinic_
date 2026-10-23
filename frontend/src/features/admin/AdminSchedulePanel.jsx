@@ -1,3 +1,5 @@
+import { useStaffPagedList } from '../../hooks/useStaffPagedList.js';
+import StaffListPaging from '../../components/StaffListPaging.jsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, Clock3, Plus, Save, Trash2 } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
@@ -10,7 +12,10 @@ const blankPeriod = (dayOfWeek = 'MONDAY') => ({ dayOfWeek, startTime: '09:00', 
 const clinicDate = (instant, timeZone) => { const values = Object.fromEntries(new Intl.DateTimeFormat('en', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(instant).map(({ type, value }) => [type, value])); return `${values.year}-${values.month}-${values.day}`; };
 
 export default function AdminSchedulePanel({ t, lang, initialDoctorId }) {
-  const [doctors, setDoctors] = useState([]); const [doctorId, setDoctorId] = useState('');
+  const doctorList = useStaffPagedList('/api/admin/doctors');
+  const [initialDoctor, setInitialDoctor] = useState(null);
+  const doctors = useMemo(() => [...new Map([...(initialDoctor ? [initialDoctor] : []), ...doctorList.data].map((doctor) => [doctor.id, doctor])).values()], [initialDoctor, doctorList.data]);
+  const [doctorId, setDoctorId] = useState(initialDoctorId || '');
   const [schedule, setSchedule] = useState(null); const [scheduleKind, setScheduleKind] = useState('empty'); const [periods, setPeriods] = useState([]); const [exceptions, setExceptions] = useState([]);
   const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [error, setError] = useState(''); const [success, setSuccess] = useState('');
   const [exceptionDate, setExceptionDate] = useState(''); const [exceptionReason, setExceptionReason] = useState('');
@@ -49,16 +54,16 @@ export default function AdminSchedulePanel({ t, lang, initialDoctorId }) {
   }, [guard, read, label, clinicTimeZone]);
   useEffect(() => {
     let mounted = true;
-    Promise.all([read('/api/admin/doctors'), read('/api/public-config')]).then(([data, config]) => {
+    Promise.all([initialDoctorId ? read(`/api/admin/doctors/${initialDoctorId}`) : Promise.resolve(null), read('/api/public-config')]).then(([data, config]) => {
       if (!mounted) return;
       if (config?.clinicTimeZone) setClinicTimeZone(config.clinicTimeZone);
-      setDoctors(Array.isArray(data) ? data : []);
-      setDoctorId(data?.some(item => item.id === initialDoctorId) ? initialDoctorId : data?.[0]?.id || '');
-      if (!data?.length) setLoading(false);
+      setInitialDoctor(data);
+      setLoading(false);
     }).catch((e) => { if (mounted) { setError(e.message); setLoading(false); } });
     return () => { mounted = false; guard.start(null); };
   }, [read, guard, initialDoctorId]);
   useEffect(() => { if (doctorId) loadSchedule(doctorId); return () => { guard.start(null); }; }, [doctorId, guard, loadSchedule]);
+  useEffect(() => { if (!doctorId && doctors.length) setDoctorId(doctors[0].id); }, [doctorId, doctors]);
   const switchDoctor = (nextId) => {
     guard.start(nextId); setLoading(Boolean(nextId)); setReady(false); setSaving(false);
     setError(''); setSuccess(''); setSchedule(null); setScheduleKind('empty');
@@ -106,6 +111,7 @@ export default function AdminSchedulePanel({ t, lang, initialDoctorId }) {
   return <section className="admin-schedule-panel" aria-labelledby="admin-schedule-title">
     <header className="admin-schedule-header"><div><span className="admin-schedule-eyebrow"><CalendarDays size={16}/>{label('scheduleManagement', 'Schedule management')}</span><h2 id="admin-schedule-title">{label('scheduleTitle', 'Doctor availability')}</h2><p>{label('scheduleSubtitle', 'Manage recurring clinic hours and unavailable dates.')}</p></div><Clock3 size={28} aria-hidden="true"/></header>
     {error && <div className="badge badge-danger" role="alert">{error}</div>}{success && <div className="badge badge-success" role="status">{success}</div>}
+    <StaffListPaging list={doctorList} lang={lang} label={label('selectDoctor', 'Doctors')} />
     <label className="form-label" htmlFor="schedule-doctor">{label('selectDoctor', 'Doctor')}</label><select id="schedule-doctor" className="form-input" value={doctorId} onChange={(e) => switchDoctor(e.target.value)}><option value="">{label('selectDoctor', 'Select a doctor')}</option>{doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{(lang === 'ar' ? doctor.fullNameAr || doctor.fullNameEn : doctor.fullNameEn || doctor.fullNameAr)} — {(lang === 'ar' ? doctor.specialty?.nameAr || doctor.specialtyAr || doctor.specialtyEn : doctor.specialty?.nameEn || doctor.specialtyEn || doctor.specialtyAr) || ''}</option>)}</select>
     {selectedDoctor && <p className="admin-schedule-doctor">{(lang === 'ar' ? selectedDoctor.fullNameAr || selectedDoctor.fullNameEn : selectedDoctor.fullNameEn || selectedDoctor.fullNameAr)} · {(lang === 'ar' ? selectedDoctor.specialty?.nameAr || selectedDoctor.specialtyAr || selectedDoctor.specialtyEn : selectedDoctor.specialty?.nameEn || selectedDoctor.specialtyEn || selectedDoctor.specialtyAr) || '—'}</p>}
     {loading && <p role="status">{label('scheduleLoading', 'Loading schedule…')}</p>}

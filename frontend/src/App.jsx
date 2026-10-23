@@ -28,6 +28,7 @@ const LaboratoryDashboard = lazy(() => import('./features/laboratory/LaboratoryD
 const PharmacyDashboard = lazy(() => import('./features/pharmacy/PharmacyDashboard'));
 const DoctorDashboard = lazy(() => import('./features/doctor/DoctorDashboard'));
 const ReceptionDashboard = lazy(() => import('./features/reception/ReceptionDashboard'));
+const RequiredStaffMfaEnrollment = lazy(() => import('./components/RequiredStaffMfaEnrollment.jsx'));
 
 /**
  * Utility to generate WhatsApp Web click-to-chat links
@@ -47,6 +48,7 @@ export default function App({ initialView = 'login' }) {
   const [securityOpen, setSecurityOpen] = useState(false);
   const [recoveryLoginNotice, setRecoveryLoginNotice] = useState(false);
   const [sessionRevokedNotice, setSessionRevokedNotice] = useState(false);
+  const [mfaEnrollmentToken, setMfaEnrollmentToken] = useState(null);
 
   // Load state on mount
   useEffect(() => {
@@ -64,6 +66,7 @@ export default function App({ initialView = 'login' }) {
   };
 
   const handleLogin = (userData, token, context = {}) => {
+    setMfaEnrollmentToken(null);
     writeStaffSession(userData, token);
     setUser(userData);
     setRecoveryLoginNotice(context.mfaMethod === 'RECOVERY_CODE');
@@ -138,7 +141,9 @@ export default function App({ initialView = 'login' }) {
 
         <div className="patient-auth-stage patient-auth-stage--login">
           <div className="patient-auth-content">
-            <LoginView onLogin={handleLogin} t={t} lang={lang} productName={productName} productDescriptor={branding.productDescriptorAr && lang === 'ar' ? branding.productDescriptorAr : branding.productDescriptorEn} showProductIdentity={Boolean(facilityName)} />
+            {mfaEnrollmentToken
+              ? <RequiredStaffMfaEnrollment token={mfaEnrollmentToken} t={t} onDone={() => setMfaEnrollmentToken(null)} />
+              : <LoginView onLogin={handleLogin} onMfaEnrollmentRequired={setMfaEnrollmentToken} t={t} lang={lang} productName={productName} productDescriptor={branding.productDescriptorAr && lang === 'ar' ? branding.productDescriptorAr : branding.productDescriptorEn} showProductIdentity={Boolean(facilityName)} />}
           </div>
         </div>
       </div>
@@ -228,7 +233,7 @@ function RequiredPasswordChange({ t, onComplete }) {
 /* ==========================================
    PATIENT PUBLIC BOOKING PORTAL
    ========================================== */
-function LoginView({ onLogin, t, lang, productName, productDescriptor, showProductIdentity }) {
+function LoginView({ onLogin, onMfaEnrollmentRequired, t, lang, productName, productDescriptor, showProductIdentity }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [mfaChallenge, setMfaChallenge] = useState(null);
@@ -278,6 +283,9 @@ function LoginView({ onLogin, t, lang, productName, productDescriptor, showProdu
           setPassword('');
           setMfaMethod('totp');
           setMfaChallenge({ token: result.challengeToken, expiresAt: result.expiresAt });
+        } else if (result.state === 'MFA_ENROLLMENT_REQUIRED') {
+          setPassword('');
+          onMfaEnrollmentRequired(result.enrollmentToken);
         }
       } catch (err) {
         setErrorMsg(err?.status ? err.message : 'Cannot connect to authorization service.');

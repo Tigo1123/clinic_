@@ -1,3 +1,5 @@
+import { useStaffPagedList } from '../../hooks/useStaffPagedList.js';
+import StaffListPaging from '../../components/StaffListPaging.jsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, CalendarDays, Check, CheckCircle, ChevronLeft, ChevronRight, Clock, DollarSign, HelpCircle, MessageCircle, Search, Stethoscope, Trash2, UserPlus, Users } from 'lucide-react';
 import { PatientProfileModal } from '../clinical/ClinicalModals';
@@ -16,7 +18,7 @@ export default function ReceptionDashboard({ lang, t }) {
   const branding = useFacilityBranding();
   const [doctors, setDoctors] = useState([]);
   const [selectedDoctor, setSelectedDoctor] = useState(null);
-  const [appointments, setAppointments] = useState([]);
+
   const [activeTab, setActiveTab] = useState('register'); // 'register', 'patients', 'billing', 'reconcile'
 
   // Billing patient search states
@@ -76,17 +78,21 @@ export default function ReceptionDashboard({ lang, t }) {
   const [expectedCash, setExpectedCash] = useState('');
   const [reconcileResult, setReconcileResult] = useState(null);
   const [filterDate, setFilterDate] = useState(clinicDateString());
+  const doctorQueueList = useStaffPagedList(selectedDoctor ? `/api/appointments/queue/${selectedDoctor.id}?date=${filterDate}` : null);
+  const { data: appointments, reload: refreshDoctorQueue } = doctorQueueList;
   const [viewingProfilePatientId, setViewingProfilePatientId] = useState(null);
 
   // Pending Approvals State
-  const [pendingAppointments, setPendingAppointments] = useState([]);
+  const pendingList = useStaffPagedList('/api/appointments/pending');
+  const { data: pendingAppointments, reload: fetchPendingAppointments } = pendingList;
   const [queueTab, setQueueTab] = useState('queue'); // 'queue' | 'pending'
   const [billingAppointment, setBillingAppointment] = useState(null);
 
   // Laboratory billing queue
-  const [labBillingOrders, setLabBillingOrders] = useState([]);
+  const labBillingList = useStaffPagedList('/api/billing/lab-orders/pending');
+  const { data: labBillingOrders, reload: refreshLabBillingQueue, loading: labBillingLoading } = labBillingList;
   const [selectedLabBillingOrder, setSelectedLabBillingOrder] = useState(null);
-  const [labBillingLoading, setLabBillingLoading] = useState(false);
+
   const billingSearchSchedulerRef = useRef(null);
   const directorySearchSchedulerRef = useRef(null);
   const walkInSearchSchedulerRef = useRef(null);
@@ -146,45 +152,9 @@ export default function ReceptionDashboard({ lang, t }) {
   };
 
 
-  const fetchPendingAppointments = () => {
-    fetchWithAuth('/api/appointments/pending')
-      .then((res) => res.ok ? res.json() : [])
-      .then((data) => setPendingAppointments(Array.isArray(data) ? data : []))
-      .catch((err) => console.error('Pending fetch error:', err));
-  };
-
-  const refreshLabBillingQueue = async () => {
-    setLabBillingLoading(true);
-
-    try {
-      const res = await fetchWithAuth('/api/billing/lab-orders/pending');
-      const data = await res.json().catch(() => []);
-
-      if (!res.ok) {
-        console.error('Laboratory billing queue failed:', data);
-        setLabBillingOrders([]);
-        return;
-      }
-
-      const queue = Array.isArray(data) ? data : [];
-      setLabBillingOrders(queue);
-
-      setSelectedLabBillingOrder((current) => {
-        if (!current) return null;
-
-        const refreshed = queue.find((order) => order.id === current.id);
-
-        if (!refreshed) return null;
-
-        return refreshed;
-      });
-    } catch (err) {
-      console.error('Laboratory billing queue error:', err);
-      setLabBillingOrders([]);
-    } finally {
-      setLabBillingLoading(false);
-    }
-  };
+  useEffect(() => {
+    setSelectedLabBillingOrder((current) => current ? labBillingOrders.find((row) => row.id === current.id) || null : null);
+  }, [labBillingOrders]);
 
   const handleSelectLabBillingOrder = (order) => {
     setErrorMsg('');
@@ -303,9 +273,6 @@ export default function ReceptionDashboard({ lang, t }) {
 
   // Fetch doctors & services on mount
   useEffect(() => {
-    fetchPendingAppointments();
-    refreshLabBillingQueue();
-
     apiRequest('/api/appointments/doctors')
       .then((data) => setDoctors(Array.isArray(data) ? data : []))
       .catch((err) => {
@@ -381,34 +348,8 @@ export default function ReceptionDashboard({ lang, t }) {
     return () => window.clearTimeout(timer);
   }, [addedServices, billingAppointment, billingPatient, insuranceCompanyId, issuedBillingInvoice, lang, selectedLabBillingOrder]);
 
-  // Fetch queue when doctor or date changes
-  const refreshDoctorQueue = useCallback(() => {
-    if (selectedDoctor) {
-      fetchWithAuth(`/api/appointments/queue/${selectedDoctor.id}?date=${filterDate}`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (Array.isArray(data)) {
-            setAppointments(data);
-          } else {
-            setAppointments([]);
-            console.error('Queue response is not an array:', data);
-          }
-        })
-        .catch((err) => {
-          console.error(err);
-          setAppointments([]);
-        });
-    }
-  }, [selectedDoctor, filterDate]);
-
   useEffect(() => {
-    refreshDoctorQueue();
-  }, [refreshDoctorQueue]);
-
-  useEffect(() => {
-    if (!selectedDoctor && doctors.length) {
-      setSelectedDoctor(doctors[0]);
-    }
+    if (!selectedDoctor && doctors.length) setSelectedDoctor(doctors[0]);
   }, [doctors, selectedDoctor]);
 
   useEffect(() => {
@@ -421,7 +362,7 @@ export default function ReceptionDashboard({ lang, t }) {
     return () => {
       socket.off('queueUpdated', handleQueueUpdate);
     };
-  }, [refreshDoctorQueue]);
+  }, [refreshDoctorQueue, fetchPendingAppointments]);
 
   const handlePatientSearch = (val) => {
     setSearchQuery(val);
@@ -676,9 +617,8 @@ export default function ReceptionDashboard({ lang, t }) {
       const doctor = doctors.find((item) => item.id === walkInDoctorId);
       if (doctor) {
         setSelectedDoctor(doctor);
-        const queueRes = await fetchWithAuth(`/api/appointments/queue/${doctor.id}?date=${clinicDateString()}`);
-        const queueData = await queueRes.json().catch(() => []);
-        if (queueRes.ok && Array.isArray(queueData)) setAppointments(queueData);
+        setFilterDate(clinicDateString());
+        if (selectedDoctor?.id === doctor.id && filterDate === clinicDateString()) await refreshDoctorQueue();
       }
       setWalkInPatient(null);
       setWalkInPatientQuery('');
@@ -1214,6 +1154,7 @@ export default function ReceptionDashboard({ lang, t }) {
               </div>
             </header>
 
+            <StaffListPaging list={queueTab === 'pending' ? pendingList : doctorQueueList} lang={lang} label={queueTab === 'pending' ? (lang === 'ar' ? 'الطلبات' : 'Pending appointments') : (lang === 'ar' ? 'الطابور' : 'Doctor queue')} />
             {queueTab === 'pending' ? (
               pendingAppointments.length === 0 ? (
                 <div className="reception-empty-state">
@@ -1808,6 +1749,7 @@ export default function ReceptionDashboard({ lang, t }) {
                     </button>
                   </div>
 
+                  <StaffListPaging list={labBillingList} lang={lang} label={lang === 'ar' ? 'فواتير المختبر' : 'Laboratory billing'} />
                   {labBillingOrders.length === 0 ? (
                     <div
                       style={{

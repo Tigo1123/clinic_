@@ -1,3 +1,4 @@
+import { pagingReplacements } from './helpers/staffPagingHarness.js';
 import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, writeFile, unlink } from 'node:fs/promises';
@@ -9,13 +10,14 @@ const { createElement, act } = await import('react');
 const { createRoot } = await import('react-dom/client');
 let source = await readFile(new URL('../src/features/admin/AdminSchedulePanel.jsx', import.meta.url), 'utf8');
 source = source.replace(/import \{ apiErrorMessage, fetchWithAuth \}[^;]+;/, 'const fetchWithAuth = (...args) => globalThis.scheduleFetch(...args); const apiErrorMessage = (d, fallback) => d?.error?.message || fallback;').replace(/import '\.\/adminSchedule.css';/, '').replace("'./scheduleVersion'", JSON.stringify(new URL('../src/features/admin/scheduleVersion.js', import.meta.url).href)).replace("'./latestRequest'", JSON.stringify(new URL('../src/features/admin/latestRequest.js', import.meta.url).href));
+source = await pagingReplacements(source, 'scheduleFetch', 'schedulePaging');
 const compiled = await transformWithOxc(source, 'AdminSchedulePanel.jsx', { jsx: { runtime: 'automatic' } });
 const modulePath = new URL(`.schedule-component-${process.pid}.mjs`, import.meta.url);
 await writeFile(modulePath, compiled.code);
 let Panel;
 try { Panel = (await import(modulePath.href)).default; } finally { await unlink(modulePath); }
 let root; let requests; let handler;
-const reply = (data, ok = true) => ({ ok, json: async () => data });
+const reply = (data, ok = true) => ({ ok, headers: { get: () => 'false' }, json: async () => data });
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 const period = (dayOfWeek = 'MONDAY') => ({ dayOfWeek, startTime: '09:00', endTime: '17:00', slotDurationMinutes: 30, active: true, breaks: [] });
 const version = (id, periods = [period()]) => ({ id, active: true, effectiveFrom: '2190-01-01', effectiveTo: '2191-01-01', periods });
@@ -23,7 +25,7 @@ async function mount(fn = () => reply([]), t) {
  requests = []; handler = fn;
  globalThis.scheduleFetch = async (url, options) => {
   requests.push({ url, options });
-  if (url === '/api/admin/doctors') return reply([{ id: 'A', fullNameEn: 'Doctor A' }, { id: 'B', fullNameEn: 'Doctor B' }]);
+  if (url.startsWith('/api/admin/doctors?')) return reply([{ id: 'A', fullNameEn: 'Doctor A' }, { id: 'B', fullNameEn: 'Doctor B' }]);
   if (url === '/api/public-config') return reply({ clinicTimeZone: 'Africa/Khartoum' });
   return handler(url, options);
  };
@@ -137,4 +139,26 @@ test('late unavailable-date save cannot clear or replace another doctor view', a
  await act(async () => pending.resolve(reply({})));
  assert.equal(document.querySelector('.badge-success'), null);
  assert.equal(document.querySelector('#schedule-doctor').value, 'B');
+});
+
+test('schedule selector reaches doctor 51 through an explicit additional page', async () => {
+  const doctors = Array.from({ length: 55 }, (_, i) => ({ id: `doctor-${i + 1}`, fullNameEn: `Doctor ${i + 1}` }));
+  requests = [];
+  globalThis.scheduleFetch = async (url) => {
+    requests.push({ url });
+    if (url.startsWith('/api/admin/doctors?')) {
+      const page = Number(new URL(url, 'https://example.invalid').searchParams.get('page'));
+      const response = reply(doctors.slice((page - 1) * 50, page * 50));
+      response.headers.get = () => page === 1 ? 'true' : 'false';
+      return response;
+    }
+    return reply(url === '/api/public-config' ? { clinicTimeZone: 'Africa/Khartoum' } : []);
+  };
+  root = createRoot(document.getElementById('root'));
+  await act(async () => root.render(createElement(Panel, {})));
+  assert.equal([...document.querySelector('#schedule-doctor').options].some((option) => option.value === 'doctor-51'), false);
+  await click('Load more');
+  await switchTo('doctor-51');
+  assert.equal(document.querySelector('#schedule-doctor').value, 'doctor-51');
+  assert.ok(requests.some((r) => r.url === '/api/admin/doctors/doctor-51/schedules'));
 });

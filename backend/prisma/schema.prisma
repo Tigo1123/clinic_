@@ -57,6 +57,14 @@ model State {
   patients Patient[]
 }
 
+model RateLimitBucket {
+  key       String   @id
+  count     Int
+  resetTime DateTime
+
+  @@index([resetTime])
+}
+
 model Doctor {
   id                 String                    @id @default(uuid())
   userId             String                    @unique
@@ -70,7 +78,7 @@ model Doctor {
   consultationFee    Decimal
   weeklySchedule     String // JSON config of slots & hours
   status             String                    @default("ACTIVE") // ACTIVE, INACTIVE
-  updatedAt          DateTime                  @updatedAt
+  updatedAt          DateTime                  @default(now()) @updatedAt
   appointments       Appointment[]
   medicalRecords     MedicalRecord[]
   prescriptions      Prescription[]
@@ -167,7 +175,7 @@ model Specialty {
 
 model Patient {
   id                       String             @id @default(uuid())
-  fileNumber               String             @unique @default(dbgenerated("('SHF-'::text || lpad(nextval('patient_file_number_seq'::regclass)::text, 6, '0'::text))"))
+  fileNumber               String             @unique @default(dbgenerated("('SHF-'::text || lpad((nextval('patient_file_number_seq'::regclass))::text, 6, '0'::text))"))
   fullNameAr               String
   fullNameEn               String
   firstNameAr              String?
@@ -294,7 +302,7 @@ model DrugFormulary {
   identityKey      String           @unique
   unitPriceSdg     Decimal?
   status           String           @default("INACTIVE") // ACTIVE, INACTIVE
-  updatedAt        DateTime         @updatedAt
+  updatedAt        DateTime         @default(now()) @updatedAt
   prescribedDrugs  PrescribedDrug[]
   inventoryBatches InventoryBatch[]
   stockMovements   StockMovement[]
@@ -380,7 +388,7 @@ model ClinicalService {
   baseFeeUsd    Decimal?
   category      String // CONSULTATION, LABORATORY, RADIOLOGY, CLINICAL_PROCEDURE
   status        String         @default("ACTIVE") // ACTIVE, INACTIVE
-  updatedAt     DateTime       @updatedAt
+  updatedAt     DateTime       @default(now()) @updatedAt
   labOrderItems LabOrderItem[]
 }
 

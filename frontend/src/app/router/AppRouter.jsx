@@ -5,14 +5,29 @@ import { ThemeProvider } from '../theme/ThemeContext';
 import { AuthProvider } from '../auth/AuthContext';
 import { FacilityBrandingProvider } from '../branding/FacilityBrandingProvider.jsx';
 import PatientRoute from './PatientRoute';
-import PatientLayout from '../../layouts/PatientLayout';
-import { PatientClaim, PatientForgotPassword, PatientLogin, PatientRegister } from '../../features/patient-auth/PatientAuthPages';
-import { AppointmentDetails, Appointments, BookAppointment, Dashboard, DoctorDetails, Doctors, LabResults, MedicalRecords, Prescriptions, Profile } from '../../features/patient-dashboard/PatientPages';
-import RescheduleAppointment from '../../features/appointments/RescheduleAppointment';
 import '../../styles/medical.css';
 
 const LegacyApp = lazy(() => import('../../App'));
 const LandingPage = lazy(() => import('../../features/public/LandingPage'));
+const PatientLayout = lazy(() => import('../../layouts/PatientLayout'));
+const RescheduleAppointment = lazy(() => import('../../features/appointments/RescheduleAppointment'));
+const named = (loader, key) => lazy(() => loader().then((module) => ({ default: module[key] })));
+const patientAuth = () => import('../../features/patient-auth/PatientAuthPages');
+const patientPages = () => import('../../features/patient-dashboard/PatientPages');
+const PatientClaim = named(patientAuth, 'PatientClaim');
+const PatientForgotPassword = named(patientAuth, 'PatientForgotPassword');
+const PatientLogin = named(patientAuth, 'PatientLogin');
+const PatientRegister = named(patientAuth, 'PatientRegister');
+const AppointmentDetails = named(patientPages, 'AppointmentDetails');
+const Appointments = named(patientPages, 'Appointments');
+const BookAppointment = named(patientPages, 'BookAppointment');
+const Dashboard = named(patientPages, 'Dashboard');
+const DoctorDetails = named(patientPages, 'DoctorDetails');
+const Doctors = named(patientPages, 'Doctors');
+const LabResults = named(patientPages, 'LabResults');
+const MedicalRecords = named(patientPages, 'MedicalRecords');
+const Prescriptions = named(patientPages, 'Prescriptions');
+const Profile = named(patientPages, 'Profile');
 
 function DocumentLanguage() {
   const { i18n } = useTranslation();

@@ -6,6 +6,7 @@ import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { sendError } from '../utils/apiError.js';
+import { paginationHeaders, parsePagination } from '../utils/pagination.js';
 
 const router = asyncRouter();
 const doctorUpdateSchema = z.object({
@@ -35,8 +36,22 @@ router.use(authenticate, checkRoles('ADMIN'));
 
 router.get('/doctors', async (req, res, next) => {
   try {
-    const doctors = await prisma.doctor.findMany({ select: doctorSelect, orderBy: { fullNameEn: 'asc' } });
-    return res.json(doctors.map(toDoctorDto));
+    const page = parsePagination(req.query, { defaultPageSize: 50, maxPageSize: 100 });
+    const search = typeof req.query.search === 'string' ? req.query.search.trim().slice(0, 120) : '';
+    const active = req.query.status === 'ACTIVE';
+    const where = {
+      ...(search ? { OR: ['fullNameAr', 'fullNameEn', 'specialtyAr', 'specialtyEn'].map((field) => ({ [field]: { contains: search, mode: 'insensitive' } })) } : {}),
+      ...(['ACTIVE', 'INACTIVE'].includes(req.query.status)
+        ? active ? { status: 'ACTIVE', user: { status: 'ACTIVE' } }
+          : { NOT: { status: 'ACTIVE', user: { status: 'ACTIVE' } } } : {})
+    };
+    const [doctors, total] = await prisma.$transaction([
+      prisma.doctor.findMany({ where, select: doctorSelect, orderBy: [{ fullNameEn: 'asc' }, { id: 'asc' }], skip: page.skip, take: page.take + 1 }),
+      prisma.doctor.count({ where })
+    ]);
+    const hasMore = doctors.length > page.take;
+    res.set('X-Total-Count', String(total));
+    return paginationHeaders(res, { ...page, hasMore }).json(doctors.slice(0, page.take).map(toDoctorDto));
   } catch (error) { return next(error); }
 });
 

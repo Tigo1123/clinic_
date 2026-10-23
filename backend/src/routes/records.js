@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { emitQueueUpdate } from '../utils/socketEvents.js';
 import { getClinicDateString } from '../utils/clinicTime.js';
+import { createAuthenticatedMutationLimiter } from '../utils/edgeSecurity.js';
 import {
   buildMedicineIdentityKey,
   inventoryBatchSchema,
@@ -21,8 +22,11 @@ import {
   stockMovementSchema
 } from '../utils/medicineManagement.js';
 import { ensurePharmacyInvoiceInTransaction } from '../services/pharmacyInvoice.js';
+import { paginationHeaders, parsePagination } from '../utils/pagination.js';
+import { queueDoctorSelect, queuePatientNameSelect } from '../utils/queueDtos.js';
 
 const router = asyncRouter();
+const clinicalMutationLimiter = createAuthenticatedMutationLimiter({ prefix: 'clinical-mutations', limit: 120 });
 
 const ACTIVE_PRESCRIPTION_STATUSES = ['ACTIVE', 'PARTIALLY_FILLED'];
 const TERMINAL_PRESCRIPTION_STATUSES = ['FILLED', 'RESOLVED', 'CANCELLED'];
@@ -104,7 +108,7 @@ async function lockAndValidateClinicalSelections(tx, { prescribedDrugs = [], ord
  * Saves the consultation results. Encrypts clinical fields, serializes vitals,
  * and creates prescriptions and lab orders in a single atomic transaction.
  */
-router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
+router.post('/', authenticate, clinicalMutationLimiter, checkRoles('DOCTOR'), validate(z.object({
   patientId: z.string().uuid(), appointmentId: z.string().uuid(), symptoms: z.string().max(5000).optional(),
   diagnosis: z.string().trim().max(5000).optional(), treatment: z.string().max(5000).optional(), clinicalNotes: z.string().max(10000).optional(),
   vitalSigns: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
@@ -364,7 +368,7 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
  * Finalizes an existing consultation after laboratory results are ready.
  * Updates the SAME MedicalRecord and optionally creates the final prescription.
  */
-router.put('/:id/finalize', authenticate, checkRoles('DOCTOR'), validate(z.object({
+router.put('/:id/finalize', authenticate, clinicalMutationLimiter, checkRoles('DOCTOR'), validate(z.object({
   diagnosis: z.string().trim().min(1).max(5000),
   treatment: z.string().max(5000).optional(),
   clinicalNotes: z.string().max(10000).optional(),
@@ -611,7 +615,7 @@ router.put('/:id/finalize', authenticate, checkRoles('DOCTOR'), validate(z.objec
  * Break-the-Glass Emergency Access Override.
  * Logs a CRITICAL bypass entry allowing 2-hour decryption authorization.
  */
-router.post('/bypass', authenticate, checkRoles('DOCTOR'), async (req, res) => {
+router.post('/bypass', authenticate, clinicalMutationLimiter, checkRoles('DOCTOR'), async (req, res) => {
   const { patientId, justification } = req.body;
 
   if (!patientId || !justification || justification.length < 20) {
@@ -672,6 +676,7 @@ router.get(
   allowRoles(ROLES.PHARMACIST),
   async (req, res) => {
     try {
+      const page = parsePagination(req.query, { defaultPageSize: 50, maxPageSize: 100 });
       const items = await prisma.prescribedDrug.findMany({
         where: {
           pharmacyReviewStatus: 'PENDING_REVIEW',
@@ -692,16 +697,13 @@ router.get(
               prescriptionDate: true,
               status: true,
               doctorId: true,
-              patient: {
-                select: {
-                  id: true,
-                  fullNameAr: true,
-                  fullNameEn: true
-                }
-              }
+              patient: { select: queuePatientNameSelect },
+              doctor: { select: queueDoctorSelect }
             }
           }
-        }
+        },
+        orderBy: [{ prescription: { prescriptionDate: 'asc' } }, { id: 'asc' }],
+        skip: page.skip, take: page.take + 1
       });
 
       const queue = items
@@ -709,11 +711,6 @@ router.get(
           (item) =>
             typeof item.customDrugName === 'string' &&
             item.customDrugName.trim().length > 0
-        )
-        .sort(
-          (a, b) =>
-            new Date(a.prescription.prescriptionDate) -
-            new Date(b.prescription.prescriptionDate)
         )
         .map((item) => ({
           id: item.id,
@@ -757,7 +754,8 @@ router.get(
             item.pharmacyReviewNote
         }));
 
-      return res.json(queue);
+      const hasMore = items.length > page.take;
+      return paginationHeaders(res, { ...page, hasMore }).json(queue.slice(0, page.take));
     } catch (error) {
       console.error(
         'Fetch pending medication reviews error:',
@@ -1379,21 +1377,22 @@ router.post(
  */
 router.get('/prescriptions/pending', authenticate, allowRoles(ROLES.PHARMACIST), async (req, res) => {
   try {
+    const page = parsePagination(req.query, { defaultPageSize: 50, maxPageSize: 100 });
     const prescriptions = await prisma.prescription.findMany({
       where: {
         status: { in: ['ACTIVE', 'PARTIALLY_FILLED'] }
       },
-      include: {
-        patient: true,
-        doctor: true,
+      select: {
+        id: true, patientId: true, doctorId: true, prescriptionDate: true, status: true,
+        patient: { select: queuePatientNameSelect },
+        doctor: { select: queueDoctorSelect },
         prescribedDrugs: {
-          include: {
-            drug: {
-              include: {
-                inventoryBatches: true
-              }
+          select: {
+            id: true, drugId: true, customDrugName: true, dosage: true, duration: true,
+            instructionsAr: true, instructionsEn: true, qtyPrescribed: true, qtyDispensed: true,
+            pharmacyReviewStatus: true, pharmacyReviewNote: true,
+            drug: { select: { id: true, labelAr: true, labelEn: true, genericName: true, strength: true, dosageForm: true } }
             }
-          }
         },
         invoices: {
           where: {
@@ -1411,15 +1410,23 @@ router.get('/prescriptions/pending', authenticate, allowRoles(ROLES.PHARMACIST),
           take: 1
         }
       },
-      orderBy: { prescriptionDate: 'desc' }
+      orderBy: [{ prescriptionDate: 'desc' }, { id: 'asc' }], skip: page.skip, take: page.take + 1
     });
-
-    return res.json(
-      prescriptions.map(({ invoices, ...prescription }) => ({
+    const hasMore = prescriptions.length > page.take;
+    const items = prescriptions.slice(0, page.take);
+    const drugIds = [...new Set(items.flatMap((rx) => rx.prescribedDrugs.map((drug) => drug.drugId).filter(Boolean)))];
+    const stock = drugIds.length ? await prisma.inventoryBatch.groupBy({
+      by: ['drugId'], where: { drugId: { in: drugIds }, qtyOnHand: { gt: 0 }, expiryDate: { gte: getClinicDateString() } }, _sum: { qtyOnHand: true }
+    }) : [];
+    const availableByDrug = new Map(stock.map((row) => [row.drugId, row._sum.qtyOnHand || 0]));
+    const response = items.map(({ invoices, ...prescription }) => ({
         ...prescription,
+        prescribedDrugs: prescription.prescribedDrugs.map((item) => ({
+          ...item, ...(item.drug ? { drug: { ...item.drug, usableStock: availableByDrug.get(item.drug.id) || 0 } } : {})
+        })),
         billingStatus: invoices[0]?.paymentStatus || 'UNBILLED'
-      }))
-    );
+      }));
+    return paginationHeaders(res, { ...page, hasMore }).json(response);
   } catch (error) {
     console.error('Fetch pending prescriptions error:', error);
     return res.status(500).json({ error: 'Failed to retrieve pending prescriptions.' });
@@ -1560,7 +1567,7 @@ router.post('/prescribed-drugs/:id/unavailable', authenticate, allowRoles(ROLES.
  * POST /api/records/prescriptions/:id/dispense
  * Fills or partially fills a prescription. Updates inventory levels.
  */
-router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMACIST), validate(z.object({
+router.post('/prescriptions/:id/dispense', authenticate, clinicalMutationLimiter, allowRoles(ROLES.PHARMACIST), validate(z.object({
   items: z.array(z.object({
     prescribedDrugId: z.string().uuid(),
     qtyToDispense: z.coerce.number().int().positive()
@@ -1905,6 +1912,7 @@ router.post('/lab-order-items/:id/review', authenticate, allowRoles(ROLES.LAB_TE
 
 router.get('/lab-orders/pending', authenticate, allowRoles(ROLES.LAB_TECH), async (req, res) => {
   try {
+    const page = parsePagination(req.query, { defaultPageSize: 50, maxPageSize: 100 });
     const orders = await prisma.labOrder.findMany({
       // PENDING_BILLING remains visible to preserve the existing workflow until
       // invoices are explicitly linked to lab orders in a later forward migration.
@@ -1914,18 +1922,23 @@ router.get('/lab-orders/pending', authenticate, allowRoles(ROLES.LAB_TECH), asyn
           { status: 'COMPLETED', releasedToPatientAt: null }
         ]
       },
-      include: {
-        patient: true,
-        doctor: true,
+      select: {
+        id: true, patientId: true, doctorId: true, orderDate: true, status: true,
+        releasedToPatientAt: true,
+        patient: { select: { ...queuePatientNameSelect, fileNumber: true } },
+        doctor: { select: queueDoctorSelect },
         items: {
-          include: {
-            service: true
+          select: {
+            id: true, customTestName: true, labReviewStatus: true,
+            resultValue: true, resultVersion: true,
+            service: { select: { id: true, labelAr: true, labelEn: true } }
           }
         }
       },
-      orderBy: { orderDate: 'desc' }
+      orderBy: [{ orderDate: 'desc' }, { id: 'asc' }], skip: page.skip, take: page.take + 1
     });
-    return res.json(orders);
+    const hasMore = orders.length > page.take;
+    return paginationHeaders(res, { ...page, hasMore }).json(orders.slice(0, page.take));
   } catch (error) {
     console.error('Fetch pending lab orders error:', error);
     return res.status(500).json({ error: 'Failed to retrieve pending lab orders.' });
@@ -1980,7 +1993,7 @@ router.get('/lab-orders/history', authenticate, allowRoles(ROLES.LAB_TECH), asyn
  * PUT /api/records/lab-orders/:id/collect-sample
  * Allows the laboratory to collect/process a sample only after full payment.
  */
-router.put('/lab-orders/:id/collect-sample', authenticate, allowRoles(ROLES.LAB_TECH), async (req, res) => {
+router.put('/lab-orders/:id/collect-sample', authenticate, clinicalMutationLimiter, allowRoles(ROLES.LAB_TECH), async (req, res) => {
   const orderId = req.params.id;
 
   try {
@@ -2103,7 +2116,7 @@ router.put('/lab-orders/:id/collect-sample', authenticate, allowRoles(ROLES.LAB_
  * PUT /api/records/lab-orders/items/:id/results
  * Logs structured results and updates completed status.
  */
-router.put('/lab-orders/items/:id/results', authenticate, allowRoles(ROLES.LAB_TECH), validate(z.object({
+router.put('/lab-orders/items/:id/results', authenticate, clinicalMutationLimiter, allowRoles(ROLES.LAB_TECH), validate(z.object({
   expectedVersion: z.number().int().nonnegative().safe(),
   resultValue: z.string().trim().min(1).max(2000), referenceRangeMin: z.coerce.number().optional(),
   referenceRangeMax: z.coerce.number().optional(), isOutOfRange: z.boolean().optional(), fileAttachmentPath: z.string().max(300).optional()
@@ -2281,7 +2294,7 @@ router.put('/lab-orders/items/:id/results', authenticate, allowRoles(ROLES.LAB_T
   }
 });
 
-router.put('/lab-orders/:id/release', authenticate, allowRoles(ROLES.LAB_TECH), async (req, res) => {
+router.put('/lab-orders/:id/release', authenticate, clinicalMutationLimiter, allowRoles(ROLES.LAB_TECH), async (req, res) => {
   try {
     const result = await prisma.$transaction(async (tx) => {
       const locked = await tx.$queryRaw`SELECT "id" FROM "LabOrder" WHERE "id" = ${req.params.id} FOR UPDATE`;

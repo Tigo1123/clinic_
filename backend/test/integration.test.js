@@ -34,7 +34,8 @@ import {
   corsMiddleware,
   createAdminResetLimiter,
   createLoginLimiter,
-  securityHeadersMiddleware
+  securityHeadersMiddleware,
+  resetTestRateLimiters
 } from '../src/utils/edgeSecurity.js';
 import {
   consumeMfaChallenge,
@@ -61,12 +62,14 @@ const walkInClockOriginalTZ = process.env.TZ;
 let walkInClockActive = false;
 let walkInClockRealStart = 0;
 const WALK_IN_FROZEN_INSTANT = Date.parse('2026-09-15T06:00:00.000Z');
-afterEach(() => {
-  if (!walkInClockActive) return;
-  Date.now = walkInClockOriginalNow;
-  if (walkInClockOriginalTZ === undefined) delete process.env.TZ;
-  else process.env.TZ = walkInClockOriginalTZ;
-  walkInClockActive = false;
+afterEach(async () => {
+  if (walkInClockActive) {
+    Date.now = walkInClockOriginalNow;
+    if (walkInClockOriginalTZ === undefined) delete process.env.TZ;
+    else process.env.TZ = walkInClockOriginalTZ;
+    walkInClockActive = false;
+  }
+  await resetTestRateLimiters();
 });
 
 function structuredPatientName(label = 'Patient') {
@@ -2943,7 +2946,7 @@ test('production environment validation rejects insecure secrets and wildcard CO
 
 test('production environment requires a valid explicit clinic IANA timezone', () => {
   const previous = { ...process.env };
-  const secure = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://clinic.invalid/clinic', JWT_SECRET: 'a-secure-jwt-secret-that-is-longer-than-32', MEDICAL_ENCRYPTION_KEY: 'a-distinct-medical-key-that-is-over-32-chars', MFA_ENCRYPTION_KEY: 'a-third-distinct-mfa-key-that-is-over-32-chars', CORS_ALLOWED_ORIGINS: 'https://clinic.example', VERIFICATION_PROVIDER: 'disabled' };
+  const secure = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://test:never-connect@ep-test-pooler.us-east-1.aws.neon.tech/neondb?schema=public&sslmode=verify-full&connection_limit=5&pool_timeout=10', SOCKET_REVOCATION_DATABASE_URL: 'postgresql://test:never-connect@ep-test.us-east-1.aws.neon.tech/neondb?schema=public&sslmode=verify-full', TRUST_PROXY_HOPS: '1', RATE_LIMIT_STORE: 'postgres', RUNTIME_DATABASE_ROLE: 'clinic_runtime', JWT_SECRET: 'a-secure-jwt-secret-that-is-longer-than-32', MEDICAL_ENCRYPTION_KEY: 'a-distinct-medical-key-that-is-over-32-chars', MFA_ENCRYPTION_KEY: 'a-third-distinct-mfa-key-that-is-over-32-chars', CORS_ALLOWED_ORIGINS: 'https://clinic.example', VERIFICATION_PROVIDER: 'disabled' };
   try {
     Object.assign(process.env, secure);
     delete process.env.CLINIC_TIME_ZONE;
@@ -3002,8 +3005,10 @@ test('production CORS accepts canonical HTTPS origins and rejects malformed valu
   const previous = { ...process.env };
   const secure = {
     NODE_ENV: 'production',
-    DATABASE_URL: 'postgresql://clinic.invalid/clinic',
-    SOCKET_REVOCATION_DATABASE_URL: 'postgresql://clinic.invalid/clinic',
+    DATABASE_URL: 'postgresql://test:never-connect@ep-test-pooler.us-east-1.aws.neon.tech/neondb?schema=public&sslmode=verify-full&connection_limit=5&pool_timeout=10',
+    SOCKET_REVOCATION_DATABASE_URL: 'postgresql://test:never-connect@ep-test.us-east-1.aws.neon.tech/neondb?schema=public&sslmode=verify-full',
+    TRUST_PROXY_HOPS: '1', RATE_LIMIT_STORE: 'postgres',
+    RUNTIME_DATABASE_ROLE: 'clinic_runtime',
     JWT_SECRET: 'a-secure-jwt-secret-that-is-longer-than-32',
     MEDICAL_ENCRYPTION_KEY: 'a-distinct-medical-key-that-is-over-32-chars',
     MFA_ENCRYPTION_KEY: 'a-third-distinct-mfa-key-that-is-over-32-characters',
@@ -5062,7 +5067,7 @@ test('custom lab tests wait for lab review and block reception billing until lin
     patientId: patient1.id, labOrderId: fixture.order.id, invoiceType: 'LABORATORY',
     items: [{ descriptionEn: 'untrusted', descriptionAr: 'untrusted', qty: 1, unitPriceSdg: 1 }]
   });
-  assert.equal(invoice.status, 201);
+  assert.equal(invoice.status, 201, JSON.stringify(invoice.body));
   assert.equal(Number(invoice.body.invoice.totalAmountSdg), Number(service.baseFeeSdg) * 2);
 });
 
@@ -9337,18 +9342,18 @@ test('email-only verification never auto-links an existing medical record', asyn
 });
 
 test('billing analytics groups dispensed medicines by identity and returns the top five', async () => {
-  const original = prisma.prescribedDrug.findMany;
-  const medicine = (id, brandName) => ({ id, brandName });
-  const rows = [
-    { id: 'rx-a1', drugId: 'drug-a', drug: medicine('drug-a', 'Same brand'), qtyDispensed: 8 },
-    { id: 'rx-a2', drugId: 'drug-a', drug: medicine('drug-a', 'Same brand'), qtyDispensed: 7 },
-    { id: 'rx-b', drugId: 'drug-b', drug: medicine('drug-b', 'Same brand'), qtyDispensed: 12 },
-    { id: 'rx-c', drugId: 'drug-c', drug: medicine('drug-c', 'Medicine C'), qtyDispensed: 10 },
-    { id: 'rx-d', drugId: 'drug-d', drug: medicine('drug-d', 'Medicine D'), qtyDispensed: 9 },
-    { id: 'rx-e', drugId: 'drug-e', drug: medicine('drug-e', 'Medicine E'), qtyDispensed: 6 },
-    { id: 'rx-f', drugId: 'drug-f', drug: medicine('drug-f', 'Medicine F'), qtyDispensed: 2 }
+  const originalGroupBy = prisma.prescribedDrug.groupBy;
+  const originalDrugs = prisma.drugFormulary.findMany;
+  const linked = [
+    { drugId: 'drug-a', _sum: { qtyDispensed: 15 } },
+    { drugId: 'drug-b', _sum: { qtyDispensed: 12 } },
+    { drugId: 'drug-c', _sum: { qtyDispensed: 10 } },
+    { drugId: 'drug-d', _sum: { qtyDispensed: 9 } },
+    { drugId: 'drug-e', _sum: { qtyDispensed: 6 } }
   ];
-  prisma.prescribedDrug.findMany = async () => rows;
+  const names = new Map([['drug-a', 'Same brand'], ['drug-b', 'Same brand'], ['drug-c', 'Medicine C'], ['drug-d', 'Medicine D'], ['drug-e', 'Medicine E']]);
+  prisma.prescribedDrug.groupBy = async ({ by }) => by.includes('drugId') ? linked : [];
+  prisma.drugFormulary.findMany = async ({ where }) => where.id.in.map((id) => ({ id, brandName: names.get(id) }));
   try {
     const response = await api.get('/api/billing/analytics').set(auth('admin'));
     assert.equal(response.status, 200);
@@ -9360,17 +9365,21 @@ test('billing analytics groups dispensed medicines by identity and returns the t
       { name: 'Medicine E', qty: 6 }
     ]);
   } finally {
-    prisma.prescribedDrug.findMany = original;
+    prisma.prescribedDrug.groupBy = originalGroupBy;
+    prisma.drugFormulary.findMany = originalDrugs;
   }
 });
 
 test('billing analytics handles absent medicine relations without merging custom entries', async () => {
-  const original = prisma.prescribedDrug.findMany;
-  prisma.prescribedDrug.findMany = async () => [
-    { id: 'custom-a', drugId: null, drug: null, customDrugName: 'Custom medicine', qtyDispensed: 4 },
-    { id: 'custom-b', drugId: null, drug: null, customDrugName: 'Custom medicine', qtyDispensed: 3 },
-    { id: 'fallback', drugId: 'drug-label', drug: { id: 'drug-label', brandName: '', labelEn: 'English label' }, qtyDispensed: 2 }
-  ];
+  const originalGroupBy = prisma.prescribedDrug.groupBy;
+  const originalDrugs = prisma.drugFormulary.findMany;
+  prisma.prescribedDrug.groupBy = async ({ by }) => by.includes('drugId')
+    ? [{ drugId: 'drug-label', _sum: { qtyDispensed: 2 } }]
+    : [
+      { id: 'custom-a', customDrugName: 'Custom medicine', _sum: { qtyDispensed: 4 } },
+      { id: 'custom-b', customDrugName: 'Custom medicine', _sum: { qtyDispensed: 3 } }
+    ];
+  prisma.drugFormulary.findMany = async () => [{ id: 'drug-label', brandName: '', labelEn: 'English label' }];
   try {
     const response = await api.get('/api/billing/analytics').set(auth('admin'));
     assert.equal(response.status, 200);
@@ -9380,6 +9389,7 @@ test('billing analytics handles absent medicine relations without merging custom
       { name: 'English label', qty: 2 }
     ]);
   } finally {
-    prisma.prescribedDrug.findMany = original;
+    prisma.prescribedDrug.groupBy = originalGroupBy;
+    prisma.drugFormulary.findMany = originalDrugs;
   }
 });

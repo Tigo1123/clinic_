@@ -95,7 +95,8 @@ test('foreign key prevents direct deletion from silently unlinking an assigned d
   const specialty = await createSpecialty();
   const doctor = await prisma.doctor.findFirst({ where: { fullNameEn: 'Deletion Safety' } });
   await prisma.doctor.update({ where: { id: doctor.id }, data: { specialtyId: specialty.id } });
-  await assert.rejects(prisma.specialty.delete({ where: { id: specialty.id } }), { code: 'P2003' });
+  await assert.rejects(prisma.specialty.delete({ where: { id: specialty.id } }), (error) =>
+    error.code === 'P2003' || error.meta?.code === '23001' || /PostgresError \{ code: "23001"/.test(error.message));
   assert.equal((await prisma.doctor.findUnique({ where: { id: doctor.id } })).specialtyId, specialty.id);
 });
 

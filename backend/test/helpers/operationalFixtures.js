@@ -6,7 +6,7 @@ import { REFERENCE_BOOTSTRAP_STATES } from '../../src/services/referenceBootstra
 import { buildMedicineIdentityKey } from '../../src/utils/medicineManagement.js';
 if(process.env.NODE_ENV!=='test')throw Error('Test-only fixture refused');
 const schema=new URL(process.env.DATABASE_URL).searchParams.get('schema');
-const isolated = isolatedDatabaseUrl(process.env.DATABASE_URL,schema);
+const isolated = isolatedDatabaseUrl(process.env.DATABASE_URL,schema,process.env.TEST_DATABASE_PORT || '5433');
 if(process.env.DATABASE_URL !== isolated || process.env.DIRECT_URL !== isolated || process.env.TEST_DATABASE_URL !== isolated) throw Error('Fixture URLs must all point to the same isolated test schema');
 const p=new PrismaClient();
 try {

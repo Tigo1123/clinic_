@@ -24,7 +24,7 @@ await writeFile(file, (await transformWithOxc(source, 'ClinicSetupPanel.jsx', { 
 let Panel;
 try { Panel = (await import(file.href)).default; } finally { await unlink(file); }
 let root;
-const reply = (data, ok = true) => ({ ok, json: async () => data });
+const reply = (data, ok = true) => ({ ok, headers: { get: (key) => key === 'X-Total-Count' ? String(Array.isArray(data) ? data.length : data.total || 0) : 'false' }, json: async () => data });
 async function mount(lang = 'en', initialTab = 'doctors', handler = () => reply([])) {
   globalThis.setupTestRequest = handler;
   root = createRoot(document.getElementById('root'));
@@ -136,4 +136,21 @@ test('doctor edit uses the profile API, preserves account secrets, and opens tha
   assert.equal(writes[0].payload.specialtyId, 'specialty-fixture');
   assert.equal(writes[0].payload.password, undefined);
   assert.equal(writes[0].payload.username, undefined);
+});
+
+test('doctor configuration reaches doctor 61 through bounded server pages', async () => {
+  const doctors = Array.from({ length: 61 }, (_, i) => ({ id: `doctor-${i + 1}`, fullNameEn: `Paging doctor ${i + 1}`, status: 'ACTIVE', account: { status: 'ACTIVE' } }));
+  const pages = [];
+  await mount('en', 'doctors', (url) => {
+    if (url === '/api/specialties') return reply([]);
+    const params = new URL(url, 'https://example.invalid').searchParams;
+    const page = Number(params.get('page')); pages.push(page);
+    assert.equal(params.get('pageSize'), '12');
+    const response = reply(doctors.slice((page - 1) * 12, page * 12));
+    response.headers.get = () => String(doctors.length);
+    return response;
+  });
+  for (let i = 0; i < 5; i++) await clickText('Next');
+  assert.match(document.querySelector('.clinic-setup-panel').textContent, /Paging doctor 61/);
+  assert.deepEqual(pages, [1, 2, 3, 4, 5, 6]);
 });

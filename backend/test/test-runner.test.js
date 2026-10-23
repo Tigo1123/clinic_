@@ -38,6 +38,11 @@ test('database target is restricted and pg/Prisma use the same isolated search p
   assert.throws(() => isolatedDatabaseUrl(target, 'test_fixture'), /clinic-test-db/);
  }
  assert.throws(() => isolatedDatabaseUrl('postgresql://localhost:5433/clinic_test', 'public'), /schema/);
+ const explicitLocalPort = new URL(isolatedDatabaseUrl('postgresql://127.0.0.1:55439/clinic_test', 'test_fixture', '55439'));
+ assert.equal(explicitLocalPort.port, '55439');
+ assert.throws(() => isolatedDatabaseUrl('postgresql://remote.example:55439/clinic_test', 'test_fixture', '55439'), /clinic-test-db/);
+ assert.throws(() => isolatedDatabaseUrl('postgresql://localhost:55439/clinic', 'test_fixture', '55439'), /clinic-test-db/);
+ assert.throws(() => isolatedDatabaseUrl('postgresql://localhost:55439/clinic_test', 'test_fixture', '5433'), /clinic-test-db/);
 });
 test('real child failures, signals, and spawn errors propagate', () => {
  assert.throws(() => runStep(['-e', 'process.exit(7)'], { output: sink }), e => e.exitCode === 7);
@@ -76,3 +81,25 @@ test('test failure remains nonzero while every selected file runs sequentially i
 test('TAP counts preserve skips and cancellation separately', () => {
  assert.deepEqual(tapCounts('# tests 5\n# pass 2\n# fail 1\n# cancelled 1\n# skipped 1\n# todo 0\n'), { tests: 5, pass: 2, fail: 1, cancelled: 1, skipped: 1, todo: 0 });
 });
+test('test schemas are cleaned only when explicitly enabled and cleanup remains confined to generated schema names', () => fixture(base => {
+ const reportPath = path.join(base, 'cleanup-report.json');
+ const commands = [];
+ const result = runTests(['test/access-token.test.js'], {
+  environment: {
+   TEST_DATABASE_URL: 'postgresql://localhost:5433/clinic_test',
+   TEST_CLEANUP_SCHEMAS: 'true',
+   TEST_REPORT_PATH: reportPath
+  },
+  spawn: (_command, args) => {
+   commands.push(args);
+   if (args[0] === '--test') return { status: 0, stdout: '# tests 1\n# pass 1\n# fail 0\n# skipped 0\n' };
+   return { status: 0 };
+  },
+  output: sink
+ });
+ const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+ assert.equal(result, 0);
+ assert.equal(report.files[0].schemaCleaned, true);
+ assert.match(commands.at(-1).at(-1), /DROP SCHEMA IF EXISTS/);
+ assert.match(commands.at(-1).at(-1), /schedule_workflow/);
+}));

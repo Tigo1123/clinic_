@@ -126,21 +126,7 @@ test('StrictMode gate replacement rejects obsolete success and error from the ol
   assert.deepEqual(reverseState, { status: 'COMPLETED', resultVersion: 5 });
 });
 
-test('queue fetch captures one gate identity for success, error, and effect cleanup', () => {
-  const fetchBlock = laboratory.slice(
-    laboratory.indexOf('const fetchPendingLabOrders'),
-    laboratory.indexOf('useEffect(() =>')
-  );
-  assert.match(fetchBlock, /const gate = queueRequestGateRef\.current;/);
-  assert.match(fetchBlock, /const generation = gate\.begin\(\);/);
-  assert.equal((fetchBlock.match(/gate\.isCurrent\(generation\)/g) || []).length, 2);
-  assert.doesNotMatch(fetchBlock, /queueRequestGateRef\.current\.isCurrent/);
-
-  const effectBlock = laboratory.slice(
-    laboratory.indexOf('useEffect(() =>'),
-    laboratory.indexOf('const fetchReviewRequests')
-  );
-  assert.match(effectBlock, /const gate = createLatestRequestGate\(\);/);
-  assert.match(effectBlock, /queueRequestGateRef\.current = gate;/);
-  assert.match(effectBlock, /return \(\) => gate\.invalidate\(\);/);
+test('laboratory paging uses the shared stale-response guard and monotonic reconciliation', () => {
+  assert.match(laboratory, /useStaffPagedList\('\/api\/records\/lab-orders\/pending', mergeLabOrdersMonotonically\)/);
+  assert.match(laboratory, /<StaffListPaging list=\{orderList\}/);
 });

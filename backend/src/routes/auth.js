@@ -7,12 +7,13 @@ import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { sendError } from '../utils/apiError.js';
 import { normalizeEmail, normalizePhone } from '../utils/identity.js';
-import { rateLimits } from '../config.js';
+import { rateLimits, staffMfaRequired } from '../config.js';
 import { logger } from '../utils/logger.js';
-import { signAccessToken } from '../services/accessTokens.js';
+import { signAccessToken, signMfaEnrollmentToken } from '../services/accessTokens.js';
 import { consumeTotp, createMfaChallenge, MfaError } from '../services/mfa.js';
 import { passwordSchema } from '../utils/passwordPolicy.js';
-import { createAdminResetLimiter, createLoginLimiter, markSensitiveResponse } from '../utils/edgeSecurity.js';
+import { createAdminResetLimiter, createAuthenticatedMutationLimiter, createLoginLimiter, markSensitiveResponse } from '../utils/edgeSecurity.js';
+import { paginationHeaders, parsePagination } from '../utils/pagination.js';
 import { clinicDayBounds } from '../utils/clinicTime.js';
 
 const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
@@ -75,6 +76,7 @@ const passwordChangeSchema = z.object({ currentPassword: z.string().min(1).max(2
 
 const loginLimiter = createLoginLimiter({ windowMs: rateLimits.windowMs, limit: rateLimits.login });
 const adminResetLimiter = createAdminResetLimiter({ windowMs: rateLimits.windowMs, limit: rateLimits.adminReset });
+const securityMutationLimiter = createAuthenticatedMutationLimiter({ prefix: 'staff-account-mutations', limit: 30 });
 
 const auditLogQuerySchema = z.object({
   search: z.string().trim().max(120).optional().default(''),
@@ -238,6 +240,12 @@ router.post('/login', loginLimiter, validate(z.object({
           challengeToken: challenge.token,
           expiresAt: challenge.expiresAt
         });
+      }
+
+      if (staffMfaRequired()) {
+        const enrollmentToken = signMfaEnrollmentToken({ id: user.id, role: user.role, authVersion: user.authVersion });
+        logger.security('auth.mfa_enrollment_required', { requestId: req.id, userId: user.id, role: user.role, ip: req.ip });
+        return markSensitiveResponse(res).json({ mfaEnrollmentRequired: true, enrollmentToken, expiresInSeconds: 600 });
       }
     }
 
@@ -446,6 +454,7 @@ router.get('/audit-logs', authenticate, checkRoles('ADMIN'), validate(auditLogQu
  */
 router.get('/users', authenticate, checkRoles('ADMIN'), async (req, res) => {
   try {
+    const page = parsePagination(req.query, { defaultPageSize: 50, maxPageSize: 100 });
     const users = await prisma.user.findMany({
       where: { role: { in: STAFF_ROLES } },
       select: {
@@ -456,9 +465,10 @@ router.get('/users', authenticate, checkRoles('ADMIN'), async (req, res) => {
         preferredLanguage: true,
         createdAt: true
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip: page.skip, take: page.take + 1
     });
-    return res.json(users);
+    const hasMore = users.length > page.take;
+    return paginationHeaders(res, { ...page, hasMore }).json(users.slice(0, page.take));
   } catch (error) {
     console.error('Fetch staff users error:', error);
     return res.status(500).json({ error: 'Failed to retrieve staff users.' });
@@ -469,7 +479,7 @@ router.get('/users', authenticate, checkRoles('ADMIN'), async (req, res) => {
  * POST /api/auth/users
  * Registers a new staff member. Only accessible by ADMIN.
  */
-router.post('/users', authenticate, checkRoles('ADMIN'), validate(staffCreationSchema), async (req, res) => {
+router.post('/users', authenticate, securityMutationLimiter, checkRoles('ADMIN'), validate(staffCreationSchema), async (req, res) => {
   const { password, role, preferredLanguage } = req.body;
   const username = normalizeEmail(req.body.username);
 
@@ -732,7 +742,7 @@ router.post('/users/:id/reset-password', authenticate, checkRoles('ADMIN'), admi
  * Ends every active session for a user without modifying credentials, status,
  * or role. Self-revocation is deliberately left to the account logout route.
  */
-router.post('/users/:id/revoke-sessions', authenticate, checkRoles('ADMIN'), async (req, res, next) => {
+router.post('/users/:id/revoke-sessions', authenticate, securityMutationLimiter, checkRoles('ADMIN'), async (req, res, next) => {
   if (req.params.id === req.user.id) {
     return sendError(res, 409, 'ADMIN_SELF_SESSION_REVOCATION_UNSUPPORTED', 'Use logout to sign out your own sessions.');
   }
@@ -786,7 +796,7 @@ router.post('/users/:id/revoke-sessions', authenticate, checkRoles('ADMIN'), asy
  * PUT /api/auth/users/:id/status
  * Toggles status of a staff member. Only accessible by ADMIN.
  */
-router.put('/users/:id/status', authenticate, checkRoles('ADMIN'), validate(z.object({ status: z.enum(['ACTIVE', 'INACTIVE']) })), async (req, res) => {
+router.put('/users/:id/status', authenticate, securityMutationLimiter, checkRoles('ADMIN'), validate(z.object({ status: z.enum(['ACTIVE', 'INACTIVE']) })), async (req, res) => {
   const { status } = req.body;
   try {
     const updated = await prisma.$transaction(async (tx) => {

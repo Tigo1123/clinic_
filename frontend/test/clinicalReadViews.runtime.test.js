@@ -1,3 +1,4 @@
+import { pagingReplacements } from './helpers/staffPagingHarness.js';
 import test, { afterEach, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, unlink, writeFile } from 'node:fs/promises';
@@ -19,6 +20,7 @@ globalThis.staffSocketMock = { on() {}, off() {} };
 
 async function compileComponent(relativePath, replacements) {
   let source = await readFile(new URL(relativePath, import.meta.url), 'utf8');
+  if (relativePath.includes('DoctorDashboard')) source = await pagingReplacements(source, 'doctorFetch', 'doctorPaging');
   for (const [pattern, replacement] of replacements) source = source.replace(pattern, replacement);
   source = source.replace(/import\s+\{([^}]+)\}\s+from 'lucide-react';/, (_match, names) => names.split(',').map((name) => `const ${name.trim()} = globalThis.clinicalIcon;`).join('\n'));
   source = source.replace(/import\s+['"][^'"]+\.css['"];?/g, '');
@@ -55,7 +57,7 @@ let modalRequests;
 const reply = (data, { ok = true, status = 200 } = {}) => ({
   ok,
   status,
-  headers: { get: () => 'application/json' },
+  headers: { get: (name) => name.toLowerCase() === 'content-type' ? 'application/json' : 'false' },
   json: async () => data,
   text: async () => JSON.stringify(data)
 });
@@ -296,4 +298,26 @@ test('summary ignores a delayed A response after B has become current', async ()
   await act(async () => a.resolve(reply(summaryResponse('A'))));
   assert.match(document.body.textContent, /Synthetic Summary B/);
   assert.doesNotMatch(document.body.textContent, /Synthetic Summary A|Synthetic diagnosis A/);
+});
+
+test('doctor can load and select appointment 51 without an unbounded queue request', async () => {
+  const rows = Array.from({ length: 55 }, (_, i) => appointment(String(i + 1)));
+  globalThis.doctorFetch = async (url, options = {}) => {
+    doctorRequests.push({ url, options });
+    if (url.startsWith('/api/appointments/queue/')) {
+      const query = new URL(url, 'https://example.invalid').searchParams;
+      const page = Number(query.get('page'));
+      assert.equal(query.get('pageSize'), '50');
+      const response = reply(rows.slice((page - 1) * 50, page * 50));
+      response.headers.get = (key) => key === 'X-Has-More' && page === 1 ? 'true' : 'false';
+      return response;
+    }
+    if (url === '/api/records/visit-51/summary') return jsonResponse(clinicalSummary('51'));
+    return jsonResponse(url === '/api/records/drugs' ? [] : { history: [] });
+  };
+  await render(h(doctorModule.default, { user: { doctorId: 'doctor-synthetic' }, lang: 'en', t: (key) => key }));
+  assert.doesNotMatch(document.body.textContent, /Synthetic Patient 51/);
+  await clickButton('Load more');
+  await clickButton('Synthetic Patient 51');
+  assert.equal(document.querySelector('#doctor-diagnosis').value, 'Synthetic diagnosis 51');
 });

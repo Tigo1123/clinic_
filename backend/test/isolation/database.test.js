@@ -8,7 +8,7 @@ after(async () => prisma.$disconnect());
 
 test('Prisma, raw pg, revocation URL and subprocesses stay on the same isolated test schema', async () => {
  const url = new URL(process.env.DATABASE_URL);
- assert.equal(url.pathname, '/clinic_test'); assert.equal(url.port, '5433');
+ assert.equal(url.pathname, '/clinic_test'); assert.equal(url.port, process.env.TEST_DATABASE_PORT || '5433');
  const schema = url.searchParams.get('schema'); assert.match(schema, /^test_[a-z0-9_]+$/);
  assert.equal(process.env.SOCKET_REVOCATION_DATABASE_URL, process.env.DATABASE_URL);
  const user = await prisma.user.create({ data: { username: `isolation-${crypto.randomUUID()}`, passwordHash: 'unused-fixture-hash', role: 'ADMIN' } });

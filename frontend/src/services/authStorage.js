@@ -33,7 +33,14 @@ function readSession(storage, userKey, tokenKey, isExpectedUser) {
 }
 
 function writeSession(storage, userKey, tokenKey, user, token) {
-  storage.setItem(userKey, JSON.stringify(user));
+  const allowedUserFields = [
+    'id', 'username', 'role', 'preferredLanguage', 'mustChangePassword',
+    'doctorId', 'doctorName', 'patientLinked', 'patientId', 'mfaEnabled'
+  ];
+  const safeUser = Object.fromEntries(
+    allowedUserFields.filter((field) => Object.hasOwn(user, field)).map((field) => [field, user[field]])
+  );
+  storage.setItem(userKey, JSON.stringify(safeUser));
   storage.setItem(tokenKey, token);
 }
 

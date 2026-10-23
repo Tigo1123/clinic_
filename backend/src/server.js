@@ -27,6 +27,7 @@ import { logger } from './utils/logger.js';
 import { authenticateSocketAccessToken } from './middleware/auth.js';
 import { SocketRevocationService } from './services/socketRevocation.js';
 import { corsMiddleware, securityHeadersMiddleware } from './utils/edgeSecurity.js';
+import { recordHttpRequest, renderMetrics } from './utils/observability.js';
 
 // Load environment configuration
 dotenv.config();
@@ -72,13 +73,22 @@ io.on('connection', (socket) => {
 });
 
 app.disable('x-powered-by');
-app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : false);
+const trustedProxyHops = environment.production
+  ? environment.trustProxyHops
+  : environment.trustProxyHops || (process.env.TRUST_PROXY === 'true' ? 1 : false);
+app.set('trust proxy', trustedProxyHops);
 app.use(securityHeadersMiddleware(environment.production));
 app.use((req, res, next) => {
-  req.id = req.get('x-request-id') || crypto.randomUUID();
+  const suppliedRequestId = req.get('x-request-id');
+  req.id = suppliedRequestId && /^[A-Za-z0-9._-]{1,100}$/.test(suppliedRequestId) ? suppliedRequestId : crypto.randomUUID();
   res.setHeader('X-Request-ID', req.id);
   const startedAt = Date.now();
-  res.on('finish', () => logger.info('http.request', { requestId: req.id, method: req.method, path: req.path, status: res.statusCode, durationMs: Date.now() - startedAt, userId: req.user?.id }));
+  res.on('finish', () => {
+    const durationMs = Date.now() - startedAt;
+    const route = req.route?.path ? `${req.baseUrl}${req.route.path}` : 'unmatched';
+    recordHttpRequest({ method: req.method, route, status: res.statusCode, durationMs });
+    logger.info('http.request', { requestId: req.id, method: req.method, route, status: res.statusCode, durationMs, role: req.user?.role });
+  });
   next();
 });
 
@@ -94,12 +104,49 @@ app.get(['/api/health', '/api/health/ready'], async (req, res) => {
   try {
     // Basic DB ping to ensure connection works
     await prisma.$queryRaw`SELECT 1`;
+    const [identity] = await prisma.$queryRaw`
+      SELECT current_database() AS database, current_user AS role, current_schema() AS schema,
+        (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS superuser,
+        (SELECT rolcreaterole FROM pg_roles WHERE rolname = current_user) AS can_create_roles,
+        (SELECT rolcreatedb FROM pg_roles WHERE rolname = current_user) AS can_create_databases,
+        CASE WHEN to_regclass('public."RateLimitBucket"') IS NULL THEN false
+          ELSE has_table_privilege(current_user, to_regclass('public."RateLimitBucket"'), 'SELECT,INSERT,UPDATE,DELETE') END AS limiter_table_access
+    `;
+    if (environment.production && (!identity?.limiter_table_access
+      || identity.database !== 'neondb' || identity.schema !== 'public'
+      || identity.role !== environment.runtimeDatabaseRole
+      || identity.superuser || identity.can_create_roles || identity.can_create_databases)) {
+      return res.status(503).json({ status: 'unhealthy', dependency: 'production_database_identity_or_limiter' });
+    }
     if (!socketRevocation.isReady()) return res.status(503).json({ status: 'unhealthy' });
     return res.json({ status: 'healthy' });
   } catch (error) {
-    logger.error('health.database_failed', { requestId: req.id, error });
+    logger.error('health.database_failed', { requestId: req.id, errorName: error?.name, errorCode: error?.code });
     return res.status(503).json({ status: 'unhealthy' });
   }
+});
+
+// Public, non-secret test marker. Operators configure this only on isolated targets.
+app.get('/api/health/load-test-target', (req, res) => {
+  const environment = process.env.DEPLOYMENT_ENV;
+  const targetId = process.env.LOAD_TEST_TARGET_ID;
+  res.set('Cache-Control', 'no-store');
+  if (!['local', 'staging'].includes(environment) || !/^[a-zA-Z0-9_-]{12,80}$/.test(targetId || '')) return res.sendStatus(404);
+  return res.json({ environment, targetId });
+});
+
+app.get('/api/health/metrics', (req, res) => {
+  const expected = process.env.METRICS_TOKEN;
+  if (!expected) return res.sendStatus(404);
+  const supplied = (req.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  const expectedBytes = Buffer.from(expected);
+  const suppliedBytes = Buffer.from(supplied);
+  const authorized = expectedBytes.length === suppliedBytes.length && expectedBytes.length > 0
+    && crypto.timingSafeEqual(expectedBytes, suppliedBytes);
+  if (!authorized) return res.sendStatus(404);
+  res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+  res.set('Cache-Control', 'no-store');
+  return res.send(renderMetrics());
 });
 
 app.get('/api/public-config', (req, res) => res.json({

@@ -5,7 +5,7 @@ import { Client } from 'pg';
 import { isolatedDatabaseUrl } from './helpers/testRunner.js';
 
 const sourceSchema = new URL(process.env.TEST_DATABASE_URL).searchParams.get('schema');
-const url = isolatedDatabaseUrl(process.env.TEST_DATABASE_URL, sourceSchema);
+const url = isolatedDatabaseUrl(process.env.TEST_DATABASE_URL, sourceSchema, process.env.TEST_DATABASE_PORT || '5433');
 if (url !== process.env.DATABASE_URL || url !== process.env.DIRECT_URL) throw new Error('Isolated test URLs required');
 const schema = `test_release_reference_${process.pid}_${Date.now()}`;
 const client = new Client({ connectionString: url });

@@ -15,7 +15,7 @@ source = source
   .replace(/import PasswordField[^;]+;/, 'const PasswordField = ({label,value,onChange,name,autoComplete}) => <label>{label}<input name={name} aria-label={label} value={value} onChange={onChange} type="password" autoComplete={autoComplete}/></label>;')
   .replace(/import \{ clearPatientSession \}[^;]+;/, 'const clearPatientSession = () => {};')
   .replace(/import \{ useTranslation \}[^;]+;/, "const useTranslation = () => ({ t: key => key, i18n: { language: globalThis.portalTestLanguage || 'en' } });")
-  .replace(/import \{ patientApiRequest as apiRequest \}[^;]+;/, 'const apiRequest = (...args) => globalThis.portalTestApi(...args);')
+  .replace(/import \{ patientApiRequest as apiRequest, apiFetch \}[^;]+;/, 'const apiRequest = (...args) => globalThis.portalTestApi(...args); const apiFetch = async (...args) => { const data = await globalThis.portalTestApi(...args); return {ok:true,headers:{get:()=>globalThis.portalTestHasMore?.(args[0]) || "false"},json:async()=>data}; };')
   .replace(/import StatusBadge[^;]+;/, 'const StatusBadge = ({status}) => <span>{status}</span>;')
   .replace(/import \{ GoogleIdentityButton \}[^;]+;/, 'const GoogleIdentityButton = () => null;')
   .replace(/import Dialog[^;]+;/, 'const Dialog = ({open, children, onClose}) => open ? <section role="dialog">{children}<button onClick={onClose}>Close dialog</button></section> : null;')
@@ -67,7 +67,7 @@ test('booking discards late slot responses, clears old selections, and blocks su
 
 test('closing a loading record does not reopen it when its response arrives', async () => {
   const detail = deferred();
-  globalThis.portalTestApi = path => path.endsWith('/medical-records')
+  globalThis.portalTestApi = path => path.includes('/medical-records?') || path.endsWith('/medical-records')
     ? Promise.resolve([{ id: 'record-fixture', visitDate: '2026-10-01', doctor: {}, diagnosis: 'Follow-up' }])
     : detail.promise;
   await mount(pages.MedicalRecords);
@@ -104,7 +104,7 @@ test('prescriptions display custom medicines without a formulary object', async 
 });
 
 test('record details preserve zero values and zero reference-range bounds', async () => {
-  globalThis.portalTestApi = async path => path.endsWith('/medical-records')
+  globalThis.portalTestApi = async path => path.includes('/medical-records?') || path.endsWith('/medical-records')
     ? [{ id: 'zero-record', visitDate: '2026-10-01', doctor: {} }]
     : { id: 'zero-record', visitDate: '2026-10-01', doctor: {}, vitalSigns: { temperature: 0 }, prescriptions: [], releasedLabResults: [{ id: 'zero-result', testNameEn: 'Zero result', resultValue: 0, referenceRangeMin: 0, referenceRangeMax: 100 }] };
   await mount(pages.MedicalRecords);
@@ -134,9 +134,10 @@ test('dashboard displays only the first name and disables booking when no doctor
 test('dashboard renders real activity and working booking links without inventing notifications', async () => {
   globalThis.portalTestApi = async path => {
     if (path.endsWith('/me')) return { fullNameEn: 'Tag Mohamed Ahmed' };
+    if (path.endsWith('/summary')) return { upcomingAppointments: 0, releasedLabResults: 4, prescriptions: 0, medicalRecords: 1 };
     if (path.endsWith('/doctors')) return [{ id: 'doctor-fixture' }];
-    if (path.endsWith('/medical-records')) return [{ id: 'record-fixture', visitDate: '2026-10-01', doctor: { fullNameEn: 'Existing doctor' } }];
-    if (path.endsWith('/lab-results')) throw new Error('Results unavailable');
+    if (path.includes('/medical-records?') || path.endsWith('/medical-records')) return [{ id: 'record-fixture', visitDate: '2026-10-01', doctor: { fullNameEn: 'Existing doctor' } }];
+    if (path.includes('/lab-results?') || path.endsWith('/lab-results')) throw new Error('Results unavailable');
     return [];
   };
   await mount(pages.Dashboard);
@@ -144,7 +145,7 @@ test('dashboard renders real activity and working booking links without inventin
   assert.equal(document.querySelectorAll('.patient-dashboard__activity').length, 1);
   assert.match(document.querySelector('.patient-dashboard__activity').textContent, /Existing doctor/);
   assert.match(document.body.textContent, /dashboardPartialActivity/);
-  assert.match(document.querySelector('.health-summary-card[href="/patient/lab-results"]').textContent, /patientDataUnavailable/);
+  assert.match(document.querySelector('.health-summary-card[href="/patient/lab-results"]').textContent, /recentLabResults4/);
   assert.equal(document.querySelectorAll('.patient-pending-reminder').length, 0);
 });
 
@@ -176,4 +177,26 @@ test('dashboard selects the nearest appointment from the descending API list wit
   assert.equal(document.querySelector('a[href="/patient/appointments/later-date"]'), null);
   assert.match(document.querySelector('.patient-dashboard article').textContent, /09:00/);
   assert.equal(appointments[0].id, 'later-date');
+});
+
+
+test('patient medical history keeps records beyond the first page reachable', async () => {
+  const rows = Array.from({ length: 55 }, (_, i) => ({ id: `history-${i + 1}`, visitDate: '2026-01-01', doctor: {}, diagnosis: `Synthetic diagnosis ${i + 1}` }));
+  const requested = [];
+  globalThis.portalTestHasMore = (path) => Number(new URL(path, 'https://example.invalid').searchParams.get('page')) < 3 ? 'true' : 'false';
+  globalThis.portalTestApi = async (path) => {
+    const query = new URL(path, 'https://example.invalid').searchParams;
+    const page = Number(query.get('page')); requested.push(page);
+    assert.equal(query.get('pageSize'), '25');
+    return rows.slice((page - 1) * 25, page * 25);
+  };
+  try {
+    await mount(pages.MedicalRecords);
+    for (let i = 0; i < 2; i++) {
+      const more = [...document.querySelectorAll('button')].find((button) => button.textContent === 'loadMore');
+      assert.ok(more); await act(async () => more.click());
+    }
+    assert.equal(document.querySelectorAll('.medical-record-card').length, 55);
+    assert.deepEqual(requested, [1, 2, 3]);
+  } finally { delete globalThis.portalTestHasMore; }
 });

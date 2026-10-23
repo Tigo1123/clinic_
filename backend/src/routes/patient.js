@@ -18,6 +18,7 @@ import { markSensitiveResponse } from '../utils/edgeSecurity.js';
 
 import { patientIdentitySummary } from '../utils/patientOnboarding.js';
 import { linkGooglePatientIdentity, unlinkGooglePatientIdentity } from '../services/googlePatientIdentity.js';
+import { paginationHeaders, parsePagination } from '../utils/pagination.js';
 
 const router = asyncRouter();
 router.use((req, res, next) => { markSensitiveResponse(res); next(); });
@@ -247,14 +248,28 @@ router.get('/doctors/:id', async (req, res) => {
 });
 
 router.get('/appointments', async (req, res) => {
+  const page = parsePagination(req.query, { defaultPageSize: 25, maxPageSize: 100 });
   const group = req.query.group || 'all';
   const today = todayString();
   const where = { patientId: req.patient.id };
   if (group === 'upcoming') Object.assign(where, { appointmentDate: { gte: today }, status: { notIn: ['CANCELLED', 'COMPLETED', 'NO_SHOW'] } });
   if (group === 'past') Object.assign(where, { OR: [{ appointmentDate: { lt: today } }, { status: { in: ['COMPLETED', 'NO_SHOW'] } }] });
   if (group === 'cancelled') Object.assign(where, { status: 'CANCELLED' });
-  const appointments = await prisma.appointment.findMany({ where, include: { doctor: { select: doctorSelect } }, orderBy: [{ appointmentDate: 'desc' }, { appointmentTime: 'desc' }] });
-  return res.json(appointments.map(({ patientId, ...appointment }) => appointment));
+  const order = group === 'upcoming' ? 'asc' : 'desc';
+  const appointments = await prisma.appointment.findMany({ where, include: { doctor: { select: doctorSelect } }, orderBy: [{ appointmentDate: order }, { appointmentTime: order }, { id: order }], skip: page.skip, take: page.take + 1 });
+  const hasMore = appointments.length > page.take;
+  return paginationHeaders(res, { ...page, hasMore }).json(appointments.slice(0, page.take).map(({ patientId, ...appointment }) => appointment));
+});
+
+router.get('/summary', async (req, res) => {
+  const today = todayString();
+  const [upcomingAppointments, releasedLabResults, prescriptions, medicalRecords] = await Promise.all([
+    prisma.appointment.count({ where: { patientId: req.patient.id, appointmentDate: { gte: today }, status: { notIn: ['CANCELLED', 'COMPLETED', 'NO_SHOW'] } } }),
+    prisma.labOrder.count({ where: { patientId: req.patient.id, status: 'COMPLETED', releasedToPatientAt: { not: null } } }),
+    prisma.prescription.count({ where: { patientId: req.patient.id } }),
+    prisma.medicalRecord.count({ where: { patientId: req.patient.id } })
+  ]);
+  return res.json({ upcomingAppointments, releasedLabResults, prescriptions, medicalRecords });
 });
 
 router.get('/appointments/:id', async (req, res) => {
@@ -414,6 +429,7 @@ function parsePatientVitalSigns(value) {
 
 router.get('/lab-results', async (req, res, next) => {
   try {
+    const page = parsePagination(req.query, { defaultPageSize: 25, maxPageSize: 100 });
     const orders = await prisma.labOrder.findMany({
       where: {
         patientId: req.patient.id,
@@ -429,13 +445,11 @@ router.get('/lab-results', async (req, res, next) => {
         },
         items: { select: patientLabItemSelect }
       },
-      orderBy: {
-        orderDate: 'desc'
-      }
+      orderBy: [{ orderDate: 'desc' }, { id: 'desc' }], skip: page.skip, take: page.take + 1
     });
-
-    return res.json(
-      orders.map((order) => ({
+    const hasMore = orders.length > page.take;
+    return paginationHeaders(res, { ...page, hasMore }).json(
+      orders.slice(0, page.take).map((order) => ({
         id: order.id,
         orderDate: order.orderDate,
         releasedAt: order.releasedToPatientAt,
@@ -449,8 +463,10 @@ router.get('/lab-results', async (req, res, next) => {
 });
 
 router.get('/prescriptions', async (req, res) => {
-  const prescriptions = await prisma.prescription.findMany({ where: { patientId: req.patient.id }, include: { doctor: { select: doctorSelect }, prescribedDrugs: { include: { drug: { select: { labelAr: true, labelEn: true, genericName: true, strength: true, dosageForm: true } } } } }, orderBy: { prescriptionDate: 'desc' } });
-  return res.json(prescriptions.map((rx) => ({
+  const page = parsePagination(req.query, { defaultPageSize: 25, maxPageSize: 100 });
+  const prescriptions = await prisma.prescription.findMany({ where: { patientId: req.patient.id }, include: { doctor: { select: doctorSelect }, prescribedDrugs: { include: { drug: { select: { labelAr: true, labelEn: true, genericName: true, strength: true, dosageForm: true } } } } }, orderBy: [{ prescriptionDate: 'desc' }, { id: 'desc' }], skip: page.skip, take: page.take + 1 });
+  const hasMore = prescriptions.length > page.take;
+  return paginationHeaders(res, { ...page, hasMore }).json(prescriptions.slice(0, page.take).map((rx) => ({
     id: rx.id,
     prescriptionDate: rx.prescriptionDate,
     status: rx.status,
@@ -476,8 +492,10 @@ router.get('/prescriptions', async (req, res) => {
 });
 
 router.get('/medical-records', async (req, res) => {
-  const records = await prisma.medicalRecord.findMany({ where: { patientId: req.patient.id }, include: { doctor: { select: doctorSelect }, prescriptions: { select: { id: true, status: true } }, labOrders: { where: { releasedToPatientAt: { not: null } }, select: { id: true, status: true, releasedToPatientAt: true } } }, orderBy: { visitDate: 'desc' } });
-  return res.json(records.map((record) => ({ id: record.id, visitDate: record.visitDate, doctor: record.doctor, diagnosis: decrypt(record.diagnosisEncrypted), treatment: decrypt(record.treatmentEncrypted), prescriptions: record.prescriptions, releasedLabResults: record.labOrders, attachmentPath: record.attachmentPath ? `/api/upload/${record.attachmentPath.split('/').pop()}` : null })));
+  const page = parsePagination(req.query, { defaultPageSize: 25, maxPageSize: 100 });
+  const records = await prisma.medicalRecord.findMany({ where: { patientId: req.patient.id }, include: { doctor: { select: doctorSelect }, prescriptions: { select: { id: true, status: true } }, labOrders: { where: { releasedToPatientAt: { not: null } }, select: { id: true, status: true, releasedToPatientAt: true } } }, orderBy: [{ visitDate: 'desc' }, { id: 'desc' }], skip: page.skip, take: page.take + 1 });
+  const hasMore = records.length > page.take;
+  return paginationHeaders(res, { ...page, hasMore }).json(records.slice(0, page.take).map((record) => ({ id: record.id, visitDate: record.visitDate, doctor: record.doctor, diagnosis: decrypt(record.diagnosisEncrypted), treatment: decrypt(record.treatmentEncrypted), prescriptions: record.prescriptions, releasedLabResults: record.labOrders, attachmentPath: record.attachmentPath ? `/api/upload/${record.attachmentPath.split('/').pop()}` : null })));
 });
 
 

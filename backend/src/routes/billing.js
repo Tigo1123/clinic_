@@ -10,7 +10,9 @@ import { authenticate, checkRoles } from '../middleware/auth.js';
 import { allowRoles, ROLES } from '../middleware/policies.js';
 import { validate } from '../middleware/validate.js';
 import { sendError } from '../utils/apiError.js';
-import { clinicDateSequence, clinicMonthBounds, getClinicDateString, instantToClinicDateString } from '../utils/clinicTime.js';
+import { clinicDateSequence, clinicMonthBounds, clinicDayBounds, clinicTimeZone, getClinicDateString } from '../utils/clinicTime.js';
+import { createAuthenticatedMutationLimiter } from '../utils/edgeSecurity.js';
+import { paginationHeaders, parsePagination } from '../utils/pagination.js';
 import { emitQueueUpdate } from '../utils/socketEvents.js';
 import {
   publicClinicalServiceSelect,
@@ -24,6 +26,7 @@ const MAX_GENERAL_QUANTITY = 100;
 const MAX_GENERAL_INVOICE_ITEMS = 100;
 const MAX_INVOICE_QUANTITY = 10_000;
 const PAYMENT_METHODS = PAYMENT_METHOD_CODES;
+const billingMutationLimiter = createAuthenticatedMutationLimiter({ prefix: 'billing-mutations', limit: 60 });
 const paymentRequestSchema = z.object({
   payments: z.array(z.object({
     amountSdg: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
@@ -199,7 +202,7 @@ router.post('/insurance-preview', authenticate, allowRoles(ROLES.ADMIN, ROLES.RE
  * CONSULTATION invoices are derived from the appointment and the doctor's
  * configured consultation fee. Client-supplied consultation prices are ignored.
  */
-router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
+router.post('/invoice', authenticate, billingMutationLimiter, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
   const unexpectedFields = Object.keys(req.body || {}).filter((key) => !INVOICE_REQUEST_FIELDS.has(key));
   if (unexpectedFields.length) {
     return sendError(res, 422, 'INVOICE_FIELDS_INVALID', 'The invoice request contains unsupported fields.');
@@ -352,8 +355,9 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
             }
           },
           items: {
-            include: {
-              service: true
+            select: {
+              id: true, serviceId: true, customTestName: true, labReviewStatus: true,
+              service: { select: { id: true, labelAr: true, labelEn: true, category: true, baseFeeSdg: true, status: true } }
             }
           }
         }
@@ -750,7 +754,7 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
  * POST /api/billing/invoice/:id/payments
  * Records split payment methods. Validates transaction reference uniqueness.
  */
-router.post('/invoice/:id/payments', authenticate,
+router.post('/invoice/:id/payments', authenticate, billingMutationLimiter,
   allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST, ROLES.PHARMACIST),
   validate(paymentInvoiceParamsSchema, 'params'), validate(paymentRequestSchema), async (req, res) => {
   const invoiceId = req.params.id;
@@ -1049,7 +1053,7 @@ router.post('/invoice/:id/payments', authenticate,
  * Records an append-only refund and updates the invoice's derived refund status.
  * Refunds are disabled if patient has started consultation or completed visit.
  */
-router.post('/invoice/:id/refund', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
+router.post('/invoice/:id/refund', authenticate, billingMutationLimiter, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
   const amountSdg = Number(req.body.amountSdg);
   const { refundMethod, transactionReference, reason } = req.body;
   if (!Number.isFinite(amountSdg) || amountSdg <= 0) return sendError(res, 422, 'INVALID_REFUND_AMOUNT', 'Refund amount must be greater than zero.');
@@ -1257,6 +1261,7 @@ router.get(
   allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST),
   async (req, res) => {
     try {
+      const page = parsePagination(req.query, { defaultPageSize: 50, maxPageSize: 100 });
       const orders = await prisma.labOrder.findMany({
         where: {
           status: {
@@ -1269,7 +1274,7 @@ router.get(
               id: true,
               fullNameAr: true,
               fullNameEn: true,
-              phone: true
+              fileNumber: true
             }
           },
           doctor: {
@@ -1296,22 +1301,27 @@ router.get(
                 not: 'REFUNDED'
               }
             },
-            include: {
-              payments: true,
-              refunds: true
-            },
+            select: { id: true, paymentStatus: true, invoiceDate: true, totalAmountSdg: true },
             orderBy: {
               invoiceDate: 'desc'
             },
             take: 1
           }
         },
-        orderBy: {
-          orderDate: 'desc'
-        }
+        orderBy: [{ orderDate: 'desc' }, { id: 'asc' }], skip: page.skip, take: page.take + 1
       });
 
-      const queue = orders.map((order) => {
+      const hasMore = orders.length > page.take;
+      const pageOrders = orders.slice(0, page.take);
+      const invoiceIds = pageOrders.flatMap((order) => order.invoices.map((invoice) => invoice.id));
+      const [paidByInvoice, refundedByInvoice] = invoiceIds.length ? await Promise.all([
+        prisma.payment.groupBy({ by: ['invoiceId'], where: { invoiceId: { in: invoiceIds } }, _sum: { amountSdg: true } }),
+        prisma.refund.groupBy({ by: ['invoiceId'], where: { invoiceId: { in: invoiceIds } }, _sum: { amountSdg: true } })
+      ]) : [[], []];
+      const paidTotals = new Map(paidByInvoice.map((row) => [row.invoiceId, row._sum.amountSdg || 0]));
+      const refundTotals = new Map(refundedByInvoice.map((row) => [row.invoiceId, row._sum.amountSdg || 0]));
+
+      const queue = pageOrders.map((order) => {
         const invoice = order.invoices[0] || null;
 
         const billableItems = order.items.filter((item) => item.labReviewStatus !== 'EXTERNAL');
@@ -1332,15 +1342,8 @@ router.get(
         let remainingBalanceSdg = estimatedTotalSdg;
 
         if (invoice) {
-          totalPaidSdg = invoice.payments.reduce(
-            (sum, payment) => addMoney(sum, payment.amountSdg),
-            0
-          );
-
-          refundedSdg = invoice.refunds.reduce(
-            (sum, refund) => addMoney(sum, refund.amountSdg),
-            0
-          );
+          totalPaidSdg = paidTotals.get(invoice.id) || 0;
+          refundedSdg = refundTotals.get(invoice.id) || 0;
 
           const netCollectedSdg = Math.max(
             0,
@@ -1365,7 +1368,6 @@ router.get(
             id: item.id,
             customTestName: item.customTestName,
             labReviewStatus: item.labReviewStatus,
-            labReviewNote: item.labReviewNote,
             service: item.service
               ? {
                   id: item.service.id,
@@ -1398,7 +1400,7 @@ router.get(
         };
       });
 
-      return res.json(queue);
+      return paginationHeaders(res, { ...page, hasMore }).json(queue);
     } catch (error) {
       console.error(
         'Fetch laboratory billing queue error:',
@@ -1633,7 +1635,7 @@ router.get(
  * POST /api/billing/shift/reconcile
  * Logs shift balance reconciliation.
  */
-router.post('/shift/reconcile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
+router.post('/shift/reconcile', authenticate, billingMutationLimiter, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
   const { expectedAmountSdg, actualAmountSdg, note } = req.body;
 
   if (expectedAmountSdg === undefined || actualAmountSdg === undefined) {
@@ -1709,80 +1711,70 @@ router.get('/insurance-companies', authenticate, allowRoles(ROLES.ADMIN, ROLES.R
  */
 router.get('/analytics', authenticate, checkRoles('ADMIN'), async (req, res) => {
   try {
-    // 1. Revenue calculations
-    const [payments, refunds] = await Promise.all([prisma.payment.findMany(), prisma.refund.findMany()]);
-    let totalSdg = 0;
-    let totalUsd = 0;
+    const [payments, refunds, paymentMethods, refundMethods] = await Promise.all([
+      prisma.payment.aggregate({ _sum: { amountSdg: true, amountUsd: true } }),
+      prisma.refund.aggregate({ _sum: { amountSdg: true, amountUsd: true } }),
+      prisma.payment.groupBy({ by: ['paymentMethod'], _sum: { amountSdg: true } }),
+      prisma.refund.groupBy({ by: ['refundMethod'], _sum: { amountSdg: true } })
+    ]);
+    const totalSdg = subtractMoney(payments._sum.amountSdg || 0, refunds._sum.amountSdg || 0);
+    const totalUsd = subtractMoney(payments._sum.amountUsd || 0, refunds._sum.amountUsd || 0);
     const methodBreakdown = { CASH: 0, BANKAK: 0, FAWRY: 0, INSURANCE: 0 };
-
-    payments.forEach(p => {
-      totalSdg = addMoney(totalSdg, p.amountSdg || 0);
-      totalUsd = addMoney(totalUsd, p.amountUsd || 0);
-      const method = p.paymentMethod || 'CASH';
-      if (methodBreakdown[method] !== undefined) {
-        methodBreakdown[method] = addMoney(methodBreakdown[method], p.amountSdg || 0);
-      }
-    });
-    refunds.forEach((refund) => {
-      const amount = Number(refund.amountSdg);
-      totalSdg = subtractMoney(totalSdg, amount);
-      totalUsd = subtractMoney(totalUsd, refund.amountUsd);
-      if (methodBreakdown[refund.refundMethod] !== undefined) methodBreakdown[refund.refundMethod] = subtractMoney(methodBreakdown[refund.refundMethod], amount);
-    });
-
-    // 2. Doctor workload
-    const doctors = await prisma.doctor.findMany({
-      include: {
-        appointments: {
-          select: { status: true }
-        }
-      }
-    });
-
-    const doctorMetrics = doctors.map(d => {
-      const total = d.appointments.length;
-      const completed = d.appointments.filter(a => a.status === 'COMPLETED').length;
-      return {
-        id: d.id,
-        nameAr: d.fullNameAr,
-        nameEn: d.fullNameEn,
-        specialtyEn: d.specialtyEn,
-        totalAppointments: total,
-        completedAppointments: completed
-      };
-    });
-
-    // 3. Top dispensed drugs
-    const dispensedDrugs = await prisma.prescribedDrug.findMany({
-      where: {
-        qtyDispensed: { gt: 0 }
-      },
-      include: {
-        drug: true
-      }
-    });
-
-    const drugSales = new Map();
-    for (const pd of dispensedDrugs) {
-      const key = pd.drugId ? `drug:${pd.drugId}` : `prescribed:${pd.id}`;
-      const name = [
-        pd.drug?.brandName,
-        pd.drug?.labelEn,
-        pd.drug?.labelAr,
-        pd.drug?.genericName,
-        pd.customDrugName
-      ].find(value => typeof value === 'string' && value.trim())?.trim()
-        || 'Unknown medicine';
-      const existing = drugSales.get(key);
-      if (existing) existing.qty += pd.qtyDispensed;
-      else drugSales.set(key, { name, qty: pd.qtyDispensed });
+    for (const row of paymentMethods) {
+      if (methodBreakdown[row.paymentMethod] !== undefined) methodBreakdown[row.paymentMethod] = addMoney(methodBreakdown[row.paymentMethod], row._sum.amountSdg || 0);
+    }
+    for (const row of refundMethods) {
+      if (methodBreakdown[row.refundMethod] !== undefined) methodBreakdown[row.refundMethod] = subtractMoney(methodBreakdown[row.refundMethod], row._sum.amountSdg || 0);
     }
 
-    const topDrugs = [...drugSales.entries()]
-      .sort(([keyA, a], [keyB, b]) =>
-        b.qty - a.qty || (keyA < keyB ? -1 : keyA > keyB ? 1 : 0))
-      .slice(0, 5)
-      .map(([, item]) => item);
+    // Preserve the complete doctor workload contract; PostgreSQL counts visits.
+    const doctors = await prisma.doctor.findMany({
+      select: { id: true, fullNameAr: true, fullNameEn: true, specialtyEn: true },
+      orderBy: [{ fullNameEn: 'asc' }, { id: 'asc' }]
+    });
+    const workload = doctors.length ? await prisma.appointment.groupBy({
+      by: ['doctorId', 'status'], where: { doctorId: { in: doctors.map((doctor) => doctor.id) } }, _count: { _all: true }
+    }) : [];
+    const workloadByDoctor = new Map();
+    for (const row of workload) {
+      const metrics = workloadByDoctor.get(row.doctorId) || { total: 0, completed: 0 };
+      metrics.total += row._count._all;
+      if (row.status === 'COMPLETED') metrics.completed += row._count._all;
+      workloadByDoctor.set(row.doctorId, metrics);
+    }
+    const doctorMetrics = doctors.map((doctor) => ({
+      id: doctor.id, nameAr: doctor.fullNameAr, nameEn: doctor.fullNameEn, specialtyEn: doctor.specialtyEn,
+      totalAppointments: workloadByDoctor.get(doctor.id)?.total || 0,
+      completedAppointments: workloadByDoctor.get(doctor.id)?.completed || 0
+    }));
+
+    // PostgreSQL computes the top five totals, rather than returning every
+    // dispensed row and every inventory relation to the Node process.
+    const [linkedDrugGroups, customDrugGroups] = await Promise.all([
+      prisma.prescribedDrug.groupBy({
+        by: ['drugId'], where: { qtyDispensed: { gt: 0 }, drugId: { not: null } },
+        _sum: { qtyDispensed: true }, orderBy: [{ _sum: { qtyDispensed: 'desc' } }, { drugId: 'asc' }], take: 5
+      }),
+      prisma.prescribedDrug.groupBy({
+        by: ['id', 'customDrugName'], where: { qtyDispensed: { gt: 0 }, drugId: null },
+        _sum: { qtyDispensed: true }, orderBy: [{ _sum: { qtyDispensed: 'desc' } }, { id: 'asc' }], take: 5
+      })
+    ]);
+    const drugGroups = [
+      ...linkedDrugGroups.map((row) => ({ ...row, sortKey: `drug:${row.drugId}` })),
+      ...customDrugGroups.map((row) => ({ ...row, sortKey: `prescribed:${row.id}` }))
+    ].sort((a, b) => (b._sum.qtyDispensed || 0) - (a._sum.qtyDispensed || 0) || a.sortKey.localeCompare(b.sortKey)).slice(0, 5);
+    const drugIds = [...new Set(drugGroups.map((row) => row.drugId).filter(Boolean))];
+    const drugs = drugIds.length ? await prisma.drugFormulary.findMany({
+      where: { id: { in: drugIds } }, select: { id: true, brandName: true, labelEn: true, labelAr: true, genericName: true }
+    }) : [];
+    const drugById = new Map(drugs.map((drug) => [drug.id, drug]));
+    const topDrugs = drugGroups.map((row) => {
+      const drug = row.drugId ? drugById.get(row.drugId) : null;
+      const name = [drug?.brandName, drug?.labelEn, drug?.labelAr, drug?.genericName, row.customDrugName]
+        .find((value) => typeof value === 'string' && value.trim())?.trim() || 'Unknown medicine';
+      return { name, qty: row._sum.qtyDispensed || 0 };
+    });
 
     // 4. Patients Seen Today
     const todayStr = getClinicDateString();
@@ -1795,31 +1787,34 @@ router.get('/analytics', authenticate, checkRoles('ADMIN'), async (req, res) => 
 
     // 5. Daily and Monthly Revenue Trends from recorded payments only.
     const last7Days = clinicDateSequence(7);
+    const dailyStart = clinicDayBounds(last7Days[0]).start;
+    const dailyEnd = clinicDayBounds(last7Days.at(-1)).end;
+    const [dailyPayments, dailyRefunds] = await Promise.all([
+      prisma.$queryRaw`SELECT TO_CHAR(DATE("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE ${clinicTimeZone()}), 'YYYY-MM-DD') AS "key", SUM("amountSdg") AS "amount" FROM "Payment" WHERE "createdAt" >= ${dailyStart} AND "createdAt" < ${dailyEnd} GROUP BY 1`,
+      prisma.$queryRaw`SELECT TO_CHAR(DATE("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE ${clinicTimeZone()}), 'YYYY-MM-DD') AS "key", SUM("amountSdg") AS "amount" FROM "Refund" WHERE "createdAt" >= ${dailyStart} AND "createdAt" < ${dailyEnd} GROUP BY 1`
+    ]);
+    const dailyPaymentMap = new Map(dailyPayments.map((row) => [row.key, row.amount]));
+    const dailyRefundMap = new Map(dailyRefunds.map((row) => [row.key, row.amount]));
+    const dailyRevenueTrend = last7Days.map((date) => ({
+      date, amount: subtractMoney(dailyPaymentMap.get(date) || 0, dailyRefundMap.get(date) || 0)
+    }));
 
-    const dailyRevenueTrend = last7Days.map(date => {
-      const dayTotal = payments
-        .filter(p => instantToClinicDateString(p.createdAt) === date)
-        .reduce((sum, p) => addMoney(sum, p.amountSdg), 0);
-      const refundTotal = refunds.filter((refund) => instantToClinicDateString(refund.createdAt) === date).reduce((sum, refund) => addMoney(sum, refund.amountSdg), 0);
-      return {
-        date,
-        amount: subtractMoney(dayTotal, refundTotal)
-      };
-    });
-
-    const last6Months = Array.from({ length: 6 }, (_, index) => {
-      return clinicMonthBounds(new Date(), index - 5);
-    });
-
-    const monthlyRevenueTrend = last6Months.map(({ start, end, label }) => {
-      return {
-        month: label,
-        amount: subtractMoney(
-          payments.filter((payment) => payment.createdAt >= start && payment.createdAt < end).reduce((sum, payment) => addMoney(sum, payment.amountSdg), 0),
-          refunds.filter((refund) => refund.createdAt >= start && refund.createdAt < end).reduce((sum, refund) => addMoney(sum, refund.amountSdg), 0)
-        )
-      };
-    });
+    const last6Months = Array.from({ length: 6 }, (_, index) => clinicMonthBounds(new Date(), index - 5));
+    const monthlyStart = last6Months[0].start;
+    const monthlyEnd = last6Months.at(-1).end;
+    const [monthlyPayments, monthlyRefunds] = await Promise.all([
+      prisma.$queryRaw`SELECT TO_CHAR(DATE_TRUNC('month', "createdAt" AT TIME ZONE 'UTC' AT TIME ZONE ${clinicTimeZone()}), 'YYYY-MM') AS "key", SUM("amountSdg") AS "amount" FROM "Payment" WHERE "createdAt" >= ${monthlyStart} AND "createdAt" < ${monthlyEnd} GROUP BY 1`,
+      prisma.$queryRaw`SELECT TO_CHAR(DATE_TRUNC('month', "createdAt" AT TIME ZONE 'UTC' AT TIME ZONE ${clinicTimeZone()}), 'YYYY-MM') AS "key", SUM("amountSdg") AS "amount" FROM "Refund" WHERE "createdAt" >= ${monthlyStart} AND "createdAt" < ${monthlyEnd} GROUP BY 1`
+    ]);
+    const monthKey = ({ start }) => {
+      const date = new Intl.DateTimeFormat('en-CA', { timeZone: clinicTimeZone(), year: 'numeric', month: '2-digit' }).format(start);
+      return date.slice(0, 7);
+    };
+    const monthlyPaymentMap = new Map(monthlyPayments.map((row) => [row.key, row.amount]));
+    const monthlyRefundMap = new Map(monthlyRefunds.map((row) => [row.key, row.amount]));
+    const monthlyRevenueTrend = last6Months.map((month) => ({
+      month: month.label, amount: subtractMoney(monthlyPaymentMap.get(monthKey(month)) || 0, monthlyRefundMap.get(monthKey(month)) || 0)
+    }));
 
     // Wait-time history is not recorded by the current schema; never fabricate it.
     const averageWaitTimeMinutes = null;

@@ -18,7 +18,7 @@ async function request(url, options) {
   const response = await fetchWithAuth(url, options);
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw Object.assign(new Error(payload?.error?.message || ''), { code: payload?.error?.code });
-  return payload;
+  return url.startsWith('/api/admin/doctors?') ? { items: payload, total: Number(response.headers.get('X-Total-Count')) } : payload;
 }
 
 export default function ClinicSetupPanel({ lang = 'en', t, initialTab = 'doctors' }) {
@@ -48,7 +48,7 @@ export default function ClinicSetupPanel({ lang = 'en', t, initialTab = 'doctors
     const token = ++requestVersion.current;
     let cancelled = false;
     setLoading(true); setError(''); setItems([]);
-    const catalog = resource === 'services' || resource === 'labs';
+    const catalog = resource === 'services' || resource === 'labs' || resource === 'doctors';
     const query = catalog ? `?page=${page}&pageSize=12&search=${encodeURIComponent(search)}${resource === 'labs' ? '&category=LABORATORY' : ''}${status ? `&status=${status}` : ''}` : '';
     Promise.all([request(endpoints[resource] + query), resource === 'doctors' ? request('/api/specialties') : Promise.resolve([])])
       .then(([data, choices]) => {

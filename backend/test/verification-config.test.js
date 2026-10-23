@@ -6,13 +6,15 @@ import { readSmtpConfig } from '../src/utils/smtpConfig.js';
 import { smtpTransport } from '../src/utils/notifications.js';
 
 const baseline = {
-  DATABASE_URL: 'postgresql://localhost/never_connect_test',
-  SOCKET_REVOCATION_DATABASE_URL: 'postgresql://localhost/never_connect_test',
+  DATABASE_URL: 'postgresql://test:never-connect@ep-test-pooler.us-east-1.aws.neon.tech/neondb?sslmode=verify-full&connection_limit=5&pool_timeout=10',
+  SOCKET_REVOCATION_DATABASE_URL: 'postgresql://test:never-connect@ep-test.us-east-1.aws.neon.tech/neondb?sslmode=verify-full',
   JWT_SECRET: 'synthetic-jwt-secret-longer-than-thirty-two-characters',
   MEDICAL_ENCRYPTION_KEY: 'synthetic-medical-key-longer-than-thirty-two-characters',
   MFA_ENCRYPTION_KEY: 'synthetic-mfa-key-longer-than-thirty-two-characters',
   CORS_ALLOWED_ORIGINS: 'https://clinic.example.test',
   CLINIC_TIME_ZONE: 'Africa/Khartoum',
+  TRUST_PROXY_HOPS: '1', RATE_LIMIT_STORE: 'postgres',
+  RUNTIME_DATABASE_ROLE: 'clinic_runtime',
   SMTP_HOST: 'smtp-relay.brevo.com', SMTP_PORT: '587', SMTP_SECURE: 'false',
   SMTP_USER: 'synthetic-user', SMTP_PASS: 'synthetic-password',
   SMTP_FROM_EMAIL: 'clinic@example.test', NOTIFICATIONS_DISABLED: 'false'

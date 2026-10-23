@@ -1,4 +1,6 @@
-name: clinic
+# Local development stack only. Production must use managed TLS, a Neon pooled
+# DATABASE_URL, a separate direct listener URL, and least-privilege DB roles.
+name: clinic-dev
 
 services:
   postgres:
@@ -21,9 +23,9 @@ services:
       dockerfile: Dockerfile
     container_name: cms-backend
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     environment:
-      NODE_ENV: production
+      NODE_ENV: development
       CLINIC_TIME_ZONE: ${CLINIC_TIME_ZONE:?CLINIC_TIME_ZONE is required}
       FACILITY_NAME_AR: ${FACILITY_NAME_AR:-}
       FACILITY_NAME_EN: ${FACILITY_NAME_EN:-}
@@ -33,7 +35,9 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       MEDICAL_ENCRYPTION_KEY: ${MEDICAL_ENCRYPTION_KEY:?MEDICAL_ENCRYPTION_KEY is required}
       MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:?MFA_ENCRYPTION_KEY is required}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS is required}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:5173}
+      STAFF_MFA_POLICY: optional
+      RATE_LIMIT_STORE: memory
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       VERIFICATION_PROVIDER: ${VERIFICATION_PROVIDER:-disabled}
       SMTP_HOST: ${SMTP_HOST:-}
@@ -44,7 +48,7 @@ services:
       SMTP_FROM: ${SMTP_FROM:-}
       NOTIFICATIONS_DISABLED: ${NOTIFICATIONS_DISABLED:-false}
       UPLOAD_DIR: /app/uploads
-      TRUST_PROXY: "true"
+      TRUST_PROXY: "false"
     volumes:
       - uploads-data:/app/uploads
     depends_on:
@@ -65,7 +69,7 @@ services:
         VITE_CLINIC_TIME_ZONE: ${CLINIC_TIME_ZONE:?CLINIC_TIME_ZONE is required}
     container_name: cms-frontend
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     depends_on:
       backend:
         condition: service_healthy
