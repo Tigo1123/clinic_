@@ -22,7 +22,7 @@ import adminSchedulingRoutes from './routes/adminScheduling.js';
 import adminDoctorRoutes from './routes/adminDoctors.js';
 import { errorHandler, notFoundHandler } from './utils/apiError.js';
 import { fileURLToPath } from 'url';
-import { validateEnvironment } from './config.js';
+import { validateEnvironment, staffMfaRequired } from './config.js';
 import { logger } from './utils/logger.js';
 import { authenticateSocketAccessToken } from './middleware/auth.js';
 import { SocketRevocationService } from './services/socketRevocation.js';
@@ -169,6 +169,7 @@ app.get('/api/health/metrics', (req, res) => {
 });
 
 app.get('/api/public-config', (req, res) => res.json({
+  staffMfaRequired: staffMfaRequired(),
   clinicTimeZone: environment.clinicTimeZone,
   productNameAr: environment.facilityBranding.productNameAr,
   productNameEn: environment.facilityBranding.productNameEn,

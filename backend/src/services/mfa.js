@@ -72,16 +72,16 @@ export async function hashRecoveryCodes(codes) {
   return Promise.all(codes.map((code) => bcrypt.hash(normalizeRecoveryCode(code), RECOVERY_BCRYPT_ROUNDS)));
 }
 
-export async function consumeRecoveryCode(userId, code) {
+export async function consumeRecoveryCode(userId, code, db = prisma) {
   const normalized = normalizeRecoveryCode(code);
   if (normalized.length !== 20) return false;
-  const candidates = await prisma.mfaRecoveryCode.findMany({
+  const candidates = await db.mfaRecoveryCode.findMany({
     where: { userId, usedAt: null },
     select: { id: true, codeHash: true }
   });
   for (const candidate of candidates) {
     if (await bcrypt.compare(normalized, candidate.codeHash)) {
-      const consumed = await prisma.mfaRecoveryCode.updateMany({
+      const consumed = await db.mfaRecoveryCode.updateMany({
         where: { id: candidate.id, userId, usedAt: null },
         data: { usedAt: new Date() }
       });
@@ -173,13 +173,13 @@ export async function confirmMfaEnrollment(userId, code, timestamp = Date.now(),
   return recoveryCodes;
 }
 
-export async function consumeTotp(userId, code, timestamp = Date.now()) {
-  const configuration = await prisma.mfaConfiguration.findUnique({ where: { userId } });
+export async function consumeTotp(userId, code, timestamp = Date.now(), db = prisma) {
+  const configuration = await db.mfaConfiguration.findUnique({ where: { userId } });
   if (!configuration || configuration.state !== 'ACTIVE') return false;
   const secret = decryptMfaSecret(configuration.secretEncrypted, userId);
   const acceptedStep = validateTotp(secret, code, timestamp);
   if (acceptedStep === null) return false;
-  const consumed = await prisma.mfaConfiguration.updateMany({
+  const consumed = await db.mfaConfiguration.updateMany({
     where: {
       userId,
       state: 'ACTIVE',

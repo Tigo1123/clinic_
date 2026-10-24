@@ -1,3 +1,4 @@
+import { getPublicConfig } from '../utils/clinicTime.js';
 import { clearStaffSession } from '../services/authStorage.js';
 import { disconnectStaffSocket, connectStaffSocket } from '../services/staffSocket.js';
 import React, { useRef, useState } from 'react';
@@ -6,6 +7,7 @@ import { Check, Copy, KeyRound, ShieldCheck, X } from 'lucide-react';
 import {
   confirmMfaEnrollment,
   disableMfa,
+  mfaManagementErrorKey,
   regenerateMfaRecoveryCodes,
   startMfaEnrollment
 } from '../services/staffMfa';
@@ -16,7 +18,6 @@ import PasswordField from './PasswordField.jsx';
 function ProofFields({ currentPassword, setCurrentPassword, proofType, setProofType, proof, setProof, proofRef, t }) {
   return <>
     <div className="form-group">
-      <label className="form-label" htmlFor="mfa-current-password">{t('currentPassword')}</label>
       <PasswordField id="mfa-current-password" label={t('currentPassword')} autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
     </div>
     <fieldset className="security-proof-options">
@@ -26,6 +27,7 @@ function ProofFields({ currentPassword, setCurrentPassword, proofType, setProofT
     </fieldset>
     <div className="form-group">
       <label className="form-label" htmlFor="mfa-proof">{proofType === 'totp' ? t('authenticatorCode') : t('recoveryCode')}</label>
+      {proofType === 'totp' && <p>{t('mfaFreshCodeHint')}</p>}
       {proofType === 'totp'
         ? <MfaCodeInput ref={proofRef} id="mfa-proof" className="form-input" required />
         : <input id="mfa-proof" className="form-input" type="text" autoComplete="one-time-code" required value={proof} onChange={(event) => setProof(event.target.value.trim().slice(0, 30))} />}
@@ -34,6 +36,7 @@ function ProofFields({ currentPassword, setCurrentPassword, proofType, setProofT
 }
 
 export default function StaffSecurityDialog({ user, onClose, t }) {
+  const mfaRequired = getPublicConfig().staffMfaRequired === true;
   const [revoked, setRevoked] = useState(false);
   const closeDialog = () => { if (revoked) window.location.replace('/staff'); else onClose(); };
   const [mode, setMode] = useState('overview');
@@ -75,7 +78,7 @@ export default function StaffSecurityDialog({ user, onClose, t }) {
       setMode('setup');
     } catch (requestError) {
       connectStaffSocket();
-      setError(requestError?.status ? t('mfaReauthFailed') : t('mfaServiceUnavailable'));
+      setError(t(mfaManagementErrorKey(requestError)));
     } finally { setPending(false); }
   };
 
@@ -109,6 +112,7 @@ export default function StaffSecurityDialog({ user, onClose, t }) {
 
   const submitManagement = async (event) => {
     event.preventDefault();
+    if (pending) return;
     const submittedProof = proofType === 'totp' ? proofRef.current?.getValue() || '' : proof;
     if (proofType === 'totp' && submittedProof.length !== 6) {
       setError(t('mfaCodeIncomplete'));
@@ -133,7 +137,7 @@ export default function StaffSecurityDialog({ user, onClose, t }) {
       }
     } catch (requestError) {
       connectStaffSocket();
-      setError(requestError?.status ? t('mfaReauthFailed') : t('mfaServiceUnavailable'));
+      setError(t(mfaManagementErrorKey(requestError)));
     } finally { setPending(false); }
   };
 
@@ -165,8 +169,10 @@ export default function StaffSecurityDialog({ user, onClose, t }) {
         <button className="btn btn-secondary" type="button" onClick={() => setMode('password')}>{t('changePassword')}</button>
         {!user.mfaEnabled
           ? <button className="btn btn-primary" type="button" onClick={() => setMode('enroll')}>{t('enableMfa')}</button>
-          : <div className="security-actions"><button className="btn btn-secondary" type="button" onClick={() => setMode('regenerate')}>{t('regenerateRecoveryCodes')}</button><button className="btn btn-danger" type="button" onClick={() => setMode('disable')}>{t('disableMfa')}</button></div>}
+          : <div className="security-actions"><button className="btn btn-secondary" type="button" onClick={() => setMode('regenerate')}>{t('regenerateRecoveryCodes')}</button><button className="btn btn-danger" type="button" disabled={mfaRequired} onClick={() => resetSensitive('disable')}>{t('disableMfa')}</button></div>}
       </div>}
+
+      {mfaRequired && <p role="note">{t('mfaRequiredPolicy')}</p>}
 
       {mode === 'password' && <form className="staff-login-form" onSubmit={async (event) => { event.preventDefault(); setError(''); if (newPassword !== confirmPassword) return setError(t('passwordsDoNotMatch')); setPending(true); try { const response = await fetchWithAuth('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }); const body = await response.json(); if (!response.ok) throw new Error(apiErrorMessage(body, t('passwordChangeFailed'))); clearStaffSession(); disconnectStaffSocket(); window.location.reload(); } catch (requestError) { setError(requestError.message); } finally { setPending(false); } }}>
         <p className="staff-login-description">{t('passwordChangeSignInAgain')}</p>

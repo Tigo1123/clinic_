@@ -53,8 +53,8 @@ async function audit(req, action, details) {
   });
 }
 
-async function loadStaffUser(req) {
-  return prisma.user.findUnique({
+async function loadStaffUser(req, db = prisma) {
+  return db.user.findUnique({
     where: { id: req.user.id },
     select: {
       id: true,
@@ -69,10 +69,10 @@ async function loadStaffUser(req) {
   });
 }
 
-async function verifyManagementProof(user, body) {
+async function verifyManagementProof(user, body, db) {
   if (!await bcrypt.compare(body.currentPassword, user.passwordHash)) return false;
-  if (body.totpCode) return consumeTotp(user.id, body.totpCode);
-  return consumeRecoveryCode(user.id, body.recoveryCode);
+  if (body.totpCode) return consumeTotp(user.id, body.totpCode, Date.now(), db);
+  return consumeRecoveryCode(user.id, body.recoveryCode, db);
 }
 
 function handleMfaError(res, error) {
@@ -260,22 +260,24 @@ router.post('/recovery/regenerate', validate(proofSchema), async (req, res, next
     if (!user?.mfaEnabled || user.authVersion !== req.user.av || user.mfaConfiguration?.state !== 'ACTIVE') {
       return sendError(res, 409, 'MFA_NOT_ENABLED', 'MFA is not enabled.');
     }
-    if (!await verifyManagementProof(user, req.body)) {
-      return sendError(res, 401, 'MFA_REAUTH_FAILED', 'Current credentials or MFA proof are invalid.');
-    }
-    const recoveryCodes = generateRecoveryCodes();
-    const recoveryHashes = await hashRecoveryCodes(recoveryCodes);
-    await prisma.$transaction(async (tx) => {
+    const recoveryCodes = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${user.id} FOR UPDATE`;
-      const current = await tx.user.findUnique({ where: { id: user.id } });
+      const current = await loadStaffUser(req, tx);
       if (!current || current.status !== 'ACTIVE' || current.authVersion !== user.authVersion) throw new MfaError(401, 'MFA_CREDENTIALS_CHANGED', 'Credentials changed. Sign in again.');
+      // Factor consumption and the security change commit together. A failed
+      // audit/write must not burn a valid code and turn a retry into a 401.
+      if (!current.mfaEnabled || current.mfaConfiguration?.state !== 'ACTIVE') throw new MfaError(409, 'MFA_NOT_ENABLED', 'MFA is not enabled.');
+      if (!await verifyManagementProof(current, req.body, tx)) throw new MfaError(401, 'MFA_REAUTH_FAILED', 'Current credentials or MFA proof are invalid.');
+      const recoveryCodes = generateRecoveryCodes();
+      const recoveryHashes = await hashRecoveryCodes(recoveryCodes);
       await tx.user.update({ where: { id: user.id }, data: { authVersion: { increment: 1 } } });
       await tx.mfaRecoveryCode.deleteMany({ where: { userId: user.id } });
       await tx.mfaRecoveryCode.createMany({ data: recoveryHashes.map((codeHash) => ({ userId: user.id, codeHash })) });
       await tx.tenantAuditLog.create({
         data: { userId: user.id, action: 'MFA_RECOVERY_CODES_REGENERATED', details: 'Staff MFA recovery codes regenerated.', ipAddress: req.ip || 'unknown' }
       });
-    });
+      return recoveryCodes;
+    }, { maxWait: 5000, timeout: 15000 });
     return markSensitiveResponse(res).json({ recoveryCodes });
   } catch (error) { if (error instanceof MfaError) return handleMfaError(res, error); next(error); }
 });
@@ -289,13 +291,14 @@ router.delete('/', validate(proofSchema), async (req, res, next) => {
     if (!user?.mfaEnabled || user.authVersion !== req.user.av || user.mfaConfiguration?.state !== 'ACTIVE') {
       return sendError(res, 409, 'MFA_NOT_ENABLED', 'MFA is not enabled.');
     }
-    if (!await verifyManagementProof(user, req.body)) {
-      return sendError(res, 401, 'MFA_REAUTH_FAILED', 'Current credentials or MFA proof are invalid.');
-    }
     await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${user.id} FOR UPDATE`;
-      const current = await tx.user.findUnique({ where: { id: user.id } });
+      const current = await loadStaffUser(req, tx);
       if (!current || current.status !== 'ACTIVE' || current.authVersion !== user.authVersion) throw new MfaError(401, 'MFA_CREDENTIALS_CHANGED', 'Credentials changed. Sign in again.');
+      // Factor consumption and the security change commit together. A failed
+      // audit/write must not burn a valid code and turn a retry into a 401.
+      if (!current.mfaEnabled || current.mfaConfiguration?.state !== 'ACTIVE') throw new MfaError(409, 'MFA_NOT_ENABLED', 'MFA is not enabled.');
+      if (!await verifyManagementProof(current, req.body, tx)) throw new MfaError(401, 'MFA_REAUTH_FAILED', 'Current credentials or MFA proof are invalid.');
       await tx.mfaChallenge.deleteMany({ where: { userId: user.id } });
       await tx.mfaRecoveryCode.deleteMany({ where: { userId: user.id } });
       await tx.mfaConfiguration.delete({ where: { userId: user.id } });
@@ -306,7 +309,7 @@ router.delete('/', validate(proofSchema), async (req, res, next) => {
       await tx.tenantAuditLog.create({
         data: { userId: user.id, action: 'MFA_DISABLED', details: 'Staff MFA disabled by the account owner.', ipAddress: req.ip || 'unknown' }
       });
-    });
+    }, { maxWait: 5000, timeout: 15000 });
     return res.json({ state: 'DISABLED' });
   } catch (error) { if (error instanceof MfaError) return handleMfaError(res, error); next(error); }
 });

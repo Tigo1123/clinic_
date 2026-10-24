@@ -141,6 +141,8 @@ export default function PasswordField({
           maxLength,
           dir: dir || 'ltr',
           ...inputProps,
+          // Native input props must never override the visibility control.
+          type: visible ? 'text' : 'password',
         },
         input: {
           endAdornment: (

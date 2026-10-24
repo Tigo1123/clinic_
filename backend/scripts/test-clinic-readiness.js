@@ -4,7 +4,7 @@ import { runTests } from '../test/helpers/testRunner.js';
 
 const files = [
   'admin-configuration', 'admin-configuration-migration', 'money', 'admin-doctor-management', 'admin-scheduling', 'audit-atomicity',
-  'clinical-audit', 'clinic-readiness', 'clinic-readiness-migration',
+  'clinical-audit', 'clinic-readiness', 'clinic-readiness-migration', 'mfa', 'mfa-management', 'facility-branding-http',
   'integration', 'insurance-membership-migration', 'patient-financials', 'patient-file-projection', 'medicine-management', 'reference-bootstrap',
   'scheduling', 'seed-security', 'state-reference-contract', 'test-runner',
 ].map(name => `test/${name}.test.js`);

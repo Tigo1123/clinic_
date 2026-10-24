@@ -1,0 +1,340 @@
+{
+  "backend": {
+    "uniqueFiles": 22,
+    "discoveredFiles": 71,
+    "finalPerFileCounts": {
+      "tests": 377,
+      "pass": 377,
+      "fail": 0
+    },
+    "note": "Broader run plus focused safe-config allowlist rerun; latest result per file",
+    "files": [
+      {
+        "file": "test/admin-configuration-migration.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/admin-configuration.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/admin-doctor-management.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/admin-scheduling.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 22,
+          "pass": 22,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/audit-atomicity.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/clinic-readiness-migration.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/clinic-readiness.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/clinical-audit.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/facility-branding-http.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/insurance-membership-migration.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/integration.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 238,
+          "pass": 238,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/medicine-management.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/mfa-management.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/mfa.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/money.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/patient-file-projection.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/patient-financials.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/reference-bootstrap.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/scheduling.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/seed-security.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/state-reference-contract.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/test-runner.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      }
+    ]
+  },
+  "focusedMfaBackend": {
+    "files": 4,
+    "tests": 253,
+    "pass": 253,
+    "fail": 0
+  },
+  "frontend": {
+    "files": 58,
+    "pass": 58,
+    "fail": 0
+  },
+  "browser": {
+    "checks": 169,
+    "pass": 169,
+    "captures": 16,
+    "languages": [
+      "ar",
+      "en"
+    ],
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "widths": [
+      360,
+      1366
+    ],
+    "data": "Intercepted synthetic requests only; no credential values in report"
+  },
+  "beforeChangeBrowser": {
+    "results": [
+      {
+        "type": "password",
+        "labels": 2,
+        "toggle": "false",
+        "mask": "disc"
+      },
+      {
+        "type": "password",
+        "labels": 2
+      }
+    ],
+    "exceptions": []
+  },
+  "lint": "passed; six existing warnings",
+  "productionBuild": "passed; existing bundle-size advisory",
+  "syntax": "passed",
+  "diffCheck": "passed",
+  "migration": "none",
+  "security": {
+    "totpWindowChanged": false,
+    "rateLimitsChanged": false,
+    "requiredPolicyPreserved": true,
+    "credentialBypass": false
+  },
+  "limits": [
+    "Staging plaintext display not reproduced at the current revision; no staging runtime/credential inspection performed",
+    "Complete 71-file backend suite not run"
+  ],
+  "safeToCommitForReview": true,
+  "committed": false,
+  "pushed": false
+}

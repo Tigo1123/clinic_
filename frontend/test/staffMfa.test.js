@@ -52,3 +52,20 @@ test('disable uses DELETE and preserves the backend strong-reauthentication cont
   assert.equal(operation.calls[0].options.method, 'DELETE');
   assert.deepEqual(operation.calls[0].body, { currentPassword: 'current-password', totpCode: '654321' });
 });
+
+test('management payload preserves leading-zero TOTP as a string', async () => {
+  const operation = capture();
+  await disableMfa('current-password', 'totp', '012345', operation.request);
+  assert.equal(operation.calls[0].body.totpCode, '012345');
+  assert.equal(typeof operation.calls[0].body.totpCode, 'string');
+});
+
+test('safe management errors distinguish policy, malformed requests, rate limits and server failure', async () => {
+  const { mfaManagementErrorKey } = await import('../src/services/staffMfa.js');
+  assert.equal(mfaManagementErrorKey({ status: 401, code: 'MFA_REAUTH_FAILED' }), 'mfaReauthFailed');
+  assert.equal(mfaManagementErrorKey({ status: 403, code: 'MFA_REQUIRED_POLICY' }), 'mfaRequiredPolicy');
+  assert.equal(mfaManagementErrorKey({ status: 422, code: 'VALIDATION_ERROR' }), 'mfaRequestInvalid');
+  assert.equal(mfaManagementErrorKey({ status: 429 }), 'mfaRateLimited');
+  assert.equal(mfaManagementErrorKey({ status: 500, message: 'Do not expose internal detail' }), 'mfaServiceUnavailable');
+  assert.equal(mfaManagementErrorKey(new Error('Network failure')), 'mfaServiceUnavailable');
+});

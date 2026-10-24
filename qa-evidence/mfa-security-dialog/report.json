@@ -1,0 +1,701 @@
+{
+  "checks": [
+    {
+      "name": "masked with one label 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "typing stays masked 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "reveal matches eye 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "remask matches eye 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "500 safe error 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 500 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "no private detail 500 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "401 safe error 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 401 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "no private detail 401 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "422 safe error 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 422 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "no private detail 422 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "403 safe error 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 403 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "no private detail 403 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "429 safe error 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 429 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "no private detail 429 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "fits viewport 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "required policy blocks disable 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "masked with one label 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "typing stays masked 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "reveal matches eye 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "remask matches eye 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "500 safe error 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 500 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "no private detail 500 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "401 safe error 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 401 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "no private detail 401 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "422 safe error 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 422 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "no private detail 422 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "403 safe error 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 403 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "no private detail 403 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "429 safe error 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 429 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "no private detail 429 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "fits viewport 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "required policy blocks disable 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "masked with one label 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "typing stays masked 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "reveal matches eye 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "remask matches eye 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "500 safe error 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 500 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "no private detail 500 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "401 safe error 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 401 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "no private detail 401 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "422 safe error 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 422 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "no private detail 422 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "403 safe error 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 403 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "no private detail 403 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "429 safe error 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 429 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "no private detail 429 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "fits viewport 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "required policy blocks disable 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "masked with one label 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "typing stays masked 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "reveal matches eye 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "remask matches eye 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "500 safe error 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 500 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "no private detail 500 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "401 safe error 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 401 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "no private detail 401 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "422 safe error 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 422 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "no private detail 422 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "403 safe error 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 403 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "no private detail 403 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "429 safe error 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 429 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "no private detail 429 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "fits viewport 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "required policy blocks disable 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "masked with one label 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "typing stays masked 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "reveal matches eye 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "remask matches eye 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "500 safe error 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 500 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "no private detail 500 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "401 safe error 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 401 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "no private detail 401 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "422 safe error 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 422 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "no private detail 422 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "403 safe error 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 403 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "no private detail 403 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "429 safe error 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 429 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "no private detail 429 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "fits viewport 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "required policy blocks disable 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "masked with one label 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "typing stays masked 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "reveal matches eye 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "remask matches eye 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "500 safe error 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 500 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "no private detail 500 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "401 safe error 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 401 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "no private detail 401 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "422 safe error 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 422 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "no private detail 422 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "403 safe error 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 403 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "no private detail 403 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "429 safe error 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 429 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "no private detail 429 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "fits viewport 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "required policy blocks disable 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "masked with one label 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "typing stays masked 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "reveal matches eye 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "remask matches eye 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "500 safe error 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 500 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "no private detail 500 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "401 safe error 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 401 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "no private detail 401 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "422 safe error 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 422 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "no private detail 422 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "403 safe error 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 403 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "no private detail 403 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "429 safe error 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 429 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "no private detail 429 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "fits viewport 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "required policy blocks disable 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "masked with one label 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "typing stays masked 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "reveal matches eye 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "remask matches eye 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "500 safe error 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 500 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "no private detail 500 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "401 safe error 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 401 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "no private detail 401 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "422 safe error 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 422 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "no private detail 422 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "403 safe error 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 403 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "no private detail 403 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "429 safe error 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "string proof sent 429 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "no private detail 429 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "fits viewport 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "required policy blocks disable 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "no exceptions",
+      "passed": true
+    }
+  ],
+  "captures": [
+    "optional-360-ar-light",
+    "required-360-ar-light",
+    "optional-360-ar-dark",
+    "required-360-ar-dark",
+    "optional-360-en-light",
+    "required-360-en-light",
+    "optional-360-en-dark",
+    "required-360-en-dark",
+    "optional-1366-ar-light",
+    "required-1366-ar-light",
+    "optional-1366-ar-dark",
+    "required-1366-ar-dark",
+    "optional-1366-en-light",
+    "required-1366-en-light",
+    "optional-1366-en-dark",
+    "required-1366-en-dark"
+  ],
+  "exceptions": [],
+  "unknownApi": [],
+  "mockedWrites": []
+}

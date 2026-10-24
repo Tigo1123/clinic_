@@ -105,3 +105,14 @@ test('clearing a revealed password remasks the shared field',async()=>{
  globalThis.passwordValues={Password:'VisibleValue123'};await mount();await act(async()=>document.querySelector('button[aria-label]').click());assert.equal(document.querySelector('input').type,'text');
  await act(async()=>root.render(createElement(I18nextProvider,{i18n},createElement('form',null,[createElement(PasswordField,{key:'Password',label:'Password',value:'',onChange:()=>{}})]))));assert.equal(document.querySelector('input').value,'');assert.equal(document.querySelector('input').type,'password');
 });
+
+test('native input props cannot disagree with the shared visibility state', async () => {
+  await i18n.changeLanguage('en');
+  root = createRoot(document.getElementById('root'));
+  await act(async () => root.render(createElement(I18nextProvider, { i18n }, createElement(PasswordField, { label: 'Current password', value: 'SyntheticExample123!', onChange: () => {}, inputProps: { type: 'text' } }))));
+  const input = document.querySelector('input'); const toggle = document.querySelector('button');
+  assert.equal(input.type, 'password'); assert.equal(toggle.getAttribute('aria-pressed'), 'false');
+  assert.equal(input.labels.length, 1);
+  await act(async () => toggle.click()); assert.equal(input.type, 'text'); assert.equal(toggle.getAttribute('aria-pressed'), 'true');
+  await act(async () => toggle.click()); assert.equal(input.type, 'password'); assert.equal(toggle.getAttribute('aria-pressed'), 'false');
+});
