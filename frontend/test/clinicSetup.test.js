@@ -59,7 +59,7 @@ for (const lang of ['ar', 'en']) for (const mode of ['light', 'dark']) test(`${l
   assert.ok(document.querySelector('.MuiTabs-root'));
   assert.ok(document.querySelector('.MuiCard-root'));
   assert.match(document.body.textContent, new RegExp(copy.empty));
-  assert.equal(document.querySelectorAll('[role=tab]').length, 5);
+  assert.equal(document.querySelectorAll('[role=tab]').length, 6);
   const theme = createPatientMuiTheme(mode, lang === 'ar' ? 'rtl' : 'ltr');
   assert.equal(theme.palette.mode, mode); assert.equal(theme.direction, lang === 'ar' ? 'rtl' : 'ltr');
   await clickText(`${copy.add} ${copy.doctors}`);

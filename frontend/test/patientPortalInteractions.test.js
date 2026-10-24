@@ -28,6 +28,7 @@ let pages;
 try { pages = await import(file.href); } finally { await unlink(file); }
 let rescheduleSource = await readFile(new URL('../src/features/appointments/RescheduleAppointment.jsx', import.meta.url), 'utf8');
 rescheduleSource = rescheduleSource
+  .replace(/import AppDatePicker[^;]+;/, 'const AppDatePicker = props => <label>{props.label}<input type="date" value={props.value || ""} onChange={event => props.onChange(event.target.value)} /></label>;')
   .replace(/import \{ useTranslation \}[^;]+;/, "const useTranslation = () => ({ t: key => key });")
   .replace(/import \{ patientApiRequest as apiRequest \}[^;]+;/, 'const apiRequest = (...args) => globalThis.portalTestApi(...args);')
   .replace(/import \{ ErrorState, Skeleton \}[^;]+;/, 'const Skeleton = () => <div role="status">Loading</div>; const ErrorState = ({message}) => <div role="alert">{message}</div>;')

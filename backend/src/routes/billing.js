@@ -1,3 +1,4 @@
+import { eligibleInsuranceCompany } from '../services/insurance.js';
 import { Prisma } from '../generated/prisma/index.js';
 import { activePaymentMethods, requireActivePaymentMethods, PAYMENT_METHOD_CODES } from '../services/paymentMethods.js';
 import { usdFromSdg, money, addMoney, subtractMoney, multiplyMoney } from '../utils/money.js';
@@ -9,7 +10,7 @@ import prisma from '../db.js';
 import { authenticate, checkRoles } from '../middleware/auth.js';
 import { allowRoles, ROLES } from '../middleware/policies.js';
 import { validate } from '../middleware/validate.js';
-import { sendError } from '../utils/apiError.js';
+import { ApiError, sendError } from '../utils/apiError.js';
 import { clinicDateSequence, clinicMonthBounds, clinicDayBounds, clinicTimeZone, getClinicDateString } from '../utils/clinicTime.js';
 import { createAuthenticatedMutationLimiter } from '../utils/edgeSecurity.js';
 import { paginationHeaders, parsePagination } from '../utils/pagination.js';
@@ -39,7 +40,8 @@ const paymentInvoiceParamsSchema = z.object({ id: z.string().uuid() }).strict();
 const insurancePreviewSchema = z.object({
   patientId: z.string().uuid(),
   insuranceCompanyId: z.string().uuid().nullable().optional(),
-  invoiceType: z.enum(['GENERAL', 'CONSULTATION']),
+  invoiceType: z.enum(['GENERAL', 'CONSULTATION', 'LABORATORY']),
+  labOrderId: z.string().uuid().nullable().optional(),
   appointmentId: z.string().uuid().nullable().optional(),
   items: z.array(z.object({
     serviceId: z.string().uuid(),
@@ -131,6 +133,63 @@ function isUniqueViolationFor(error, fieldName, constraintName) {
     || normalized.endsWith(`.${normalizedConstraint}`);
 }
 
+const insuranceCompanySchema = z.object({
+  labelAr: z.string().trim().min(1).max(150), labelEn: z.string().trim().min(1).max(150),
+  copayPercentage: z.number().min(0).max(100).multipleOf(0.01),
+  billingCycleDays: z.number().int().min(1).max(365), active: z.boolean(),
+  coveredCategories: z.array(z.enum(['CONSULTATION', 'LABORATORY', 'RADIOLOGY', 'CLINICAL_PROCEDURE'])).max(4)
+}).strict();
+router.post('/insurance-companies', authenticate, billingMutationLimiter, allowRoles(ROLES.ADMIN), validate(insuranceCompanySchema), async (req, res) => {
+  const company = await prisma.$transaction(async tx => {
+    const result = await tx.insuranceCompany.create({ data: req.body });
+    await tx.tenantAuditLog.create({ data: { userId: req.user.id, action: 'INSURANCE_COMPANY_CREATED', details: JSON.stringify({ companyId: result.id }), ipAddress: req.ip } });
+    return result;
+  });
+  res.status(201).json(company);
+});
+router.put('/insurance-companies/:id', authenticate, billingMutationLimiter, allowRoles(ROLES.ADMIN), validate(paymentInvoiceParamsSchema, 'params'), validate(insuranceCompanySchema), async (req, res) => {
+  const company = await prisma.$transaction(async tx => {
+    if (!await tx.insuranceCompany.findUnique({ where: { id: req.params.id }, select: { id: true } })) throw new ApiError(404, 'INSURANCE_COMPANY_NOT_FOUND', 'Insurance company not found.');
+    const result = await tx.insuranceCompany.update({ where: { id: req.params.id }, data: req.body });
+    await tx.tenantAuditLog.create({ data: { userId: req.user.id, action: 'INSURANCE_COMPANY_UPDATED', details: JSON.stringify({ companyId: result.id, active: result.active, copayPercentage: result.copayPercentage, coveredCategories: result.coveredCategories }), ipAddress: req.ip } });
+    return result;
+  });
+  res.json(company);
+});
+const membershipSchema = z.object({
+  insuranceCompanyId: z.string().uuid(), memberNumber: z.string().trim().min(1).max(100),
+  plan: z.string().trim().max(100).nullable(),
+  validFrom: z.iso.date(), validUntil: z.iso.date(), active: z.boolean()
+}).strict().refine(value => value.validFrom <= value.validUntil, 'Validity dates are reversed.');
+router.get('/patients/:id/insurance', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), validate(paymentInvoiceParamsSchema, 'params'), async (req, res) => {
+  res.json(await prisma.patientInsurance.findMany({ where: { patientId: req.params.id }, select: { insuranceCompanyId: true, memberNumber: true, plan: true, validFrom: true, validUntil: true, active: true } }));
+});
+router.put('/patients/:id/insurance', authenticate, billingMutationLimiter, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), validate(paymentInvoiceParamsSchema, 'params'), validate(membershipSchema), async (req, res) => {
+  const result = await prisma.$transaction(async tx => {
+    const patient = await tx.patient.findUnique({ where: { id: req.params.id }, select: { status: true } });
+    if (!patient || patient.status !== 'ACTIVE') return null;
+    const company = await tx.insuranceCompany.findUnique({ where: { id: req.body.insuranceCompanyId }, select: { id: true } });
+    if (!company) throw new ApiError(422, 'INSURANCE_COMPANY_INVALID', 'Insurance company not found.');
+    const membership = await tx.patientInsurance.upsert({ where: { patientId_insuranceCompanyId: { patientId: req.params.id, insuranceCompanyId: req.body.insuranceCompanyId } }, create: { patientId: req.params.id, ...req.body }, update: req.body });
+    await tx.tenantAuditLog.create({ data: { userId: req.user.id, action: 'PATIENT_INSURANCE_UPDATED', details: JSON.stringify({ patientId: req.params.id, insuranceCompanyId: membership.insuranceCompanyId, active: membership.active }), ipAddress: req.ip } });
+    return { insuranceCompanyId: membership.insuranceCompanyId, active: membership.active };
+  });
+  if (!result) return sendError(res, 409, 'PATIENT_NOT_ACTIVE', 'An active patient record is required.');
+  res.json(result);
+});
+const claimTransitions = { DRAFT: ['SUBMITTED'], SUBMITTED: ['UNDER_REVIEW'], UNDER_REVIEW: ['APPROVED', 'REJECTED'], APPROVED: ['PAID'], REJECTED: [], PAID: [] };
+router.patch('/claims/:id', authenticate, billingMutationLimiter, allowRoles(ROLES.ADMIN), validate(paymentInvoiceParamsSchema, 'params'), validate(z.object({ fromStatus: z.enum(Object.keys(claimTransitions)), claimStatus: z.enum(Object.keys(claimTransitions)) }).strict()), async (req, res) => {
+  const { fromStatus, claimStatus } = req.body;
+  if (!claimTransitions[fromStatus].includes(claimStatus)) return sendError(res, 409, 'CLAIM_TRANSITION_INVALID', 'This claim transition is not allowed.');
+  const changed = await prisma.$transaction(async tx => {
+    const result = await tx.insuranceClaim.updateMany({ where: { id: req.params.id, claimStatus: fromStatus }, data: { claimStatus, ...(claimStatus === 'SUBMITTED' ? { submissionDate: new Date() } : {}), ...(claimStatus === 'PAID' ? { paymentDate: new Date() } : {}) } });
+    if (result.count) await tx.tenantAuditLog.create({ data: { userId: req.user.id, action: 'INSURANCE_CLAIM_STATUS_UPDATED', details: JSON.stringify({ claimId: req.params.id, fromStatus, claimStatus }), ipAddress: req.ip } });
+    return result.count;
+  });
+  if (!changed) return sendError(res, 409, 'CLAIM_CHANGED', 'The claim changed. Refresh before retrying.');
+  res.json({ id: req.params.id, claimStatus });
+});
+
 /**
  * POST /api/billing/insurance-preview
  * Server-authoritative pre-issuance preview. The persisted invoice repeats
@@ -138,12 +197,13 @@ function isUniqueViolationFor(error, fieldName, constraintName) {
  */
 router.post('/insurance-preview', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), validate(insurancePreviewSchema), async (req, res) => {
   try {
-    const { patientId, insuranceCompanyId, invoiceType, appointmentId, items = [] } = req.body;
+    const { patientId, insuranceCompanyId, invoiceType, appointmentId, labOrderId, items = [] } = req.body;
     const patient = await prisma.patient.findUnique({ where: { id: patientId }, select: { id: true, status: true } });
     if (!patient) return sendError(res, 404, 'PATIENT_NOT_FOUND', 'Patient was not found.');
     if (patient.status !== 'ACTIVE') return sendError(res, 409, 'PATIENT_NOT_ACTIVE', 'Billing requires an active patient record.');
 
     let grossTotalSdg = 0;
+    let labCategories = [];
     if (invoiceType === 'CONSULTATION') {
       if (!appointmentId) return sendError(res, 422, 'CONSULTATION_APPOINTMENT_REQUIRED', 'Consultation billing requires an appointment.');
       const appointment = await prisma.appointment.findUnique({
@@ -157,6 +217,15 @@ router.post('/insurance-preview', authenticate, allowRoles(ROLES.ADMIN, ROLES.RE
         return sendError(res, 409, 'CONSULTATION_FEE_NOT_CONFIGURED', 'The doctor consultation fee is not configured correctly.');
       }
       grossTotalSdg = fee;
+    } else if (invoiceType === 'LABORATORY') {
+      if (!labOrderId) return sendError(res, 422, 'LAB_ORDER_REQUIRED', 'A laboratory order is required.');
+      const order = await prisma.labOrder.findUnique({ where: { id: labOrderId }, include: { items: { include: { service: true } } } });
+      if (!order || order.patientId !== patientId) return sendError(res, 409, 'LAB_ORDER_PATIENT_MISMATCH', 'The laboratory order does not belong to this patient.');
+      if (order.status !== 'PENDING_BILLING') return sendError(res, 409, 'LAB_BILLING_INVALID_STATE', 'This laboratory order is not awaiting billing.');
+      const billable = order.items.filter(item => item.labReviewStatus !== 'EXTERNAL');
+      if (!billable.length || billable.some(item => item.labReviewStatus === 'PENDING_REVIEW' || !item.service || item.service.status !== 'ACTIVE' || !['LABORATORY', 'RADIOLOGY'].includes(item.service.category) || !isConfiguredPrice(item.service.baseFeeSdg))) return sendError(res, 409, 'LAB_REVIEW_PENDING', 'Laboratory tests require catalogue review and pricing.');
+      grossTotalSdg = billable.reduce((sum, item) => addMoney(sum, item.service.baseFeeSdg), 0);
+      labCategories = billable.map(item => item.service.category);
     } else {
       if (!items.length) return sendError(res, 422, 'INVOICE_ITEMS_REQUIRED', 'At least one invoice item is required.');
       const serviceIds = [...new Set(items.map((item) => item.serviceId))];
@@ -180,13 +249,12 @@ router.post('/insurance-preview', authenticate, allowRoles(ROLES.ADMIN, ROLES.RE
 
     let company = null;
     if (insuranceCompanyId) {
-      company = await prisma.insuranceCompany.findUnique({ where: { id: insuranceCompanyId } });
-      if (!company) return sendError(res, 422, 'INSURANCE_COMPANY_INVALID', 'The selected insurance company is not available.');
+      company = await eligibleInsuranceCompany(prisma, patientId, insuranceCompanyId, invoiceType === 'CONSULTATION' ? ['CONSULTATION'] : invoiceType === 'LABORATORY' ? labCategories : (await prisma.clinicalService.findMany({ where: { id: { in: items.map(item => item.serviceId) } }, select: { category: true } })).map(item => item.category));
     }
     return res.json({
       ...calculateInsuranceAmounts(grossTotalSdg, company),
       insuranceCompany: company ? { id: company.id, labelAr: company.labelAr, labelEn: company.labelEn } : null,
-      eligibilityModel: 'COMPANY_LEVEL_ONLY'
+      eligibilityModel: 'PATIENT_MEMBERSHIP'
     });
   } catch (error) {
     if (error.status && error.code) return sendError(res, error.status, error.code, error.message);
@@ -203,6 +271,9 @@ router.post('/insurance-preview', authenticate, allowRoles(ROLES.ADMIN, ROLES.RE
  * configured consultation fee. Client-supplied consultation prices are ignored.
  */
 router.post('/invoice', authenticate, billingMutationLimiter, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
+  const issueKey = req.get('Idempotency-Key') || null;
+  if (issueKey && !/^[A-Za-z0-9_-]{16,128}$/.test(issueKey)) return sendError(res, 422, 'IDEMPOTENCY_KEY_INVALID', 'Use a valid invoice idempotency key.');
+  const issueHash = createHash('sha256').update(JSON.stringify({ actor: req.user.id, body: req.body })).digest('hex');
   const unexpectedFields = Object.keys(req.body || {}).filter((key) => !INVOICE_REQUEST_FIELDS.has(key));
   if (unexpectedFields.length) {
     return sendError(res, 422, 'INVOICE_FIELDS_INVALID', 'The invoice request contains unsupported fields.');
@@ -267,6 +338,11 @@ router.post('/invoice', authenticate, billingMutationLimiter, allowRoles(ROLES.A
   }
 
   try {
+    if ((normalizedInvoiceType === 'GENERAL' && (appointmentId || labOrderId || prescriptionId)) ||
+        (normalizedInvoiceType === 'CONSULTATION' && (labOrderId || prescriptionId)) ||
+        (normalizedInvoiceType === 'LABORATORY' && (appointmentId || prescriptionId))) {
+      return sendError(res, 422, 'INVOICE_REFERENCE_INVALID', 'Only the source reference for this invoice type is allowed.');
+    }
     const lockedExchangeRate = 1500.00;
 
     let resolvedItems;
@@ -576,6 +652,14 @@ router.post('/invoice', authenticate, billingMutationLimiter, allowRoles(ROLES.A
 
     const runCreateTransaction = () =>
       prisma.$transaction(async (tx) => {
+        if (issueKey) {
+          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`invoice-issue:${issueKey}`}, 0)) IS NULL AS locked`;
+          const operation = await tx.invoiceIssueOperation.findUnique({ where: { key: issueKey }, include: { invoice: { include: { items: true, insuranceClaim: true } } } });
+          if (operation) {
+            if (operation.requestHash !== issueHash) throw Object.assign(new Error('This key was used for a different invoice request.'), { status: 409, code: 'IDEMPOTENCY_KEY_CONFLICT' });
+            return { invoice: operation.invoice, insuranceClaim: operation.invoice.insuranceClaim, ...invoicePatientLiability(operation.invoice), existing: true };
+          }
+        }
         // Repeated consultation checkout must not create another invoice.
         if (normalizedInvoiceType === 'CONSULTATION') {
           const existingInvoice = await tx.invoice.findFirst({
@@ -643,6 +727,12 @@ router.post('/invoice', authenticate, billingMutationLimiter, allowRoles(ROLES.A
           }
         }
 
+        if (normalizedInvoiceType === 'CONSULTATION') {
+          const current = await tx.appointment.findUnique({ where: { id: resolvedAppointmentId }, include: { doctor: true } });
+          if (!current || current.patientId !== patientId || current.status !== 'CHECKED_IN' || current.doctor.status !== 'ACTIVE' || !current.doctor.consultationFee.equals(String(resolvedItems[0].unitPriceSdg))) {
+            throw Object.assign(new Error('Appointment or consultation price changed. Refresh before issuing.'), { status: 409, code: 'CONSULTATION_CHANGED' });
+          }
+        }
         const catalogIds = [...new Set(resolvedItems.map(item => item.sourceServiceId).filter(Boolean))].sort();
         if (catalogIds.length) {
           await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "ClinicalService" WHERE "id" IN (${Prisma.join(catalogIds)}) ORDER BY "id" FOR SHARE`);
@@ -659,8 +749,7 @@ router.post('/invoice', authenticate, billingMutationLimiter, allowRoles(ROLES.A
 
         let company = null;
         if (insuranceCompanyId) {
-          company = await tx.insuranceCompany.findUnique({ where: { id: insuranceCompanyId } });
-          if (!company) throw Object.assign(new Error('The selected insurance company is not available.'), { status: 422, code: 'INSURANCE_COMPANY_INVALID' });
+          company = await eligibleInsuranceCompany(tx, patientId, insuranceCompanyId, normalizedInvoiceType === 'CONSULTATION' ? ['CONSULTATION'] : (await tx.clinicalService.findMany({ where: { id: { in: catalogIds } }, select: { category: true } })).map(item => item.category));
         }
         const insuranceAmounts = calculateInsuranceAmounts(totalSdg, company);
         let insuranceClaim = null;
@@ -676,7 +765,7 @@ router.post('/invoice', authenticate, billingMutationLimiter, allowRoles(ROLES.A
             totalAmountSdg: totalSdg,
             totalAmountUsd: totalUsd,
             invoiceExchangeRate: lockedExchangeRate,
-            paymentStatus: 'UNPAID',
+            paymentStatus: patientShareSdg === 0 ? 'PAID' : 'UNPAID',
             createdBy: req.user.id,
             items: {
               create: invoiceItemsData
@@ -704,6 +793,11 @@ router.post('/invoice', authenticate, billingMutationLimiter, allowRoles(ROLES.A
           });
         }
 
+        if (patientShareSdg === 0 && resolvedLabOrderId) {
+          await tx.labOrder.updateMany({ where: { id: resolvedLabOrderId, status: 'PENDING_BILLING' }, data: { status: 'PAID' } });
+        }
+        if (issueKey) await tx.invoiceIssueOperation.create({ data: { key: issueKey, requestHash: issueHash, invoiceId: invoice.id } });
+        await tx.tenantAuditLog.create({ data: { userId: req.user.id, action: 'INVOICE_CREATED', details: JSON.stringify({ invoiceId: invoice.id, invoiceType: normalizedInvoiceType, patientId, grossTotalSdg: totalSdg, insuranceCoverageSdg: insuranceAmounts.insuranceCoverageSdg }), ipAddress: req.ip } });
         return {
           invoice,
           insuranceClaim,
@@ -727,7 +821,7 @@ router.post('/invoice', authenticate, billingMutationLimiter, allowRoles(ROLES.A
         break;
       } catch (error) {
         const contention =
-          ['P2028', 'P2034'].includes(error.code) ||
+          ['P2028', 'P2034'].includes(error.code) || (issueKey && error.code === 'P2002') ||
           /serialization|write conflict|deadlock/i.test(error.message || '');
 
         if (!contention || attempt === 2) throw error;
@@ -1301,7 +1395,7 @@ router.get(
                 not: 'REFUNDED'
               }
             },
-            select: { id: true, paymentStatus: true, invoiceDate: true, totalAmountSdg: true },
+            select: { id: true, paymentStatus: true, invoiceDate: true, totalAmountSdg: true, insuranceClaim: { select: { claimAmountSdg: true } } },
             orderBy: {
               invoiceDate: 'desc'
             },
@@ -1352,7 +1446,7 @@ router.get(
 
           remainingBalanceSdg = Math.max(
             0,
-            subtractMoney(Number(invoice.totalAmountSdg), netCollectedSdg)
+            subtractMoney(invoicePatientLiability(invoice).patientShareSdg, netCollectedSdg)
           );
         }
 
@@ -1392,6 +1486,7 @@ router.get(
                 id: invoice.id,
                 paymentStatus: invoice.paymentStatus,
                 totalAmountSdg: Number(invoice.totalAmountSdg),
+                ...invoicePatientLiability(invoice),
                 totalPaidSdg,
                 refundedSdg,
                 remainingBalanceSdg
@@ -1695,7 +1790,7 @@ router.get('/services', async (req, res) => {
 router.get('/insurance-companies', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST), async (req, res) => {
   try {
     const companies = await prisma.insuranceCompany.findMany({
-      select: staffInsuranceCompanySelect,
+      select: { ...staffInsuranceCompanySelect, active: true, coveredCategories: true, billingCycleDays: true },
       orderBy: { labelEn: 'asc' }
     });
     return res.json(companies);

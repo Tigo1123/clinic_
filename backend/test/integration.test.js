@@ -3108,8 +3108,8 @@ test('public directory and catalog responses use allowlisted DTOs', async () => 
   const companies = await api.get('/api/billing/insurance-companies').set(auth('reception'));
   assert.equal(companies.status, 200);
   const returnedCompany = companies.body.find((item) => item.id === insuranceCompany.id);
-  assert.deepEqual(Object.keys(returnedCompany).sort(), ['copayPercentage', 'id', 'labelAr', 'labelEn']);
-  assert.equal(Object.hasOwn(returnedCompany, 'billingCycleDays'), false);
+  assert.deepEqual(Object.keys(returnedCompany).sort(), ['active', 'billingCycleDays', 'copayPercentage', 'coveredCategories', 'id', 'labelAr', 'labelEn']);
+  assert.equal(returnedCompany.billingCycleDays, insuranceCompany.billingCycleDays);
 
   const slots = await api.get('/api/appointments/slots').query({ doctorId: doctor1.id, date: getClinicDateString() });
   assert.equal(slots.status, 200);
@@ -6728,6 +6728,8 @@ test('insurance copay is server-authoritative and caps patient payment responsib
     })
   ]);
 
+  await prisma.patientInsurance.create({ data: { patientId: patient1.id, insuranceCompanyId: company.id, memberNumber: `TEST-${suffix}`, validFrom: '2020-01-01', validUntil: '2099-12-31', active: true } });
+
   const selfPayPreview = await api.post('/api/billing/insurance-preview').set(auth('reception')).send({
     patientId: patient1.id,
     insuranceCompanyId: null,
@@ -6811,6 +6813,94 @@ test('insurance copay is server-authoritative and caps patient payment responsib
   });
   assert.equal(invalidCompany.status, 422);
   assert.equal(invalidCompany.body.error.code, 'INSURANCE_COMPANY_INVALID');
+});
+
+test('patient insurance eligibility, role boundaries, coverage and claim transitions are enforced', async () => {
+  const suffix = crypto.randomUUID();
+  const company = await prisma.insuranceCompany.create({ data: { labelAr: 'تأمين اختبار', labelEn: `Eligibility ${suffix}`, copayPercentage: 0 } });
+  const catalog = await prisma.clinicalService.create({ data: { labelAr: 'خدمة اختبار', labelEn: `Eligibility service ${suffix}`, category: 'CLINICAL_PROCEDURE', baseFeeSdg: 1000, baseFeeUsd: 1 } });
+  const payload = { patientId: patient1.id, insuranceCompanyId: company.id, invoiceType: 'GENERAL', items: [{ serviceId: catalog.id, quantity: 1 }] };
+  const preview = () => api.post('/api/billing/insurance-preview').set(auth('reception')).send(payload);
+  assert.equal((await preview()).body.error.code, 'INSURANCE_NOT_ELIGIBLE');
+  const membership = { insuranceCompanyId: company.id, memberNumber: `TEST-${suffix}`, plan: null, validFrom: '2020-01-01', validUntil: '2099-12-31', active: true };
+  const url = `/api/billing/patients/${patient1.id}/insurance`;
+  assert.equal((await api.put(url).set(auth('doctor')).send(membership)).status, 403);
+  assert.equal((await api.put(url).set(auth('reception')).send({ ...membership, validUntil: '2019-01-01' })).status, 422);
+  assert.equal((await api.put(url).set(auth('reception')).send(membership)).status, 200);
+  assert.equal((await preview()).body.patientShareSdg, 0);
+  for (const change of [{ active: false }, { validUntil: '2020-12-31' }, { validFrom: '2099-01-01' }]) {
+    await prisma.patientInsurance.update({ where: { patientId_insuranceCompanyId: { patientId: patient1.id, insuranceCompanyId: company.id } }, data: { ...membership, ...change } });
+    assert.equal((await preview()).body.error.code, 'INSURANCE_NOT_ELIGIBLE');
+    assert.equal((await api.post('/api/billing/invoice').set(auth('reception')).send(payload)).status, 409);
+  }
+  await api.put(url).set(auth('reception')).send(membership);
+  await prisma.insuranceCompany.update({ where: { id: company.id }, data: { coveredCategories: ['CONSULTATION'] } });
+  assert.equal((await preview()).body.error.code, 'INSURANCE_SERVICE_NOT_COVERED');
+  await prisma.insuranceCompany.update({ where: { id: company.id }, data: { coveredCategories: ['CLINICAL_PROCEDURE'], active: false } });
+  assert.equal((await preview()).body.error.code, 'INSURANCE_NOT_ELIGIBLE');
+  const selfPay = await api.post('/api/billing/insurance-preview').set(auth('reception')).send({ ...payload, insuranceCompanyId: null });
+  assert.equal(selfPay.body.patientShareSdg, 1000);
+  await prisma.insuranceCompany.update({ where: { id: company.id }, data: { active: true } });
+  const issued = await api.post('/api/billing/invoice').set(auth('reception')).send(payload);
+  assert.equal(issued.status, 201);
+  assert.equal(issued.body.invoice.paymentStatus, 'PAID');
+  const claimUrl = `/api/billing/claims/${issued.body.insuranceClaim.id}`;
+  assert.equal((await api.patch(claimUrl).set(auth('reception')).send({ fromStatus: 'DRAFT', claimStatus: 'SUBMITTED' })).status, 403);
+  assert.equal((await api.patch(claimUrl).set(auth('admin')).send({ fromStatus: 'DRAFT', claimStatus: 'PAID' })).status, 409);
+  for (const [fromStatus, claimStatus] of [['DRAFT', 'SUBMITTED'], ['SUBMITTED', 'UNDER_REVIEW'], ['UNDER_REVIEW', 'APPROVED'], ['APPROVED', 'PAID']]) {
+    assert.equal((await api.patch(claimUrl).set(auth('admin')).send({ fromStatus, claimStatus })).status, 200);
+  }
+  assert.equal((await api.patch(claimUrl).set(auth('admin')).send({ fromStatus: 'DRAFT', claimStatus: 'SUBMITTED' })).status, 409);
+  const profile = await api.get(`/api/patients/${patient1.id}/profile`).set(auth('reception'));
+  assert.equal(profile.status, 200);
+  const row = profile.body.invoices.find(invoice => invoice.id === issued.body.invoice.id);
+  assert.equal(row.patientShareSdg, 0); assert.equal(row.insuranceCoverageSdg, 1000); assert.equal(row.remainingBalanceSdg, 0);
+  assert.equal(row.insuranceClaim.claimStatus, 'PAID');
+  assert.equal(JSON.stringify(row).includes('passwordHash'), false);
+  const mismatch = await api.post('/api/billing/invoice').set(auth('reception')).send({ ...payload, appointmentId: relatedAppointment.id });
+  assert.equal(mismatch.status, 422);
+});
+
+test('admin insurance configuration and insured laboratory billing preserve patient-only balances', async () => {
+  const data = { labelAr: 'شركة مختبر اختبار', labelEn: `Lab insurer ${crypto.randomUUID()}`, copayPercentage: 20, billingCycleDays: 30, active: true, coveredCategories: ['LABORATORY'] };
+  assert.equal((await api.post('/api/billing/insurance-companies').set(auth('reception')).send(data)).status, 403);
+  assert.equal((await api.post('/api/billing/insurance-companies').set(auth('admin')).send({ ...data, copayPercentage: 101 })).status, 422);
+  const company = await api.post('/api/billing/insurance-companies').set(auth('admin')).send(data);
+  assert.equal(company.status, 201);
+  const fixture = await createLabReviewFixture(`Insured lab ${crypto.randomUUID()}`, { includeStandard: false });
+  const catalog = await prisma.clinicalService.create({ data: { labelAr: 'مختبر تأمين', labelEn: `Insured lab ${crypto.randomUUID()}`, category: 'LABORATORY', baseFeeSdg: 1000, baseFeeUsd: 1, status: 'ACTIVE' } });
+  await prisma.labOrderItem.update({ where: { id: fixture.customItem.id }, data: { serviceId: catalog.id, labReviewStatus: 'NOT_REQUIRED' } });
+  await prisma.patientInsurance.create({ data: { patientId: patient1.id, insuranceCompanyId: company.body.id, memberNumber: 'LAB-MEMBER', validFrom: '2020-01-01', validUntil: '2099-12-31' } });
+  const payload = { invoiceType: 'LABORATORY', labOrderId: fixture.order.id, patientId: patient1.id, insuranceCompanyId: company.body.id };
+  const preview = await api.post('/api/billing/insurance-preview').set(auth('reception')).send(payload);
+  assert.equal(preview.status, 200); assert.equal(preview.body.patientShareSdg, 200);
+  const issued = await api.post('/api/billing/invoice').set(auth('reception')).send({ ...payload, items: [{ unitPriceSdg: 1 }] });
+  assert.equal(issued.status, 201); assert.equal(issued.body.grossTotalSdg, 1000);
+  assert.equal(issued.body.insuranceCoverageSdg, 800);
+  const partial = await api.post(`/api/billing/invoice/${issued.body.invoice.id}/payments`).set(paymentAuth('reception')).send({ payments: [{ amountSdg: 100, paymentMethod: 'CASH' }] });
+  assert.equal(partial.status, 200); assert.equal(partial.body.paymentStatus, 'PARTIALLY_PAID');
+  const queue = await api.get('/api/billing/lab-orders/pending').set(auth('reception'));
+  const order = queue.body.find(row => row.id === fixture.order.id);
+  assert.ok(order); assert.equal(order.invoice.remainingBalanceSdg, 100); assert.equal(order.invoice.patientShareSdg, 200);
+  assert.equal((await prisma.labOrder.findUnique({ where: { id: fixture.order.id } })).status, 'PENDING_BILLING');
+  const paid = await api.post(`/api/billing/invoice/${issued.body.invoice.id}/payments`).set(paymentAuth('reception')).send({ payments: [{ amountSdg: 100, paymentMethod: 'CASH' }] });
+  assert.equal(paid.status, 200); assert.equal((await prisma.labOrder.findUnique({ where: { id: fixture.order.id } })).status, 'PAID');
+  const updated = await api.put(`/api/billing/insurance-companies/${company.body.id}`).set(auth('admin')).send({ ...data, active: false, copayPercentage: 50 });
+  assert.equal(updated.status, 200);
+  assert.equal(Number((await prisma.insuranceClaim.findUnique({ where: { id: issued.body.insuranceClaim.id } })).claimAmountSdg), 800);
+});
+
+test('invoice issue retries and competing requests reuse one general invoice', async () => {
+  const key = crypto.randomUUID();
+  const payload = { patientId: patient1.id, invoiceType: 'GENERAL', items: [{ serviceId: service.id, quantity: 1 }] };
+  const issue = () => api.post('/api/billing/invoice').set(auth('reception')).set('Idempotency-Key', key).send(payload);
+  const results = await Promise.all([issue(), issue()]);
+  assert.deepEqual(results.map(result => result.status).sort(), [200, 201]);
+  assert.equal(results[0].body.invoice.id, results[1].body.invoice.id);
+  assert.equal((await issue()).status, 200);
+  const forged = await api.post('/api/billing/invoice').set(auth('reception')).set('Idempotency-Key', key).send({ ...payload, items: [{ serviceId: service.id, quantity: 2 }] });
+  assert.equal(forged.status, 409);
+  assert.equal(await prisma.invoiceIssueOperation.count({ where: { key } }), 1);
 });
 
 test('billing rejects zero, negative, and overpayments', async () => {

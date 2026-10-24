@@ -22,6 +22,7 @@ async function compileComponent(relativePath, replacements) {
   let source = await readFile(new URL(relativePath, import.meta.url), 'utf8');
   if (relativePath.includes('DoctorDashboard')) source = await pagingReplacements(source, 'doctorFetch', 'doctorPaging');
   for (const [pattern, replacement] of replacements) source = source.replace(pattern, replacement);
+  source = source.replace(/import AppDatePicker[^;]+;/, 'const AppDatePicker = props => <label>{props.label}<input type="date" value={props.value || ""} onChange={event => props.onChange(event.target.value)} /></label>;');
   source = source.replace(/import\s+\{([^}]+)\}\s+from 'lucide-react';/, (_match, names) => names.split(',').map((name) => `const ${name.trim()} = globalThis.clinicalIcon;`).join('\n'));
   source = source.replace(/import\s+['"][^'"]+\.css['"];?/g, '');
   const compiled = await transformWithOxc(source, relativePath.split('/').at(-1), { jsx: { runtime: 'automatic' } });
@@ -30,7 +31,12 @@ async function compileComponent(relativePath, replacements) {
   try { return await import(modulePath.href); } finally { await unlink(modulePath); }
 }
 
+const billingModule = await compileComponent('../src/features/clinical/PatientBillingDetails.jsx', [
+  [/import \{ fetchWithAuth \}[^;]+;/, 'const fetchWithAuth = (...args) => globalThis.modalFetch(...args);']
+]);
+globalThis.patientBillingComponent = billingModule.default;
 const modalModules = await compileComponent('../src/features/clinical/ClinicalModals.jsx', [
+  [/import PatientBillingDetails[^;]+;/, 'const PatientBillingDetails = globalThis.patientBillingComponent;'],
   [/import \{ fetchWithAuth \} from '\.\.\/\.\.\/services\/staffApi';/, 'const fetchWithAuth = (...args) => globalThis.modalFetch(...args);'],
   [/import \{ useAuth \} from '\.\.\/\.\.\/app\/auth\/auth-context';/, 'const useAuth = () => ({ user: globalThis.modalUser });'],
   [/import \{ useFacilityBranding \} from '\.\.\/\.\.\/app\/branding\/FacilityBrandingContext\.js';/, "const useFacilityBranding = () => ({ displayNameAr: 'شفاء', displayNameEn: 'Shifa', facilityNameAr: null, facilityNameEn: null, productNameAr: 'شفاء', productNameEn: 'Shifa', productDescriptorAr: 'نظام إدارة المنشآت الصحية', productDescriptorEn: 'Healthcare Facility Management System' });"],

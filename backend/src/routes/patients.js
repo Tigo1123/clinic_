@@ -1,3 +1,4 @@
+import { financialInvoiceSelect, financialInvoiceDto } from '../services/patientFinancials.js';
 import express from 'express';
 import { asyncRouter } from '../utils/asyncRouter.js';
 import prisma from '../db.js';
@@ -382,10 +383,12 @@ router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTION
         ...(canViewBilling ? { invoices: {
           orderBy: { invoiceDate: 'desc' },
           take: 50,
-          select: {
-            id: true, invoiceDate: true, totalAmountSdg: true, totalAmountUsd: true,
-            paymentStatus: true, invoiceType: true
-          }
+          select: financialInvoiceSelect
+        } } : {}),
+        ...(canViewBilling ? { insuranceMemberships: {
+          where: { active: true, validFrom: { lte: getClinicDateString() }, validUntil: { gte: getClinicDateString() }, insuranceCompany: { active: true } },
+          take: 1, orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+          select: { insuranceCompany: { select: { labelAr: true, labelEn: true, copayPercentage: true } } }
         } } : {}),
         ...(canViewBilling ? { insuranceClaims: {
           take: 1,
@@ -507,7 +510,7 @@ router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTION
       }))
     ).sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate)).slice(0, 50);
 
-    const activeClaim = patient.insuranceClaims?.[0];
+    const activeMembership = patient.insuranceMemberships?.[0];
 
     const profileData = {
       id: patient.id,
@@ -526,10 +529,9 @@ router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTION
         labelAr: patient.addressState.labelAr,
         labelEn: patient.addressState.labelEn
       } : null,
-      insurance: activeClaim ? {
-        providerName: activeClaim.insuranceCompany?.labelAr || activeClaim.insuranceCompany?.labelEn || 'Insurance',
-        claimStatus: activeClaim.claimStatus,
-        coverageRate: activeClaim.insuranceCompany?.copayPercentage ? Number(activeClaim.insuranceCompany.copayPercentage) : 0
+      insurance: activeMembership ? {
+        providerName: activeMembership.insuranceCompany?.labelAr || activeMembership.insuranceCompany?.labelEn || 'Insurance',
+        coverageRate: 100 - Number(activeMembership.insuranceCompany?.copayPercentage ?? 100)
       } : null,
       visitsCount: visits.length,
       visits,
@@ -557,14 +559,7 @@ router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTION
           specialtyEn: appointment.doctor.specialtyEn
         } : null
       })),
-      invoices: canViewBilling ? (patient.invoices || []).map((invoice) => ({
-        id: invoice.id,
-        invoiceDate: invoice.invoiceDate,
-        totalAmountSdg: Number(invoice.totalAmountSdg),
-        totalAmountUsd: Number(invoice.totalAmountUsd),
-        paymentStatus: invoice.paymentStatus,
-        invoiceType: invoice.invoiceType
-      })) : []
+      invoices: canViewBilling ? (patient.invoices || []).map(financialInvoiceDto) : []
     };
 
     return res.json(profileData);

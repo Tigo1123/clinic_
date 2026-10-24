@@ -1,0 +1,272 @@
+{
+  "backend": {
+    "uniqueFiles": 19,
+    "counts": {
+      "tests": 361,
+      "pass": 361,
+      "fail": 0
+    },
+    "files": [
+      {
+        "file": "test/admin-configuration-migration.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/admin-configuration.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/admin-doctor-management.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/admin-scheduling.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 22,
+          "pass": 22,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/audit-atomicity.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/clinic-readiness-migration.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/clinic-readiness.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/clinical-audit.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/integration.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 238,
+          "pass": 238,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/medicine-management.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/money.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/reference-bootstrap.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/scheduling.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/seed-security.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/state-reference-contract.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/test-runner.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/patient-file-projection.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/patient-financials.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/insurance-membership-migration.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      }
+    ]
+  },
+  "frontend": {
+    "files": 57,
+    "pass": 57,
+    "fail": 0
+  },
+  "browser": {
+    "checks": 82,
+    "pass": 82,
+    "captures": 16,
+    "languages": [
+      "ar",
+      "en"
+    ],
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "widths": [
+      360,
+      1366
+    ],
+    "data": "Intercepted synthetic fixtures only"
+  },
+  "prismaValidation": "passed",
+  "migrationReplay": "passed",
+  "populatedMigrationPreservation": "passed",
+  "lint": "passed with 6 pre-existing warnings",
+  "productionBuild": "passed with existing chunk-size advisory",
+  "diffCheck": "passed",
+  "database": "Temporary localhost:55471/clinic_test; fresh test_* schemas; guarded fixtures; no general seed",
+  "committed": false,
+  "pushed": false
+}

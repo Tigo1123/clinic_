@@ -51,10 +51,18 @@ test('insurance billing preview is server-authoritative and exposes patient resp
   assert.match(source, /insurancePreview\.data\.patientShareSdg/);
   assert.match(source, /تغطية التأمين/);
   assert.match(source, /Insurance coverage/);
-  assert.match(source, /المطلوب من المريض/);
-  assert.match(source, /Patient amount due/);
+  assert.match(source, /الرصيد المتبقي/);
+  assert.match(source, /Remaining balance/);
   assert.match(source, /requestedPaymentTotal > authoritativePatientShare/);
   assert.match(source, /issuedBillingInvoice/);
   assert.match(source, /selectedLabBillingOrder \|\| issuedBillingInvoice/);
   assert.match(styles, /\.reception-billing-summary/);
+});
+
+test('reception can issue an unpaid invoice and keeps retry keys until a confirmed response', () => {
+  assert.match(source, /Issue invoice only/);
+  assert.match(source, /handleCreateInvoice\(false\)/);
+  assert.match(source, /paymentAttemptRef\.current\.key/);
+  assert.match(source, /invoiceAttemptRef\.current\.key/);
+  assert.match(source, /Amount paid/);
 });

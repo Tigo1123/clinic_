@@ -99,6 +99,8 @@ export default function ReceptionDashboard({ lang, t }) {
   const walkInSearchSchedulerRef = useRef(null);
   const directoryLoadRequestRef = useRef(0);
   const insurancePreviewRequestRef = useRef(0);
+  const paymentAttemptRef = useRef(null);
+  const invoiceAttemptRef = useRef(null);
   if (!billingSearchSchedulerRef.current) billingSearchSchedulerRef.current = createLatestSearchScheduler();
   if (!directorySearchSchedulerRef.current) directorySearchSchedulerRef.current = createLatestSearchScheduler();
   if (!walkInSearchSchedulerRef.current) walkInSearchSchedulerRef.current = createLatestSearchScheduler();
@@ -162,7 +164,7 @@ export default function ReceptionDashboard({ lang, t }) {
     setSuccessMsg('');
 
     setSelectedLabBillingOrder(order);
-    setIssuedBillingInvoice(null);
+    setIssuedBillingInvoice(order.invoice ? { invoice: order.invoice, grossTotalSdg: order.invoice.grossTotalSdg, insuranceCoverageSdg: order.invoice.insuranceCoverageSdg, patientShareSdg: order.invoice.patientShareSdg } : null);
     setBillingPatient(order.patient);
     setBillingAppointment(null);
     setInsuranceCompanyId('');
@@ -304,19 +306,20 @@ export default function ReceptionDashboard({ lang, t }) {
       setInsurancePreview({ status: 'ready', data: issuedBillingInvoice, error: '' });
       return;
     }
-    if (!billingPatient || selectedLabBillingOrder || addedServices.length === 0) {
+    if (!billingPatient || (!selectedLabBillingOrder && addedServices.length === 0)) {
       setInsurancePreview({ status: 'idle', data: null, error: '' });
       return;
     }
 
     const timer = window.setTimeout(async () => {
       setInsurancePreview({ status: 'loading', data: null, error: '' });
-      const invoiceType = billingAppointment ? 'CONSULTATION' : 'GENERAL';
+      const invoiceType = selectedLabBillingOrder ? 'LABORATORY' : billingAppointment ? 'CONSULTATION' : 'GENERAL';
       const payload = {
         patientId: billingPatient.id,
         insuranceCompanyId: insuranceCompanyId || null,
         invoiceType,
         appointmentId: billingAppointment?.id || null,
+        labOrderId: selectedLabBillingOrder?.id || null,
         ...(invoiceType === 'GENERAL' ? {
           items: addedServices.map((service) => ({ serviceId: service.id, quantity: service.qty }))
         } : {})
@@ -723,7 +726,7 @@ export default function ReceptionDashboard({ lang, t }) {
     }, 0n)
   });
 
-  const handleCreateInvoice = async () => {
+  const handleCreateInvoice = async (collectPayment = true) => {
     if (billingSubmitting) return;
 
     setErrorMsg('');
@@ -751,7 +754,7 @@ export default function ReceptionDashboard({ lang, t }) {
       return;
     }
 
-    if (!isLaboratoryBilling && insurancePreview.status !== 'ready') {
+    if (!selectedLabBillingOrder?.invoice && insurancePreview.status !== 'ready') {
       setErrorMsg(
         insurancePreview.error || (lang === 'ar'
           ? 'انتظر اكتمال احتساب الفاتورة والتأمين قبل الإصدار.'
@@ -795,7 +798,7 @@ export default function ReceptionDashboard({ lang, t }) {
           payment.amountSdg > 0
       );
 
-    if (validPayments.length === 0) {
+    if (collectPayment && validPayments.length === 0 && Number(insurancePreview.data?.patientShareSdg) !== 0) {
       setErrorMsg(
         lang === 'ar'
           ? 'أدخل مبلغ دفع صحيح.'
@@ -827,10 +830,7 @@ export default function ReceptionDashboard({ lang, t }) {
 
         invoiceType,
 
-        insuranceCompanyId:
-          !isLaboratoryBilling
-            ? insuranceCompanyId || undefined
-            : undefined
+        insuranceCompanyId: insuranceCompanyId || undefined
       };
 
       if (invoiceType === 'GENERAL') {
@@ -842,8 +842,11 @@ export default function ReceptionDashboard({ lang, t }) {
 
       let data = issuedBillingInvoice;
       if (!data) {
+        const fingerprint = JSON.stringify(invoicePayload);
+        if (invoiceAttemptRef.current?.fingerprint !== fingerprint) invoiceAttemptRef.current = { fingerprint, key: crypto.randomUUID() };
         const res = await fetchWithAuth('/api/billing/invoice', {
           method: 'POST',
+          headers: { 'Idempotency-Key': invoiceAttemptRef.current.key },
           body: JSON.stringify(invoicePayload)
         });
 
@@ -860,10 +863,24 @@ export default function ReceptionDashboard({ lang, t }) {
           );
           return;
         }
+        invoiceAttemptRef.current = null;
         setIssuedBillingInvoice(data);
       }
 
       const authoritativePatientShare = Number(data.patientShareSdg);
+      if (authoritativePatientShare === 0 && data.invoice.paymentStatus === 'PAID') {
+        refreshDoctorQueue();
+        await refreshLabBillingQueue();
+        setSuccessMsg(lang === 'ar' ? 'تم إصدار الفاتورة. لا توجد مساهمة مطلوبة من المريض.' : 'Invoice issued. No patient payment is required.');
+        setAddedServices([]); setIssuedBillingInvoice(null); setBillingPatient(null); setBillingAppointment(null); setSelectedLabBillingOrder(null);
+        return;
+      }
+      if (!collectPayment) {
+        setSuccessMsg(lang === 'ar' ? 'تم إصدار الفاتورة دون تسجيل دفعة. يمكن التحصيل لاحقاً.' : 'Invoice issued without payment. Payment can be collected later.');
+        refreshDoctorQueue();
+        await refreshLabBillingQueue();
+        return;
+      }
       const requestedPaymentTotal = validPayments.reduce((sum, payment) => sum + payment.amountSdg, 0);
       if (!Number.isSafeInteger(authoritativePatientShare) || requestedPaymentTotal > authoritativePatientShare) {
         setPaymentRows([{ amountSdg: Number.isSafeInteger(authoritativePatientShare) ? String(authoritativePatientShare) : '', paymentMethod: 'CASH', transactionReference: '' }]);
@@ -883,12 +900,14 @@ export default function ReceptionDashboard({ lang, t }) {
         return;
       }
 
+      const paymentFingerprint = JSON.stringify({ invoiceId: data.invoice.id, payments: validPayments });
+      if (paymentAttemptRef.current?.fingerprint !== paymentFingerprint) paymentAttemptRef.current = { fingerprint: paymentFingerprint, key: crypto.randomUUID() };
       const paymentRes = await fetchWithAuth(
         `/api/billing/invoice/${data.invoice.id}/payments`,
         {
           method: 'POST',
           headers: {
-            'Idempotency-Key': crypto.randomUUID()
+            'Idempotency-Key': paymentAttemptRef.current.key
           },
           body: JSON.stringify({
             payments: validPayments.map((payment) => ({
@@ -916,6 +935,7 @@ export default function ReceptionDashboard({ lang, t }) {
         return;
       }
 
+      paymentAttemptRef.current = null;
       refreshDoctorQueue();
       await refreshLabBillingQueue();
 
@@ -949,7 +969,7 @@ export default function ReceptionDashboard({ lang, t }) {
           }
         ]);
       } else {
-        setIssuedBillingInvoice(data);
+        setIssuedBillingInvoice({ ...data, ...paymentData, invoice: { ...data.invoice, paymentStatus: paymentData.paymentStatus } });
         setSuccessMsg(
           lang === 'ar'
             ? `تم تسجيل دفعة جزئية. المتبقي ${paymentData.remainingBalanceSdg ?? 0} ج.س.`
@@ -2003,14 +2023,14 @@ export default function ReceptionDashboard({ lang, t }) {
                         className="form-input"
                         value={insuranceCompanyId}
                         onChange={(e) => setInsuranceCompanyId(e.target.value)}
-                        disabled={Boolean(selectedLabBillingOrder || issuedBillingInvoice)}
+                        disabled={Boolean(issuedBillingInvoice || selectedLabBillingOrder?.invoice)}
                       >
                         <option value="">
                           {lang === 'ar'
                             ? 'دفع مباشر بدون تأمين'
                             : 'Self-Pay / No Insurance'}
                         </option>
-                        {insuranceCompanies.map((c) => (
+                        {insuranceCompanies.filter(c => c.active).map((c) => (
                           <option key={c.id} value={c.id}>
                             {lang === 'ar' ? c.labelAr : c.labelEn}{' '}
                             (
@@ -2031,9 +2051,10 @@ export default function ReceptionDashboard({ lang, t }) {
                         [lang === 'ar' ? 'إجمالي الخدمات' : 'Services total', insurancePreview.data.grossTotalSdg],
                         [lang === 'ar' ? 'تغطية التأمين' : 'Insurance coverage', insurancePreview.data.insuranceCoverageSdg],
                         [lang === 'ar' ? 'مساهمة المريض' : 'Patient contribution', insurancePreview.data.patientShareSdg],
-                        [lang === 'ar' ? 'المطلوب من المريض' : 'Patient amount due', insurancePreview.data.patientShareSdg]
+                        [lang === 'ar' ? 'المدفوع' : 'Amount paid', insurancePreview.data.totalPaidSdg ?? issuedBillingInvoice?.invoice?.totalPaidSdg ?? 0],
+                        [lang === 'ar' ? 'الرصيد المتبقي' : 'Remaining balance', insurancePreview.data.remainingBalanceSdg ?? issuedBillingInvoice?.invoice?.remainingBalanceSdg ?? insurancePreview.data.patientShareSdg]
                       ].map(([label, amount], index) => (
-                        <div key={label} className={index === 3 ? 'is-due' : ''}>
+                        <div key={label} className={index === 4 ? 'is-due' : ''}>
                           <span>{label}</span>
                           <strong>{Number(amount).toLocaleString(lang === 'ar' ? 'ar' : 'en')} {lang === 'ar' ? 'ج.س' : 'SDG'}</strong>
                         </div>
@@ -2105,16 +2126,21 @@ export default function ReceptionDashboard({ lang, t }) {
                       </button>
                     </div>
 
+                    <button type="button" className="btn btn-secondary" style={{ width: '100%', marginTop: '1rem' }}
+                      onClick={() => handleCreateInvoice(false)}
+                      disabled={billingSubmitting || Boolean(issuedBillingInvoice || selectedLabBillingOrder?.invoice) || insurancePreview.status !== 'ready' || selectedLabBillingOrder?.pricingRequired}>
+                      {lang === 'ar' ? 'إصدار فاتورة دون دفع' : 'Issue invoice only'}
+                    </button>
                     <button
                       className="btn btn-primary"
                       style={{
                         width: '100%',
                         marginTop: '1.5rem'
                       }}
-                      onClick={handleCreateInvoice}
+                      onClick={() => handleCreateInvoice(true)}
                       disabled={
                         billingSubmitting ||
-                        (!selectedLabBillingOrder && insurancePreview.status !== 'ready') || paymentMethodsError || paymentMethods.length === 0 || paymentRows.some(row => !paymentMethods.some(method => method.code === row.paymentMethod)) ||
+                        (!selectedLabBillingOrder?.invoice && insurancePreview.status !== 'ready') || paymentMethodsError || paymentMethods.length === 0 || paymentRows.some(row => !paymentMethods.some(method => method.code === row.paymentMethod)) ||
                         selectedLabBillingOrder?.status === 'PAID' ||
                         selectedLabBillingOrder?.pricingRequired
                       }

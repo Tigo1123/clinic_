@@ -1,0 +1,450 @@
+{
+  "checks": [
+    {
+      "name": "no horizontal overflow billing-360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "theme billing-360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "financial distinctions billing-360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "membership fields billing-360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "payment retry reuses idempotency key billing-360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "expanded view fits billing-360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "no horizontal overflow insurance-360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "theme insurance-360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "insurance editor insurance-360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "expanded view fits insurance-360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "no horizontal overflow billing-360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "theme billing-360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "financial distinctions billing-360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "membership fields billing-360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "payment retry reuses idempotency key billing-360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "expanded view fits billing-360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "no horizontal overflow insurance-360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "theme insurance-360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "insurance editor insurance-360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "expanded view fits insurance-360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "no horizontal overflow billing-360-en-light",
+      "passed": true
+    },
+    {
+      "name": "theme billing-360-en-light",
+      "passed": true
+    },
+    {
+      "name": "financial distinctions billing-360-en-light",
+      "passed": true
+    },
+    {
+      "name": "membership fields billing-360-en-light",
+      "passed": true
+    },
+    {
+      "name": "payment retry reuses idempotency key billing-360-en-light",
+      "passed": true
+    },
+    {
+      "name": "expanded view fits billing-360-en-light",
+      "passed": true
+    },
+    {
+      "name": "no horizontal overflow insurance-360-en-light",
+      "passed": true
+    },
+    {
+      "name": "theme insurance-360-en-light",
+      "passed": true
+    },
+    {
+      "name": "insurance editor insurance-360-en-light",
+      "passed": true
+    },
+    {
+      "name": "expanded view fits insurance-360-en-light",
+      "passed": true
+    },
+    {
+      "name": "no horizontal overflow billing-360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "theme billing-360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "financial distinctions billing-360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "membership fields billing-360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "payment retry reuses idempotency key billing-360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "expanded view fits billing-360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "no horizontal overflow insurance-360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "theme insurance-360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "insurance editor insurance-360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "expanded view fits insurance-360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "no horizontal overflow billing-1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "theme billing-1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "financial distinctions billing-1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "membership fields billing-1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "payment retry reuses idempotency key billing-1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "expanded view fits billing-1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "no horizontal overflow insurance-1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "theme insurance-1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "insurance editor insurance-1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "expanded view fits insurance-1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "no horizontal overflow billing-1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "theme billing-1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "financial distinctions billing-1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "membership fields billing-1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "payment retry reuses idempotency key billing-1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "expanded view fits billing-1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "no horizontal overflow insurance-1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "theme insurance-1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "insurance editor insurance-1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "expanded view fits insurance-1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "no horizontal overflow billing-1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "theme billing-1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "financial distinctions billing-1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "membership fields billing-1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "payment retry reuses idempotency key billing-1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "expanded view fits billing-1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "no horizontal overflow insurance-1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "theme insurance-1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "insurance editor insurance-1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "expanded view fits insurance-1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "no horizontal overflow billing-1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "theme billing-1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "financial distinctions billing-1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "membership fields billing-1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "payment retry reuses idempotency key billing-1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "expanded view fits billing-1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "no horizontal overflow insurance-1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "theme insurance-1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "insurance editor insurance-1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "expanded view fits insurance-1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "no unhandled exceptions",
+      "passed": true
+    },
+    {
+      "name": "no unmocked API requests",
+      "passed": true
+    }
+  ],
+  "captures": [
+    "billing-360-ar-light",
+    "insurance-360-ar-light",
+    "billing-360-ar-dark",
+    "insurance-360-ar-dark",
+    "billing-360-en-light",
+    "insurance-360-en-light",
+    "billing-360-en-dark",
+    "insurance-360-en-dark",
+    "billing-1366-ar-light",
+    "insurance-1366-ar-light",
+    "billing-1366-ar-dark",
+    "insurance-1366-ar-dark",
+    "billing-1366-en-light",
+    "insurance-1366-en-light",
+    "billing-1366-en-dark",
+    "insurance-1366-en-dark"
+  ],
+  "exceptions": [],
+  "unknownApi": [],
+  "mockedWrites": [
+    {
+      "path": "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+      "body": "{\"payments\":[{\"amountSdg\":100,\"paymentMethod\":\"CASH\"}]}",
+      "key": "a59861b9-60de-492c-86fb-548816afc36c"
+    },
+    "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+    {
+      "path": "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+      "body": "{\"payments\":[{\"amountSdg\":100,\"paymentMethod\":\"CASH\"}]}",
+      "key": "a59861b9-60de-492c-86fb-548816afc36c"
+    },
+    "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+    {
+      "path": "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+      "body": "{\"payments\":[{\"amountSdg\":100,\"paymentMethod\":\"CASH\"}]}",
+      "key": "56492b50-d0c8-41a5-8d2b-36adc6af1a28"
+    },
+    "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+    {
+      "path": "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+      "body": "{\"payments\":[{\"amountSdg\":100,\"paymentMethod\":\"CASH\"}]}",
+      "key": "56492b50-d0c8-41a5-8d2b-36adc6af1a28"
+    },
+    "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+    {
+      "path": "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+      "body": "{\"payments\":[{\"amountSdg\":100,\"paymentMethod\":\"CASH\"}]}",
+      "key": "f7a523de-7e5a-4902-86bc-299241b4101d"
+    },
+    "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+    {
+      "path": "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+      "body": "{\"payments\":[{\"amountSdg\":100,\"paymentMethod\":\"CASH\"}]}",
+      "key": "f7a523de-7e5a-4902-86bc-299241b4101d"
+    },
+    "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+    {
+      "path": "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+      "body": "{\"payments\":[{\"amountSdg\":100,\"paymentMethod\":\"CASH\"}]}",
+      "key": "a25f88af-24ce-414b-a8e3-2a5c8f46c1dc"
+    },
+    "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+    {
+      "path": "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+      "body": "{\"payments\":[{\"amountSdg\":100,\"paymentMethod\":\"CASH\"}]}",
+      "key": "a25f88af-24ce-414b-a8e3-2a5c8f46c1dc"
+    },
+    "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+    {
+      "path": "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+      "body": "{\"payments\":[{\"amountSdg\":100,\"paymentMethod\":\"CASH\"}]}",
+      "key": "aeceeeea-76d1-4131-8a56-e67d64ac835b"
+    },
+    "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+    {
+      "path": "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+      "body": "{\"payments\":[{\"amountSdg\":100,\"paymentMethod\":\"CASH\"}]}",
+      "key": "aeceeeea-76d1-4131-8a56-e67d64ac835b"
+    },
+    "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+    {
+      "path": "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+      "body": "{\"payments\":[{\"amountSdg\":100,\"paymentMethod\":\"CASH\"}]}",
+      "key": "afcba698-f21b-4c7f-9f81-6c76690f0e37"
+    },
+    "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+    {
+      "path": "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+      "body": "{\"payments\":[{\"amountSdg\":100,\"paymentMethod\":\"CASH\"}]}",
+      "key": "afcba698-f21b-4c7f-9f81-6c76690f0e37"
+    },
+    "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+    {
+      "path": "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+      "body": "{\"payments\":[{\"amountSdg\":100,\"paymentMethod\":\"CASH\"}]}",
+      "key": "70a58ee3-37e5-421e-885e-99d12d572a2b"
+    },
+    "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+    {
+      "path": "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+      "body": "{\"payments\":[{\"amountSdg\":100,\"paymentMethod\":\"CASH\"}]}",
+      "key": "70a58ee3-37e5-421e-885e-99d12d572a2b"
+    },
+    "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+    {
+      "path": "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+      "body": "{\"payments\":[{\"amountSdg\":100,\"paymentMethod\":\"CASH\"}]}",
+      "key": "abcde93e-e305-4f75-9a4d-51b4e8c1a15d"
+    },
+    "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+    {
+      "path": "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments",
+      "body": "{\"payments\":[{\"amountSdg\":100,\"paymentMethod\":\"CASH\"}]}",
+      "key": "abcde93e-e305-4f75-9a4d-51b4e8c1a15d"
+    },
+    "/api/billing/invoice/10000000-0000-4000-8000-000000000001/payments"
+  ]
+}

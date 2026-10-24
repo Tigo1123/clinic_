@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const tokens = readFileSync(new URL('../src/styles/tokens.css', import.meta.url), 'utf8');
-const patientCss = readFileSync(new URL('../src/layouts/patient.css', import.meta.url), 'utf8');
+const patientCssSource = readFileSync(new URL('../src/layouts/patient.css', import.meta.url), 'utf8');
 const uiCss = readFileSync(new URL('../src/components/ui/ui.css', import.meta.url), 'utf8');
 const medicalCss = readFileSync(new URL('../src/styles/medical.css', import.meta.url), 'utf8');
 
@@ -61,6 +61,7 @@ test('patient theme semantic text and control tokens meet contrast thresholds', 
 });
 
 test('patient surfaces and interactive states use semantic theme tokens', () => {
+  const patientCss = patientCssSource.replaceAll(':not(.MuiInputBase-input):not(.MuiPickersInputBase-input)', '');
   assert.match(patientCss, /\.patient-card\{[^}]*background:var\(--color-surface\)/);
   assert.match(patientCss, /\.patient-field input,\.patient-field select,\.patient-card form>input\{[^}]*background:var\(--color-surface\)[^}]*color:var\(--color-text\)/);
   assert.match(patientCss, /\.patient-field input:focus,\.patient-field select:focus,\.patient-card form>input:focus\{[^}]*outline:3px solid var\(--color-primary-strong\)/);

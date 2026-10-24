@@ -206,6 +206,7 @@ model Patient {
   labOrders                LabOrder[]
   invoices                 Invoice[]
   insuranceClaims          InsuranceClaim[]
+  insuranceMemberships     PatientInsurance[]
   userId                   String?            @unique
   user                     User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
   claimCodes               PatientClaimCode[]
@@ -587,6 +588,7 @@ model Invoice {
   items               InvoiceItem[]
   payments            Payment[]
   paymentOperations   PaymentOperation[]
+  issueOperations     InvoiceIssueOperation[]
   refunds             Refund[]
 
   @@index([invoiceDate])
@@ -675,6 +677,9 @@ model InsuranceCompany {
   labelEn          String
   copayPercentage  Decimal
   billingCycleDays Int              @default(30)
+  active           Boolean          @default(true)
+  coveredCategories String[]        @default(["CONSULTATION", "LABORATORY", "RADIOLOGY", "CLINICAL_PROCEDURE"])
+  memberships      PatientInsurance[]
   claims           InsuranceClaim[]
 }
 
@@ -722,4 +727,29 @@ model Notification {
   createdAt DateTime @default(now())
 
   @@index([userId, isRead])
+}
+
+model PatientInsurance {
+  id                 String @id @default(uuid())
+  patientId          String
+  patient            Patient @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  insuranceCompanyId String
+  insuranceCompany   InsuranceCompany @relation(fields: [insuranceCompanyId], references: [id], onDelete: Restrict)
+  memberNumber       String
+  plan               String?
+  validFrom          String
+  validUntil         String
+  active             Boolean @default(true)
+  updatedAt          DateTime @default(now()) @updatedAt
+
+  @@unique([patientId, insuranceCompanyId])
+}
+
+model InvoiceIssueOperation {
+  key         String @id
+  requestHash String
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@index([invoiceId])
 }

@@ -1,3 +1,4 @@
+import PatientBillingDetails from './PatientBillingDetails.jsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertCircle, Calendar, Check, Copy, FileText, Mail, MessageCircle, Pill, Printer, Receipt, Shield, TestTube, User, X } from 'lucide-react';
@@ -648,7 +649,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
               {activeSection === 'billing' && (
                 <section id="patient-file-panel-billing" role="tabpanel" aria-labelledby="patient-file-tab-billing" className="patient-file-section">
                   <h4><Receipt size={18} />{lang === 'ar' ? 'الفوترة' : 'Billing'}</h4>
-                  {!(profile.invoices || []).length ? <p className="patient-file-empty">{lang === 'ar' ? 'لا توجد فواتير مسجلة.' : 'No invoices recorded.'}</p> : <div className="patient-file-list">{profile.invoices.map((invoice) => <article key={invoice.id} className="patient-file-list-item"><div><strong>{new Date(invoice.invoiceDate).toLocaleDateString(lang === 'ar' ? 'ar' : 'en')}</strong><span>{invoice.invoiceType}</span></div><strong>{invoice.totalAmountSdg.toLocaleString(lang === 'ar' ? 'ar' : 'en')} {lang === 'ar' ? 'ج.س' : 'SDG'}</strong><span className="patient-file-status">{localizedStatus(invoice.paymentStatus, lang)}</span></article>)}</div>}
+                  <PatientBillingDetails key={patientId} patientId={patientId} invoices={profile.invoices || []} lang={lang} admin={user?.role === 'ADMIN'} />
                 </section>
               )}
 

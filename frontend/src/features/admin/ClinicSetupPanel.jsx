@@ -10,10 +10,10 @@ import { clinicCopy, setupPayload } from './clinicSetup.js';
 import AdminSchedulePanel from './AdminSchedulePanel';
 import PasswordField from '../../components/PasswordField.jsx';
 
-const resources = ['doctors', 'specialties', 'services', 'labs', 'payments'];
+const resources = ['doctors', 'specialties', 'services', 'labs', 'payments', 'insurance'];
 const categories = ['CONSULTATION', 'CLINICAL_PROCEDURE', 'RADIOLOGY'];
-const endpoints = { doctors: '/api/admin/doctors', specialties: '/api/specialties', services: '/api/admin/catalog/services', labs: '/api/admin/catalog/services', payments: '/api/admin/catalog/payment-methods' };
-const blank = { labelAr: '', labelEn: '', code: '', priceSdg: '', specialtyId: '', username: '', password: '', category: 'CONSULTATION', active: false };
+const endpoints = { insurance: '/api/billing/insurance-companies', doctors: '/api/admin/doctors', specialties: '/api/specialties', services: '/api/admin/catalog/services', labs: '/api/admin/catalog/services', payments: '/api/admin/catalog/payment-methods' };
+const blank = { copayPercentage: '20', billingCycleDays: '30', coveredCategories: ['CONSULTATION', 'LABORATORY', 'RADIOLOGY', 'CLINICAL_PROCEDURE'], labelAr: '', labelEn: '', code: '', priceSdg: '', specialtyId: '', username: '', password: '', category: 'CONSULTATION', active: false };
 async function request(url, options) {
   const response = await fetchWithAuth(url, options);
   const payload = await response.json().catch(() => ({}));
@@ -65,7 +65,7 @@ export default function ClinicSetupPanel({ lang = 'en', t, initialTab = 'doctors
   }, [resource, search, status, page, version, copy.failed]);
   const open = item => {
     setEditor({ item, resource }); setFormError(''); setSuccess('');
-    setDraft(item ? { ...blank, labelAr: item.fullNameAr || item.nameAr || item.labelAr, labelEn: item.fullNameEn || item.nameEn || item.labelEn, code: item.code || '', priceSdg: String(item.consultationFee ?? item.priceSdg ?? ''), specialtyId: item.specialtyId || '', category: item.category || 'CONSULTATION', active: resource === 'doctors' ? item.status === 'ACTIVE' && item.account?.status === 'ACTIVE' : item.active ?? item.status === 'ACTIVE' } : { ...blank, active: resource === 'specialties' });
+    setDraft(item ? { ...blank, copayPercentage: String(item.copayPercentage ?? 20), billingCycleDays: String(item.billingCycleDays ?? 30), coveredCategories: item.coveredCategories || blank.coveredCategories, labelAr: item.fullNameAr || item.nameAr || item.labelAr, labelEn: item.fullNameEn || item.nameEn || item.labelEn, code: item.code || '', priceSdg: String(item.consultationFee ?? item.priceSdg ?? ''), specialtyId: item.specialtyId || '', category: item.category || 'CONSULTATION', active: resource === 'doctors' ? item.status === 'ACTIVE' && item.account?.status === 'ACTIVE' : item.active ?? item.status === 'ACTIVE' } : { ...blank, active: resource === 'specialties' });
   };
   const close = () => { if (!saving) { setEditor(null); setDraft(blank); setFormError(''); setConfirm(false); } };
   const field = (name, label, options = {}) => {
@@ -84,7 +84,7 @@ export default function ClinicSetupPanel({ lang = 'en', t, initialTab = 'doctors
     try {
       const editing = Boolean(editor.item);
       const url = resource === 'doctors' && !editing ? '/api/auth/users' : endpoints[resource] + (editing ? `/${resource === 'payments' ? editor.item.code : editor.item.id}` : '');
-      await request(url, { method: editing ? 'PATCH' : 'POST', body: JSON.stringify(setupPayload(resource, draft, editing)) });
+      await request(url, { method: editing ? (resource === 'insurance' ? 'PUT' : 'PATCH') : 'POST', body: JSON.stringify(setupPayload(resource, draft, editing)) });
       setEditor(null); setDraft(blank); setSuccess(copy.saved); setVersion(value => value + 1);
     } catch (failure) {
       setFormError(['CATALOG_DUPLICATE', 'SPECIALTY_NAME_EXISTS', 'SPECIALTY_CODE_EXISTS', 'USERNAME_ALREADY_REGISTERED'].includes(failure.code) ? (lang === 'ar' ? 'يوجد مدخل بهذا الرمز أو الاسم. عدّل البيانات وحاول مجدداً.' : 'An entry with this code or name already exists. Update the fields and retry.') : copy.saveFailed);
@@ -94,7 +94,7 @@ export default function ClinicSetupPanel({ lang = 'en', t, initialTab = 'doctors
     <Stack dir={direction} spacing={4} className="clinic-setup-panel">
       <Typography component="h2" variant="h1">{copy.title}</Typography>
       <Tabs value={resource} variant="scrollable" scrollButtons="auto" aria-label={copy.title} onChange={(_, value) => { setResource(value); setPage(1); setSearch(''); setStatus(''); setSuccess(''); setScheduleDoctor(null); }}>{resources.map(value => <Tab key={value} value={value} label={copy[value]}/>)}</Tabs>
-      <Alert severity="info" role="note">{resource === 'doctors' ? copy.scheduleHelp : resource === 'payments' ? copy.paymentHelp : copy.catalogHelp}</Alert>
+      <Alert severity="info" role="note">{resource === 'doctors' ? copy.scheduleHelp : resource === 'payments' ? copy.paymentHelp : resource === 'insurance' ? copy.insuranceHelp : copy.catalogHelp}</Alert>
       {success && <Alert severity="success">{success}</Alert>}
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3}>
         <TextField label={copy.search} value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} fullWidth/>
@@ -118,7 +118,12 @@ export default function ClinicSetupPanel({ lang = 'en', t, initialTab = 'doctors
         {formError && <Alert severity="error">{formError}</Alert>}
         {field('labelAr', copy.labelAr, { slotProps: { htmlInput: { dir: 'rtl', maxLength: resource === 'specialties' ? 100 : 150 } } })}
         {field('labelEn', copy.labelEn, { slotProps: { htmlInput: { dir: 'ltr', maxLength: resource === 'specialties' ? 100 : 150 } } })}
-        {resource !== 'doctors' && resource !== 'payments' && field('code', copy.code, { slotProps: { htmlInput: { dir: 'ltr', maxLength: 60, pattern: '[a-z0-9]+(-[a-z0-9]+)*' } } })}
+        {resource !== 'doctors' && resource !== 'payments' && resource !== 'insurance' && field('code', copy.code, { slotProps: { htmlInput: { dir: 'ltr', maxLength: 60, pattern: '[a-z0-9]+(-[a-z0-9]+)*' } } })}
+        {resource === 'insurance' && <>
+          {field('copayPercentage', lang === 'ar' ? 'نسبة مساهمة المريض %' : 'Patient copay %', { type: 'number', slotProps: { htmlInput: { min: 0, max: 100, step: 0.01 } } })}
+          {field('billingCycleDays', lang === 'ar' ? 'دورة الفوترة بالأيام' : 'Billing cycle days', { type: 'number', slotProps: { htmlInput: { min: 1, max: 365 } } })}
+          {[...categories, 'LABORATORY'].map(category => <FormControlLabel key={category} label={copy[category]} control={<Switch checked={draft.coveredCategories.includes(category)} onChange={event => setDraft(current => ({ ...current, coveredCategories: event.target.checked ? [...current.coveredCategories, category] : current.coveredCategories.filter(value => value !== category) }))} />}/>)}
+        </>}
         {resource === 'doctors' && <TextField select label={copy.specialty} value={draft.specialtyId} onChange={event => setDraft(current => ({ ...current, specialtyId: event.target.value }))} fullWidth required disabled={saving} slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}><option value="">{copy.choose}</option>{specialties.filter(item => item.active || item.id === draft.specialtyId).map(item => <option key={item.id} value={item.id} disabled={!item.active}>{lang === 'ar' ? item.nameAr : item.nameEn}</option>)}</TextField>}
         {['doctors', 'services', 'labs'].includes(resource) && field('priceSdg', copy.price, { slotProps: { htmlInput: { inputMode: 'numeric', pattern: '[1-9][0-9]*', dir: 'ltr' } } })}
         {resource === 'services' && <TextField select label={copy.category} value={draft.category} onChange={event => setDraft(current => ({ ...current, category: event.target.value }))} disabled={saving || Boolean(editor?.item)} slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}>{[...categories, ...(draft.category === 'LABORATORY' ? ['LABORATORY'] : [])].map(value => <option key={value} value={value}>{copy[value]}</option>)}</TextField>}

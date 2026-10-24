@@ -1,6 +1,6 @@
 export const clinicCopy = {
   en: {
-    title: 'Clinic setup', doctors: 'Doctors', specialties: 'Specialties', services: 'Medical services', labs: 'Laboratory tests', payments: 'Payment methods',
+    title: 'Clinic setup', insurance: 'Insurance companies', insuranceHelp: 'Configure patient copay and covered service categories. Deactivation affects new invoices; historical claims keep their issued amounts.', doctors: 'Doctors', specialties: 'Specialties', services: 'Medical services', labs: 'Laboratory tests', payments: 'Payment methods',
     add: 'Add', edit: 'Edit', save: 'Save', cancel: 'Cancel', search: 'Search by name or code', empty: 'No entries yet. Add the clinic’s actual information to get started.',
     failed: 'Unable to load clinic configuration. Please retry.', saveFailed: 'Unable to save. Check the fields and try again.', retry: 'Retry', saved: 'Changes saved.',
     labelAr: 'Arabic name', labelEn: 'English name', code: 'Code', price: 'Official price (whole SDG)', category: 'Category', status: 'Status', active: 'Active', inactive: 'Inactive',
@@ -14,7 +14,7 @@ export const clinicCopy = {
     CONSULTATION: 'Consultation', LABORATORY: 'Laboratory', RADIOLOGY: 'Radiology', CLINICAL_PROCEDURE: 'Clinical procedure',
   },
   ar: {
-    title: 'إعداد العيادة', doctors: 'الأطباء', specialties: 'التخصصات', services: 'الخدمات الطبية', labs: 'فحوص المختبر', payments: 'طرق الدفع',
+    title: 'إعداد العيادة', insurance: 'شركات التأمين', insuranceHelp: 'حدّد مساهمة المريض وفئات الخدمات المغطاة. يؤثر التعطيل على الفواتير الجديدة وتبقى مبالغ المطالبات السابقة محفوظة.', doctors: 'الأطباء', specialties: 'التخصصات', services: 'الخدمات الطبية', labs: 'فحوص المختبر', payments: 'طرق الدفع',
     add: 'إضافة', edit: 'تعديل', save: 'حفظ', cancel: 'إلغاء', search: 'البحث بالاسم أو الرمز', empty: 'لا توجد بيانات بعد. أضف البيانات الفعلية للعيادة للبدء.',
     failed: 'تعذر تحميل إعدادات العيادة. يرجى إعادة المحاولة.', saveFailed: 'تعذر الحفظ. تحقق من الحقول وحاول مجدداً.', retry: 'إعادة المحاولة', saved: 'تم حفظ التغييرات.',
     labelAr: 'الاسم بالعربية', labelEn: 'الاسم بالإنجليزية', code: 'الرمز', price: 'السعر الرسمي (جنيه سوداني كامل)', category: 'الفئة', status: 'الحالة', active: 'نشط', inactive: 'غير نشط',
@@ -30,6 +30,7 @@ export const clinicCopy = {
 };
 
 export function setupPayload(resource, draft, editing) {
+  if (resource === 'insurance') return { labelAr: draft.labelAr.trim(), labelEn: draft.labelEn.trim(), active: draft.active, copayPercentage: Number(draft.copayPercentage), billingCycleDays: Number(draft.billingCycleDays), coveredCategories: draft.coveredCategories };
   if (resource === 'payments') return { labelAr: draft.labelAr.trim(), labelEn: draft.labelEn.trim(), active: draft.active };
   if (resource === 'specialties') return { code: draft.code.trim(), nameAr: draft.labelAr.trim(), nameEn: draft.labelEn.trim(), active: draft.active };
   if (resource === 'doctors') {
