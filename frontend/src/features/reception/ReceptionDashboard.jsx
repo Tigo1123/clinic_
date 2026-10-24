@@ -1416,7 +1416,7 @@ export default function ReceptionDashboard({ lang, t }) {
                 </div>
                 <div className="form-group">
                   <label className="form-label">{lang === 'ar' ? 'تاريخ الميلاد' : 'Date of Birth'} *</label>
-                  <AppDatePicker label={lang === 'ar' ? 'تاريخ الميلاد' : 'Date of Birth'} required minDate="1900-01-01" maxDate={clinicDateString()} value={dob} onChange={setDob} />
+                  <AppDatePicker label={lang === 'ar' ? 'تاريخ الميلاد' : 'Date of Birth'} size="medium" required minDate="1900-01-01" maxDate={clinicDateString()} value={dob} onChange={setDob} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">{t('gender')}</label>
@@ -1470,7 +1470,7 @@ export default function ReceptionDashboard({ lang, t }) {
                   <>
                     {['firstNameAr','fatherNameAr','grandfatherNameAr','familyNameAr','firstNameEn','fatherNameEn','grandfatherNameEn','familyNameEn'].map((field) => <div className="form-group" key={field}><label className="form-label">{t(field)} *</label><input required className="form-input" value={patientName[field]} onChange={(e) => setPatientName((current) => ({ ...current, [field]: e.target.value }))} /></div>)}
                     <div className="form-group"><label className="form-label">{t('phone')} *</label><input required className="form-input" value={phone} onChange={(e) => setPhone(e.target.value)} /></div>
-                    <div className="form-group"><AppDatePicker label={lang === 'ar' ? 'تاريخ الميلاد' : 'Date of Birth'} required minDate="1900-01-01" maxDate={clinicDateString()} value={dob} onChange={setDob} /></div>
+                    <div className="form-group"><AppDatePicker label={lang === 'ar' ? 'تاريخ الميلاد' : 'Date of Birth'} size="medium" required minDate="1900-01-01" maxDate={clinicDateString()} value={dob} onChange={setDob} /></div>
                     <div className="form-group"><label className="form-label">{t('gender')}</label><select className="form-input" value={gender} onChange={(e) => setGender(e.target.value)}><option value="MALE">{t('male')}</option><option value="FEMALE">{t('female')}</option></select></div>
                     <div className="form-group"><label className="form-label">{t('addressState')}</label><select className="form-input" value={addressStateId} onChange={(e) => setAddressStateId(e.target.value)}>{SUDANESE_STATES.map((st) => <option key={st.id} value={st.id}>{lang === 'ar' ? st.labelAr : st.labelEn}</option>)}</select></div>
                   </>

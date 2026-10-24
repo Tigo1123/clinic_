@@ -25,7 +25,7 @@ async function jsonRequest(url, options, fallback, lang) {
 }
 
 function Field({ id, label, error, type, value, onChange, ...props }) {
-  if (type === 'date') return <div className="form-group"><AppDatePicker id={id} name={props.name} label={label} value={value} onChange={onChange} required={props.required} minDate={props.min} maxDate={props.max} disabled={props.disabled} error={Boolean(error)} helperText={error}/></div>;
+  if (type === 'date') return <div className="form-group"><AppDatePicker id={id} name={props.name} label={label} value={value} onChange={onChange} size="medium" required={props.required} minDate={props.min} maxDate={props.max} disabled={props.disabled} error={Boolean(error)} helperText={error}/></div>;
   return <div className="form-group"><label className="form-label" htmlFor={id}>{label}</label><input id={id} className={`form-input${error ? ' form-input-error' : ''}`} aria-invalid={Boolean(error)} aria-describedby={error ? `${id}-error` : undefined} type={type} value={value} onChange={onChange} {...props} />{error && <small id={`${id}-error`} className="pharmacy-field-error">{error}</small>}</div>;
 }
 

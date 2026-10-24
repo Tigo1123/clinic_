@@ -1157,7 +1157,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                             }
                           />
 
-                          <AppDatePicker label={lang === 'ar' ? 'تاريخ الصلاحية' : 'Expiry date'} minDate={tomorrow} value={form.expiryDate || ''} onChange={value => updateReviewForm(item.id, 'expiryDate', value)} />
+                          <AppDatePicker label={lang === 'ar' ? 'تاريخ الصلاحية' : 'Expiry date'} size="medium" minDate={tomorrow} value={form.expiryDate || ''} onChange={value => updateReviewForm(item.id, 'expiryDate', value)} />
 
                           <input
                             type="number"

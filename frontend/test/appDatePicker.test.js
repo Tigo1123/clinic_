@@ -29,6 +29,12 @@ test('shared MUI picker opens from its field, supports keyboard entry, localized
   assert.match(picker, /placement: direction === 'rtl' \? 'bottom-end' : 'bottom-start'/);
   assert.match(picker, /preventOverflow/);
   assert.match(picker, /desktopModeMediaQuery="\(min-width: 600px\)"/);
+  assert.match(picker, /const fieldHeight = size === 'small' \? 40 : \{ xs: 50, md: 48 \}/);
+  assert.match(picker, /openPickerButtonPosition: direction === 'rtl' \? 'start' : 'end'/);
+  assert.match(picker, /openPickerButton:\s*\{\s*sx:\s*\{/);
+  assert.match(picker, /shrink: true/);
+  assert.match(picker, /MuiPickersInputBase-sectionsContainer/);
+  assert.match(picker, /MuiPickersOutlinedInput-notchedOutline/);
   assert.match(picker, /var\(--color-surface\)/);
   assert.match(picker, /var\(--color-primary-action\)/);
   assert.match(picker, /arabicCalendarText/);
@@ -36,7 +42,7 @@ test('shared MUI picker opens from its field, supports keyboard entry, localized
 
 test('DOB fields cap selection at today and use the shared picker', () => {
   const pages = readFileSync(new URL('../src/features/patient-auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
-  assert.match(pages, /AppDatePicker id=\{id\} label=\{label\} value=\{value\} onChange=\{onChange\} minDate="1900-01-01" maxDate=\{todayDateOnly\(\)\}/);
+  assert.match(pages, /AppDatePicker id=\{id\} label=\{label\} value=\{value\} onChange=\{onChange\} minDate="1900-01-01" maxDate=\{todayDateOnly\(\)\} size="medium"/);
   assert.equal(parseDateOnly(todayDateOnly())?.format('YYYY-MM-DD'), todayDateOnly());
 });
 
@@ -64,7 +70,7 @@ test('AppDatePicker field opens its calendar and returns selected dates in canon
     .replace("import 'dayjs/locale/ar';", '')
     .replace(/import \{ CacheProvider \}[^;]+;/, 'const CacheProvider = ({children}) => children;')
     .replace(/import \{ ThemeProvider as MuiThemeProvider \}[^;]+;/, 'const MuiThemeProvider = ({children,theme}) => { globalThis.mockMuiTheme=theme; return children; };')
-    .replace(/import \{ DatePicker \}[^;]+;/, 'const DatePicker = props => <div data-open={props.open} data-format={props.format} data-dir={props.slotProps.popper.dir} data-locale={globalThis.mockAdapterLocale}><input aria-label={props.label} onClick={props.onOpen} onKeyDown={event => { if (event.key === "Enter") props.onOpen(); }} /><button type="button" onClick={() => props.onChange(globalThis.mockPickedDate)}>Choose date</button></div>;')
+    .replace(/import \{ DatePicker \}[^;]+;/, 'const DatePicker = props => <div data-open={props.open} data-format={props.format} data-dir={props.slotProps.popper.dir} data-locale={globalThis.mockAdapterLocale} data-button-position={props.slotProps.field.openPickerButtonPosition} data-button-size={props.slotProps.openPickerButton.sx.width} data-label-shrink={props.slotProps.textField.slotProps.inputLabel.shrink}><input aria-label={props.label} onClick={props.onOpen} onKeyDown={event => { if (event.key === "Enter") props.onOpen(); }} /><button type="button" onClick={() => props.onChange(globalThis.mockPickedDate)}>Choose date</button></div>;')
     .replace(/import \{ LocalizationProvider \}[^;]+;/, 'const LocalizationProvider = ({children,adapterLocale}) => { globalThis.mockAdapterLocale=adapterLocale; return children; };')
     .replace(/import \{ AdapterDayjs \}[^;]+;/, 'const AdapterDayjs = {};')
     .replace(/import \{ useTranslation \}[^;]+;/, 'const useTranslation = () => ({i18n:{language:globalThis.mockLanguage}});')
@@ -85,10 +91,18 @@ test('AppDatePicker field opens its calendar and returns selected dates in canon
   assert.equal(document.querySelector('[data-open="true"]')?.dataset.format, 'DD/MM/YYYY');
   assert.equal(document.querySelector('[data-open="true"]')?.dataset.dir, 'rtl');
   assert.equal(document.querySelector('[data-open="true"]')?.dataset.locale, 'ar');
+  assert.equal(document.querySelector('[data-open="true"]')?.dataset.buttonPosition, 'start');
+  assert.equal(document.querySelector('[data-open="true"]')?.dataset.buttonSize, '40');
+  assert.equal(document.querySelector('[data-open="true"]')?.dataset.labelShrink, 'true');
   assert.equal(globalThis.mockMuiTheme.mode, 'dark');
   assert.equal(globalThis.mockMuiTheme.direction, 'rtl');
   await act(async () => document.querySelector('button').click());
   assert.equal(selected, '2013-05-07');
+  globalThis.mockLanguage = 'en'; globalThis.mockMode = 'light';
+  await act(async () => root.render(createElement(AppDatePicker, { label: 'Date of birth', value: '2013-05-07', onChange: value => { selected = value; } })));
+  assert.equal(document.querySelector('[data-format="MM/DD/YYYY"]')?.dataset.dir, 'ltr');
+  assert.equal(document.querySelector('[data-format="MM/DD/YYYY"]')?.dataset.buttonPosition, 'end');
+  assert.equal(globalThis.mockMuiTheme.mode, 'light');
   await act(async () => root.unmount());
   dom.window.close();
   delete globalThis.mockLanguage; delete globalThis.mockMode; delete globalThis.mockPickedDate; delete globalThis.mockMuiTheme; delete globalThis.mockAdapterLocale;

@@ -36,6 +36,7 @@ export default function AppDatePicker({
   const { theme: mode } = useAppTheme();
   const lang = language || ((i18n.resolvedLanguage || i18n.language || 'en').startsWith('ar') ? 'ar' : 'en');
   const direction = lang === 'ar' ? 'rtl' : 'ltr';
+  const fieldHeight = size === 'small' ? 40 : { xs: 50, md: 48 };
   const [open, setOpen] = useState(false);
   const muiTheme = useMemo(() => createPatientMuiTheme(mode, direction), [mode, direction]);
   const localeText = useMemo(() => lang === 'ar' ? arabicCalendarText : undefined, [lang]);
@@ -58,18 +59,58 @@ export default function AppDatePicker({
         format={lang === 'ar' ? 'DD/MM/YYYY' : 'MM/DD/YYYY'}
         reduceAnimations
         slotProps={{
+          field: { openPickerButtonPosition: direction === 'rtl' ? 'start' : 'end' },
           textField: {
             id, required, error: Boolean(error), helperText, fullWidth, size, className,
             onClick: () => { if (!disabled) setOpen(true); },
+            slotProps: {
+              inputLabel: {
+                shrink: true,
+                sx: { backgroundColor: 'var(--color-surface)', px: 0.5 },
+              },
+            },
             sx: {
-              '& .MuiInputBase-root': { backgroundColor: 'var(--color-surface)', minHeight: 44 },
-              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--color-border)' },
-              '& .MuiInputBase-input': { color: 'var(--color-text)', textAlign: direction === 'rtl' ? 'right' : 'left' },
+              '& .MuiPickersInputBase-root': {
+                boxSizing: 'border-box',
+                height: fieldHeight,
+                minHeight: fieldHeight,
+                borderRadius: '11px',
+                backgroundColor: 'var(--color-surface)',
+                direction,
+              },
+              '& .MuiPickersOutlinedInput-notchedOutline': { borderColor: 'var(--color-control-border)' },
+              '& .MuiPickersInputBase-sectionsContainer': {
+                minWidth: 0,
+                minHeight: 0,
+                padding: size === 'small' ? '8px 0' : '10px 0',
+                display: 'flex',
+                flex: '1 1 auto',
+                alignItems: 'center',
+                justifyContent: direction === 'rtl' ? 'flex-end' : 'flex-start',
+                color: 'var(--color-text)',
+                fontSize: '0.93rem',
+                lineHeight: 1.4,
+                direction,
+              },
+              '& .MuiPickersInputBase-sectionContent': { lineHeight: 1.4 },
+              '& .MuiInputAdornment-root': { marginInline: 0, alignSelf: 'center' },
               '& .MuiInputLabel-root': { color: 'var(--color-text-secondary)' },
-              '& .Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--color-primary-action)' },
+              '& .MuiPickersInputBase-root.Mui-focused .MuiPickersOutlinedInput-notchedOutline': { borderColor: 'var(--color-primary-action)', borderWidth: 2 },
+              '& .MuiPickersInputBase-root.Mui-error .MuiPickersOutlinedInput-notchedOutline': { borderColor: 'var(--color-danger)' },
             },
           },
           htmlInput: { 'aria-label': label, dir: direction },
+          openPickerButton: {
+            sx: {
+              width: 40,
+              height: 40,
+              minWidth: 40,
+              minHeight: 40,
+              padding: 1,
+              flexShrink: 0,
+              color: 'var(--color-text-secondary)',
+            },
+          },
           popper: {
             dir: direction,
             placement: direction === 'rtl' ? 'bottom-end' : 'bottom-start',
