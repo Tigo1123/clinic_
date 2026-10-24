@@ -23,7 +23,8 @@
     "start:staging": "node src/server.js",
     "start:staging:migrate": "prisma migrate deploy && npm run start:staging",
     "test:schedule-workflow": "node scripts/test-schedule-workflow.js",
-    "repair:states:staging": "node scripts/repair-sudan-states.js"
+    "repair:states:staging": "node scripts/repair-sudan-states.js",
+    "start:staging:repair-states": "npm run repair:states:staging -- --check && npm run repair:states:staging -- --apply && npm run repair:states:staging -- --check && npm run start:staging:migrate"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

@@ -35,7 +35,17 @@ The bootstrap, legacy seed and reception dataset contract tests require the same
 
 ## Exact staging operator commands
 
-Run from the repository root in the **staging service environment**, with its existing injected `DIRECT_URL` (preferred) or `DATABASE_URL`. Do not paste credentials into chat, command arguments or shell history. The reviewed build must contain this script; no deployment or staging database write was performed as part of this change.
+Run from the repository root in the **staging service environment**, with its existing injected staging `DIRECT_URL` (preferred) and `DATABASE_URL`. Do not paste credentials into chat, command arguments or shell history. The reviewed build must contain this script; no deployment or staging database write was performed as part of this change.
+
+For a staging service start that should repair references, deploy pending Prisma migrations, then start the API, use the combined package script:
+
+```sh
+npm --prefix backend run start:staging:repair-states
+```
+
+This runs the three checks/apply steps below and then `start:staging:migrate`, which applies pending migrations and starts the server. It therefore requires the staging migration role and the normal staging service environment; do not configure it as a production start command.
+
+To repair and verify references without starting the server or applying migrations, run:
 
 ```sh
 npm --prefix backend run repair:states:staging -- --check
