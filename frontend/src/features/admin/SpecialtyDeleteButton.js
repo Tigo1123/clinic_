@@ -1,4 +1,5 @@
 import { createElement, useRef, useState } from 'react';
+import { Button } from '@mui/material';
 
 const messages = {
   en: {
@@ -48,5 +49,5 @@ export default function SpecialtyDeleteButton({ specialty, lang, request, onDele
       setPending(false);
     }
   };
-  return createElement('button', { type: 'button', className: 'btn btn-danger', disabled: disabled || pending, 'aria-busy': pending, onClick: remove }, pending ? text.pending : text.label);
+  return createElement(Button, { type: 'button', variant: 'outlined', color: 'error', disabled: disabled || pending, 'aria-busy': pending, onClick: remove, sx: { minWidth: 96, minHeight: 44 } }, pending ? text.pending : text.label);
 }

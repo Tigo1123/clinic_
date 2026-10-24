@@ -51,7 +51,8 @@ for (const lang of ['en', 'ar']) {
     await render(lang);
     const button = document.querySelector('button');
     assert.equal(button.textContent, lang === 'ar' ? 'حذف' : 'Delete');
-    assert.ok(button.classList.contains('btn-danger'));
+    assert.equal(button.type, 'button');
+    assert.equal(button.getAttribute('aria-busy'), 'false');
     await act(async () => { button.click(); button.click(); });
     assert.equal(confirmCalls.length, 1);
     assert.match(confirmCalls[0], lang === 'ar' ? /نهائياً/ : /Permanently/);

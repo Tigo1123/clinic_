@@ -2,7 +2,7 @@ import { useStaffPagedList } from '../../hooks/useStaffPagedList.js';
 import StaffListPaging from '../../components/StaffListPaging.jsx';
 import './clinicSetup.css';
 import ClinicSetupPanel from './ClinicSetupPanel';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Activity, Building, CalendarDays, DollarSign, Sliders, Users } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import RoleHero from '../../components/healthcare/RoleHero';
@@ -12,7 +12,7 @@ import { filterStaffUsers, isStaffRole } from '../../utils/staffRoles';
 import AuditLogPanel from './AuditLogPanel';
 import AnalyticsPanel from './AnalyticsPanel';
 import ClinicProfilePanel from './ClinicProfilePanel';
-import SpecialtyRow from './SpecialtyRow';
+import SpecialtiesPanel from './SpecialtiesPanel.jsx';
 import AdminSchedulePanel from './AdminSchedulePanel';
 import PasswordField from '../../components/PasswordField.jsx';
 
@@ -38,6 +38,8 @@ export default function AdminDashboard({ user, lang, t }) {
   const [specialtyDraft, setSpecialtyDraft] = useState({ code: '', nameAr: '', nameEn: '' });
   const [specialtyError, setSpecialtyError] = useState('');
   const [specialtyFeedback, setSpecialtyFeedback] = useState(null);
+  const [specialtyCreatePending, setSpecialtyCreatePending] = useState(false);
+  const specialtyCreateInFlight = useRef(false);
   const specialtyDeleted = (id) => {
     setSpecialties((current) => current.filter((item) => item.id !== id));
     setNewSpecialtyId((current) => current === id ? '' : current);
@@ -61,18 +63,43 @@ export default function AdminDashboard({ user, lang, t }) {
   useEffect(() => {
     fetchWithAuth('/api/specialties').then((response) => response.ok ? response.json() : []).then(setSpecialties).catch(() => setSpecialties([]));
   }, []);
-  const reloadSpecialties = () => fetchWithAuth('/api/specialties').then((response) => response.ok ? response.json() : []).then(setSpecialties);
   const createSpecialty = async (event) => {
-    event.preventDefault(); setSpecialtyError(''); setSpecialtyFeedback(null);
-    const response = await fetchWithAuth('/api/specialties', { method: 'POST', body: JSON.stringify({ ...specialtyDraft, active: true }) });
-    if (!response.ok) { setSpecialtyError(apiErrorMessage(await response.json().catch(() => ({})), lang === 'ar' ? 'تعذر إنشاء التخصص.' : 'Unable to create specialty.')); return; }
-    setSpecialtyDraft({ code: '', nameAr: '', nameEn: '' }); await reloadSpecialties();
+    event.preventDefault();
+    if (specialtyCreateInFlight.current) return;
+    if (![specialtyDraft.code, specialtyDraft.nameAr, specialtyDraft.nameEn].every(value => String(value || '').trim())) {
+      setSpecialtyError(lang === 'ar' ? 'أدخل الرمز والاسمين قبل إضافة التخصص.' : 'Enter a code and both names before adding a specialty.');
+      return;
+    }
+    specialtyCreateInFlight.current = true;
+    setSpecialtyCreatePending(true);
+    setSpecialtyError(''); setSpecialtyFeedback(null);
+    try {
+      const response = await fetchWithAuth('/api/specialties', { method: 'POST', body: JSON.stringify({ code: specialtyDraft.code.trim(), nameAr: specialtyDraft.nameAr.trim(), nameEn: specialtyDraft.nameEn.trim(), active: true }) });
+      if (!response.ok) { setSpecialtyError(apiErrorMessage(await response.json().catch(() => ({})), lang === 'ar' ? 'تعذر إنشاء التخصص.' : 'Unable to create specialty.')); return; }
+      const created = await response.json();
+      setSpecialties(current => [...current, created].sort((a, b) => a.nameEn.localeCompare(b.nameEn)));
+      setSpecialtyDraft({ code: '', nameAr: '', nameEn: '' });
+      setSpecialtyFeedback({ type: 'success', message: lang === 'ar' ? 'تمت إضافة التخصص.' : 'Specialty added.' });
+    } catch {
+      setSpecialtyError(lang === 'ar' ? 'تعذر الاتصال بالخادم. يرجى المحاولة مرة أخرى.' : 'Unable to connect to the server. Please try again.');
+    } finally {
+      specialtyCreateInFlight.current = false;
+      setSpecialtyCreatePending(false);
+    }
   };
   const saveSpecialty = async (specialty) => {
     setSpecialtyError(''); setSpecialtyFeedback(null);
-    const response = await fetchWithAuth(`/api/specialties/${specialty.id}`, { method: 'PATCH', body: JSON.stringify({ code: specialty.code, nameAr: specialty.nameAr, nameEn: specialty.nameEn, active: specialty.active }) });
-    if (!response.ok) { setSpecialtyError(apiErrorMessage(await response.json().catch(() => ({})), lang === 'ar' ? 'تعذر حفظ التخصص.' : 'Unable to save specialty.')); return; }
-    await reloadSpecialties();
+    try {
+      const response = await fetchWithAuth(`/api/specialties/${specialty.id}`, { method: 'PATCH', body: JSON.stringify({ code: specialty.code, nameAr: specialty.nameAr, nameEn: specialty.nameEn, active: specialty.active }) });
+      if (!response.ok) { setSpecialtyError(apiErrorMessage(await response.json().catch(() => ({})), lang === 'ar' ? 'تعذر حفظ التخصص.' : 'Unable to save specialty.')); return false; }
+      const saved = await response.json();
+      setSpecialties(current => current.map(item => item.id === saved.id ? saved : item).sort((a, b) => a.nameEn.localeCompare(b.nameEn)));
+      setSpecialtyFeedback({ type: 'success', message: lang === 'ar' ? 'تم حفظ التخصص.' : 'Specialty saved.' });
+      return true;
+    } catch {
+      setSpecialtyError(lang === 'ar' ? 'تعذر الاتصال بالخادم. يرجى المحاولة مرة أخرى.' : 'Unable to connect to the server. Please try again.');
+      return false;
+    }
   };
 
   const roleLabels = {
@@ -619,7 +646,7 @@ export default function AdminDashboard({ user, lang, t }) {
           </div>
         )}
 
-        {activeTab === 'specialties' && <div className="glass-panel" style={{ padding: '1.5rem' }}><h3>{lang === 'ar' ? 'إدارة التخصصات' : 'Specialty management'}</h3>{specialtyError && <div role="alert" className="badge badge-danger">{specialtyError}</div>}{specialtyFeedback && <div role={specialtyFeedback.type === 'error' ? 'alert' : 'status'} className={`badge ${specialtyFeedback.type === 'error' ? 'badge-danger' : 'badge-success'}`}>{specialtyFeedback.message}</div>}<form onSubmit={createSpecialty} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem', margin: '1rem 0' }}><input required className="form-input" placeholder={lang === 'ar' ? 'رمز التخصص' : 'Specialty code'} value={specialtyDraft.code} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, code: e.target.value }))}/><input required className="form-input" placeholder={lang === 'ar' ? 'الاسم بالعربية' : 'Arabic name'} value={specialtyDraft.nameAr} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, nameAr: e.target.value }))}/><input required className="form-input" placeholder={lang === 'ar' ? 'الاسم بالإنجليزية' : 'English name'} value={specialtyDraft.nameEn} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, nameEn: e.target.value }))}/><button className="btn btn-primary">{lang === 'ar' ? 'إضافة' : 'Add'}</button></form><div className="table-wrap"><table><thead><tr><th>{lang === 'ar' ? 'الرمز' : 'Code'}</th><th>{lang === 'ar' ? 'العربية' : 'Arabic'}</th><th>{lang === 'ar' ? 'الإنجليزية' : 'English'}</th><th>{lang === 'ar' ? 'الحالة' : 'Status'}</th><th>{lang === 'ar' ? 'الإجراءات' : 'Actions'}</th></tr></thead><tbody>{specialties.map((specialty) => <SpecialtyRow key={specialty.id} specialty={specialty} lang={lang} onSave={saveSpecialty} isAdmin={user?.role === 'ADMIN'} request={fetchWithAuth} onDeleted={specialtyDeleted} onFeedback={showSpecialtyFeedback}/>)}</tbody></table></div></div>}
+        {activeTab === 'specialties' && <SpecialtiesPanel lang={lang} specialties={specialties} draft={specialtyDraft} setDraft={setSpecialtyDraft} error={specialtyError} feedback={specialtyFeedback} pending={specialtyCreatePending} onCreate={createSpecialty} onSave={saveSpecialty} isAdmin={user?.role === 'ADMIN'} request={fetchWithAuth} onDeleted={specialtyDeleted} onFeedback={showSpecialtyFeedback}/>}
         {activeTab === 'scheduling' && user?.role === 'ADMIN' && <AdminSchedulePanel lang={lang} t={t} />}
 
         {activeTab === 'analytics' && (
