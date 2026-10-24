@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { CacheProvider } from '@emotion/react';
 import { IconButton, InputAdornment, TextField } from '@mui/material';
 import { ThemeProvider as MuiThemeProvider } from '@mui/material/styles';
@@ -35,23 +35,20 @@ export default function PasswordField({
   const direction = (i18n.resolvedLanguage || i18n.language || 'en').startsWith('ar') ? 'rtl' : 'ltr';
   const muiTheme = useMemo(() => createPatientMuiTheme(mode, direction), [mode, direction]);
   const [visible, setVisible] = useState(false);
-  const [focused, setFocused] = useState(false);
-  const handleFocus = event => { setFocused(true); onFocus?.(event); };
-  const handleBlur = event => {
-    const control = event.currentTarget.closest('.MuiFormControl-root');
-    setFocused(Boolean(control?.contains(event.relatedTarget)));
-    onBlur?.(event);
-  };
-  const labelShrink = focused || (typeof value === 'string' ? value.length > 0 : Boolean(value));
+  const generatedId = useId();
+  const fieldId = id || generatedId;
   return (
     <CacheProvider value={patientStyleCaches[direction]}>
       <MuiThemeProvider theme={muiTheme}>
+    <div className="shifa-password-field" dir={direction}>
+    <label className="shifa-password-label" htmlFor={fieldId}>{label}</label>
     <TextField
-      id={id}
+      id={fieldId}
       name={name}
-      label={label}
       value={value}
       onChange={onChange}
+      onFocus={onFocus}
+      onBlur={onBlur}
       type={visible ? 'text' : 'password'}
       autoComplete={autoComplete}
       required={required}
@@ -63,22 +60,13 @@ export default function PasswordField({
       disabled={disabled}
       dir={direction}
       sx={{
-        // Match Shifa's regular auth fields (48px control, 8px radius, 1px
-        // outline) while retaining MUI's label, validation and adornment logic.
-        '& .MuiInputLabel-root': {
-          color: 'var(--text-secondary, var(--color-text-secondary, #64748b))',
-          fontSize: '0.9rem',
-          fontWeight: 600,
-          lineHeight: 1.45,
-          '&.Mui-focused': { color: 'var(--text-secondary, var(--color-text-secondary, #64748b))' },
-          '&.Mui-error': { color: 'var(--auth-error, var(--color-danger, #c53030))' },
-        },
-        '& .MuiInputLabel-asterisk': { marginInlineStart: '0.2em' },
+        // The fieldset owns the only border; the label stays above the control.
         '& .MuiOutlinedInput-root': {
           boxSizing: 'border-box',
-          height: '48px !important',
-          minHeight: '48px !important',
-          maxHeight: '48px !important',
+          border: '0 !important',
+          height: '50px !important',
+          minHeight: '50px !important',
+          maxHeight: '50px !important',
           borderRadius: '8px',
           paddingInline: '12px',
           color: 'var(--text-primary, var(--color-text, inherit))',
@@ -86,14 +74,15 @@ export default function PasswordField({
           transition: 'border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease',
           '& .MuiOutlinedInput-notchedOutline': {
             inset: 0,
+            '& legend': { display: 'none' },
             borderRadius: '8px',
-            borderColor: 'var(--border-color, var(--color-border, currentColor))',
+            borderColor: 'var(--color-control-border, var(--border-color, currentColor))',
             borderWidth: '1px',
           },
           '&:hover .MuiOutlinedInput-notchedOutline': {
             borderColor: 'var(--text-secondary, var(--color-text-secondary, #64748b))',
           },
-          '&.Mui-focused': {
+          '&.Mui-focused, &:focus-within': {
             backgroundColor: 'var(--bg-card, var(--color-surface, transparent))',
             boxShadow: 'none',
             '& .MuiOutlinedInput-notchedOutline': {
@@ -108,7 +97,7 @@ export default function PasswordField({
             backgroundColor: 'var(--color-surface-muted, var(--bg-surface, transparent))',
             color: 'var(--text-secondary, var(--color-text-secondary, #64748b))',
             '& .MuiOutlinedInput-notchedOutline': {
-              borderColor: 'var(--border-color, var(--color-border, currentColor))',
+              borderColor: 'var(--color-control-border, var(--border-color, currentColor))',
             },
           },
         },
@@ -132,8 +121,9 @@ export default function PasswordField({
         },
         '& .MuiInputAdornment-root': { marginInline: '4px 0' },
         '& .MuiIconButton-root': {
-          width: 32,
-          height: 32,
+          flexShrink: 0,
+          width: 44,
+          height: 44,
           padding: '6px',
           color: 'var(--text-secondary, var(--color-text-secondary, #64748b))',
           borderRadius: '8px',
@@ -150,10 +140,7 @@ export default function PasswordField({
           maxLength,
           dir: dir || 'ltr',
           ...inputProps,
-          onFocus: handleFocus,
-          onBlur: handleBlur,
         },
-        inputLabel: { shrink: labelShrink },
         input: {
           endAdornment: (
             <InputAdornment position="end">
@@ -164,8 +151,6 @@ export default function PasswordField({
                 onClick={() => setVisible(current => !current)}
                 onMouseDown={event => event.preventDefault()}
                 onMouseUp={event => event.preventDefault()}
-                onFocus={() => setFocused(true)}
-                onBlur={event => setFocused(Boolean(event.currentTarget.closest('.MuiFormControl-root')?.contains(event.relatedTarget)))}
                 disabled={disabled}
               >
                 {visible ? <EyeOff size={17} strokeWidth={1.8} aria-hidden="true" /> : <Eye size={17} strokeWidth={1.8} aria-hidden="true" />}
@@ -175,6 +160,7 @@ export default function PasswordField({
         },
       }}
     />
+    </div>
       </MuiThemeProvider>
     </CacheProvider>
   );

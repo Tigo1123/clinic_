@@ -53,6 +53,7 @@ export function GoogleIdentityButton({ onCredential, text = 'continue_with', cla
 
   useEffect(() => {
     let active = true;
+    let observer;
     const consumer = consumerRef.current;
     activeCredentialConsumer = consumer;
     if (!clientId) {
@@ -73,20 +74,31 @@ export function GoogleIdentityButton({ onCredential, text = 'continue_with', cla
         });
         initializedClientId = clientId;
       }
-      buttonRef.current.replaceChildren();
-      google.accounts.id.renderButton(buttonRef.current, {
-        type: 'standard',
-        theme: theme === 'dark' ? 'outline_dark' : 'outline',
-        size: 'large',
-        text,
-        shape: 'rectangular',
-        locale: language,
-        width: Math.max(1, Math.min(400, Math.floor(buttonRef.current.clientWidth || 400))),
-      });
-      setState('ready');
+      let lastWidth;
+      const render = () => {
+        if (!active || !buttonRef.current) return;
+        const width = Math.max(1, Math.min(400, Math.floor(buttonRef.current.clientWidth)));
+        if (width === lastWidth) return;
+        lastWidth = width;
+        buttonRef.current.replaceChildren();
+        google.accounts.id.renderButton(buttonRef.current, {
+          type: 'standard',
+          theme: theme === 'dark' ? 'outline_dark' : 'outline',
+          size: 'large',
+          text,
+          shape: 'rectangular',
+          locale: language,
+          width,
+        });
+        setState('ready');
+      };
+      render();
+      observer = new ResizeObserver(render);
+      observer.observe(buttonRef.current);
     }).catch(() => { if (active) setState('unavailable'); });
     return () => {
       active = false;
+      observer?.disconnect();
       if (activeCredentialConsumer === consumer) activeCredentialConsumer = undefined;
     };
   }, [clientId, language, text, theme]);
