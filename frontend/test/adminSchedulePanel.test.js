@@ -33,18 +33,18 @@ test('schedule editing submits complete backend-compatible payloads and prevents
   assert.match(panel, /effectiveFrom/);
   assert.match(panel, /slotDurationMinutes/);
   assert.match(panel, /breaks/);
-  assert.match(panel, /disabled=\{saving \|\| loading \|\| !doctorId \|\| !ready\}/);
+  assert.match(panel, /const busy = saving \|\| loading \|\| !doctorId \|\| !ready/);
   assert.match(panel, /method: currentIsEffective \|\| !schedule\?\.id \? 'POST' : 'PUT'/);
   assert.match(panel, /method: 'PUT'/);
   assert.match(panel, /method: 'PATCH'/);
 });
 
 test('schedule management has centralized bilingual labels and responsive presentation', () => {
-  for (const key of ['scheduleTitle', 'saveSchedule', 'unavailableDates', 'markUnavailable']) {
+  for (const key of ['scheduleManagement', 'saveSchedule', 'unavailableDates', 'markUnavailable']) {
     assert.match(panel, new RegExp(`label\\('${key}'`));
     assert.match(translations, new RegExp(`${key}:`));
   }
-  assert.match(panel, /weekday\$\{period\.dayOfWeek\}/);
+  assert.match(panel, /<ScheduleWeekEditor/);
   assert.match(translations, /weekdayMONDAY:/);
   assert.match(panel, /scheduleTomorrowNotice/);
   assert.match(translations, /scheduleTomorrowNotice:'سيبدأ تطبيق تغييرات الجدول الحالي من الغد\.'/);

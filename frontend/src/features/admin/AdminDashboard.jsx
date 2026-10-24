@@ -370,7 +370,7 @@ export default function AdminDashboard({ user, lang, t }) {
   };
 
   return (
-    <div className="dashboard-wrapper admin-workspace">
+    <div className={`dashboard-wrapper admin-workspace ${activeTab === 'scheduling' ? 'admin-schedule-workspace' : ''}`}>
       {/* Side menu */}
       <aside className="sidebar-menu no-print-section">
         <div className="menu-items">
@@ -417,7 +417,7 @@ export default function AdminDashboard({ user, lang, t }) {
 
       {/* Main Panel Content */}
       <div className="workspace-panel">
-        {activeTab !== 'clinic-setup' && <RoleHero role="admin" lang={lang}/>}
+        {!['clinic-setup', 'scheduling'].includes(activeTab) && <RoleHero role="admin" lang={lang}/>}
         {activeTab === 'clinic-setup' && <ClinicSetupPanel lang={lang} t={t}/>}
         {activeTab === 'profile' && (
           <ClinicProfilePanel lang={lang} t={t} onNavigate={setActiveTab}/>

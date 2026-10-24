@@ -1,18 +1,28 @@
 import { useStaffPagedList } from '../../hooks/useStaffPagedList.js';
 import StaffListPaging from '../../components/StaffListPaging.jsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, Clock3, Plus, Save, Trash2 } from 'lucide-react';
+import { CalendarDays, Save } from 'lucide-react';
+import { CacheProvider } from '@emotion/react';
+import { ThemeProvider as MuiThemeProvider } from '@mui/material/styles';
+import { Alert, Box, Button, Card, Chip, FormControlLabel, Grid, Stack, Switch, TextField, Typography } from '@mui/material';
+import { useTheme } from '../../app/theme/ThemeContext.jsx';
+import { createPatientMuiTheme, patientStyleCaches } from '../../utils/patientMuiTheme.js';
+import ScheduleWeekEditor from './ScheduleWeekEditor.jsx';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import './adminSchedule.css';
 import { nextScheduleDate, selectScheduleVersion } from './scheduleVersion';
 import { createLatestGuard } from './latestRequest';
-import { normalizeScheduleTime, schedulePeriodError, scheduleTimeMessage, formatScheduleTime } from './scheduleTime.js';
+import { normalizeScheduleTime, schedulePeriodErrors, scheduleTimeMessage } from './scheduleTime.js';
 
-const weekdays = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
-const blankPeriod = (dayOfWeek = 'MONDAY') => ({ dayOfWeek, startTime: '09:00', endTime: '17:00', slotDurationMinutes: 30, active: true, breaks: [] });
 const clinicDate = (instant, timeZone) => { const values = Object.fromEntries(new Intl.DateTimeFormat('en', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(instant).map(({ type, value }) => [type, value])); return `${values.year}-${values.month}-${values.day}`; };
 
 export default function AdminSchedulePanel({ t, lang, initialDoctorId }) {
+  const direction = lang === 'ar' ? 'rtl' : 'ltr';
+  const { theme: mode } = useTheme();
+  const muiTheme = useMemo(() => createPatientMuiTheme(mode, direction), [mode, direction]);
+  const [validationAttempted, setValidationAttempted] = useState(false);
+  const [reveal, setReveal] = useState(null);
+  const [editorRevision, setEditorRevision] = useState(0);
   const doctorList = useStaffPagedList('/api/admin/doctors');
   const [initialDoctor, setInitialDoctor] = useState(null);
   const doctors = useMemo(() => [...new Map([...(initialDoctor ? [initialDoctor] : []), ...doctorList.data].map((doctor) => [doctor.id, doctor])).values()], [initialDoctor, doctorList.data]);
@@ -43,6 +53,7 @@ export default function AdminSchedulePanel({ t, lang, initialDoctorId }) {
     return data;
   }, [label]);
   const applyVersion = useCallback((version, kind) => {
+    setValidationAttempted(false); setReveal(null); setEditorRevision(revision => revision + 1);
     const today = clinicDate(new Date(), clinicTimeZone);
     const started = version?.effectiveFrom <= today;
     const from = started ? nextScheduleDate(today) : (version?.effectiveFrom || today);
@@ -88,6 +99,7 @@ export default function AdminSchedulePanel({ t, lang, initialDoctorId }) {
     guard.start(nextId); mutation.current = null; setLoading(Boolean(nextId)); setReady(false); setSaving(false);
     setError(''); setSuccess(''); setSchedule(null); setScheduleKind('empty');
     setVersions([]); setEffectiveFrom(''); setEffectiveTo(''); setScheduleActive(true);
+    setValidationAttempted(false); setReveal(null);
     setPeriods([]); setExceptions([]); setExceptionDate(''); setExceptionReason(''); setDoctorId(nextId);
   }, [guard]);
   useEffect(() => {
@@ -96,14 +108,20 @@ export default function AdminSchedulePanel({ t, lang, initialDoctorId }) {
       switchDoctor(initialDoctorId || '');
     }
   }, [initialDoctorId, switchDoctor]);
-  const updatePeriod = (index, patch) => setPeriods((current) => current.map((period, i) => i === index ? { ...period, ...patch } : period));
+  const periodErrors = useMemo(() => validationAttempted ? schedulePeriodErrors(periods) : {}, [periods, validationAttempted]);
+  const validatePeriod = index => {
+    setValidationAttempted(true);
+    return !schedulePeriodErrors(periods)[index];
+  };
   const save = async (event) => {
     event.preventDefault();
     if (mutation.current || saving || loading || !doctorId || !ready) return;
-    const timeError = periods.map(schedulePeriodError).find(Boolean);
-    if (timeError) {
-      setSuccess('');
-      setError(scheduleTimeMessage(timeError, lang, t));
+    const errors = schedulePeriodErrors(periods);
+    setValidationAttempted(true);
+    const firstInvalid = Object.keys(errors)[0];
+    if (firstInvalid !== undefined) {
+      setSuccess(''); setError('');
+      setReveal({ index: Number(firstInvalid), day: periods[firstInvalid].dayOfWeek });
       return;
     }
     if ((scheduleActive && !periods.some(period => period.active !== false)) || !event.currentTarget.checkValidity()) {
@@ -141,7 +159,7 @@ export default function AdminSchedulePanel({ t, lang, initialDoctorId }) {
       if (guard.isCurrent(token)) setError(e.message || label('scheduleSaveError', 'Unable to save schedule.'));
     } finally { if (mutation.current === token) { mutation.current = null; setSaving(false); } }
   };
-  const saveExceptionChange = async (url, options, successMessage, clear = false) => {
+  const saveExceptionChange = async (url, options, successMessage, clear = false, reloadVersion = false) => {
     if (mutation.current || saving || loading || !doctorId || !ready) return;
     const token = guard.start(doctorId);
     mutation.current = token;
@@ -154,8 +172,13 @@ export default function AdminSchedulePanel({ t, lang, initialDoctorId }) {
       if (!response.ok) throw new Error(scheduleError(data, label('exceptionSaveError', 'Unable to update availability.')));
       if (clear) { setExceptionDate(''); setExceptionReason(''); }
       setSuccess(successMessage);
-      await loadSchedule(savingDoctorId);
-    } catch (e) { if (guard.isCurrent(token)) setError(e.message); }
+      if (reloadVersion) await loadSchedule(savingDoctorId);
+      else {
+        const refreshed = await read(`/api/admin/doctors/${savingDoctorId}/schedule-exceptions`);
+        if (!Array.isArray(refreshed)) throw new Error(label('scheduleLoadError', 'Unable to load schedule.'));
+        if (guard.isCurrent(token)) setExceptions(refreshed);
+      }
+    } catch (e) { if (guard.isCurrent(token)) { setSuccess(''); setError(e.message); } }
     finally { if (mutation.current === token) { mutation.current = null; setSaving(false); } }
   };
   const addException = event => {
@@ -167,32 +190,82 @@ export default function AdminSchedulePanel({ t, lang, initialDoctorId }) {
     if (!globalThis.confirm(label('exceptionConfirm', 'Restore availability for this date?'))) return;
     return saveExceptionChange(`/api/admin/doctors/${doctorId}/schedule-exceptions/${date}/status`, { method: 'PATCH', body: JSON.stringify({ active: false }) }, label('exceptionRestored', 'Availability restored.'));
   };
-  const changeScheduleStatus = () => saveExceptionChange(`/api/admin/doctors/${doctorId}/schedules/${schedule.id}/status`, { method: 'PATCH', body: JSON.stringify({ active: !schedule.active }) }, label('scheduleSaved', 'Schedule saved successfully.'));
-  if (loading && !doctors.length) return <div className="admin-schedule-panel" role="status">{label('loading', 'Loading…')}</div>;
-  return <section className="admin-schedule-panel" aria-labelledby="admin-schedule-title">
-    <header className="admin-schedule-header"><div><span className="admin-schedule-eyebrow"><CalendarDays size={16}/>{label('scheduleManagement', 'Schedule management')}</span><h2 id="admin-schedule-title">{label('scheduleTitle', 'Doctor availability')}</h2><p>{label('scheduleSubtitle', 'Manage recurring clinic hours and unavailable dates.')}</p></div><Clock3 size={28} aria-hidden="true"/></header>
-    {error && <div className="badge badge-danger" role="alert">{error}</div>}{success && <div className="badge badge-success" role="status">{success}</div>}
-    <StaffListPaging list={doctorList} lang={lang} label={label('selectDoctor', 'Doctors')} />
-    <label className="form-label" htmlFor="schedule-doctor">{label('selectDoctor', 'Doctor')}</label><select id="schedule-doctor" className="form-input" value={doctorId} onChange={(e) => switchDoctor(e.target.value)}><option value="">{label('selectDoctor', 'Select a doctor')}</option>{doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{(lang === 'ar' ? doctor.fullNameAr || doctor.fullNameEn : doctor.fullNameEn || doctor.fullNameAr)} — {(lang === 'ar' ? doctor.specialty?.nameAr || doctor.specialtyAr || doctor.specialtyEn : doctor.specialty?.nameEn || doctor.specialtyEn || doctor.specialtyAr) || ''}</option>)}</select>
-    {selectedDoctor && <p className="admin-schedule-doctor">{(lang === 'ar' ? selectedDoctor.fullNameAr || selectedDoctor.fullNameEn : selectedDoctor.fullNameEn || selectedDoctor.fullNameAr)} · {(lang === 'ar' ? selectedDoctor.specialty?.nameAr || selectedDoctor.specialtyAr || selectedDoctor.specialtyEn : selectedDoctor.specialty?.nameEn || selectedDoctor.specialtyEn || selectedDoctor.specialtyAr) || '—'}</p>}
-    {loading && <p role="status">{label('scheduleLoading', 'Loading schedule…')}</p>}
-    {saving && <p role="status">{label('saving', 'Saving…')}</p>}
-    {!loading && doctorId && !ready && <button type="button" className="btn btn-secondary" onClick={() => configReady ? loadSchedule(doctorId) : setConfigAttempt(attempt => attempt + 1)}>{label('scheduleRetry', 'Retry loading schedule')}</button>}
-    {scheduleKind === 'current' && <div className="admin-schedule-notice" role="note">{label('scheduleTomorrowNotice', 'Changes to the current schedule will take effect from tomorrow.')}</div>}
-    {scheduleKind === 'future' && schedule && <div className="admin-schedule-notice" role="note">{t?.('scheduleFutureNotice', { date: schedule.effectiveFrom }) || `The selected schedule starts on ${schedule.effectiveFrom}.`}</div>}
-    {!loading && ready && !schedule && <p className="admin-schedule-empty">{label('scheduleEmpty', 'No normalized schedule yet. Add a working period to begin.')}</p>}
-    <form onSubmit={save} noValidate><fieldset disabled={saving || loading || !doctorId || !ready} className="admin-schedule-editor"><div className="admin-period-grid admin-schedule-version">
-      <label>{label('scheduleVersion', 'Schedule version')}<select id="schedule-version" className="form-input" value={schedule?.id || ''} onChange={event => {
-        const version = versions.find(item => item.id === event.target.value) || null;
-        const today = clinicDate(new Date(), clinicTimeZone);
-        applyVersion(version, !version ? 'empty' : !version.active ? 'inactive' : version.effectiveFrom > today ? 'future' : version.effectiveTo && version.effectiveTo < today ? 'historical' : 'current');
-        if (!version && versions.some(item => item.active && item.effectiveFrom <= today && (!item.effectiveTo || item.effectiveTo >= today))) setEffectiveFrom(nextScheduleDate(today));
-      }}><option value="">{label('scheduleNewVersion', 'New version')}</option>{versions.map(version => <option key={version.id} value={version.id}>{version.effectiveFrom} – {version.effectiveTo || '∞'} · {label(version.active ? 'scheduleVersionActive' : 'scheduleVersionInactive', version.active ? 'Active' : 'Inactive')}</option>)}</select></label>
-      <label>{label('effectiveFrom', 'Effective from')}<input className="form-input" type="date" required value={effectiveFrom} min={schedule?.effectiveFrom <= clinicDate(new Date(), clinicTimeZone) ? nextScheduleDate(clinicDate(new Date(), clinicTimeZone)) : undefined} onChange={event => setEffectiveFrom(event.target.value)}/></label>
-      <label>{label('effectiveTo', 'Effective to')}<input className="form-input" type="date" value={effectiveTo} min={effectiveFrom} onChange={event => setEffectiveTo(event.target.value)}/></label>
-      <label><input type="checkbox" checked={scheduleActive} onChange={event => setScheduleActive(event.target.checked)}/> {label('scheduleActiveVersion', 'Saved version active')}</label>
-      {schedule && <button type="button" className="btn btn-secondary" onClick={changeScheduleStatus}>{label(schedule.active ? 'scheduleDeactivateVersion' : 'scheduleActivateVersion', schedule.active ? 'Deactivate selected version' : 'Activate selected version')}</button>}
-    </div><p id="schedule-time-help" className="admin-schedule-notice">{lang === 'ar' ? `الأوقات حسب المنطقة الزمنية للعيادة (${clinicTimeZone}). حدد صباحاً أو مساءً إذا ظهر هذا الخيار. يجب أن تنتهي الفترة في نفس اليوم؛ الفترات الممتدة بعد منتصف الليل غير مدعومة.` : `Times use the clinic timezone (${clinicTimeZone}). Choose AM or PM when shown. Periods must end on the same day; overnight schedules are not supported.`}</p><div className="admin-period-list">{periods.map((period, index) => <fieldset className="admin-period" key={period.id || index}><legend>{label(`weekday${period.dayOfWeek}`, period.dayOfWeek)}</legend><label>{label('scheduleWeekday', 'Day')}<select className="form-input" value={period.dayOfWeek} onChange={(e) => updatePeriod(index, { dayOfWeek: e.target.value })}>{weekdays.map((day) => <option key={day} value={day}>{label(`weekday${day}`, day)}</option>)}</select></label><label><input type="checkbox" checked={period.active !== false} onChange={(e) => updatePeriod(index, { active: e.target.checked })}/> {label('workingDay', 'Working day')}</label><div className="admin-period-grid"><label>{label('startTime', 'Start')}<input className="form-input" type="time" dir="ltr" step="60" aria-describedby="schedule-time-help" required value={period.startTime} onChange={(e) => updatePeriod(index, { startTime: e.target.value })}/></label><label>{label('endTime', 'End')}<input className="form-input" type="time" dir="ltr" step="60" aria-describedby="schedule-time-help" required value={period.endTime} onChange={(e) => updatePeriod(index, { endTime: e.target.value })}/></label><label>{label('slotDuration', 'Slot duration')}<input className="form-input" type="number" required min="1" max="1440" value={period.slotDurationMinutes} onChange={(e) => updatePeriod(index, { slotDurationMinutes: Number(e.target.value) })}/></label></div><p className="admin-period-time-summary" dir="ltr"><span>{formatScheduleTime(period.startTime, lang)}</span> → <span>{formatScheduleTime(period.endTime, lang)}</span></p><div className="admin-breaks"><strong>{label('breaks', 'Breaks')}</strong>{(period.breaks || []).map((br, bi) => <div className="admin-break" key={br.id || bi}><input className="form-input" type="time" dir="ltr" step="60" aria-describedby="schedule-time-help" required aria-label={label('scheduleBreakStart', 'Break start')} value={br.startTime} onChange={(e) => updatePeriod(index, { breaks: period.breaks.map((b, i) => i === bi ? { ...b, startTime: e.target.value } : b) })}/><input className="form-input" type="time" dir="ltr" step="60" aria-describedby="schedule-time-help" required aria-label={label('scheduleBreakEnd', 'Break end')} value={br.endTime} onChange={(e) => updatePeriod(index, { breaks: period.breaks.map((b, i) => i === bi ? { ...b, endTime: e.target.value } : b) })}/><button type="button" className="btn btn-secondary" onClick={() => updatePeriod(index, { breaks: period.breaks.filter((_, i) => i !== bi) })} aria-label={label('removeBreak', 'Remove break')}><Trash2 size={15}/></button></div>)}<button type="button" className="btn btn-secondary" onClick={() => updatePeriod(index, { breaks: [...(period.breaks || []), { startTime: '12:00', endTime: '13:00', active: true }] })}><Plus size={14}/> {label('addBreak', 'Add break')}</button></div><button type="button" className="btn btn-secondary" onClick={() => setPeriods((current) => current.filter((_, i) => i !== index))}>{label('removePeriod', 'Remove day')}</button></fieldset>)}</div><div className="admin-schedule-actions"><button type="button" className="btn btn-secondary" onClick={() => setPeriods((current) => [...current, blankPeriod()])}><Plus size={15}/> {label('addWorkingDay', 'Add working period')}</button><button type="submit" className="btn btn-primary" disabled={saving || loading || !doctorId || !ready}><Save size={15}/> {saving ? label('saving', 'Saving…') : label('saveSchedule', 'Save schedule')}</button></div></fieldset></form>
-    <form className="admin-exception-form" onSubmit={addException}><fieldset disabled={saving || loading || !doctorId || !ready} className="admin-schedule-editor"><h3>{label('unavailableDates', 'Unavailable dates')}</h3><div className="admin-period-grid"><label>{label('date', 'Date')}<input className="form-input" type="date" required value={exceptionDate} onChange={(e) => setExceptionDate(e.target.value)}/></label><label>{label('reason', 'Reason')}<input className="form-input" value={exceptionReason} onChange={(e) => setExceptionReason(e.target.value)} maxLength="500"/></label><button className="btn btn-primary" disabled={saving}>{label('markUnavailable', 'Mark unavailable')}</button></div>{exceptions.filter((item) => item.active).map((item) => <div className="admin-exception" key={item.id}><span>{item.date} — {item.reason || label('fullDayLeave', 'Full-day leave')}</span><button type="button" className="btn btn-secondary" onClick={() => deactivateException(item.date)}>{label('restoreDate', 'Restore')}</button></div>)}</fieldset></form>
-  </section>;
+  const changeScheduleStatus = () => saveExceptionChange(`/api/admin/doctors/${doctorId}/schedules/${schedule.id}/status`, { method: 'PATCH', body: JSON.stringify({ active: !schedule.active }) }, label('scheduleSaved', 'Schedule saved successfully.'), false, true);
+  const busy = saving || loading || !doctorId || !ready;
+  const dateProps = { inputLabel: { shrink: true }, htmlInput: { dir: 'ltr' } };
+  const doctorName = doctor => (lang === 'ar' ? doctor.fullNameAr || doctor.fullNameEn : doctor.fullNameEn || doctor.fullNameAr);
+  const selectVersion = event => {
+    const version = versions.find(item => item.id === event.target.value) || null;
+    const today = clinicDate(new Date(), clinicTimeZone);
+    setError(''); setSuccess('');
+    applyVersion(version, !version ? 'empty' : !version.active ? 'inactive' : version.effectiveFrom > today ? 'future' : version.effectiveTo && version.effectiveTo < today ? 'historical' : 'current');
+    if (!version && versions.some(item => item.active && item.effectiveFrom <= today && (!item.effectiveTo || item.effectiveTo >= today))) setEffectiveFrom(nextScheduleDate(today));
+  };
+  return <CacheProvider value={patientStyleCaches[direction]}><MuiThemeProvider theme={muiTheme}>
+    <Box component="section" className="admin-schedule-panel" dir={direction} aria-labelledby="admin-schedule-title" sx={{ maxWidth: 1440, width: '100%', minWidth: 0, mx: 'auto', overflowWrap: 'anywhere' }}>
+      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', gap: 3 }}>
+        <Box><Typography component="h2" id="admin-schedule-title" variant="h5" fontWeight={750}>{label('scheduleManagement', 'Doctor schedules')}</Typography><Typography variant="body2" color="text.secondary">{label('scheduleWorkflowHint', 'Choose a doctor, set working days, then save.')}</Typography></Box>
+        <CalendarDays size={24} aria-hidden="true" style={{ flexShrink: 0 }}/>
+      </Stack>
+      <Box component="form" id="doctor-schedule-form" onSubmit={save} noValidate>
+        <Card component="section" variant="outlined" aria-labelledby="schedule-settings-title" sx={{ p: 4, mb: 3 }}>
+          <Typography component="h3" variant="subtitle1" fontWeight={700} id="schedule-settings-title" sx={{ mb: 3 }}>{label('scheduleDoctorVersion', 'Doctor & schedule version')}</Typography>
+          <Grid container spacing={3} className="admin-schedule-version" sx={{ alignItems: 'center' }}>
+            <Grid size={{ xs: 12, sm: 6, lg: 3 }}><TextField fullWidth size="small" select id="schedule-doctor" label={label('selectDoctor', 'Doctor')} value={doctorId} onChange={event => switchDoctor(event.target.value)} slotProps={{ select: { native: true }, htmlInput: { id: 'schedule-doctor', dir: 'auto' }, inputLabel: { shrink: true } }}>
+              <option value="">{label('selectDoctor', 'Select a doctor')}</option>{doctors.map(doctor => <option key={doctor.id} value={doctor.id}>{doctorName(doctor)} — {(lang === 'ar' ? doctor.specialty?.nameAr || doctor.specialtyAr || doctor.specialtyEn : doctor.specialty?.nameEn || doctor.specialtyEn || doctor.specialtyAr) || ''}</option>)}
+            </TextField></Grid>
+            <Grid size={{ xs: 12, sm: 6, lg: 3 }}><TextField fullWidth size="small" select id="schedule-version" label={label('scheduleVersion', 'Schedule version')} value={schedule?.id || ''} onChange={selectVersion} disabled={busy} slotProps={{ select: { native: true }, htmlInput: { id: 'schedule-version' } }}>
+              <option value="">{label('scheduleNewVersion', 'New version')}</option>{versions.map(version => <option key={version.id} value={version.id}>{version.effectiveFrom} – {version.effectiveTo || '∞'} · {label(version.active ? 'scheduleVersionActive' : 'scheduleVersionInactive', version.active ? 'Active' : 'Inactive')}</option>)}
+            </TextField></Grid>
+            <Grid size={{ xs: 6, sm: 4, lg: 2 }}><TextField fullWidth size="small" label={label('effectiveFrom', 'Effective from')} type="date" required value={effectiveFrom} disabled={busy} onChange={event => setEffectiveFrom(event.target.value)} slotProps={{ ...dateProps, htmlInput: { dir: 'ltr', min: schedule?.effectiveFrom <= clinicDate(new Date(), clinicTimeZone) ? nextScheduleDate(clinicDate(new Date(), clinicTimeZone)) : undefined } }}/></Grid>
+            <Grid size={{ xs: 6, sm: 4, lg: 2 }}><TextField fullWidth size="small" label={label('effectiveTo', 'Effective to')} type="date" value={effectiveTo} disabled={busy} onChange={event => setEffectiveTo(event.target.value)} slotProps={{ ...dateProps, htmlInput: { dir: 'ltr', min: effectiveFrom } }}/></Grid>
+            <Grid size={{ xs: 12, sm: 4, lg: 2 }}><FormControlLabel sx={{ m: 0 }} control={<Switch checked={scheduleActive} disabled={busy} onChange={event => setScheduleActive(event.target.checked)}/>} label={label('scheduleVersionActive', 'Active')}/></Grid>
+          </Grid>
+          <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ mt: 2, alignItems: { sm: 'center' }, justifyContent: 'space-between', gap: 2 }}>
+            <Box sx={{ minWidth: 0 }}><StaffListPaging list={doctorList} lang={lang} label={label('selectDoctor', 'Doctors')}/>{selectedDoctor && <Typography variant="caption" color="text.secondary"><bdi>{doctorName(selectedDoctor)}</bdi></Typography>}</Box>
+            {schedule && <Button type="button" size="small" disabled={busy} onClick={changeScheduleStatus}>{label(schedule.active ? 'scheduleDeactivateVersion' : 'scheduleActivateVersion', schedule.active ? 'Deactivate selected version' : 'Activate selected version')}</Button>}
+          </Stack>
+          {scheduleKind === 'current' && <Typography component="p" variant="caption" color="text.secondary" role="note">{label('scheduleTomorrowNotice', 'Changes to the current schedule will take effect from tomorrow.')}</Typography>}
+          {scheduleKind === 'future' && schedule && <Typography component="p" variant="caption" color="text.secondary" role="note">{t?.('scheduleFutureNotice', { date: schedule.effectiveFrom }) || `This schedule starts on ${schedule.effectiveFrom}.`}</Typography>}
+          {loading && <Typography variant="body2" role="status">{label('scheduleLoading', 'Loading schedule…')}</Typography>}
+          {!loading && !ready && <Button type="button" onClick={() => configReady ? loadSchedule(doctorId) : setConfigAttempt(attempt => attempt + 1)}>{label('scheduleRetry', 'Retry loading schedule')}</Button>}
+        </Card>
+        <Box component="fieldset" disabled={busy} className="admin-schedule-editor">
+          <Card component="section" variant="outlined" aria-labelledby="schedule-week-title" sx={{ p: { xs: 3, sm: 4 } }}>
+            <Stack direction="row" sx={{ mb: 3, justifyContent: 'space-between', alignItems: 'center', gap: 2 }}>
+              <Typography component="h3" variant="subtitle1" fontWeight={700} id="schedule-week-title">{label('scheduleWeeklyTitle', 'Weekly schedule')}</Typography>
+              <Chip size="small" label={`${new Set(periods.filter(period => period.active !== false).map(period => period.dayOfWeek)).size} / 7 ${label('scheduleWorkingDays', 'working days')}`}/>
+            </Stack>
+            <ScheduleWeekEditor key={`${doctorId}-${editorRevision}`} periods={periods} setPeriods={setPeriods} errors={periodErrors} reveal={reveal} validatePeriod={validatePeriod} lang={lang} label={label} t={t} disabled={busy}/>
+            <Typography id="schedule-time-help" variant="caption" color="text.secondary" component="p" sx={{ mt: 3, mb: 0 }}>{lang === 'ar' ? `الأوقات حسب المنطقة الزمنية للعيادة (${clinicTimeZone}). تنتهي كل فترة في نفس اليوم. الفترات الممتدة بعد منتصف الليل غير مدعومة.` : `Clinic time (${clinicTimeZone}). Each period ends on the same day. Overnight schedules are not supported.`}</Typography>
+          </Card>
+        </Box>
+        <Box className="schedule-save-bar" sx={{ position: 'sticky', bottom: 0, zIndex: 5, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: 2, p: 3, mt: 3, boxShadow: '0 -4px 16px rgba(0,0,0,.06)' }}>
+          {error && <Alert severity="error" role="alert" sx={{ mb: 2 }}>{error}</Alert>}
+          <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { sm: 'center' }, gap: 2 }}>
+            <Box sx={{ minWidth: 0, display: success || Object.keys(periodErrors).length ? 'block' : { xs: 'none', sm: 'block' } }}>{success ? <Typography role="status" color="success.main" variant="body2">{success}</Typography> : <Typography variant="body2" color={Object.keys(periodErrors).length ? 'error' : 'text.secondary'}>{Object.keys(periodErrors).length ? label('scheduleReviewDay', 'Review the highlighted day before saving.') : label('scheduleSaveHint', 'Save to apply the weekly schedule and effective dates.')}</Typography>}</Box>
+            <Button type="submit" variant="contained" disabled={busy} aria-busy={saving} startIcon={<Save size={18}/>} sx={{ flexShrink: 0 }}>{saving ? label('saving', 'Saving…') : label('saveSchedule', 'Save Schedule')}</Button>
+          </Stack>
+        </Box>
+      </Box>
+      <Card component="section" variant="outlined" aria-labelledby="schedule-exceptions-title" sx={{ p: 4 }}>
+        <Typography component="h3" variant="subtitle1" fontWeight={700} id="schedule-exceptions-title">{label('unavailableDates', 'Exceptions / unavailable dates')}</Typography>
+        <Box component="form" className="admin-exception-form" onSubmit={addException} sx={{ mt: 3 }}>
+          <Box component="fieldset" disabled={busy} className="admin-schedule-editor">
+            <Grid container spacing={3} sx={{ alignItems: 'center' }}>
+              <Grid size={{ xs: 12, sm: 4, lg: 3 }}><TextField fullWidth size="small" type="date" required label={label('date', 'Date')} value={exceptionDate} onChange={event => setExceptionDate(event.target.value)} slotProps={dateProps}/></Grid>
+              <Grid size={{ xs: 12, sm: 8, lg: 6 }}><TextField fullWidth size="small" label={label('reason', 'Reason')} value={exceptionReason} onChange={event => setExceptionReason(event.target.value)} slotProps={{ htmlInput: { maxLength: 500 } }}/></Grid>
+              <Grid size={{ xs: 12, lg: 3 }}><Button type="submit" variant="outlined" fullWidth disabled={busy}>{label('markUnavailable', 'Add unavailable date')}</Button></Grid>
+            </Grid>
+            <Stack spacing={1} sx={{ mt: exceptions.some(item => item.active) ? 3 : 0 }}>
+              {exceptions.filter(item => item.active).map(item => <Box key={item.id} className="admin-exception" sx={{ py: 2 }}>
+                <Typography variant="body2" sx={{ minWidth: 0 }}><bdi dir="ltr">{item.date}</bdi> · {item.reason || label(item.type === 'SPECIAL_HOURS' ? 'scheduleSpecialHours' : 'fullDayLeave', item.type === 'SPECIAL_HOURS' ? 'Special hours' : 'Full-day leave')}</Typography>
+                <Button type="button" size="small" disabled={busy} onClick={() => deactivateException(item.date)}>{label('restoreDate', 'Restore')}</Button>
+              </Box>)}
+            </Stack>
+          </Box>
+        </Box>
+      </Card>
+    </Box>
+  </MuiThemeProvider></CacheProvider>;
 }

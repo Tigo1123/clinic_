@@ -33,6 +33,7 @@ export function schedulePeriodError(period) {
 
 export const scheduleTimeMessages = {
   en: {
+    SCHEDULE_PERIOD_OVERLAP: ['schedulePeriodOverlap', 'Working periods on the same day must not overlap.'],
     SCHEDULE_INVALID_TIME: ['scheduleInvalidTime', 'Enter valid start and end times, including AM or PM when shown.'],
     SCHEDULE_TIME_ORDER: ['scheduleTimeOrder', 'The end time must be after the start time on the same calendar day.'],
     SCHEDULE_OVERNIGHT_UNSUPPORTED: ['scheduleOvernightUnsupported', 'Overnight schedules are not supported yet. The end time must be later than the start time on the same calendar day.'],
@@ -41,6 +42,7 @@ export const scheduleTimeMessages = {
     SCHEDULE_BREAK_OVERLAP: ['scheduleBreakOverlap', 'Breaks must not overlap.']
   },
   ar: {
+    SCHEDULE_PERIOD_OVERLAP: ['schedulePeriodOverlap', 'يجب ألا تتداخل فترات العمل في نفس اليوم.'],
     SCHEDULE_INVALID_TIME: ['scheduleInvalidTime', 'أدخل وقتَي بداية ونهاية صالحين، مع تحديد صباحاً أو مساءً عند ظهورهما.'],
     SCHEDULE_TIME_ORDER: ['scheduleTimeOrder', 'يجب أن يكون وقت النهاية بعد وقت البداية في نفس اليوم.'],
     SCHEDULE_OVERNIGHT_UNSUPPORTED: ['scheduleOvernightUnsupported', 'الجداول التي تمتد بعد منتصف الليل غير مدعومة حالياً. يجب أن يكون وقت النهاية بعد وقت البداية في نفس اليوم.'],
@@ -61,4 +63,24 @@ export function formatScheduleTime(value, lang) {
   const hour = Number(time.slice(0, 2));
   const marker = lang === 'ar' ? (hour < 12 ? 'ص' : 'م') : (hour < 12 ? 'AM' : 'PM');
   return `${String(hour % 12 || 12).padStart(2, '0')}:${time.slice(3)} ${marker}`;
+}
+
+// Validate collapsed rows too; their inputs are intentionally unmounted.
+export function schedulePeriodErrors(periods) {
+  const errors = {};
+  periods.forEach((period, index) => {
+    const error = schedulePeriodError(period);
+    if (error) errors[index] = error;
+  });
+  periods.forEach((period, index) => {
+    if (period.active === false || errors[index]) return;
+    periods.slice(index + 1).forEach((other, offset) => {
+      const otherIndex = index + 1 + offset;
+      if (other.active === false || errors[otherIndex] || other.dayOfWeek !== period.dayOfWeek) return;
+      if (normalizeScheduleTime(period.startTime) < normalizeScheduleTime(other.endTime) && normalizeScheduleTime(other.startTime) < normalizeScheduleTime(period.endTime)) {
+        errors[index] = 'SCHEDULE_PERIOD_OVERLAP'; errors[otherIndex] = 'SCHEDULE_PERIOD_OVERLAP';
+      }
+    });
+  });
+  return errors;
 }
