@@ -1,4 +1,5 @@
 import express from 'express';
+import { deleteStaffAccount, lockStaffAdministration, StaffDeletionError } from '../services/staffDeletion.js';
 import { asyncRouter } from '../utils/asyncRouter.js';
 import bcrypt from 'bcryptjs';
 import prisma from '../db.js';
@@ -456,7 +457,10 @@ router.get('/users', authenticate, checkRoles('ADMIN'), async (req, res) => {
   try {
     const page = parsePagination(req.query, { defaultPageSize: 50, maxPageSize: 100 });
     const users = await prisma.user.findMany({
-      where: { role: { in: STAFF_ROLES } },
+      where: { role: { in: STAFF_ROLES }, status: { not: 'DELETED' },
+        ...(typeof req.query.search === 'string' && req.query.search.trim() ? { username: { contains: req.query.search.trim().slice(0, 254), mode: 'insensitive' } } : {}),
+        ...(STAFF_ROLES.includes(req.query.role) ? { role: req.query.role } : {}),
+        ...(['ACTIVE', 'INACTIVE'].includes(req.query.status) ? { status: req.query.status } : {}) },
       select: {
         id: true,
         username: true,
@@ -472,6 +476,18 @@ router.get('/users', authenticate, checkRoles('ADMIN'), async (req, res) => {
   } catch (error) {
     console.error('Fetch staff users error:', error);
     return res.status(500).json({ error: 'Failed to retrieve staff users.' });
+  }
+});
+
+router.delete('/users/:id', authenticate, securityMutationLimiter, checkRoles('ADMIN'), validate(z.object({ id: z.uuid() }), 'params'), async (req, res) => {
+  try {
+    await deleteStaffAccount(req, req.params.id);
+    return res.status(204).end();
+  } catch (error) {
+    if (error instanceof StaffDeletionError) return sendError(res, error.status, error.code, error.message);
+    if (error.code === 'P2034') return sendError(res, 409, 'STAFF_DELETE_CONFLICT', 'Account changed during deletion. Please retry.');
+    logger.error('auth.staff_deletion_failed', { requestId: req.id, error });
+    return sendError(res, 500, 'STAFF_DELETE_FAILED', 'Unable to delete staff account.');
   }
 });
 
@@ -650,7 +666,7 @@ router.post('/users/:id/reset-password', authenticate, checkRoles('ADMIN'), admi
       where: { id: req.params.id },
       select: { id: true, username: true, role: true, status: true, authVersion: true }
     });
-    if (!target) {
+    if (!target || target.status === 'DELETED') {
       return sendError(res, 404, 'STAFF_USER_NOT_FOUND', 'Staff user was not found.');
     }
     if (!STAFF_ROLES.includes(target.role)) {
@@ -673,7 +689,7 @@ router.post('/users/:id/reset-password', authenticate, checkRoles('ADMIN'), admi
       });
       const currentTarget = await tx.user.findUnique({
         where: { id: target.id },
-        select: { role: true, authVersion: true }
+        select: { role: true, status: true, authVersion: true }
       });
       if (
         !currentActor
@@ -689,6 +705,7 @@ router.post('/users/:id/reset-password', authenticate, checkRoles('ADMIN'), admi
       }
       if (
         !currentTarget
+        || currentTarget.status === 'DELETED'
         || !STAFF_ROLES.includes(currentTarget.role)
         || currentTarget.role !== target.role
         || currentTarget.authVersion !== target.authVersion
@@ -800,12 +817,14 @@ router.put('/users/:id/status', authenticate, securityMutationLimiter, checkRole
   const { status } = req.body;
   try {
     const updated = await prisma.$transaction(async (tx) => {
+      await lockStaffAdministration(tx);
       await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${req.params.id} FOR UPDATE`;
       const current = await tx.user.findUnique({
         where: { id: req.params.id },
         select: { id: true, username: true, role: true, status: true, preferredLanguage: true, createdAt: true }
       });
-      if (!current) throw new Error('STAFF_STATUS_TARGET_NOT_FOUND');
+      if (!current || current.status === 'DELETED') throw new Error('STAFF_STATUS_TARGET_NOT_FOUND');
+      if (current.role === 'ADMIN' && current.status === 'ACTIVE' && status === 'INACTIVE' && await tx.user.count({ where: { role: 'ADMIN', status: 'ACTIVE' } }) <= 1) throw new Error('STAFF_LAST_ACTIVE_ADMIN');
       if (!STAFF_ROLES.includes(current.role)) throw new Error('STAFF_STATUS_UNSUPPORTED');
       let doctorStateChanged = false;
       if (current.role === 'DOCTOR') {
@@ -839,6 +858,8 @@ router.put('/users/:id/status', authenticate, securityMutationLimiter, checkRole
 
     return res.json(updated);
   } catch (error) {
+    if (error?.message === 'STAFF_STATUS_TARGET_NOT_FOUND') return sendError(res, 404, 'STAFF_USER_NOT_FOUND', 'Staff account was not found.');
+    if (error?.message === 'STAFF_LAST_ACTIVE_ADMIN') return sendError(res, 409, 'STAFF_LAST_ACTIVE_ADMIN', 'The last active administrator cannot be disabled.');
     if (error?.message === 'STAFF_STATUS_UNSUPPORTED') {
       return sendError(res, 422, 'STAFF_STATUS_UNSUPPORTED', 'Status management through this endpoint is limited to staff accounts.');
     }

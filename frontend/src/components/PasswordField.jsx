@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { CacheProvider } from '@emotion/react';
 import { IconButton, InputAdornment, TextField } from '@mui/material';
 import { ThemeProvider as MuiThemeProvider } from '@mui/material/styles';
@@ -35,6 +35,7 @@ export default function PasswordField({
   const direction = (i18n.resolvedLanguage || i18n.language || 'en').startsWith('ar') ? 'rtl' : 'ltr';
   const muiTheme = useMemo(() => createPatientMuiTheme(mode, direction), [mode, direction]);
   const [visible, setVisible] = useState(false);
+  useEffect(() => { if (!value) setVisible(false); }, [value]);
   const generatedId = useId();
   const fieldId = id || generatedId;
   return (

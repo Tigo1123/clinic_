@@ -12,13 +12,13 @@ const cases = [
   ['laboratory/LaboratoryDashboard.jsx', '/api/records/lab-orders/pending', 'orderList'],
   ['pharmacy/PharmacyDashboard.jsx', '/api/records/prescriptions/pending', 'prescriptionList'],
   ['pharmacy/PharmacyDashboard.jsx', '/api/records/medication-reviews/pending', 'reviewList'],
-  ['admin/AdminDashboard.jsx', '/api/auth/users', 'userList'],
+  ['admin/StaffAccountsPanel.jsx', '/api/auth/users', 'list'],
   ['admin/AdminSchedulePanel.jsx', '/api/admin/doctors', 'doctorList']
 ];
 for (const [screen, path, binding] of cases) test(`${screen}: records 51 and 101 are reachable with bounded requests`, async () => {
   const source = await readFile(new URL(`../src/features/${screen}`, import.meta.url), 'utf8');
   assert.match(source, new RegExp(`const ${binding} = useStaffPagedList`));
-  assert.ok(source.includes(`<StaffListPaging list={${binding}}`) || source.includes(': doctorQueueList}'));
+  assert.ok(source.includes(`<StaffListPaging list={${binding}}`) || source.includes(': doctorQueueList}') || source.includes('onClick={list.loadMore}'));
   const requested = [];
   const list = createPagedList(path, async (url) => {
     const query = new URL(url, 'https://example.invalid').searchParams;

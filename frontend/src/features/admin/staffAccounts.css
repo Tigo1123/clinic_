@@ -1,0 +1,10 @@
+.staff-accounts-panel .MuiFormControl-root, .staff-accounts-panel .MuiInputBase-root, .staff-action-dialog .MuiFormControl-root, .staff-action-dialog .MuiInputBase-root { min-width: 0; }
+.staff-accounts-panel .MuiInputBase-input, .staff-action-dialog .MuiInputBase-input { box-sizing: content-box; min-width: 0; min-height: 27px; }
+.staff-accounts-panel .MuiButton-root, .staff-accounts-panel .MuiMenuItem-root { white-space: normal; }
+.staff-directory-table th, .staff-directory-table td { text-align: start; padding: 10px 8px; overflow-wrap: anywhere; }
+.staff-directory-table th { font-size: .75rem; color: var(--color-text-secondary); font-weight: 600; }
+.staff-directory-table td { border-top: 1px solid var(--color-border); font-size: .85rem; }
+.staff-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+@media (max-width: 900px) { .admin-staff-workspace > .sidebar-menu { position: static; height: auto; } }
+
+.staff-action-menu .MuiMenuItem-root { white-space: normal; min-height: 44px; }

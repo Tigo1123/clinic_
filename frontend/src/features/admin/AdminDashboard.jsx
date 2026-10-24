@@ -1,25 +1,18 @@
-import { useStaffPagedList } from '../../hooks/useStaffPagedList.js';
-import StaffListPaging from '../../components/StaffListPaging.jsx';
 import './clinicSetup.css';
 import ClinicSetupPanel from './ClinicSetupPanel';
 import { useEffect, useRef, useState } from 'react';
 import { Activity, Building, CalendarDays, DollarSign, Sliders, Users } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import RoleHero from '../../components/healthcare/RoleHero';
-import { getStaffPasswordChecks, isStaffPasswordValid, STAFF_PASSWORD_MAX_LENGTH } from '../../utils/staffPasswordPolicy';
-import { buildStaffCreationPayload } from '../../utils/staffCreationPayload';
-import { filterStaffUsers, isStaffRole } from '../../utils/staffRoles';
 import AuditLogPanel from './AuditLogPanel';
 import AnalyticsPanel from './AnalyticsPanel';
 import ClinicProfilePanel from './ClinicProfilePanel';
 import SpecialtiesPanel from './SpecialtiesPanel.jsx';
+import StaffAccountsPanel from './StaffAccountsPanel.jsx';
 import AdminSchedulePanel from './AdminSchedulePanel';
-import PasswordField from '../../components/PasswordField.jsx';
 
 export default function AdminDashboard({ user, lang, t }) {
   const [activeTab, setActiveTab] = useState('profile');
-  const userList = useStaffPagedList('/api/auth/users');
-  const { data: users, setData: setUsers } = userList;
   const [analyticsData, setAnalyticsData] = useState(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [analyticsError, setAnalyticsError] = useState('');
@@ -27,14 +20,7 @@ export default function AdminDashboard({ user, lang, t }) {
   const [pricingDrafts, setPricingDrafts] = useState({});
   const [pricingLoading, setPricingLoading] = useState(false);
 
-  // User form states
-  const [newUsername, setNewUsername] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [newRole, setNewRole] = useState('RECEPTIONIST');
-  const [newFullNameAr, setNewFullNameAr] = useState('');
-  const [newFullNameEn, setNewFullNameEn] = useState('');
   const [specialties, setSpecialties] = useState([]);
-  const [newSpecialtyId, setNewSpecialtyId] = useState('');
   const [specialtyDraft, setSpecialtyDraft] = useState({ code: '', nameAr: '', nameEn: '' });
   const [specialtyError, setSpecialtyError] = useState('');
   const [specialtyFeedback, setSpecialtyFeedback] = useState(null);
@@ -42,24 +28,10 @@ export default function AdminDashboard({ user, lang, t }) {
   const specialtyCreateInFlight = useRef(false);
   const specialtyDeleted = (id) => {
     setSpecialties((current) => current.filter((item) => item.id !== id));
-    setNewSpecialtyId((current) => current === id ? '' : current);
   };
   const showSpecialtyFeedback = (feedback) => { setSpecialtyError(''); setSpecialtyFeedback(feedback); };
-  const [newConsultationFee, setNewConsultationFee] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
-  const [resetTarget, setResetTarget] = useState(null);
-  const [resetNewPassword, setResetNewPassword] = useState('');
-  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
-  const [resetAdminPassword, setResetAdminPassword] = useState('');
-  const [resetMfaCode, setResetMfaCode] = useState('');
-  const [resetError, setResetError] = useState('');
-  const [resetPending, setResetPending] = useState(false);
-  const [revokeTarget, setRevokeTarget] = useState(null);
-  const [revokeError, setRevokeError] = useState('');
-  const [revokePending, setRevokePending] = useState(false);
-  const newPasswordChecks = getStaffPasswordChecks(newPassword);
-  const resetPasswordChecks = getStaffPasswordChecks(resetNewPassword);
   useEffect(() => {
     fetchWithAuth('/api/specialties').then((response) => response.ok ? response.json() : []).then(setSpecialties).catch(() => setSpecialties([]));
   }, []);
@@ -100,34 +72,6 @@ export default function AdminDashboard({ user, lang, t }) {
       setSpecialtyError(lang === 'ar' ? 'تعذر الاتصال بالخادم. يرجى المحاولة مرة أخرى.' : 'Unable to connect to the server. Please try again.');
       return false;
     }
-  };
-
-  const roleLabels = {
-    ADMIN: { ar: 'مدير النظام', en: 'Administrator' },
-    RECEPTIONIST: { ar: 'موظف الاستقبال', en: 'Receptionist' },
-    DOCTOR: { ar: 'طبيب', en: 'Doctor' },
-    PHARMACIST: { ar: 'صيدلي', en: 'Pharmacist' },
-    LAB_TECH: { ar: 'فني مختبر', en: 'Laboratory Technician' },
-    PATIENT: { ar: 'مريض', en: 'Patient' }
-  };
-
-  const userStatusLabels = {
-    ACTIVE: { ar: 'نشط', en: 'Active' },
-    INACTIVE: { ar: 'غير نشط', en: 'Inactive' }
-  };
-
-  const getRoleLabel = (role) => {
-    const labels = roleLabels[role];
-    return labels
-      ? (lang === 'ar' ? labels.ar : labels.en)
-      : role?.replaceAll('_', ' ') || '-';
-  };
-
-  const getUserStatusLabel = (status) => {
-    const labels = userStatusLabels[status];
-    return labels
-      ? (lang === 'ar' ? labels.ar : labels.en)
-      : status?.replaceAll('_', ' ') || '-';
   };
 
   // Fetch users & logs on tab switch
@@ -209,168 +153,8 @@ export default function AdminDashboard({ user, lang, t }) {
     }
   };
 
-  const handleCreateUser = async (e) => {
-    e.preventDefault();
-    setErrorMsg('');
-    setSuccessMsg('');
-    if (!isStaffPasswordValid(newPassword)) {
-      setErrorMsg(lang === 'ar'
-        ? 'يجب أن تتكون كلمة المرور من 10 إلى 200 حرف، وتحتوي على حرف إنجليزي كبير وحرف صغير ورقم.'
-        : 'Password must be 10–200 characters and include an uppercase letter, a lowercase letter, and a number.');
-      return;
-    }
-    try {
-      const res = await fetchWithAuth('/api/auth/users', {
-        method: 'POST',
-        body: JSON.stringify(buildStaffCreationPayload({
-          username: newUsername,
-          password: newPassword,
-          role: newRole,
-          fullNameAr: newFullNameAr,
-          fullNameEn: newFullNameEn,
-          specialtyId: newSpecialtyId,
-          consultationFee: newConsultationFee
-        }))
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setSuccessMsg(lang === 'ar' ? 'تم إنشاء حساب الموظف بنجاح' : 'Staff account created successfully.');
-        setNewUsername('');
-        setNewPassword('');
-        setNewFullNameAr('');
-        setNewFullNameEn('');
-        setNewSpecialtyId('');
-        setNewConsultationFee('');
-        await userList.reload();
-      } else {
-        const validationDetails = Array.isArray(data?.error?.details)
-          ? data.error.details.map((detail) => {
-              if (!detail?.message) return '';
-              return detail.field ? `${detail.field}: ${detail.message}` : detail.message;
-            }).filter(Boolean).join(' ')
-          : '';
-        setErrorMsg(
-          validationDetails || apiErrorMessage(
-              data,
-              lang === 'ar'
-                ? 'تعذر إنشاء حساب الموظف.'
-                : 'Failed to create the staff account.'
-            )
-        );
-      }
-    } catch (err) {
-      console.error(err);
-      setErrorMsg(
-        lang === 'ar'
-          ? 'تعذر الاتصال بالخادم. يرجى المحاولة مرة أخرى.'
-          : 'Unable to connect to the server. Please try again.'
-      );
-    }
-  };
-
-  const handleToggleUserStatus = async (userId, currentStatus) => {
-    const nextStatus = currentStatus === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
-    try {
-      const res = await fetchWithAuth(`/api/auth/users/${userId}/status`, {
-        method: 'PUT',
-        body: JSON.stringify({ status: nextStatus })
-      });
-      if (res.ok) {
-        setUsers(
-          users.map((u) => (u.id === userId ? { ...u, status: nextStatus } : u))
-        );
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const closeSessionRevocation = (force = false) => {
-    if (revokePending && !force) return;
-    setRevokeTarget(null);
-    setRevokeError('');
-  };
-
-  const handleSessionRevocation = async () => {
-    if (!revokeTarget || revokePending) return;
-    setRevokePending(true);
-    setRevokeError('');
-    setErrorMsg('');
-    setSuccessMsg('');
-    try {
-      const response = await fetchWithAuth(`/api/auth/users/${revokeTarget.id}/revoke-sessions`, { method: 'POST' });
-      const data = await response.json();
-      if (!response.ok) {
-        setRevokeError(apiErrorMessage(data, lang === 'ar' ? 'تعذر إنهاء الجلسات.' : 'Failed to sign out the user.'));
-        return;
-      }
-      closeSessionRevocation(true);
-      setSuccessMsg(lang === 'ar' ? 'تم إنهاء جميع جلسات المستخدم النشطة.' : 'All active sessions for this user have been ended.');
-    } catch {
-      setRevokeError(lang === 'ar' ? 'تعذر الاتصال بالخادم. يرجى المحاولة مرة أخرى.' : 'Unable to connect to the server. Please try again.');
-    } finally {
-      setRevokePending(false);
-    }
-  };
-
-  const closePasswordReset = (force = false) => {
-    if (resetPending && !force) return;
-    setResetTarget(null);
-    setResetNewPassword('');
-    setResetConfirmPassword('');
-    setResetAdminPassword('');
-    setResetMfaCode('');
-    setResetError('');
-  };
-
-  const handlePasswordReset = async (event) => {
-    event.preventDefault();
-    if (!resetTarget || resetPending) return;
-    setResetError('');
-    if (!isStaffPasswordValid(resetNewPassword)) {
-      setResetError(lang === 'ar'
-        ? 'يجب أن تتكون كلمة المرور الجديدة من 10 إلى 200 حرف، وتحتوي على حرف كبير وحرف صغير ورقم.'
-        : 'New password must be 10–200 characters and include an uppercase letter, a lowercase letter, and a number.');
-      return;
-    }
-    if (resetNewPassword !== resetConfirmPassword) {
-      setResetError(lang === 'ar' ? 'كلمتا المرور الجديدتان غير متطابقتين.' : 'New passwords do not match.');
-      return;
-    }
-
-    setResetPending(true);
-    try {
-      const response = await fetchWithAuth(`/api/auth/users/${resetTarget.id}/reset-password`, {
-        method: 'POST',
-        body: JSON.stringify({
-          newPassword: resetNewPassword,
-          currentAdminPassword: resetAdminPassword,
-          ...(user?.mfaEnabled ? { mfaCode: resetMfaCode } : {})
-        })
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        const details = Array.isArray(data?.error?.details)
-          ? data.error.details.map((detail) => detail?.message).filter(Boolean).join(' ')
-          : '';
-        setResetError(details || apiErrorMessage(data, lang === 'ar' ? 'تعذر إعادة تعيين كلمة المرور.' : 'Failed to reset staff password.'));
-        setResetAdminPassword('');
-        setResetMfaCode('');
-        return;
-      }
-      closePasswordReset(true);
-      setSuccessMsg(lang === 'ar' ? 'تمت إعادة تعيين كلمة مرور الموظف.' : 'Staff password reset successfully.');
-    } catch {
-      setResetError(lang === 'ar' ? 'تعذر الاتصال بالخادم. يرجى المحاولة مرة أخرى.' : 'Unable to connect to the server. Please try again.');
-      setResetAdminPassword('');
-      setResetMfaCode('');
-    } finally {
-      setResetPending(false);
-    }
-  };
-
   return (
-    <div className={`dashboard-wrapper admin-workspace ${activeTab === 'scheduling' ? 'admin-schedule-workspace' : ''}`}>
+    <div className={`dashboard-wrapper admin-workspace ${activeTab === 'scheduling' ? 'admin-schedule-workspace' : activeTab === 'users' ? 'admin-staff-workspace' : ''}`}>
       {/* Side menu */}
       <aside className="sidebar-menu no-print-section">
         <div className="menu-items">
@@ -417,215 +201,13 @@ export default function AdminDashboard({ user, lang, t }) {
 
       {/* Main Panel Content */}
       <div className="workspace-panel">
-        {!['clinic-setup', 'scheduling'].includes(activeTab) && <RoleHero role="admin" lang={lang}/>}
+        {!['clinic-setup', 'scheduling', 'users'].includes(activeTab) && <RoleHero role="admin" lang={lang}/>}
         {activeTab === 'clinic-setup' && <ClinicSetupPanel lang={lang} t={t}/>}
         {activeTab === 'profile' && (
           <ClinicProfilePanel lang={lang} t={t} onNavigate={setActiveTab}/>
         )}
 
-        {activeTab === 'users' && <StaffListPaging list={userList} lang={lang} label={lang === 'ar' ? 'الموظفون' : 'Staff accounts'} />}
-        {activeTab === 'users' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '350px 1fr', gap: '2rem' }}>
-            <div className="glass-panel" style={{ padding: '1.5rem' }}>
-              <h4 style={{ marginBottom: '1.5rem' }}>{lang === 'ar' ? 'إضافة موظف جديد' : 'Add New Staff'}</h4>
-              {errorMsg && <div className="badge badge-danger" style={{ width: '100%', marginBottom: '1rem', padding: '0.5rem' }}>{errorMsg}</div>}
-              {successMsg && <div className="badge badge-success" style={{ width: '100%', marginBottom: '1rem', padding: '0.5rem' }}>{successMsg}</div>}
-
-              <form onSubmit={handleCreateUser} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <div className="form-group">
-                  <label className="form-label">{t('username')}</label>
-                  <input
-                    type="email"
-                    required
-                    placeholder="staff@cms.com"
-                    className="form-input"
-                    value={newUsername}
-                    onChange={(e) => setNewUsername(e.target.value)}
-                  />
-                </div>
-                <div className="form-group">
-                  <PasswordField label={t('password')} required autoComplete="new-password" minLength={10} maxLength={STAFF_PASSWORD_MAX_LENGTH} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} helperText={t('passwordRequirementsSummary')} />
-                  <div className="password-requirements" aria-live="polite">
-                    {Object.entries({
-                      minimumLength: lang === 'ar' ? '10 أحرف على الأقل' : 'At least 10 characters',
-                      maximumLength: lang === 'ar' ? '200 حرف على الأكثر' : 'At most 200 characters',
-                      uppercase: lang === 'ar' ? 'حرف إنجليزي كبير' : 'One uppercase letter',
-                      lowercase: lang === 'ar' ? 'حرف إنجليزي صغير' : 'One lowercase letter',
-                      number: lang === 'ar' ? 'رقم واحد على الأقل' : 'One number'
-                    }).map(([key, label]) => (
-                      <span key={key} className={newPasswordChecks[key] ? 'valid' : ''}>{label}</span>
-                    ))}
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">{lang === 'ar' ? 'الدور الوظيفي' : 'Role'}</label>
-                  <select className="form-input" value={newRole} onChange={(e) => setNewRole(e.target.value)}>
-                    <option value="ADMIN">{getRoleLabel('ADMIN')}</option>
-                    <option value="RECEPTIONIST">{getRoleLabel('RECEPTIONIST')}</option>
-                    <option value="DOCTOR">{getRoleLabel('DOCTOR')}</option>
-                    <option value="PHARMACIST">{getRoleLabel('PHARMACIST')}</option>
-                    <option value="LAB_TECH">{getRoleLabel('LAB_TECH')}</option>
-                  </select>
-                </div>
-                {newRole === 'DOCTOR' && (
-                  <>
-                    <div className="form-group">
-                      <label className="form-label">{lang === 'ar' ? 'الاسم الكامل (عربي)' : 'Full Name (Arabic)'}</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder={lang === 'ar' ? 'د. محمد أحمد' : 'Dr. Mohamed Ahmed'}
-                        className="form-input"
-                        value={newFullNameAr}
-                        onChange={(e) => setNewFullNameAr(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">{lang === 'ar' ? 'الاسم الكامل (إنجليزي)' : 'Full Name (English)'}</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Dr. Mohamed Ahmed"
-                        className="form-input"
-                        value={newFullNameEn}
-                        onChange={(e) => setNewFullNameEn(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group"><label className="form-label">{lang === 'ar' ? 'التخصص' : 'Specialty'}</label><select required className="form-input" value={newSpecialtyId} onChange={(e) => setNewSpecialtyId(e.target.value)}><option value="">{lang === 'ar' ? 'اختر التخصص' : 'Select specialty'}</option>{specialties.filter((specialty) => specialty.active).map((specialty) => <option key={specialty.id} value={specialty.id}>{lang === 'ar' ? specialty.nameAr : specialty.nameEn}</option>)}</select></div>
-                    <div className="form-group">
-                      <label className="form-label">{lang === 'ar' ? 'رسوم الكشف (جنيه سوداني)' : 'Consultation Fee (SDG)'}</label>
-                      <input
-                        type="number"
-                        required
-                        className="form-input"
-                        value={newConsultationFee}
-                        onChange={(e) => setNewConsultationFee(e.target.value)}
-                      />
-                    </div>
-                  </>
-                )}
-                <button type="submit" className="btn btn-primary" style={{ marginTop: '1rem' }}>
-                  {lang === 'ar' ? 'إنشاء الحساب' : 'Create Account'}
-                </button>
-              </form>
-            </div>
-
-            <div className="glass-panel" style={{ padding: '1.5rem' }}>
-              <h4 style={{ marginBottom: '1.5rem' }}>{lang === 'ar' ? 'سجل موظفي النظام' : 'Staff Directory'}</h4>
-              <div className="table-responsive">
-                <table className="staff-table">
-                <thead>
-                  <tr>
-                    <th>{t('username')}</th>
-                    <th>{lang === 'ar' ? 'الدور' : 'Role'}</th>
-                    <th>{lang === 'ar' ? 'الحالة' : 'Status'}</th>
-                    <th>{lang === 'ar' ? 'إجراءات' : 'Actions'}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filterStaffUsers(users).map((u) => (
-                    <tr key={u.id}>
-                      <td>{u.username}</td>
-                      <td>
-                        <span className="badge badge-success" style={{ fontSize: '0.8rem' }}>
-                          {getRoleLabel(u.role)}
-                        </span>
-                      </td>
-                      <td>
-                        <span className={`badge ${u.status === 'ACTIVE' ? 'badge-success' : 'badge-danger'}`}>
-                          {getUserStatusLabel(u.status)}
-                        </span>
-                      </td>
-                      <td>
-                        {isStaffRole(u.role) && <>
-                        <button
-                          className={`btn ${u.status === 'ACTIVE' ? 'btn-danger' : 'btn-primary'}`}
-                          style={{ padding: '4px 8px', fontSize: '0.8rem' }}
-                          onClick={() => handleToggleUserStatus(u.id, u.status)}
-                        >
-                          {u.status === 'ACTIVE' ? (lang === 'ar' ? 'تعطيل' : 'Deactivate') : (lang === 'ar' ? 'تفعيل' : 'Activate')}
-                        </button>
-                        {u.id !== user?.id && <button
-                          type="button"
-                          className="btn btn-secondary"
-                          style={{ padding: '4px 8px', fontSize: '0.8rem', marginInlineStart: '0.4rem' }}
-                          onClick={() => {
-                            setResetTarget(u);
-                            setResetError('');
-                          }}
-                        >
-                          {lang === 'ar' ? 'إعادة تعيين كلمة المرور' : 'Reset Password'}
-                        </button>}
-                        {u.id !== user?.id && u.status === 'ACTIVE' && <button
-                          type="button"
-                          className="btn btn-secondary"
-                          style={{ padding: '4px 8px', fontSize: '0.8rem', marginInlineStart: '0.4rem' }}
-                          onClick={() => { setRevokeTarget(u); setRevokeError(''); }}
-                        >
-                          {lang === 'ar' ? 'إنهاء الجلسات' : 'Sign out of all devices'}
-                        </button>}
-                        </>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                </table>
-              </div>
-            </div>
-            {resetTarget && <div className="modal-overlay" role="presentation">
-              <div className="modal-content-panel" role="dialog" aria-modal="true" aria-labelledby="staff-password-reset-title" style={{ width: 'min(520px, 100%)', padding: '1.5rem' }}>
-                <h3 id="staff-password-reset-title">{lang === 'ar' ? 'إعادة تعيين كلمة مرور الموظف' : 'Reset Staff Password'}</h3>
-                <p>{resetTarget.username} — {getRoleLabel(resetTarget.role)}</p>
-                {resetError && <div role="alert" className="badge badge-danger" style={{ width: '100%', marginBottom: '1rem', padding: '0.5rem' }}>{resetError}</div>}
-                <form onSubmit={handlePasswordReset} style={{ display: 'grid', gap: '1rem' }}>
-                  <div className="form-group">
-                    <PasswordField id="staff-reset-new-password" label={lang === 'ar' ? 'كلمة المرور الجديدة' : 'New Password'} autoComplete="new-password" required minLength={10} maxLength={STAFF_PASSWORD_MAX_LENGTH} value={resetNewPassword} onChange={(event) => setResetNewPassword(event.target.value)} helperText={t('passwordRequirementsSummary')} />
-                    <div className="password-requirements" aria-live="polite">
-                      {Object.entries({
-                        minimumLength: lang === 'ar' ? '10 أحرف على الأقل' : 'At least 10 characters',
-                        maximumLength: lang === 'ar' ? '200 حرف على الأكثر' : 'At most 200 characters',
-                        uppercase: lang === 'ar' ? 'حرف إنجليزي كبير' : 'One uppercase letter',
-                        lowercase: lang === 'ar' ? 'حرف إنجليزي صغير' : 'One lowercase letter',
-                        number: lang === 'ar' ? 'رقم واحد على الأقل' : 'One number'
-                      }).map(([key, label]) => <span key={key} className={resetPasswordChecks[key] ? 'valid' : ''}>{label}</span>)}
-                    </div>
-                  </div>
-                  <div className="form-group">
-                    <PasswordField id="staff-reset-confirm-password" label={lang === 'ar' ? 'تأكيد كلمة المرور الجديدة' : 'Confirm New Password'} autoComplete="new-password" required value={resetConfirmPassword} onChange={(event) => setResetConfirmPassword(event.target.value)} error={Boolean(resetConfirmPassword && resetNewPassword !== resetConfirmPassword)} helperText={resetConfirmPassword && resetNewPassword !== resetConfirmPassword ? t('passwordsDoNotMatch') : undefined} />
-                  </div>
-                  <div className="form-group">
-                    <PasswordField id="staff-reset-admin-password" label={lang === 'ar' ? 'كلمة مرور المدير الحالية' : 'Current Admin Password'} autoComplete="current-password" required value={resetAdminPassword} onChange={(event) => setResetAdminPassword(event.target.value)} />
-                  </div>
-                  {user?.mfaEnabled && <div className="form-group">
-                    <label className="form-label" htmlFor="staff-reset-mfa-code">{lang === 'ar' ? 'رمز المصادقة' : 'Authenticator Code'}</label>
-                    <input id="staff-reset-mfa-code" className="form-input" type="text" inputMode="numeric" autoComplete="one-time-code" required pattern="[0-9]{6}" value={resetMfaCode} onChange={(event) => setResetMfaCode(event.target.value.replace(/\D/g, '').slice(0, 6))} />
-                  </div>}
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem' }}>
-                    <button type="button" className="btn btn-secondary" disabled={resetPending} onClick={closePasswordReset}>{lang === 'ar' ? 'إلغاء' : 'Cancel'}</button>
-                    <button type="submit" className="btn btn-primary" disabled={resetPending}>{resetPending ? (lang === 'ar' ? 'جارٍ الحفظ…' : 'Saving…') : (lang === 'ar' ? 'إعادة التعيين' : 'Reset Password')}</button>
-                  </div>
-                </form>
-              </div>
-            </div>}
-            {revokeTarget && <div className="modal-overlay" role="presentation">
-              <div className="modal-content-panel" role="dialog" aria-modal="true" aria-labelledby="staff-session-revocation-title" style={{ width: 'min(520px, 100%)', padding: '1.5rem' }}>
-                <h3 id="staff-session-revocation-title">{lang === 'ar' ? 'إنهاء جلسات المستخدم' : 'Sign out user from all devices'}</h3>
-                <p>{revokeTarget.username} — {getRoleLabel(revokeTarget.role)}</p>
-                <p style={{ opacity: 0.8 }}>
-                  {lang === 'ar'
-                    ? 'سيتم إنهاء الجلسات النشطة فقط. لن يتم تعطيل الحساب أو تغيير كلمة المرور أو الدور.'
-                    : 'This ends active sessions only. It does not deactivate the account, reset the password, or change the role.'}
-                </p>
-                {revokeError && <div role="alert" className="badge badge-danger" style={{ width: '100%', marginBottom: '1rem', padding: '0.5rem' }}>{revokeError}</div>}
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem' }}>
-                  <button type="button" className="btn btn-secondary" disabled={revokePending} onClick={closeSessionRevocation}>{lang === 'ar' ? 'إلغاء' : 'Cancel'}</button>
-                  <button type="button" className="btn btn-danger" disabled={revokePending} onClick={handleSessionRevocation}>{revokePending ? (lang === 'ar' ? 'جارٍ الإنهاء…' : 'Signing out…') : (lang === 'ar' ? 'إنهاء جميع الجلسات' : 'Sign out all devices')}</button>
-                </div>
-              </div>
-            </div>}
-          </div>
-        )}
-
+        {activeTab === 'users' && <StaffAccountsPanel user={user} lang={lang} specialties={specialties}/>}
         {activeTab === 'pricing' && (
           <div className="glass-panel" style={{ padding: '1.5rem' }}>
             <h3>{lang === 'ar' ? 'إدارة الأسعار الرسمية للمنشأة' : 'Facility Pricing Management'}</h3>

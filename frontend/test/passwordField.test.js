@@ -88,7 +88,7 @@ test('password entry routes use the shared field and no app route renders a raw 
   const files = [
     ['../src/App.jsx', ['RequiredPasswordChange', 'staff-password']],
     ['../src/components/StaffSecurityDialog.jsx', ['mfa-current-password', 'mfa-enroll-password']],
-    ['../src/features/admin/AdminDashboard.jsx', ['staff-reset-new-password', 'staff-reset-admin-password']],
+    ['../src/features/admin/StaffAccountsPanel.jsx', ['staff-reset-new-password', 'staff-reset-admin-password']],
     ['../src/features/admin/ClinicSetupPanel.jsx', ["type: 'password'"]],
     ['../src/features/patient-auth/PatientAuthPages.jsx', ['PatientLogin', 'PatientForgotPassword', 'PatientRegister', 'offlineActivation', 'PasswordField']],
     ['../src/features/patient-dashboard/PatientPages.jsx', ['changePassword', 'enterPasswordToLink', 'enterPasswordToUnlink', 'currentPassword']],
@@ -99,4 +99,9 @@ test('password entry routes use the shared field and no app route renders a raw 
     for (const marker of markers) assert.ok(text.includes(marker), `${file} missing ${marker}`);
     assert.doesNotMatch(text, /<input\b[^>]*\btype\s*=\s*["']password["']/i);
   }
+});
+
+test('clearing a revealed password remasks the shared field',async()=>{
+ globalThis.passwordValues={Password:'VisibleValue123'};await mount();await act(async()=>document.querySelector('button[aria-label]').click());assert.equal(document.querySelector('input').type,'text');
+ await act(async()=>root.render(createElement(I18nextProvider,{i18n},createElement('form',null,[createElement(PasswordField,{key:'Password',label:'Password',value:'',onChange:()=>{}})]))));assert.equal(document.querySelector('input').value,'');assert.equal(document.querySelector('input').type,'password');
 });

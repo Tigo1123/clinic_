@@ -2890,7 +2890,7 @@ test('failed staff status requests do not rotate sessions or create success audi
   const invalid = await api.put(endpoint).set(auth('admin')).send({ status: 'DISABLED' });
   assert.equal(invalid.status, 422);
   assert.equal((await api.put(endpoint).set(auth('pharmacy')).send({ status: 'INACTIVE' })).status, 403);
-  assert.equal((await api.put('/api/auth/users/00000000-0000-4000-8000-000000000099/status').set(auth('admin')).send({ status: 'INACTIVE' })).status, 500);
+  assert.equal((await api.put('/api/auth/users/00000000-0000-4000-8000-000000000099/status').set(auth('admin')).send({ status: 'INACTIVE' })).status, 404);
   const unchanged = await prisma.user.findUnique({ where: { id: target.id } });
   assert.equal(unchanged.status, target.status);
   assert.equal(unchanged.authVersion, target.authVersion);
