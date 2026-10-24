@@ -451,7 +451,7 @@
 .patient-auth-forgot {
   display: block;
   width: fit-content;
-  margin: -2px 0 16px auto;
+  margin: 16px 0 20px auto;
   color: #0b6e9d;
   font-size: 0.8rem;
   font-weight: 700;
@@ -495,6 +495,10 @@
   justify-content: center;
   width: 100%;
   min-height: 44px;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  box-shadow: none;
 }
 
 .patient-google-button > div {
@@ -1026,7 +1030,7 @@
   }
 
   .patient-auth-forgot {
-    margin: -2px 0 10px auto;
+    margin: 16px 0 20px auto;
   }
 
   .patient-auth-divider {
@@ -1944,13 +1948,13 @@
   .patient-auth-shell--login .patient-auth-stage--login,
   .patient-auth-shell--staff .patient-auth-stage--login {
     width: 100%;
-    padding: 26px 16px 34px;
+    padding: 12px 16px 28px;
   }
 
   .patient-auth-shell--login .patient-auth,
   .patient-auth-shell--staff .patient-auth {
     max-width: 480px;
-    padding: 24px;
+    padding: 12px 8px;
     background: transparent;
     border: 0;
     border-radius: 0;
@@ -2058,3 +2062,12 @@
 .patient-auth-shell--flow .patient-auth a { color: var(--color-primary-strong); }
 .patient-auth-shell--login :is(a, button):focus-visible { outline-color: var(--color-primary-strong); }
 .patient-auth-shell--flow .patient-field__password-toggle { width: 44px; height: 44px; }
+
+/* External labels share the native field rhythm; only MUI's fieldset owns the border. */
+.shifa-password-field { width: 100%; min-width: 0; margin-bottom: 16px; }
+.shifa-password-label { display: block; margin-bottom: 5px; color: var(--text-secondary); font-size: 0.9rem; font-weight: 700; line-height: 1.45; }
+.patient-auth .patient-field input { font-size: 16px; line-height: 1.45; height: 50px; }
+.patient-auth .shifa-password-field + .patient-auth-forgot { margin-top: 16px; margin-bottom: 20px; }
+.patient-auth .shifa-password-field + .patient-button { margin-top: 8px; }
+
+.patient-auth .shifa-password-label { color: var(--text-primary); }

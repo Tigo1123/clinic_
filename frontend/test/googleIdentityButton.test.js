@@ -6,6 +6,7 @@ import { transformWithOxc } from 'vite';
 
 // No external resources are enabled: GIS is deliberately simulated.
 const dom = new JSDOM('<div id="root"></div>');
+globalThis.ResizeObserver = class { observe() {} disconnect() {} };
 Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true });
 Object.defineProperty(dom.window.HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 318 });
 const { createElement, act } = await import('react');

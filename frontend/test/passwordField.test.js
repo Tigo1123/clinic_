@@ -75,6 +75,10 @@ for (const [language, mode] of [['ar', 'light'], ['ar', 'dark'], ['en', 'light']
     await mount({ language, mode });
     const input = document.querySelector('input');
     assert.ok(input);
+    const label = document.querySelector(`label[for="${input.id}"]`);
+    assert.equal(label?.textContent, 'Password');
+    assert.equal(document.querySelector('.MuiInputLabel-root'), null);
+    assert.equal(document.querySelector('button').type, 'button');
     assert.equal(document.querySelector('.MuiFormControl-root') != null, true);
     assert.equal(document.querySelector('.MuiInputBase-root') != null, true);
   });
