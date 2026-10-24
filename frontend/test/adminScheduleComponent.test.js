@@ -10,6 +10,7 @@ const { createElement, act } = await import('react');
 const { createRoot } = await import('react-dom/client');
 let source = await readFile(new URL('../src/features/admin/AdminSchedulePanel.jsx', import.meta.url), 'utf8');
 source = source.replace(/import \{ apiErrorMessage, fetchWithAuth \}[^;]+;/, 'const fetchWithAuth = (...args) => globalThis.scheduleFetch(...args); const apiErrorMessage = (d, fallback) => d?.error?.message || fallback;').replace(/import '\.\/adminSchedule.css';/, '').replace("'./scheduleVersion'", JSON.stringify(new URL('../src/features/admin/scheduleVersion.js', import.meta.url).href)).replace("'./latestRequest'", JSON.stringify(new URL('../src/features/admin/latestRequest.js', import.meta.url).href));
+source = source.replace("'./scheduleTime.js'", JSON.stringify(new URL('../src/features/admin/scheduleTime.js', import.meta.url).href));
 source = await pagingReplacements(source, 'scheduleFetch', 'schedulePaging');
 const compiled = await transformWithOxc(source, 'AdminSchedulePanel.jsx', { jsx: { runtime: 'automatic' } });
 const modulePath = new URL(`.schedule-component-${process.pid}.mjs`, import.meta.url);
@@ -21,7 +22,7 @@ const reply = (data, ok = true) => ({ ok, headers: { get: () => 'false' }, json:
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 const period = (dayOfWeek = 'MONDAY') => ({ dayOfWeek, startTime: '09:00', endTime: '17:00', slotDurationMinutes: 30, active: true, breaks: [] });
 const version = (id, periods = [period()]) => ({ id, active: true, effectiveFrom: '2190-01-01', effectiveTo: '2191-01-01', periods });
-async function mount(fn = () => reply([]), t, config = () => reply({ clinicTimeZone: 'Africa/Khartoum' })) {
+async function mount(fn = () => reply([]), t, config = () => reply({ clinicTimeZone: 'Africa/Khartoum' }), lang = 'en') {
  requests = []; handler = fn;
  globalThis.scheduleFetch = async (url, options) => {
   requests.push({ url, options });
@@ -30,7 +31,7 @@ async function mount(fn = () => reply([]), t, config = () => reply({ clinicTimeZ
   return handler(url, options);
  };
  root = createRoot(document.getElementById('root'));
- await act(async () => root.render(createElement(Panel, { t })));
+ await act(async () => root.render(createElement(Panel, { t, lang })));
 }
 afterEach(async () => { if (root) await act(async () => root.unmount()); root = null; });
 const click = async text => { const button = [...document.querySelectorAll('button')].find(b => b.textContent.includes(text)); assert.ok(button, text); await act(async () => button.click()); };
@@ -219,4 +220,43 @@ test('configuration failure blocks editing until a retry obtains the clinic time
   await click('Retry loading schedule');
   assert.equal(attempts, 2);
   assert.ok([...document.querySelectorAll('form > fieldset')].every(field => !field.disabled));
+});
+
+for (const lang of ['en','ar']) {
+ test(`${lang}: invalid time ordering and duration show localized errors before a request`,async()=>{
+  await mount(url=>reply(url.endsWith('/schedules')?[version('future')]:[]),undefined,undefined,lang);
+  const inputs=document.querySelectorAll('.admin-period-grid input[type=time]');
+  await change(inputs[0],'22:00');await change(inputs[1],'08:00');await submit();
+  assert.match(document.querySelector('[role=alert]').textContent,lang==='ar'?/بعد منتصف الليل غير مدعومة حالياً/:/Overnight schedules are not supported/);
+  assert.equal(requests.some(r=>r.options),false);
+  await change(inputs[0],'09:00');await change(inputs[1],'09:00');await submit();
+  assert.match(document.querySelector('[role=alert]').textContent,lang==='ar'?/وقت النهاية بعد وقت البداية في نفس اليوم/:/end time must be after the start time/);
+  await change(inputs[1],'09:15');await submit();
+  assert.match(document.querySelector('[role=alert]').textContent,lang==='ar'?/ألا تتجاوز مدة فترة العمل/:/no longer than the working period/);
+  await change(inputs[1],'17:00');
+  assert.match(document.querySelector('.admin-period-time-summary').textContent,lang==='ar'?/09:00 ص → 05:00 م/:/09:00 AM → 05:00 PM/);
+ });
+ test(`${lang}: backend time errors are localized and preserve the form`,async()=>{
+  await mount((url,options)=>options?reply({error:{code:'SCHEDULE_OVERNIGHT_UNSUPPORTED',message:'English server message'}},false):reply(url.endsWith('/schedules')?[version('future')]:[]),undefined,undefined,lang);
+  await submit();
+  assert.match(document.querySelector('[role=alert]').textContent,lang==='ar'?/بعد منتصف الليل غير مدعومة حالياً/:/Overnight schedules are not supported/);
+  assert.equal(document.querySelector('.admin-period input[type=time]').value,'09:00');
+ });
+}
+
+for(const [startTime,endTime] of [['09:00','17:00'],['08:00','14:00'],['14:00','20:00']]) {
+ test(`${startTime}–${endTime} submits canonical wall times without changing the effective date`,async()=>{
+  await mount((url,options)=>options?reply({}):reply(url.endsWith('/schedules')?[version('future')]:[]));
+  const inputs=document.querySelectorAll('.admin-period-grid input[type=time]');
+  await change(inputs[0],startTime);await change(inputs[1],endTime);await submit();
+  const body=JSON.parse(requests.find(r=>r.options).options.body);
+  assert.equal(body.periods[0].startTime,startTime);assert.equal(body.periods[0].endTime,endTime);
+  assert.equal(body.effectiveFrom,'2190-01-01');
+ });
+}
+test('partial native time input gets a localized error instead of submitting a blank value',async()=>{
+ await mount(url=>reply(url.endsWith('/schedules')?[version('future')]:[]),undefined,undefined,'ar');
+ await change(document.querySelector('.admin-period input[type=time]'),'');await submit();
+ assert.match(document.querySelector('[role=alert]').textContent,/أدخل وقتَي بداية ونهاية صالحين/);
+ assert.equal(requests.some(r=>r.options),false);
 });

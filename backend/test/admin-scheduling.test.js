@@ -371,3 +371,21 @@ test('exception changes preserve derivable 30-minute booking coverage', async ()
   await prisma.appointment.delete({ where: { id: appointment.id } });
   await prisma.patient.delete({ where: { id: patient.id } });
 });
+
+test('schedule API accepts same-day AM/PM equivalents and rejects overnight with precise codes', async () => {
+  const timeDoctor = await prisma.doctor.create({ data: { fullNameAr: 'اختبار الوقت', fullNameEn: 'Time validation', specialtyAr: 'عام', specialtyEn: 'General', consultationFee: 10, weeklySchedule: '[]', user: { create: { username: `time-${crypto.randomUUID()}`, passwordHash: 'unused', role: 'DOCTOR' } } } });
+  for (const [index, startTime, endTime] of [[1,'09:00','17:00'],[2,'08:00','14:00'],[3,'14:00','20:00']]) {
+    const date = `2290-01-0${index}`;
+    const response = await request(app).post(`/api/admin/doctors/${timeDoctor.id}/schedules`).set('Authorization', `Bearer ${adminToken}`).send({ effectiveFrom: date, effectiveTo: date, periods: [{ dayOfWeek: 'MONDAY', startTime, endTime, slotDurationMinutes: 30 }] });
+    assert.equal(response.status,200,JSON.stringify(response.body));
+    assert.equal(response.body.periods[0].startTime,startTime);
+    assert.equal(response.body.periods[0].endTime,endTime);
+  }
+  for(const [startTime,endTime,slotDurationMinutes,code] of [['09:00','09:00',30,'SCHEDULE_TIME_ORDER'],['17:00','09:00',30,'SCHEDULE_OVERNIGHT_UNSUPPORTED'],['22:00','08:00',30,'SCHEDULE_OVERNIGHT_UNSUPPORTED'],['09:00','10:00',61,'SCHEDULE_INVALID_DURATION']]) {
+    const periods=[{dayOfWeek:'MONDAY',startTime,endTime,slotDurationMinutes}];
+    const response=await request(app).post(`/api/admin/doctors/${timeDoctor.id}/schedules`).set('Authorization',`Bearer ${adminToken}`).send({effectiveFrom:'2291-01-01',periods});
+    assert.equal(response.status,422);assert.equal(response.body.error.code,code);
+    const special=await request(app).put(`/api/admin/doctors/${timeDoctor.id}/schedule-exceptions/2291-01-01`).set('Authorization',`Bearer ${adminToken}`).send({type:'SPECIAL_HOURS',periods:periods.map(({dayOfWeek: _day,...p})=>p)});
+    assert.equal(special.status,422);assert.equal(special.body.error.code,code);
+  }
+});
