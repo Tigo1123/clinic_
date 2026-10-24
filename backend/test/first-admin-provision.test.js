@@ -3,9 +3,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { FirstAdminError, preflightFirstAdmin, readPassword, targetConfiguration, verifyNeonTargetConfiguration } from '../scripts/provision-first-admin.js';
+import { FirstAdminError, preflightFirstAdmin, provisionFirstAdmin, readPassword, targetConfiguration, verifyNeonTargetConfiguration } from '../scripts/provision-first-admin.js';
 import { repositoryInventory } from '../scripts/audit-clinic-readiness.js';
 
 const backend = fileURLToPath(new URL('../', import.meta.url));
@@ -33,8 +34,23 @@ function neonEnv(overrides = {}) {
   };
 }
 
-function fakeClient({ admins = 0, usernameExists = false, migrationMismatch = false, identityOverrides = {} } = {}) {
+const stagingHost = 'ep-muddy-unit-b4hvj7be.c-6.us-east-2.aws.neon.tech';
+function stagingEnv(overrides = {}) {
+  return neonEnv({
+    FIRST_ADMIN_TARGET_MODE: 'neon-staging',
+    FIRST_ADMIN_EXPECTED_NEON_HOST: stagingHost,
+    CONFIRM_FIRST_ADMIN_TARGET: `NEON_STAGING:${stagingHost}/neondb/public`,
+    DATABASE_URL: `postgresql://shifa_runtime:synthetic-secret@${stagingHost}/neondb?schema=public&sslmode=verify-full`,
+    ...overrides,
+  });
+}
+
+function fakeClient({ admins = 0, usernameExists = false, migrationMismatch = false, identityOverrides = {}, adminCounts } = {}) {
   let created = 0;
+  const auditRows = [];
+  const adminRows = [];
+  const transactions = [];
+  let adminChecks = 0;
   const inventoryPromise = repositoryInventory();
   const identity = {
     database: 'neondb', schema: 'public', session_user: 'shifa_runtime', current_user: 'shifa_runtime', recovery: false, superuser: false,
@@ -53,14 +69,14 @@ function fakeClient({ admins = 0, usernameExists = false, migrationMismatch = fa
       throw new Error('unexpected test query');
     },
     user: {
-      count: async () => admins,
+      count: async () => adminCounts ? adminCounts[Math.min(adminChecks++, adminCounts.length - 1)] : admins,
       findFirst: async () => usernameExists ? { id: 'existing' } : null,
-      create: async () => { created += 1; return { id: 'new', username: 'named.admin@example.org', role: 'ADMIN', status: 'ACTIVE' }; },
+      create: async options => { created += 1; adminRows.push(options); return { id: 'new', username: 'named.admin@example.org', role: 'ADMIN', status: 'ACTIVE' }; },
     },
-    tenantAuditLog: { create: async () => ({}) },
+    tenantAuditLog: { create: async options => { auditRows.push(options); return {}; } },
   };
-  const client = { ...tx, $transaction: async callback => callback(tx), $disconnect: async () => {} };
-  return { client, created: () => created };
+  const client = { ...tx, $transaction: async (callback, options) => { transactions.push(options); return callback(tx); }, $disconnect: async () => {} };
+  return { client, created: () => created, auditRows, adminRows, transactions };
 }
 
 test('first-admin password file accepts one valid 0600 line and rejects unsafe or weak inputs', () => {
@@ -163,4 +179,140 @@ test('CLI error output never contains the connection URL password or username se
   assert.notEqual(result.status, 0);
   assert.doesNotMatch(`${result.stdout}${result.stderr}`, new RegExp(sentinel));
   assert.doesNotMatch(`${result.stdout}${result.stderr}`, /postgresql:\/\//i);
+});
+
+test('production stays pinned to its original target and ignores configured fingerprint overrides', () => {
+  const production = neonEnv();
+  const fingerprint = host => createHash('sha256').update(`${host}//neondb/public`).digest('hex').slice(0, 16);
+  assert.equal(fingerprint(production.FIRST_ADMIN_EXPECTED_NEON_HOST), 'c9f8bb593c61b80e');
+  assert.equal(fingerprint(stagingHost), '36b1790f3b5c2037');
+  assert.equal(targetConfiguration(production).mode, 'neon-production');
+  assert.throws(() => targetConfiguration(neonEnv({
+    FIRST_ADMIN_EXPECTED_NEON_HOST: stagingHost,
+    DATABASE_URL: stagingEnv().DATABASE_URL,
+    CONFIRM_FIRST_ADMIN_TARGET: `NEON_PRODUCTION:${stagingHost}/neondb/public`,
+    FIRST_ADMIN_EXPECTED_FINGERPRINT: fingerprint(stagingHost),
+  })), /not the reviewed production target/);
+  assert.throws(() => targetConfiguration(stagingEnv({
+    FIRST_ADMIN_EXPECTED_NEON_HOST: production.FIRST_ADMIN_EXPECTED_NEON_HOST,
+    DATABASE_URL: production.DATABASE_URL,
+    CONFIRM_FIRST_ADMIN_TARGET: production.CONFIRM_FIRST_ADMIN_TARGET.replace('NEON_PRODUCTION:', 'NEON_STAGING:'),
+    FIRST_ADMIN_EXPECTED_FINGERPRINT: fingerprint(production.FIRST_ADMIN_EXPECTED_NEON_HOST),
+  })), /not the reviewed staging target/);
+});
+
+test('staging and production confirmations cannot be interchanged', () => {
+  assert.throws(() => targetConfiguration(stagingEnv({ CONFIRM_FIRST_ADMIN_TARGET: `NEON_PRODUCTION:${stagingHost}/neondb/public` })), /staging.*confirmation is required/);
+  assert.throws(() => targetConfiguration(neonEnv({ CONFIRM_FIRST_ADMIN_TARGET: neonEnv().CONFIRM_FIRST_ADMIN_TARGET.replace('NEON_PRODUCTION:', 'NEON_STAGING:') })), /confirmation is required/);
+});
+
+const stagingUrl = (suffix, host = stagingHost) => `postgresql://shifa_runtime:synthetic-secret@${host}${suffix}`;
+for (const [name, overrides, error] of [
+  ['non-production runtime', { NODE_ENV: 'staging' }, /NODE_ENV=production/],
+  ['LAN settings', { LAN_DATABASE_NAME: 'neondb' }, /LAN target settings/],
+  ['missing expected database', { FIRST_ADMIN_EXPECTED_DATABASE: undefined }, /EXPECTED_DATABASE/],
+  ['wrong expected database', { FIRST_ADMIN_EXPECTED_DATABASE: 'clinic' }, /EXPECTED_DATABASE/],
+  ['wrong expected schema', { FIRST_ADMIN_EXPECTED_SCHEMA: 'staging' }, /EXPECTED_SCHEMA/],
+  ['missing expected schema', { FIRST_ADMIN_EXPECTED_SCHEMA: undefined }, /EXPECTED_SCHEMA/],
+  ['missing host', { FIRST_ADMIN_EXPECTED_NEON_HOST: undefined }, /exact direct Neon staging/],
+  ['non-Neon host', { FIRST_ADMIN_EXPECTED_NEON_HOST: 'staging.example.test' }, /exact direct Neon staging/],
+  ['pooler expected host', { FIRST_ADMIN_EXPECTED_NEON_HOST: stagingHost.replace('.c-6', '-pooler.c-6') }, /exact direct Neon staging/],
+  ['pooler anywhere in hostname', { FIRST_ADMIN_EXPECTED_NEON_HOST: stagingHost.replace('ep-muddy', 'ep-pooler-muddy') }, /exact direct Neon staging/],
+  ['unreviewed expected host', { FIRST_ADMIN_EXPECTED_NEON_HOST: 'ep-other.c-6.us-east-2.aws.neon.tech', CONFIRM_FIRST_ADMIN_TARGET: 'NEON_STAGING:ep-other.c-6.us-east-2.aws.neon.tech/neondb/public' }, /not the reviewed staging target/],
+  ['wrong URL host', { DATABASE_URL: stagingUrl('/neondb?sslmode=verify-full', 'ep-other.c-6.us-east-2.aws.neon.tech') }, /host does not match/],
+  ['pooler URL host', { DATABASE_URL: stagingUrl('/neondb?sslmode=verify-full', stagingHost.replace('.c-6', '-pooler.c-6')) }, /host does not match/],
+  ['wrong URL database', { DATABASE_URL: stagingUrl('/clinic?schema=public&sslmode=verify-full') }, /expected Neon staging database/],
+  ['wrong URL schema', { DATABASE_URL: stagingUrl('/neondb?schema=other&sslmode=verify-full') }, /expected Neon staging schema/],
+  ['missing TLS verification', { DATABASE_URL: stagingUrl('/neondb?schema=public') }, /sslmode=verify-full/],
+  ['weaker TLS', { DATABASE_URL: stagingUrl('/neondb?schema=public&sslmode=require') }, /sslmode=verify-full/],
+  ['repeated TLS', { DATABASE_URL: stagingUrl('/neondb?sslmode=verify-full&sslmode=disable') }, /must not repeat/],
+  ['repeated schema', { DATABASE_URL: stagingUrl('/neondb?schema=public&schema=other&sslmode=verify-full') }, /must not repeat/],
+  ['read-only URL', { DATABASE_URL: stagingUrl('/neondb?sslmode=verify-full&options=-c%20default_transaction_read_only%3Don') }, /must allow.*write/],
+  ['unauthenticated URL', { DATABASE_URL: `postgresql://${stagingHost}/neondb?sslmode=verify-full` }, /authenticated PostgreSQL/],
+  ['missing username', { FIRST_ADMIN_USERNAME: undefined }, /FIRST_ADMIN_USERNAME/],
+  ['blank username', { FIRST_ADMIN_USERNAME: ' ' }, /FIRST_ADMIN_USERNAME/],
+  ['missing confirmation', { CONFIRM_FIRST_ADMIN_TARGET: undefined }, /confirmation is required/],
+  ['missing runtime role', { RUNTIME_LOGIN_ROLE: undefined }, /RUNTIME_LOGIN_ROLE/],
+]) {
+  test(`Neon staging refuses ${name}`, () => assert.throws(() => targetConfiguration(stagingEnv(overrides)), error));
+}
+
+test('reviewed staging preflight verifies identity, migrations, protected password and no ADMIN without writing', async () => {
+  const password = fixture();
+  const fake = fakeClient();
+  let hashed = 0;
+  try {
+    const result = await preflightFirstAdmin({ env: stagingEnv({ FIRST_ADMIN_PASSWORD_FILE: password.file }), client: fake.client, hashPassword: async () => { hashed++; return 'discarded'; } });
+    assert.deepEqual(result, { mode: 'neon-staging', database: 'neondb', schema: 'public', migrationCount: (await repositoryInventory()).migrations.length });
+    assert.equal(hashed, 1);
+    assert.equal(fake.created(), 0);
+    assert.deepEqual(fake.auditRows, []);
+    assert.deepEqual(fake.transactions, [{ isolationLevel: 'Serializable' }]);
+  } finally { fs.rmSync(password.dir, { recursive: true, force: true }); }
+});
+
+test('staging preflight refuses missing or non-0600 password files before any database query', async () => {
+  const bad = fixture('ValidPass1\n', 0o640);
+  const client = { $queryRaw: async () => assert.fail('must reject password before querying') };
+  try {
+    for (const passwordFile of [undefined, path.join(bad.dir, 'missing'), bad.file]) {
+      await assert.rejects(preflightFirstAdmin({ env: stagingEnv({ FIRST_ADMIN_PASSWORD_FILE: passwordFile }), client }), /PASSWORD_FILE is required|protected first-administrator password file/);
+    }
+  } finally { fs.rmSync(bad.dir, { recursive: true, force: true }); }
+});
+
+for (const [name, options, error] of [
+  ['existing ADMIN', { admins: 1 }, /ADMIN account already exists/],
+  ['duplicate username', { usernameExists: true }, /username already exists/],
+  ['migration drift', { migrationMismatch: true }, /migration state/],
+  ['wrong database identity', { identityOverrides: { database: 'other' } }, /database or schema/],
+  ['wrong schema identity', { identityOverrides: { schema: 'other' } }, /database or schema/],
+  ['wrong login', { identityOverrides: { session_user: 'owner' } }, /login\/effective role/],
+  ['wrong effective role', { identityOverrides: { current_user: 'owner' } }, /login\/effective role/],
+  ['superuser', { identityOverrides: { superuser: true } }, /must not be a superuser/],
+  ['read-only connection', { identityOverrides: { transaction_read_only: true } }, /narrowly scoped/],
+  ['missing audit privilege', { identityOverrides: { can_insert_audit: false } }, /narrowly scoped/],
+]) {
+  test(`staging preflight refuses ${name} without creating an account`, async () => {
+    const password = fixture();
+    const fake = fakeClient(options);
+    try {
+      await assert.rejects(preflightFirstAdmin({ env: stagingEnv(), passwordFile: password.file, client: fake.client, hashPassword: async () => 'discarded' }), error);
+      assert.equal(fake.created(), 0);
+      assert.deepEqual(fake.auditRows, []);
+    } finally { fs.rmSync(password.dir, { recursive: true, force: true }); }
+  });
+}
+
+test('staging execute creates exactly one ADMIN and its audit record using only an injected fake client', async () => {
+  const password = fixture();
+  const fake = fakeClient();
+  try {
+    await provisionFirstAdmin({ env: stagingEnv(), passwordFile: password.file, client: fake.client, hashPassword: async () => 'synthetic-hash' });
+    assert.equal(fake.created(), 1);
+    assert.equal(fake.adminRows[0].data.role, 'ADMIN');
+    assert.equal(fake.adminRows[0].data.passwordHash, 'synthetic-hash');
+    assert.equal(fake.auditRows.length, 1);
+    assert.equal(fake.auditRows[0].data.action, 'FIRST_ADMIN_PROVISIONED');
+    assert.equal(fake.auditRows[0].data.userId, 'new');
+    assert.deepEqual(fake.transactions, [{ isolationLevel: 'Serializable' }, { isolationLevel: 'Serializable' }]);
+  } finally { fs.rmSync(password.dir, { recursive: true, force: true }); }
+});
+
+test('staging execute rechecks ADMIN state after preflight', async () => {
+  const password = fixture();
+  const fake = fakeClient({ adminCounts: [0, 1] });
+  try {
+    await assert.rejects(provisionFirstAdmin({ env: stagingEnv(), passwordFile: password.file, client: fake.client, hashPassword: async () => 'synthetic-hash' }), /ADMIN account already exists/);
+    assert.equal(fake.created(), 0);
+    assert.deepEqual(fake.auditRows, []);
+  } finally { fs.rmSync(password.dir, { recursive: true, force: true }); }
+});
+
+test('staging CLI refusal does not expose the URL, database password or administrator identity', () => {
+  const env = stagingEnv({ CONFIRM_FIRST_ADMIN_TARGET: 'wrong', FIRST_ADMIN_USERNAME: 'private-admin@example.test' });
+  const result = spawnSync(process.execPath, ['scripts/provision-first-admin.js', '--preflight'], { cwd: backend, encoding: 'utf8', env: { ...process.env, ...env } });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /confirmation is required/);
+  assert.doesNotMatch(`${result.stdout}${result.stderr}`, /synthetic-secret|private-admin|postgresql:\/\//);
 });

@@ -16,6 +16,11 @@ const EXPECTED_NEON_DATABASE = 'neondb';
 const EXPECTED_NEON_SCHEMA = 'public';
 const EXPECTED_NEON_TARGET_FINGERPRINT = 'c9f8bb593c61b80e';
 const NEON_CONFIRMATION_PREFIX = 'NEON_PRODUCTION';
+// Reviewed staging direct host supplied by the operator, 2026-10-24.
+// SHA-256("ep-muddy-unit-b4hvj7be.c-6.us-east-2.aws.neon.tech//neondb/public").slice(0, 16).
+// Never accept an environment override or reuse the production fingerprint.
+const EXPECTED_NEON_STAGING_TARGET_FINGERPRINT = '36b1790f3b5c2037';
+const NEON_STAGING_CONFIRMATION_PREFIX = 'NEON_STAGING';
 const REPOSITORY_ROOT = fs.realpathSync(fileURLToPath(new URL('../../', import.meta.url)));
 
 function refuse(message) { throw new FirstAdminError(message); }
@@ -85,6 +90,38 @@ export function verifyNeonTargetConfiguration(env = process.env) {
   return { host: expectedHost, database: EXPECTED_NEON_DATABASE, schema: EXPECTED_NEON_SCHEMA, runtimeRole };
 }
 
+export function verifyNeonStagingTargetConfiguration(env = process.env) {
+  if (env.FIRST_ADMIN_TARGET_MODE !== 'neon-staging') refuse('FIRST_ADMIN_TARGET_MODE must explicitly be neon-staging.');
+  if (env.NODE_ENV !== 'production') refuse('Neon staging first-administrator provisioning requires NODE_ENV=production.');
+  if (env.LAN_DATABASE_NAME) refuse('LAN target settings are not accepted in Neon staging mode.');
+  if (env.FIRST_ADMIN_EXPECTED_DATABASE !== EXPECTED_NEON_DATABASE) refuse('FIRST_ADMIN_EXPECTED_DATABASE must be neondb.');
+  if (env.FIRST_ADMIN_EXPECTED_SCHEMA !== EXPECTED_NEON_SCHEMA) refuse('FIRST_ADMIN_EXPECTED_SCHEMA must be public.');
+  const expectedHost = String(env.FIRST_ADMIN_EXPECTED_NEON_HOST || '');
+  if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+neon\.tech$/.test(expectedHost) || expectedHost.includes('-pooler')) {
+    refuse('FIRST_ADMIN_EXPECTED_NEON_HOST must be the exact direct Neon staging hostname.');
+  }
+  const fingerprint = createHash('sha256').update(`${expectedHost}//${EXPECTED_NEON_DATABASE}/${EXPECTED_NEON_SCHEMA}`).digest('hex').slice(0, 16);
+  // Explicitly forbid production even if a future staging pin is misconfigured.
+  if (fingerprint === EXPECTED_NEON_TARGET_FINGERPRINT || fingerprint !== EXPECTED_NEON_STAGING_TARGET_FINGERPRINT) {
+    refuse('The configured Neon host is not the reviewed staging target.');
+  }
+  const runtimeRole = env.RUNTIME_LOGIN_ROLE;
+  if (!runtimeRole || !/^[A-Za-z_][A-Za-z0-9_$-]{0,62}$/.test(runtimeRole)) refuse('RUNTIME_LOGIN_ROLE must name the reviewed runtime login.');
+  const url = parseDatabaseUrl(env.DATABASE_URL);
+  if (url.hostname !== expectedHost) refuse('DATABASE_URL host does not match the confirmed Neon staging host.');
+  if (url.pathname !== `/${EXPECTED_NEON_DATABASE}`) refuse('DATABASE_URL does not target the expected Neon staging database.');
+  if ((url.searchParams.get('schema') || 'public') !== EXPECTED_NEON_SCHEMA) refuse('DATABASE_URL does not target the expected Neon staging schema.');
+  if (url.searchParams.get('sslmode') !== 'verify-full') refuse('Neon staging DATABASE_URL must use sslmode=verify-full.');
+  // Ambiguous repeated connection settings must not select a different schema/TLS policy.
+  if (['schema', 'sslmode', 'options'].some(key => url.searchParams.getAll(key).length > 1)) refuse('Neon staging DATABASE_URL must not repeat schema, sslmode, or options.');
+  if (/default_transaction_read_only\s*=\s*on/i.test(url.searchParams.get('options') || '')) refuse('Neon staging DATABASE_URL must allow the explicitly approved one-time transaction to write.');
+  if (env.CONFIRM_FIRST_ADMIN_TARGET !== `${NEON_STAGING_CONFIRMATION_PREFIX}:${expectedHost}/${EXPECTED_NEON_DATABASE}/${EXPECTED_NEON_SCHEMA}`) {
+    refuse('Explicit Neon staging first-administrator target confirmation is required.');
+  }
+  if (env.FIRST_ADMIN_USERNAME === undefined || !String(env.FIRST_ADMIN_USERNAME).trim()) refuse('FIRST_ADMIN_USERNAME must be explicitly supplied.');
+  return { host: expectedHost, database: EXPECTED_NEON_DATABASE, schema: EXPECTED_NEON_SCHEMA, runtimeRole };
+}
+
 export function verifyLanTargetConfiguration(env = process.env) {
   const expectedDatabase = env.LAN_DATABASE_NAME;
   if (!expectedDatabase || env.CONFIRM_FIRST_ADMIN_DATABASE !== expectedDatabase) refuse('Explicit first-administrator database confirmation is required.');
@@ -98,12 +135,13 @@ export function verifyLanTargetConfiguration(env = process.env) {
 }
 
 export function targetConfiguration(env = process.env) {
-  if (env.NODE_ENV === 'production' && env.FIRST_ADMIN_TARGET_MODE !== 'neon-production') {
+  if (env.NODE_ENV === 'production' && !['neon-production', 'neon-staging'].includes(env.FIRST_ADMIN_TARGET_MODE)) {
     refuse('Production first-administrator provisioning requires the pinned Neon production target mode.');
   }
   if (env.FIRST_ADMIN_TARGET_MODE === 'neon-production') return { mode: 'neon-production', ...verifyNeonTargetConfiguration(env) };
+  if (env.FIRST_ADMIN_TARGET_MODE === 'neon-staging') return { mode: 'neon-staging', ...verifyNeonStagingTargetConfiguration(env) };
   if (env.FIRST_ADMIN_TARGET_MODE === 'lan') return { mode: 'lan', ...verifyLanTargetConfiguration(env) };
-  refuse('FIRST_ADMIN_TARGET_MODE must be explicitly neon-production or lan.');
+  refuse('FIRST_ADMIN_TARGET_MODE must be explicitly neon-production, neon-staging or lan.');
 }
 
 async function verifyDatabaseIdentity(client, target) {
