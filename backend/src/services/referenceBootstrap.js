@@ -81,7 +81,7 @@ function serviceIdentity(service) {
 }
 
 function stateMatches(actual, expected) {
-  return actual.labelAr === expected.labelAr && actual.labelEn === expected.labelEn;
+  return canonicalLabel(actual.labelAr) === canonicalLabel(expected.labelAr) && canonicalLabel(actual.labelEn) === canonicalLabel(expected.labelEn);
 }
 
 function classifyStates(existingStates) {
@@ -90,10 +90,12 @@ function classifyStates(existingStates) {
   const missing = [];
   const conflicting = [];
   for (const expected of REFERENCE_BOOTSTRAP_STATES) {
+    const atId = existingStates.filter(state => state.id === expected.id);
+    if (atId.length > 1) { conflicting.push(...atId.map(actual => ({ expected, actual }))); continue; }
     const actual = byId.get(expected.id);
     const identityAtAnotherId = existingStates.find((state) => (
       state.id !== expected.id
-      && (state.labelAr === expected.labelAr || state.labelEn === expected.labelEn)
+      && (canonicalLabel(state.labelAr) === canonicalLabel(expected.labelAr) || canonicalLabel(state.labelEn) === canonicalLabel(expected.labelEn))
     ));
     if (identityAtAnotherId) conflicting.push({ expected, actual: identityAtAnotherId });
     else if (!actual) missing.push(expected);

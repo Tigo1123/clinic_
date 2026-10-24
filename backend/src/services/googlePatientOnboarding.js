@@ -1,3 +1,4 @@
+import { resolveAddressStateId } from './patientAddress.js';
 import bcrypt from 'bcryptjs';
 import prisma from '../db.js';
 import { ROLES } from '../middleware/policies.js';
@@ -67,9 +68,7 @@ export async function completeGooglePatientOnboarding({ onboardingToken, fields,
       throw new ApiError(409, 'PHONE_ALREADY_REGISTERED', 'An account already exists for this phone number.');
     }
 
-    const addressStateId = fields.addressStateId ?? Number(process.env.DEFAULT_STATE_ID || 1);
-    const state = await tx.state.findUnique({ where: { id: addressStateId }, select: { id: true } });
-    if (!state) throw new ApiError(422, 'INVALID_ADDRESS_STATE', 'The selected address state is unavailable.');
+    const addressStateId = await resolveAddressStateId(tx, fields.addressStateId);
 
     const user = await tx.user.create({
       data: {
@@ -85,7 +84,7 @@ export async function completeGooglePatientOnboarding({ onboardingToken, fields,
     });
     const name = structuredPatientName(fields);
     await tx.patientRegistration.create({
-      data: { userId: user.id, ...name, gender: fields.gender, dateOfBirth: fields.dateOfBirth, addressStateId: state.id }
+      data: { userId: user.id, ...name, gender: fields.gender, dateOfBirth: fields.dateOfBirth, addressStateId }
     });
     await tx.userExternalIdentity.create({
       data: { userId: user.id, provider: GOOGLE_PROVIDER, providerSubject: pending.providerSubject, normalizedEmailAtLink: email }
@@ -99,7 +98,7 @@ export async function completeGooglePatientOnboarding({ onboardingToken, fields,
 
     return {
       ...finalized,
-      identity: finalized.patient || patientIdentitySummary({ ...name, gender: fields.gender, dateOfBirth: fields.dateOfBirth, phone: phoneNormalized, addressStateId: state.id }),
+      identity: finalized.patient || patientIdentitySummary({ ...name, gender: fields.gender, dateOfBirth: fields.dateOfBirth, phone: phoneNormalized, addressStateId }),
       user: finalized.user
     };
   }, { maxWait: 10000, timeout: 15000 }).then((result) => {

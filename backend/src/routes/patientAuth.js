@@ -1,3 +1,4 @@
+import { registrationAddressStates, registrationAddressStateSchema, resolveAddressStateId } from '../services/patientAddress.js';
 import crypto from 'crypto';
 import express from 'express';
 import { asyncRouter } from '../utils/asyncRouter.js';
@@ -33,14 +34,14 @@ const verificationResendCooldownMs = 60 * 1000;
 const patientRegistrationFieldsSchema = structuredPatientNameSchema.extend({
   phone: z.string().trim().min(7).max(30),
   email: z.string().trim().email().max(254), dateOfBirth: patientDateOfBirthSchema,
-  gender: z.enum(['MALE', 'FEMALE']), password: passwordSchema, addressStateId: z.coerce.number().int().min(1).max(18).optional()
+  gender: z.enum(['MALE', 'FEMALE']), password: passwordSchema, addressStateId: registrationAddressStateSchema.optional()
 });
 const googlePatientCompletionSchema = structuredPatientNameSchema.extend({
   onboardingToken: z.string().trim().min(1).max(200),
   phone: z.string().trim().min(7).max(30),
   dateOfBirth: patientDateOfBirthSchema,
   gender: z.enum(['MALE', 'FEMALE']), password: passwordSchema,
-  addressStateId: z.coerce.number().int().min(1).max(18).optional()
+  addressStateId: registrationAddressStateSchema.optional()
 }).strict();
 
 async function audit(userId, action, details, req, db = prisma) {
@@ -55,11 +56,6 @@ async function matchingPatients(phoneNormalized, dateOfBirth, db = prisma) {
 const offlineVerificationDisabled = () => process.env.VERIFICATION_PROVIDER === 'disabled';
 const claimFailure = () => new ApiError(422, 'CLAIM_VERIFICATION_FAILED', 'Claim verification failed.');
 const requestedAddressStateId = (value) => value ?? Number(process.env.DEFAULT_STATE_ID || 1);
-async function resolveAddressStateId(client, addressStateId) {
-  const state = await client.state.findUnique({ where: { id: addressStateId }, select: { id: true } });
-  if (!state) throw new ApiError(422, 'INVALID_ADDRESS_STATE', 'The selected address state is unavailable.');
-  return state.id;
-}
 // 12 and 24 random bytes encode to exactly 16 and 32 base64url characters.
 // Keep generation, parsing, and request validation on this one format.
 const CLAIM_PUBLIC_ID_BYTES = 12;
@@ -96,6 +92,10 @@ async function consumeClaimCredential(tx, { credential, patientId, dateOfBirth }
   });
   return consumed.count === 1 ? { claim } : { error: claimFailure() };
 }
+
+router.get('/address-states', async (req, res, next) => {
+  try { return res.json(await registrationAddressStates()); } catch (error) { return next(error); }
+});
 
 router.post('/register', registrationLimiter, validate(patientRegistrationFieldsSchema.strict()), async (req, res, next) => {
   let createdUserId;

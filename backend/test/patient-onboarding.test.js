@@ -175,7 +175,7 @@ test('address states are resolved before registration and retrying verification 
   try {
     const rejectedPayload = { ...portalPayload(), addressStateId: state.id };
     const rejected = await api.post('/api/patient-auth/register').send(rejectedPayload);
-    assert.equal(rejected.status, 422); assert.equal(rejected.body.error.code, 'INVALID_ADDRESS_STATE');
+    assert.equal(rejected.status, 422); assert.equal(rejected.body.error.code, 'ADDRESS_STATE_NOT_FOUND');
     assert.equal(await prisma.user.count({ where: { email: rejectedPayload.email } }), 0);
 
     await prisma.state.create({ data: state });
@@ -185,7 +185,7 @@ test('address states are resolved before registration and retrying verification 
     await prisma.state.delete({ where: { id: state.id } });
 
     const failedVerification = await verify(registration);
-    assert.equal(failedVerification.status, 422); assert.equal(failedVerification.body.error.code, 'INVALID_ADDRESS_STATE');
+    assert.equal(failedVerification.status, 422); assert.equal(failedVerification.body.error.code, 'ADDRESS_STATE_NOT_FOUND');
     const pendingUser = await prisma.user.findUnique({ where: { email: payload.email } });
     const pendingChallenge = await prisma.verificationChallenge.findUnique({ where: { id: registration.body.challengeId } });
     assert.equal(pendingUser.status, 'PENDING_VERIFICATION'); assert.equal(pendingChallenge.usedAt, null);

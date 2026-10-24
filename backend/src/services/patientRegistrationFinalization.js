@@ -1,15 +1,9 @@
-import { ApiError } from '../utils/apiError.js';
+import { resolveAddressStateId } from './patientAddress.js';
 import { normalizePatientPhone } from '../utils/patientIdentity.js';
 import { lockPatientIdentity, patientIdentitySummary } from '../utils/patientOnboarding.js';
 
 async function audit(tx, userId, action, details, ipAddress = 'unknown') {
   await tx.tenantAuditLog.create({ data: { userId, action, details, ipAddress } });
-}
-
-async function resolveAddressStateId(tx, addressStateId) {
-  const state = await tx.state.findUnique({ where: { id: addressStateId }, select: { id: true } });
-  if (!state) throw new ApiError(422, 'INVALID_ADDRESS_STATE', 'The selected address state is unavailable.');
-  return state.id;
 }
 
 async function matchingPatients(tx, phoneNormalized, dateOfBirth) {

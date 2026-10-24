@@ -22,7 +22,8 @@
     "bootstrap:reference": "node scripts/bootstrap-reference-data.js",
     "start:staging": "node src/server.js",
     "start:staging:migrate": "prisma migrate deploy && npm run start:staging",
-    "test:schedule-workflow": "node scripts/test-schedule-workflow.js"
+    "test:schedule-workflow": "node scripts/test-schedule-workflow.js",
+    "repair:states:staging": "node scripts/repair-sudan-states.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

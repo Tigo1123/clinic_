@@ -1,3 +1,4 @@
+import { validAddressSelection } from './addressSelection.js';
 import { DEFAULT_PHONE_COUNTRY, normalisePatientPhone } from './phoneCountries.js';
 
 export const ONBOARDING_STEPS = ['arabicName', 'englishName', 'personalDetails', 'contact', 'address', 'security', 'review'];
@@ -53,7 +54,10 @@ export function validateOnboardingStep(form, step, messages, today, options = {}
   }
   if (step === 2) { required('gender'); if (!isValidPastDate(value.dateOfBirth, today)) errors.dateOfBirth = messages.dateInvalid; }
   if (step === 3) { if (!normalisePatientPhone(value.phone, value.phoneCountry)) errors.phone = messages.phoneInvalid; if (options.requireEmail !== false && !emailPattern.test(value.email)) errors.email = messages.emailInvalid; }
-  if (step === 4) required('addressStateId');
+  if (step === 4) {
+    required('addressStateId');
+    if (options.addressStates && !validAddressSelection(value.addressStateId, options.addressStates)) errors.addressStateId = messages.addressStateInvalid;
+  }
   if (step === 5) {
     if (!Object.values(passwordChecks(value.password)).every(Boolean)) errors.password = messages.passwordInvalid;
     if (value.password !== value.confirmPassword) errors.confirmPassword = messages.passwordMismatch;
@@ -84,7 +88,8 @@ export function googleRegistrationPayload(form, onboardingToken) {
 export function onboardingErrorMessage(error, messages) {
   if (error?.status === 429) return messages.rateLimited;
   const code = error?.code;
-  if (code === 'INVALID_ADDRESS_STATE') return messages.addressStateInvalid;
+  if (['INVALID_ADDRESS_STATE', 'ADDRESS_STATE_NOT_FOUND', 'ADDRESS_STATE_INVALID'].includes(code)) return messages.addressStateInvalid;
+  if (code === 'ADDRESS_SELECTION_STALE') return messages.addressSelectionStale || messages.addressStateInvalid;
   if (code === 'EMAIL_ALREADY_REGISTERED') return messages.emailDuplicate;
   if (code === 'PHONE_ALREADY_REGISTERED') return messages.phoneDuplicate;
   if (/DUPLICATE|IDENTITY|MANUAL_REVIEW|AMBIGUOUS/.test(code || '')) return messages.manualReview;
