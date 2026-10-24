@@ -393,7 +393,7 @@ export default function AdminDashboard({ user, lang, t }) {
         {activeTab !== 'clinic-setup' && <RoleHero role="admin" lang={lang}/>}
         {activeTab === 'clinic-setup' && <ClinicSetupPanel lang={lang} t={t}/>}
         {activeTab === 'profile' && (
-          <ClinicProfilePanel lang={lang} t={t}/>
+          <ClinicProfilePanel lang={lang} t={t} onNavigate={setActiveTab}/>
         )}
 
         {activeTab === 'users' && <StaffListPaging list={userList} lang={lang} label={lang === 'ar' ? 'الموظفون' : 'Staff accounts'} />}
