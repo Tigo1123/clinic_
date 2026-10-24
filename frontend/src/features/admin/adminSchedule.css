@@ -8,7 +8,6 @@
 .admin-exception + .admin-exception { border-top: 1px solid var(--color-border); }
 .schedule-day-range { overflow-wrap: anywhere; }
 @media (max-width: 700px) {
-  .admin-schedule-panel .admin-schedule-version input[type="date"] { font-size: .75rem; padding-inline: 8px; }
   .admin-schedule-panel .admin-break { grid-template-columns: minmax(0, 1fr) 44px; }
   .admin-schedule-panel .admin-break .MuiFormControl-root { grid-column: 1; }
   .admin-schedule-panel .admin-break .MuiIconButton-root { grid-column: 2; grid-row: 1 / 3; }

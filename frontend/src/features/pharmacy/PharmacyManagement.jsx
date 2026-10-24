@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PackagePlus, RefreshCw, Search } from 'lucide-react';
 import Dialog from '../../components/ui/Dialog';
+import AppDatePicker from '../../components/ui/AppDatePicker.jsx';
 import { fetchWithAuth } from '../../services/staffApi';
 import {
   authoritativeStockSummary, batchPresentation, buildBatchPayload, buildMedicinePayload,
@@ -23,8 +24,9 @@ async function jsonRequest(url, options, fallback, lang) {
   return payload;
 }
 
-function Field({ id, label, error, ...props }) {
-  return <div className="form-group"><label className="form-label" htmlFor={id}>{label}</label><input id={id} className={`form-input${error ? ' form-input-error' : ''}`} aria-invalid={Boolean(error)} aria-describedby={error ? `${id}-error` : undefined} {...props} />{error && <small id={`${id}-error`} className="pharmacy-field-error">{error}</small>}</div>;
+function Field({ id, label, error, type, value, onChange, ...props }) {
+  if (type === 'date') return <div className="form-group"><AppDatePicker id={id} name={props.name} label={label} value={value} onChange={onChange} required={props.required} minDate={props.min} maxDate={props.max} disabled={props.disabled} error={Boolean(error)} helperText={error}/></div>;
+  return <div className="form-group"><label className="form-label" htmlFor={id}>{label}</label><input id={id} className={`form-input${error ? ' form-input-error' : ''}`} aria-invalid={Boolean(error)} aria-describedby={error ? `${id}-error` : undefined} type={type} value={value} onChange={onChange} {...props} />{error && <small id={`${id}-error`} className="pharmacy-field-error">{error}</small>}</div>;
 }
 
 function DialogFeedback({ feedback }) {
@@ -47,7 +49,7 @@ function MedicineFields({ form, setForm, lang, labelsOnly = false }) {
 function BatchFields({ form, setForm, lang, errors = {}, idPrefix = 'batch' }) {
   return <div className="pharmacy-form-grid">
     <Field id={`${idPrefix}-batchNumber`} name="batchNumber" dir="ltr" required error={errors.batchNumber} label={lang === 'ar' ? 'رقم الدفعة' : 'Batch number'} value={form.batchNumber} onChange={(event) => setForm((current) => ({ ...current, batchNumber: event.target.value }))} />
-    <Field id={`${idPrefix}-expiryDate`} name="expiryDate" dir="ltr" required type="date" error={errors.expiryDate} label={lang === 'ar' ? 'تاريخ الصلاحية' : 'Expiry date'} value={form.expiryDate} onChange={(event) => setForm((current) => ({ ...current, expiryDate: event.target.value }))} />
+    <Field id={`${idPrefix}-expiryDate`} name="expiryDate" dir="ltr" required type="date" error={errors.expiryDate} label={lang === 'ar' ? 'تاريخ الصلاحية' : 'Expiry date'} value={form.expiryDate} onChange={(value) => setForm((current) => ({ ...current, expiryDate: value }))} />
     <Field id={`${idPrefix}-receivedQuantity`} name="receivedQuantity" dir="ltr" required type="number" min="1" step="1" error={errors.receivedQuantity} label={lang === 'ar' ? 'الكمية المستلمة' : 'Received quantity'} value={form.receivedQuantity} onChange={(event) => setForm((current) => ({ ...current, receivedQuantity: event.target.value }))} />
     <Field id={`${idPrefix}-minReorderLevel`} name="minReorderLevel" dir="ltr" required type="number" min="0" step="1" error={errors.minReorderLevel} label={lang === 'ar' ? 'حد إعادة الطلب' : 'Reorder level'} value={form.minReorderLevel} onChange={(event) => setForm((current) => ({ ...current, minReorderLevel: event.target.value }))} />
   </div>;

@@ -13,6 +13,7 @@ source = source.replace(/import \{ apiErrorMessage, fetchWithAuth \}[^;]+;/, 'co
 source = source.replace("'./scheduleTime.js'", JSON.stringify(new URL('../src/features/admin/scheduleTime.js', import.meta.url).href));
 source = source.replace(/import \{ useTheme \}[^;]+;/, "const useTheme = () => ({ theme: 'light' });")
  .replace("'../../utils/patientMuiTheme.js'", JSON.stringify(new URL('../src/utils/patientMuiTheme.js', import.meta.url).href));
+source = source.replace(/import AppDatePicker[^;]+;/, 'const AppDatePicker = props => <label>{props.label}<input type="date" value={props.value || ""} onChange={event => props.onChange(event.target.value)} /></label>;');
 const weekFile = new URL(`.schedule-week-${process.pid}.mjs`, import.meta.url);
 const weekSource = (await readFile(new URL('../src/features/admin/ScheduleWeekEditor.jsx', import.meta.url), 'utf8')).replace("'./scheduleTime.js'", JSON.stringify(new URL('../src/features/admin/scheduleTime.js', import.meta.url).href));
 await writeFile(weekFile, (await transformWithOxc(weekSource, 'ScheduleWeekEditor.jsx', { jsx: { runtime: 'automatic' } })).code);

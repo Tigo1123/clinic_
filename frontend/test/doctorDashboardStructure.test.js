@@ -20,7 +20,7 @@ test('doctor workspace preserves the role hero and renders authoritative daily m
 test('doctor queue has date controls, accessible patient cards, selection, and compact empty state', () => {
   const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
   assert.match(dashboard, /className="doctor-queue-panel"/);
-  assert.match(dashboard, /type="date" value=\{filterDate\}/);
+  assert.match(dashboard, /<AppDatePicker label=\{lang === 'ar' \? 'تاريخ الطابور' : 'Queue date'\} value=\{filterDate\} onChange=\{setFilterDate\}/);
   assert.match(dashboard, /onClick=\{\(\) => handlePatientSelect\(appt\)\}/);
   assert.match(dashboard, /aria-pressed=\{selectedAppointmentId === appt\.id\}/);
   assert.match(dashboard, /لا يوجد مرضى في طابورك لهذا اليوم/);

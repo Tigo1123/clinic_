@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { patientApiRequest as apiRequest } from '../../services/apiClient';
 import { clinicDateString } from '../../utils/clinicTime';
 import { ErrorState, Skeleton } from '../../components/feedback/States';
+import AppDatePicker from '../../components/ui/AppDatePicker.jsx';
 
 export default function RescheduleAppointment() {
   const { id } = useParams();
@@ -71,7 +72,7 @@ export default function RescheduleAppointment() {
   return <section className="patient-card">
     <h1>{t('rescheduleAppointment')}</h1>
     <form onSubmit={submit}>
-      <label className="patient-field">{t('selectDate')}<input type="date" min={clinicDateString()} value={date} onChange={(event) => setDate(event.target.value)} required /></label>
+      <AppDatePicker label={t('selectDate')} minDate={clinicDateString()} value={date} onChange={setDate} required />
       <fieldset className="patient-card"><legend>{t('selectTime')}</legend><div className="patient-actions">{slots.map((slot) => <button type="button" aria-pressed={time === slot} className={`patient-button ${time === slot ? '' : 'secondary'}`} key={slot} onClick={() => setTime(slot)}>{slot}</button>)}</div>{slotsLoading ? <p role="status">{t('loading')}</p> : !slots.length && !error && <p>{t('noSlots')}</p>}</fieldset>
       {error && <div className="patient-alert error" role="alert">{error}</div>}
       <button className="patient-button" disabled={!time || saving || slotsLoading} aria-busy={saving}>{saving ? t('loading') : t('rescheduleAppointment')}</button>

@@ -14,6 +14,7 @@ import { doctorPrescriptionItem, duplicatePrescriptionItem, validateDoctorPrescr
 import './doctorDashboard.css';
 import { useFacilityBranding } from '../../app/branding/FacilityBrandingContext.js';
 import FacilityIdentityLine from '../../components/FacilityIdentityLine';
+import AppDatePicker from '../../components/ui/AppDatePicker.jsx';
 
 export default function DoctorDashboard({ user, lang, t }) {
   const branding = useFacilityBranding();
@@ -644,7 +645,7 @@ export default function DoctorDashboard({ user, lang, t }) {
               <label className="doctor-date-picker">
                 <CalendarDays size={15} aria-hidden="true" />
                 <span className="sr-only">{lang === 'ar' ? 'تاريخ الطابور' : 'Queue date'}</span>
-                <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} />
+                <AppDatePicker label={lang === 'ar' ? 'تاريخ الطابور' : 'Queue date'} value={filterDate} onChange={setFilterDate} />
               </label>
             </div>
 

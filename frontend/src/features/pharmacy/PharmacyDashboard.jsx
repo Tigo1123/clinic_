@@ -7,6 +7,7 @@ import RoleHero from '../../components/healthcare/RoleHero';
 import { clinicDateString } from '../../utils/clinicTime';
 import PharmacyManagement from './PharmacyManagement';
 import PharmacyPayment from './PharmacyPayment';
+import AppDatePicker from '../../components/ui/AppDatePicker.jsx';
 import Dialog from '../../components/ui/Dialog';
 import { authoritativeStockSummary, buildMedicationReviewPayload, customMedicineRequiresReview, localizedStockState, pharmacyAlertModel, stockPresentation } from '../../utils/pharmacyManagement';
 
@@ -1156,20 +1157,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                             }
                           />
 
-                          <input
-                            type="date"
-                            min={tomorrow}
-                            value={
-                              form.expiryDate || ''
-                            }
-                            onChange={(event) =>
-                              updateReviewForm(
-                                item.id,
-                                'expiryDate',
-                                event.target.value
-                              )
-                            }
-                          />
+                          <AppDatePicker label={lang === 'ar' ? 'تاريخ الصلاحية' : 'Expiry date'} minDate={tomorrow} value={form.expiryDate || ''} onChange={value => updateReviewForm(item.id, 'expiryDate', value)} />
 
                           <input
                             type="number"

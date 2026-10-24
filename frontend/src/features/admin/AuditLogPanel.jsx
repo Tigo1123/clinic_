@@ -5,6 +5,7 @@ import {
   actorDisplayName, auditDetailSummary, auditEventFallback, auditEventPresentation, formatAuditDateTime, shortTechnicalId
 } from '../../utils/auditLogPresentation.js';
 import './auditLog.css';
+import AppDatePicker from '../../components/ui/AppDatePicker.jsx';
 
 const EMPTY_FILTERS = Object.freeze({ search: '', action: '', role: '', from: '', to: '' });
 const ROLES = ['ADMIN', 'RECEPTIONIST', 'DOCTOR', 'LAB_TECH', 'PHARMACIST', 'PATIENT'];
@@ -80,8 +81,8 @@ export default function AuditLogPanel({ lang, t }) {
       <label className="audit-search"><span>{tr('auditSearchActor', lang === 'ar' ? 'البحث عن منفذ العملية' : 'Search actor')}</span><div><Search size={17}/><input value={draftFilters.search} maxLength={120} onChange={(event) => setDraftFilters({ ...draftFilters, search: event.target.value })} placeholder={tr('auditSearchPlaceholder', lang === 'ar' ? 'الاسم أو البريد الإلكتروني' : 'Name or email')}/></div></label>
       <label><span>{tr('auditEventType', lang === 'ar' ? 'نوع العملية' : 'Event type')}</span><select value={draftFilters.action} onChange={(event) => setDraftFilters({ ...draftFilters, action: event.target.value })}><option value="">{tr('auditAllEvents', lang === 'ar' ? 'كل العمليات' : 'All events')}</option>{actions.map((action) => <option key={action} value={action}>{eventLabel(action)}</option>)}</select></label>
       <label><span>{tr('auditActorRole', lang === 'ar' ? 'الدور' : 'Role')}</span><select value={draftFilters.role} onChange={(event) => setDraftFilters({ ...draftFilters, role: event.target.value })}><option value="">{tr('auditAllRoles', lang === 'ar' ? 'كل الأدوار' : 'All roles')}</option>{ROLES.map((role) => <option key={role} value={role}>{roleLabel(role)}</option>)}</select></label>
-      <label><span>{tr('auditFromDate', lang === 'ar' ? 'من تاريخ' : 'From')}</span><input type="date" value={draftFilters.from} onChange={(event) => setDraftFilters({ ...draftFilters, from: event.target.value })}/></label>
-      <label><span>{tr('auditToDate', lang === 'ar' ? 'إلى تاريخ' : 'To')}</span><input type="date" value={draftFilters.to} min={draftFilters.from || undefined} onChange={(event) => setDraftFilters({ ...draftFilters, to: event.target.value })}/></label>
+      <AppDatePicker label={tr('auditFromDate', lang === 'ar' ? 'من تاريخ' : 'From')} value={draftFilters.from} onChange={from => setDraftFilters(current => ({ ...current, from }))}/>
+      <AppDatePicker label={tr('auditToDate', lang === 'ar' ? 'إلى تاريخ' : 'To')} value={draftFilters.to} minDate={draftFilters.from || undefined} onChange={to => setDraftFilters(current => ({ ...current, to }))}/>
       <div className="audit-filter-actions"><button className="btn btn-primary" type="submit">{tr('auditApplyFilters', lang === 'ar' ? 'تطبيق الفلاتر' : 'Apply filters')}</button><button className="btn" type="button" onClick={resetFilters}><X size={16}/>{tr('auditResetFilters', lang === 'ar' ? 'إعادة ضبط' : 'Reset')}</button></div>
     </form>
 

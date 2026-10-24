@@ -8,6 +8,7 @@ import { Alert, Box, Button, Card, Chip, FormControlLabel, Grid, Stack, Switch, 
 import { useTheme } from '../../app/theme/ThemeContext.jsx';
 import { createPatientMuiTheme, patientStyleCaches } from '../../utils/patientMuiTheme.js';
 import ScheduleWeekEditor from './ScheduleWeekEditor.jsx';
+import AppDatePicker from '../../components/ui/AppDatePicker.jsx';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import './adminSchedule.css';
 import { nextScheduleDate, selectScheduleVersion } from './scheduleVersion';
@@ -192,7 +193,6 @@ export default function AdminSchedulePanel({ t, lang, initialDoctorId }) {
   };
   const changeScheduleStatus = () => saveExceptionChange(`/api/admin/doctors/${doctorId}/schedules/${schedule.id}/status`, { method: 'PATCH', body: JSON.stringify({ active: !schedule.active }) }, label('scheduleSaved', 'Schedule saved successfully.'), false, true);
   const busy = saving || loading || !doctorId || !ready;
-  const dateProps = { inputLabel: { shrink: true }, htmlInput: { dir: 'ltr' } };
   const doctorName = doctor => (lang === 'ar' ? doctor.fullNameAr || doctor.fullNameEn : doctor.fullNameEn || doctor.fullNameAr);
   const selectVersion = event => {
     const version = versions.find(item => item.id === event.target.value) || null;
@@ -217,8 +217,8 @@ export default function AdminSchedulePanel({ t, lang, initialDoctorId }) {
             <Grid size={{ xs: 12, sm: 6, lg: 3 }}><TextField fullWidth size="small" select id="schedule-version" label={label('scheduleVersion', 'Schedule version')} value={schedule?.id || ''} onChange={selectVersion} disabled={busy} slotProps={{ select: { native: true }, htmlInput: { id: 'schedule-version' } }}>
               <option value="">{label('scheduleNewVersion', 'New version')}</option>{versions.map(version => <option key={version.id} value={version.id}>{version.effectiveFrom} – {version.effectiveTo || '∞'} · {label(version.active ? 'scheduleVersionActive' : 'scheduleVersionInactive', version.active ? 'Active' : 'Inactive')}</option>)}
             </TextField></Grid>
-            <Grid size={{ xs: 6, sm: 4, lg: 2 }}><TextField fullWidth size="small" label={label('effectiveFrom', 'Effective from')} type="date" required value={effectiveFrom} disabled={busy} onChange={event => setEffectiveFrom(event.target.value)} slotProps={{ ...dateProps, htmlInput: { dir: 'ltr', min: schedule?.effectiveFrom <= clinicDate(new Date(), clinicTimeZone) ? nextScheduleDate(clinicDate(new Date(), clinicTimeZone)) : undefined } }}/></Grid>
-            <Grid size={{ xs: 6, sm: 4, lg: 2 }}><TextField fullWidth size="small" label={label('effectiveTo', 'Effective to')} type="date" value={effectiveTo} disabled={busy} onChange={event => setEffectiveTo(event.target.value)} slotProps={{ ...dateProps, htmlInput: { dir: 'ltr', min: effectiveFrom } }}/></Grid>
+            <Grid size={{ xs: 6, sm: 4, lg: 2 }}><AppDatePicker fullWidth size="small" label={label('effectiveFrom', 'Effective from')} required value={effectiveFrom} disabled={busy} onChange={setEffectiveFrom} minDate={schedule?.effectiveFrom <= clinicDate(new Date(), clinicTimeZone) ? nextScheduleDate(clinicDate(new Date(), clinicTimeZone)) : undefined}/></Grid>
+            <Grid size={{ xs: 6, sm: 4, lg: 2 }}><AppDatePicker fullWidth size="small" label={label('effectiveTo', 'Effective to')} value={effectiveTo} disabled={busy} onChange={setEffectiveTo} minDate={effectiveFrom}/></Grid>
             <Grid size={{ xs: 12, sm: 4, lg: 2 }}><FormControlLabel sx={{ m: 0 }} control={<Switch checked={scheduleActive} disabled={busy} onChange={event => setScheduleActive(event.target.checked)}/>} label={label('scheduleVersionActive', 'Active')}/></Grid>
           </Grid>
           <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ mt: 2, alignItems: { sm: 'center' }, justifyContent: 'space-between', gap: 2 }}>
@@ -253,7 +253,7 @@ export default function AdminSchedulePanel({ t, lang, initialDoctorId }) {
         <Box component="form" className="admin-exception-form" onSubmit={addException} sx={{ mt: 3 }}>
           <Box component="fieldset" disabled={busy} className="admin-schedule-editor">
             <Grid container spacing={3} sx={{ alignItems: 'center' }}>
-              <Grid size={{ xs: 12, sm: 4, lg: 3 }}><TextField fullWidth size="small" type="date" required label={label('date', 'Date')} value={exceptionDate} onChange={event => setExceptionDate(event.target.value)} slotProps={dateProps}/></Grid>
+              <Grid size={{ xs: 12, sm: 4, lg: 3 }}><AppDatePicker fullWidth size="small" required label={label('date', 'Date')} value={exceptionDate} onChange={setExceptionDate}/></Grid>
               <Grid size={{ xs: 12, sm: 8, lg: 6 }}><TextField fullWidth size="small" label={label('reason', 'Reason')} value={exceptionReason} onChange={event => setExceptionReason(event.target.value)} slotProps={{ htmlInput: { maxLength: 500 } }}/></Grid>
               <Grid size={{ xs: 12, lg: 3 }}><Button type="submit" variant="outlined" fullWidth disabled={busy}>{label('markUnavailable', 'Add unavailable date')}</Button></Grid>
             </Grid>

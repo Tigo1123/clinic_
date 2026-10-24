@@ -323,7 +323,7 @@
   font-weight: 700;
 }
 
-.patient-auth .patient-field input,
+.patient-auth .patient-field input:not(.MuiInputBase-input),
 .patient-auth .patient-field select,
 .patient-auth .patient-phone-control input,
 .patient-auth .patient-phone-control select {
@@ -752,7 +752,7 @@
   max-width: 440px;
 }
 
-.onboarding-verification .patient-field input {
+.onboarding-verification .patient-field input:not(.MuiInputBase-input) {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.16em;
   text-align: center;
@@ -928,7 +928,7 @@
     margin-bottom: 14px;
   }
 
-  .patient-auth .patient-field input,
+  .patient-auth .patient-field input:not(.MuiInputBase-input),
   .patient-auth .patient-field select {
     min-height: 50px;
   }
@@ -1019,7 +1019,7 @@
     margin-bottom: 9px;
   }
 
-  .patient-auth .patient-field input,
+  .patient-auth .patient-field input:not(.MuiInputBase-input),
   .patient-auth .patient-field select {
     min-height: 46px;
     padding: 0.58rem 0.8rem;
@@ -1088,7 +1088,7 @@
     font-size: 0.78rem;
   }
 
-  .patient-auth-shell--register .patient-field input,
+  .patient-auth-shell--register .patient-field input:not(.MuiInputBase-input),
   .patient-auth-shell--register .patient-field select {
     min-height: 46px;
     padding: 0.5rem 0.75rem;
@@ -1337,7 +1337,7 @@
   color: var(--color-text-secondary);
 }
 
-[data-theme='dark'] .patient-auth .patient-field input,
+[data-theme='dark'] .patient-auth .patient-field input:not(.MuiInputBase-input),
 [data-theme='dark'] .patient-auth .patient-field select,
 [data-theme='dark'] .patient-auth .patient-phone-control input,
 [data-theme='dark'] .patient-auth .patient-phone-control select {
@@ -1525,8 +1525,8 @@
   line-height: 1.45;
 }
 
-.patient-auth-shell--login .patient-auth .patient-field input,
-.patient-auth-shell--staff .patient-auth .patient-field input {
+.patient-auth-shell--login .patient-auth .patient-field input:not(.MuiInputBase-input),
+.patient-auth-shell--staff .patient-auth .patient-field input:not(.MuiInputBase-input) {
   min-height: 50px;
   color: var(--text-primary);
   -webkit-text-fill-color: var(--text-primary);
@@ -1535,22 +1535,22 @@
   font-size: 16px;
 }
 
-.patient-auth-shell--login .patient-auth .patient-field input::placeholder,
-.patient-auth-shell--staff .patient-auth .patient-field input::placeholder {
+.patient-auth-shell--login .patient-auth .patient-field input:not(.MuiInputBase-input)::placeholder,
+.patient-auth-shell--staff .patient-auth .patient-field input:not(.MuiInputBase-input)::placeholder {
   color: var(--text-secondary);
   -webkit-text-fill-color: var(--text-secondary);
   opacity: 1;
 }
 
-.patient-auth-shell--login .patient-auth .patient-field input:focus,
-.patient-auth-shell--staff .patient-auth .patient-field input:focus {
+.patient-auth-shell--login .patient-auth .patient-field input:not(.MuiInputBase-input):focus,
+.patient-auth-shell--staff .patient-auth .patient-field input:not(.MuiInputBase-input):focus {
   border-color: var(--secondary);
   box-shadow: 0 0 0 3px var(--auth-focus-ring);
   background: var(--bg-card);
 }
 
-.patient-auth-shell--login .patient-auth .patient-field input[aria-invalid='true'],
-.patient-auth-shell--staff .patient-auth .patient-field input[aria-invalid='true'] {
+.patient-auth-shell--login .patient-auth .patient-field input:not(.MuiInputBase-input)[aria-invalid='true'],
+.patient-auth-shell--staff .patient-auth .patient-field input:not(.MuiInputBase-input)[aria-invalid='true'] {
   border-color: var(--auth-error);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--auth-error) 22%, transparent);
 }
@@ -1907,8 +1907,8 @@
   font-size: 0.88rem;
 }
 
-.patient-auth-shell--login .patient-auth .patient-field input,
-.patient-auth-shell--staff .patient-auth .patient-field input {
+.patient-auth-shell--login .patient-auth .patient-field input:not(.MuiInputBase-input),
+.patient-auth-shell--staff .patient-auth .patient-field input:not(.MuiInputBase-input) {
   min-height: 48px;
   border-radius: 8px;
   background: var(--bg-surface);
@@ -2056,7 +2056,7 @@
   border-color: var(--color-control-border);
   color: var(--color-text-secondary);
 }
-.patient-auth-shell--login .patient-auth .patient-field input { border-color: var(--color-control-border); }
+.patient-auth-shell--login .patient-auth .patient-field input:not(.MuiInputBase-input) { border-color: var(--color-control-border); }
 .patient-auth-shell--login .patient-auth-forgot,
 .patient-auth-shell--login .patient-auth-secondary-button,
 .patient-auth-shell--flow .patient-auth a { color: var(--color-primary-strong); }
@@ -2066,7 +2066,7 @@
 /* External labels share the native field rhythm; only MUI's fieldset owns the border. */
 .shifa-password-field { width: 100%; min-width: 0; margin-bottom: 16px; }
 .shifa-password-label { display: block; margin-bottom: 5px; color: var(--text-secondary); font-size: 0.9rem; font-weight: 700; line-height: 1.45; }
-.patient-auth .patient-field input { font-size: 16px; line-height: 1.45; height: 50px; }
+.patient-auth .patient-field input:not(.MuiInputBase-input) { font-size: 16px; line-height: 1.45; height: 50px; }
 .patient-auth .shifa-password-field + .patient-auth-forgot { margin-top: 16px; margin-bottom: 20px; }
 .patient-auth .shifa-password-field + .patient-button { margin-top: 8px; }
 
