@@ -1,0 +1,1554 @@
+{
+  "checks": [
+    {
+      "name": "no page overflow 320-ar-light",
+      "passed": true
+    },
+    {
+      "name": "table or mobile cards 320-ar-light",
+      "passed": true
+    },
+    {
+      "name": "both names and currency 320-ar-light",
+      "passed": true
+    },
+    {
+      "name": "normalized code 320-ar-light",
+      "passed": true
+    },
+    {
+      "name": "editor fits 320-ar-light",
+      "passed": true
+    },
+    {
+      "name": "add success 320-ar-light",
+      "passed": true
+    },
+    {
+      "name": "category authority 320-ar-light",
+      "passed": true
+    },
+    {
+      "name": "edit success 320-ar-light",
+      "passed": true
+    },
+    {
+      "name": "deactivate 320-ar-light",
+      "passed": true
+    },
+    {
+      "name": "duplicate localized 320-ar-light",
+      "passed": true
+    },
+    {
+      "name": "empty state 320-ar-light",
+      "passed": true
+    },
+    {
+      "name": "error state 320-ar-light",
+      "passed": true
+    },
+    {
+      "name": "loading state 320-ar-light",
+      "passed": true
+    },
+    {
+      "name": "no page overflow 320-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "table or mobile cards 320-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "both names and currency 320-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "normalized code 320-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "editor fits 320-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "add success 320-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "category authority 320-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "edit success 320-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "deactivate 320-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "duplicate localized 320-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "empty state 320-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "error state 320-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "loading state 320-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "no page overflow 320-en-light",
+      "passed": true
+    },
+    {
+      "name": "table or mobile cards 320-en-light",
+      "passed": true
+    },
+    {
+      "name": "both names and currency 320-en-light",
+      "passed": true
+    },
+    {
+      "name": "normalized code 320-en-light",
+      "passed": true
+    },
+    {
+      "name": "editor fits 320-en-light",
+      "passed": true
+    },
+    {
+      "name": "add success 320-en-light",
+      "passed": true
+    },
+    {
+      "name": "category authority 320-en-light",
+      "passed": true
+    },
+    {
+      "name": "edit success 320-en-light",
+      "passed": true
+    },
+    {
+      "name": "deactivate 320-en-light",
+      "passed": true
+    },
+    {
+      "name": "duplicate localized 320-en-light",
+      "passed": true
+    },
+    {
+      "name": "empty state 320-en-light",
+      "passed": true
+    },
+    {
+      "name": "error state 320-en-light",
+      "passed": true
+    },
+    {
+      "name": "loading state 320-en-light",
+      "passed": true
+    },
+    {
+      "name": "no page overflow 320-en-dark",
+      "passed": true
+    },
+    {
+      "name": "table or mobile cards 320-en-dark",
+      "passed": true
+    },
+    {
+      "name": "both names and currency 320-en-dark",
+      "passed": true
+    },
+    {
+      "name": "normalized code 320-en-dark",
+      "passed": true
+    },
+    {
+      "name": "editor fits 320-en-dark",
+      "passed": true
+    },
+    {
+      "name": "add success 320-en-dark",
+      "passed": true
+    },
+    {
+      "name": "category authority 320-en-dark",
+      "passed": true
+    },
+    {
+      "name": "edit success 320-en-dark",
+      "passed": true
+    },
+    {
+      "name": "deactivate 320-en-dark",
+      "passed": true
+    },
+    {
+      "name": "duplicate localized 320-en-dark",
+      "passed": true
+    },
+    {
+      "name": "empty state 320-en-dark",
+      "passed": true
+    },
+    {
+      "name": "error state 320-en-dark",
+      "passed": true
+    },
+    {
+      "name": "loading state 320-en-dark",
+      "passed": true
+    },
+    {
+      "name": "no page overflow 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "table or mobile cards 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "both names and currency 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "normalized code 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "editor fits 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "add success 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "category authority 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "edit success 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "deactivate 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "duplicate localized 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "empty state 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "error state 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "loading state 360-ar-light",
+      "passed": true
+    },
+    {
+      "name": "no page overflow 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "table or mobile cards 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "both names and currency 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "normalized code 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "editor fits 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "add success 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "category authority 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "edit success 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "deactivate 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "duplicate localized 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "empty state 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "error state 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "loading state 360-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "no page overflow 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "table or mobile cards 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "both names and currency 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "normalized code 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "editor fits 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "add success 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "category authority 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "edit success 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "deactivate 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "duplicate localized 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "empty state 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "error state 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "loading state 360-en-light",
+      "passed": true
+    },
+    {
+      "name": "no page overflow 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "table or mobile cards 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "both names and currency 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "normalized code 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "editor fits 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "add success 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "category authority 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "edit success 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "deactivate 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "duplicate localized 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "empty state 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "error state 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "loading state 360-en-dark",
+      "passed": true
+    },
+    {
+      "name": "no page overflow 390-ar-light",
+      "passed": true
+    },
+    {
+      "name": "table or mobile cards 390-ar-light",
+      "passed": true
+    },
+    {
+      "name": "both names and currency 390-ar-light",
+      "passed": true
+    },
+    {
+      "name": "normalized code 390-ar-light",
+      "passed": true
+    },
+    {
+      "name": "editor fits 390-ar-light",
+      "passed": true
+    },
+    {
+      "name": "add success 390-ar-light",
+      "passed": true
+    },
+    {
+      "name": "category authority 390-ar-light",
+      "passed": true
+    },
+    {
+      "name": "edit success 390-ar-light",
+      "passed": true
+    },
+    {
+      "name": "deactivate 390-ar-light",
+      "passed": true
+    },
+    {
+      "name": "duplicate localized 390-ar-light",
+      "passed": true
+    },
+    {
+      "name": "empty state 390-ar-light",
+      "passed": true
+    },
+    {
+      "name": "error state 390-ar-light",
+      "passed": true
+    },
+    {
+      "name": "loading state 390-ar-light",
+      "passed": true
+    },
+    {
+      "name": "no page overflow 390-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "table or mobile cards 390-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "both names and currency 390-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "normalized code 390-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "editor fits 390-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "add success 390-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "category authority 390-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "edit success 390-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "deactivate 390-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "duplicate localized 390-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "empty state 390-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "error state 390-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "loading state 390-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "no page overflow 390-en-light",
+      "passed": true
+    },
+    {
+      "name": "table or mobile cards 390-en-light",
+      "passed": true
+    },
+    {
+      "name": "both names and currency 390-en-light",
+      "passed": true
+    },
+    {
+      "name": "normalized code 390-en-light",
+      "passed": true
+    },
+    {
+      "name": "editor fits 390-en-light",
+      "passed": true
+    },
+    {
+      "name": "add success 390-en-light",
+      "passed": true
+    },
+    {
+      "name": "category authority 390-en-light",
+      "passed": true
+    },
+    {
+      "name": "edit success 390-en-light",
+      "passed": true
+    },
+    {
+      "name": "deactivate 390-en-light",
+      "passed": true
+    },
+    {
+      "name": "duplicate localized 390-en-light",
+      "passed": true
+    },
+    {
+      "name": "empty state 390-en-light",
+      "passed": true
+    },
+    {
+      "name": "error state 390-en-light",
+      "passed": true
+    },
+    {
+      "name": "loading state 390-en-light",
+      "passed": true
+    },
+    {
+      "name": "no page overflow 390-en-dark",
+      "passed": true
+    },
+    {
+      "name": "table or mobile cards 390-en-dark",
+      "passed": true
+    },
+    {
+      "name": "both names and currency 390-en-dark",
+      "passed": true
+    },
+    {
+      "name": "normalized code 390-en-dark",
+      "passed": true
+    },
+    {
+      "name": "editor fits 390-en-dark",
+      "passed": true
+    },
+    {
+      "name": "add success 390-en-dark",
+      "passed": true
+    },
+    {
+      "name": "category authority 390-en-dark",
+      "passed": true
+    },
+    {
+      "name": "edit success 390-en-dark",
+      "passed": true
+    },
+    {
+      "name": "deactivate 390-en-dark",
+      "passed": true
+    },
+    {
+      "name": "duplicate localized 390-en-dark",
+      "passed": true
+    },
+    {
+      "name": "empty state 390-en-dark",
+      "passed": true
+    },
+    {
+      "name": "error state 390-en-dark",
+      "passed": true
+    },
+    {
+      "name": "loading state 390-en-dark",
+      "passed": true
+    },
+    {
+      "name": "no page overflow 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "table or mobile cards 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "both names and currency 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "normalized code 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "editor fits 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "add success 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "category authority 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "edit success 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "deactivate 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "duplicate localized 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "empty state 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "error state 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "loading state 1366-ar-light",
+      "passed": true
+    },
+    {
+      "name": "no page overflow 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "table or mobile cards 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "both names and currency 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "normalized code 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "editor fits 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "add success 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "category authority 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "edit success 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "deactivate 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "duplicate localized 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "empty state 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "error state 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "loading state 1366-ar-dark",
+      "passed": true
+    },
+    {
+      "name": "no page overflow 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "table or mobile cards 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "both names and currency 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "normalized code 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "editor fits 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "add success 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "category authority 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "edit success 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "deactivate 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "duplicate localized 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "empty state 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "error state 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "loading state 1366-en-light",
+      "passed": true
+    },
+    {
+      "name": "no page overflow 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "table or mobile cards 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "both names and currency 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "normalized code 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "editor fits 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "add success 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "category authority 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "edit success 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "deactivate 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "duplicate localized 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "empty state 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "error state 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "loading state 1366-en-dark",
+      "passed": true
+    },
+    {
+      "name": "no exceptions",
+      "passed": true
+    },
+    {
+      "name": "only intercepted API",
+      "passed": true
+    }
+  ],
+  "captures": [
+    "list-320-ar-light",
+    "editor-320-ar-light",
+    "duplicate-320-ar-light",
+    "empty-320-ar-light",
+    "error-320-ar-light",
+    "loading-320-ar-light",
+    "list-320-ar-dark",
+    "editor-320-ar-dark",
+    "duplicate-320-ar-dark",
+    "empty-320-ar-dark",
+    "error-320-ar-dark",
+    "loading-320-ar-dark",
+    "list-320-en-light",
+    "editor-320-en-light",
+    "duplicate-320-en-light",
+    "empty-320-en-light",
+    "error-320-en-light",
+    "loading-320-en-light",
+    "list-320-en-dark",
+    "editor-320-en-dark",
+    "duplicate-320-en-dark",
+    "empty-320-en-dark",
+    "error-320-en-dark",
+    "loading-320-en-dark",
+    "list-360-ar-light",
+    "editor-360-ar-light",
+    "duplicate-360-ar-light",
+    "empty-360-ar-light",
+    "error-360-ar-light",
+    "loading-360-ar-light",
+    "list-360-ar-dark",
+    "editor-360-ar-dark",
+    "duplicate-360-ar-dark",
+    "empty-360-ar-dark",
+    "error-360-ar-dark",
+    "loading-360-ar-dark",
+    "list-360-en-light",
+    "editor-360-en-light",
+    "duplicate-360-en-light",
+    "empty-360-en-light",
+    "error-360-en-light",
+    "loading-360-en-light",
+    "list-360-en-dark",
+    "editor-360-en-dark",
+    "duplicate-360-en-dark",
+    "empty-360-en-dark",
+    "error-360-en-dark",
+    "loading-360-en-dark",
+    "list-390-ar-light",
+    "editor-390-ar-light",
+    "duplicate-390-ar-light",
+    "empty-390-ar-light",
+    "error-390-ar-light",
+    "loading-390-ar-light",
+    "list-390-ar-dark",
+    "editor-390-ar-dark",
+    "duplicate-390-ar-dark",
+    "empty-390-ar-dark",
+    "error-390-ar-dark",
+    "loading-390-ar-dark",
+    "list-390-en-light",
+    "editor-390-en-light",
+    "duplicate-390-en-light",
+    "empty-390-en-light",
+    "error-390-en-light",
+    "loading-390-en-light",
+    "list-390-en-dark",
+    "editor-390-en-dark",
+    "duplicate-390-en-dark",
+    "empty-390-en-dark",
+    "error-390-en-dark",
+    "loading-390-en-dark",
+    "list-1366-ar-light",
+    "editor-1366-ar-light",
+    "duplicate-1366-ar-light",
+    "empty-1366-ar-light",
+    "error-1366-ar-light",
+    "loading-1366-ar-light",
+    "list-1366-ar-dark",
+    "editor-1366-ar-dark",
+    "duplicate-1366-ar-dark",
+    "empty-1366-ar-dark",
+    "error-1366-ar-dark",
+    "loading-1366-ar-dark",
+    "list-1366-en-light",
+    "editor-1366-en-light",
+    "duplicate-1366-en-light",
+    "empty-1366-en-light",
+    "error-1366-en-light",
+    "loading-1366-en-light",
+    "list-1366-en-dark",
+    "editor-1366-en-dark",
+    "duplicate-1366-en-dark",
+    "empty-1366-en-dark",
+    "error-1366-en-dark",
+    "loading-1366-en-dark"
+  ],
+  "exceptions": [],
+  "unknownApi": [],
+  "mockedWrites": [
+    {
+      "method": "POST",
+      "body": {
+        "code": "crp",
+        "labelAr": "البروتين المتفاعل",
+        "labelEn": "C Reactive Protein",
+        "priceSdg": "7500",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "11000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "status": "INACTIVE"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "10000",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "crp",
+        "labelAr": "البروتين المتفاعل",
+        "labelEn": "C Reactive Protein",
+        "priceSdg": "7500",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "11000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "status": "INACTIVE"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "10000",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "crp",
+        "labelAr": "البروتين المتفاعل",
+        "labelEn": "C Reactive Protein",
+        "priceSdg": "7500",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "11000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "status": "INACTIVE"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "10000",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "crp",
+        "labelAr": "البروتين المتفاعل",
+        "labelEn": "C Reactive Protein",
+        "priceSdg": "7500",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "11000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "status": "INACTIVE"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "10000",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "crp",
+        "labelAr": "البروتين المتفاعل",
+        "labelEn": "C Reactive Protein",
+        "priceSdg": "7500",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "11000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "status": "INACTIVE"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "10000",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "crp",
+        "labelAr": "البروتين المتفاعل",
+        "labelEn": "C Reactive Protein",
+        "priceSdg": "7500",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "11000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "status": "INACTIVE"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "10000",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "crp",
+        "labelAr": "البروتين المتفاعل",
+        "labelEn": "C Reactive Protein",
+        "priceSdg": "7500",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "11000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "status": "INACTIVE"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "10000",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "crp",
+        "labelAr": "البروتين المتفاعل",
+        "labelEn": "C Reactive Protein",
+        "priceSdg": "7500",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "11000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "status": "INACTIVE"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "10000",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "crp",
+        "labelAr": "البروتين المتفاعل",
+        "labelEn": "C Reactive Protein",
+        "priceSdg": "7500",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "11000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "status": "INACTIVE"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "10000",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "crp",
+        "labelAr": "البروتين المتفاعل",
+        "labelEn": "C Reactive Protein",
+        "priceSdg": "7500",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "11000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "status": "INACTIVE"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "10000",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "crp",
+        "labelAr": "البروتين المتفاعل",
+        "labelEn": "C Reactive Protein",
+        "priceSdg": "7500",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "11000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "status": "INACTIVE"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "10000",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "crp",
+        "labelAr": "البروتين المتفاعل",
+        "labelEn": "C Reactive Protein",
+        "priceSdg": "7500",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "11000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "status": "INACTIVE"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "10000",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "crp",
+        "labelAr": "البروتين المتفاعل",
+        "labelEn": "C Reactive Protein",
+        "priceSdg": "7500",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "11000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "status": "INACTIVE"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "10000",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "crp",
+        "labelAr": "البروتين المتفاعل",
+        "labelEn": "C Reactive Protein",
+        "priceSdg": "7500",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "11000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "status": "INACTIVE"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "10000",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "crp",
+        "labelAr": "البروتين المتفاعل",
+        "labelEn": "C Reactive Protein",
+        "priceSdg": "7500",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "11000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "status": "INACTIVE"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "10000",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "crp",
+        "labelAr": "البروتين المتفاعل",
+        "labelEn": "C Reactive Protein",
+        "priceSdg": "7500",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "11000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "method": "PATCH",
+      "body": {
+        "status": "INACTIVE"
+      }
+    },
+    {
+      "method": "POST",
+      "body": {
+        "code": "cbc",
+        "labelAr": "صورة دم كاملة",
+        "labelEn": "Complete Blood Count",
+        "priceSdg": "10000",
+        "status": "INACTIVE",
+        "category": "LABORATORY"
+      }
+    }
+  ]
+}

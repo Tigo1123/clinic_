@@ -65,6 +65,7 @@ export default function DoctorDashboard({ user, lang, t }) {
 
   // Lab services selectors
   const [clinicalServices, setClinicalServices] = useState([]);
+  const [labCatalogueState, setLabCatalogueState] = useState('loading');
   const [orderedTests, setOrderedTests] = useState([]);
   const [customTestName, setCustomTestName] = useState('');
   const [customTests, setCustomTests] = useState([]);
@@ -179,10 +180,10 @@ export default function DoctorDashboard({ user, lang, t }) {
       });
 
     apiRequest('/api/billing/services')
-      .then((data) => setClinicalServices(Array.isArray(data) ? data : []))
+      .then((data) => { setClinicalServices(Array.isArray(data) ? data : []); setLabCatalogueState('ready'); })
       .catch((err) => {
         console.error(err);
-        setClinicalServices([]);
+        setClinicalServices([]); setLabCatalogueState('error');
       });
   }, []);
 
@@ -1131,28 +1132,32 @@ export default function DoctorDashboard({ user, lang, t }) {
                         </span>
                       </div>
 
-                      {clinicalServices.filter((serviceItem) => serviceItem.category === 'LABORATORY' || serviceItem.category === 'RADIOLOGY').length > 4 && (
+                      {
                         <label className="doctor-lab-search">
                           <Search size={16} aria-hidden="true" />
                           <span className="sr-only">{lang === 'ar' ? 'البحث في الفحوصات' : 'Search tests'}</span>
                           <input type="search" value={labServiceSearch} onChange={(event) => setLabServiceSearch(event.target.value)} placeholder={lang === 'ar' ? 'ابحث عن فحص...' : 'Search tests...'} />
                         </label>
-                      )}
+                      }
+                      {labCatalogueState === 'loading' && <p role="status">{lang === 'ar' ? 'جارٍ تحميل الفحوص المعتمدة…' : 'Loading approved tests…'}</p>}
+                      {labCatalogueState === 'error' && <p role="alert">{lang === 'ar' ? 'تعذر تحميل الفحوص المعتمدة. أعد تحميل الصفحة.' : 'Unable to load approved tests. Reload the page.'}</p>}
+                      {labCatalogueState === 'ready' && !clinicalServices.some(item => item.category === 'LABORATORY') && <p>{lang === 'ar' ? 'لا توجد فحوص مخبرية معتمدة متاحة حالياً.' : 'No approved laboratory tests are currently available.'}</p>}
 
-                      {['LABORATORY', 'RADIOLOGY'].map((category) => {
+                      {['LABORATORY'].map((category) => {
                         const normalizedSearch = labServiceSearch.trim().toLocaleLowerCase();
                         const services = clinicalServices.filter((serviceItem) => {
                           if (serviceItem.category !== category) return false;
                           if (!normalizedSearch) return true;
-                          return [serviceItem.labelAr, serviceItem.labelEn].filter(Boolean).some((label) => label.toLocaleLowerCase().includes(normalizedSearch));
+                          return [serviceItem.code, serviceItem.labelAr, serviceItem.labelEn].filter(Boolean).some((label) => label.toLocaleLowerCase().includes(normalizedSearch));
                         });
-                        if (services.length === 0) return null;
+                        if (services.length === 0) return normalizedSearch ? <p key={category}>{lang === 'ar' ? 'لا توجد فحوص تطابق البحث.' : 'No tests match your search.'}</p> : null;
                         return <div className="doctor-lab-subsection" key={category}>
                           <h5>{category === 'LABORATORY' ? (lang === 'ar' ? 'الفحوصات المخبرية' : 'Laboratory tests') : (lang === 'ar' ? 'الأشعة' : 'Radiology')}</h5>
                           <div className="doctor-lab-service-grid">
                             {services.map((svc) => <label className={`doctor-lab-service-option ${orderedTests.includes(svc.id) ? 'is-selected' : ''}`} key={svc.id}>
                               <input type="checkbox" checked={orderedTests.includes(svc.id)} onChange={() => handleToggleTest(svc.id)} />
                               <span className="doctor-lab-service-copy"><strong>{lang === 'ar' ? svc.labelAr : svc.labelEn}</strong>{lang === 'ar' && svc.labelEn && <small>{svc.labelEn}</small>}{lang !== 'ar' && svc.labelAr && <small>{svc.labelAr}</small>}</span>
+                              <span className="doctor-lab-service-price"><bdi>{svc.code || ''}</bdi><small><bdi>{Number(svc.baseFeeSdg).toLocaleString(lang === 'ar' ? 'ar' : 'en')} SDG</bdi></small></span>
                               <span className="doctor-lab-checkmark" aria-hidden="true">{orderedTests.includes(svc.id) ? '✓' : ''}</span>
                             </label>)}
                           </div>
@@ -1161,7 +1166,7 @@ export default function DoctorDashboard({ user, lang, t }) {
 
                       {!isFinalizingVisit && <div className="doctor-custom-test-area">
                         <button type="button" className="doctor-custom-test-toggle" onClick={() => setShowCustomTestInput((visible) => !visible)} aria-expanded={showCustomTestInput}>
-                          + {lang === 'ar' ? 'إضافة فحص غير موجود في القائمة' : 'Add a test not in the catalogue'}
+                          + {lang === 'ar' ? 'فحص مخصص — يتطلب مراجعة المختبر' : 'Custom test — requires laboratory review'}
                         </button>
                         {showCustomTestInput && <div className="doctor-custom-test-form">
                           <input type="text" value={customTestName} onChange={(event) => setCustomTestName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); handleAddCustomTest(); } }} placeholder={lang === 'ar' ? 'مثال: CRP أو Thyroid Function Test' : 'Example: CRP or Thyroid Function Test'} aria-label={lang === 'ar' ? 'اسم الفحص المخصص' : 'Custom test name'} />

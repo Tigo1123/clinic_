@@ -294,3 +294,7 @@
   .doctor-dashboard .doctor-metric span:last-child { white-space: normal; }
   .doctor-dashboard .doctor-workflow-steps { grid-template-columns: 1fr; }
 }
+
+.doctor-lab-service-price { display: grid; gap: .15rem; margin-inline-start: auto; font-size: .75rem; color: var(--text-secondary); min-width: 0; max-width: 40%; overflow-wrap: anywhere; }
+.doctor-lab-service-price small { font-size: .72rem; color: var(--text-primary); }
+.doctor-lab-service-price + .doctor-lab-checkmark { margin-inline-start: 0; flex: 0 0 20px; }

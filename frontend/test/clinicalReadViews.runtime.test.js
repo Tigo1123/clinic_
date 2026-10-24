@@ -327,3 +327,27 @@ test('doctor can load and select appointment 51 without an unbounded queue reque
   await clickButton('Synthetic Patient 51');
   assert.equal(document.querySelector('#doctor-diagnosis').value, 'Synthetic diagnosis 51');
 });
+
+test('doctor catalogue search includes codes, shows SDG prices and sends service IDs without prices', async () => {
+  globalThis.doctorQueue = [appointment('catalog', { medicalRecordId: null })];
+  globalThis.doctorApiRequest = async () => [
+    { id: 'lab-cbc', code: 'cbc', labelAr: 'صورة دم كاملة', labelEn: 'Complete Blood Count', category: 'LABORATORY', baseFeeSdg: 10000 },
+    { id: 'radiology', code: 'xray', labelAr: 'أشعة', labelEn: 'X ray', category: 'RADIOLOGY', baseFeeSdg: 5000 }
+  ];
+  await render(h(doctorModule.default, { user: { doctorId: 'doctor-synthetic' }, lang: 'en', t: key => key }));
+  await clickButton('Synthetic Patient catalog');
+  assert.match(document.querySelector('.doctor-lab-order-card').textContent, /cbc/);
+  assert.match(document.querySelector('.doctor-lab-order-card').textContent, /10,000 SDG/);
+  assert.doesNotMatch(document.querySelector('.doctor-lab-order-card').textContent, /X ray/);
+  const search = document.querySelector('.doctor-lab-search input');
+  await act(async () => { Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(search, 'cbc'); search.dispatchEvent(new window.Event('input', { bubbles: true })); });
+  assert.equal(document.querySelectorAll('.doctor-lab-service-option').length, 1);
+  await act(async () => document.querySelector('.doctor-lab-service-option input').click());
+  assert.match(document.body.textContent, /Custom test/);
+  await clickButton('Send to Lab & Await Results');
+  const saved = doctorRequests.find(row => row.url === '/api/records');
+  assert.ok(saved);
+  const body = JSON.parse(saved.options.body);
+  assert.deepEqual(body.orderedServices, ['lab-cbc']);
+  assert.equal('baseFeeSdg' in body, false);
+});

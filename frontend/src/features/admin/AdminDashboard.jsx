@@ -181,6 +181,7 @@ export default function AdminDashboard({ user, lang, t }) {
           </button>
           <button className={`menu-btn ${activeTab === 'specialties' ? 'active' : ''}`} onClick={() => setActiveTab('specialties')}><Sliders size={18}/>{lang === 'ar' ? 'التخصصات' : 'Specialties'}</button>
           <button className={`menu-btn ${activeTab === 'clinic-setup' ? 'active' : ''}`} onClick={() => setActiveTab('clinic-setup')}><Sliders size={18}/>{lang === 'ar' ? 'الأطباء والكتالوجات' : 'Doctors & catalogs'}</button>
+          <button className={`menu-btn ${activeTab === 'laboratory-catalog' ? 'active' : ''}`} onClick={() => setActiveTab('laboratory-catalog')}><Sliders size={18}/>{lang === 'ar' ? 'الخدمات السريرية · فحوص المختبر' : 'Clinical services · Laboratory tests'}</button>
           <button className={`menu-btn ${activeTab === 'scheduling' ? 'active' : ''}`} onClick={() => setActiveTab('scheduling')}><CalendarDays size={18}/>{lang === 'ar' ? 'جداول الأطباء' : 'Doctor schedules'}</button>
           <button
             className={`menu-btn ${activeTab === 'analytics' ? 'active' : ''}`}
@@ -201,8 +202,8 @@ export default function AdminDashboard({ user, lang, t }) {
 
       {/* Main Panel Content */}
       <div className="workspace-panel">
-        {!['clinic-setup', 'scheduling', 'users'].includes(activeTab) && <RoleHero role="admin" lang={lang}/>}
-        {activeTab === 'clinic-setup' && <ClinicSetupPanel lang={lang} t={t}/>}
+        {!['clinic-setup', 'laboratory-catalog', 'scheduling', 'users'].includes(activeTab) && <RoleHero role="admin" lang={lang}/>}
+        {['clinic-setup', 'laboratory-catalog'].includes(activeTab) && <ClinicSetupPanel key={activeTab} initialTab={activeTab === 'laboratory-catalog' ? 'labs' : 'doctors'} lang={lang} t={t}/>}
         {activeTab === 'profile' && (
           <ClinicProfilePanel lang={lang} t={t} onNavigate={setActiveTab}/>
         )}

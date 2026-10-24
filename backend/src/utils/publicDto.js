@@ -39,6 +39,7 @@ export function toPublicBookingConfirmation(appointment) {
 
 export const publicClinicalServiceSelect = Object.freeze({
   id: true,
+  code: true,
   labelAr: true,
   labelEn: true,
   baseFeeSdg: true,
@@ -49,6 +50,7 @@ export const publicClinicalServiceSelect = Object.freeze({
 export function toPublicClinicalService(service) {
   return {
     id: service.id,
+    code: service.code,
     labelAr: service.labelAr,
     labelEn: service.labelEn,
     baseFeeSdg: service.baseFeeSdg,

@@ -3097,7 +3097,7 @@ test('public directory and catalog responses use allowlisted DTOs', async () => 
   assert.equal(services.body.some((item) => item.id === inactiveService.id), false);
   for (const item of services.body) {
     assert.deepEqual(Object.keys(item).sort(), [
-      'baseFeeSdg', 'baseFeeUsd', 'category', 'id', 'labelAr', 'labelEn'
+      'baseFeeSdg', 'baseFeeUsd', 'category', 'code', 'id', 'labelAr', 'labelEn'
     ]);
     assert.equal(Object.hasOwn(item, 'status'), false);
     assert.equal(Object.hasOwn(item, 'updatedAt'), false);

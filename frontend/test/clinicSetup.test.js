@@ -154,3 +154,49 @@ test('doctor configuration reaches doctor 61 through bounded server pages', asyn
   assert.match(document.querySelector('.clinic-setup-panel').textContent, /Paging doctor 61/);
   assert.deepEqual(pages, [1, 2, 3, 4, 5, 6]);
 });
+
+test('laboratory create normalizes the code, locks category and reports a successful save', async () => {
+  const writes = [];
+  await mount('en', 'labs', (url, options) => {
+    assert.ok(url.startsWith('/api/admin/catalog/laboratory-tests'));
+    if (options) { writes.push(JSON.parse(options.body)); return reply({ id: 'lab-test' }); }
+    return reply({ items: [], total: 0 });
+  });
+  assert.match(document.body.textContent, /Clinical services · Laboratory tests/);
+  assert.match(document.body.textContent, /No laboratory tests yet/);
+  await clickText('Add Test');
+  await fill('code', 'CBC'); await fill('labelAr', 'صورة دم كاملة'); await fill('labelEn', 'Complete Blood Count'); await fill('priceSdg', '10000');
+  assert.equal(document.querySelector('input[name=code]').value, 'cbc');
+  assert.equal(document.querySelector('select[name=category]'), null);
+  await submit(); assert.equal(writes.length, 0);
+  await clickText('Save', document.querySelectorAll('[role=dialog]')[1]);
+  assert.equal(writes[0].category, 'LABORATORY'); assert.equal(writes[0].code, 'cbc'); assert.equal(writes[0].priceSdg, '10000');
+  assert.match(document.body.textContent, /Changes saved/);
+});
+
+test('laboratory table shows both names, exact currency and status; deactivation requires confirmation', async () => {
+  let item = { id: 'lab-id', code: 'cbc', labelAr: 'صورة دم كاملة', labelEn: 'Complete Blood Count', category: 'LABORATORY', priceSdg: '10000', status: 'ACTIVE' };
+  const writes = [];
+  await mount('en', 'labs', (_url, options) => {
+    if (options) { writes.push(JSON.parse(options.body)); item = { ...item, ...writes.at(-1) }; return reply(item); }
+    return reply({ items: [item], total: 1 });
+  });
+  const table = document.querySelector('table');
+  assert.ok(table); assert.match(table.textContent, /صورة دم كاملة/); assert.match(table.textContent, /Complete Blood Count/); assert.match(table.textContent, /10,000 SDG/);
+  await clickText('Deactivate', table); assert.equal(writes.length, 0);
+  assert.match(document.querySelector('[role=dialog]').textContent, /Existing orders, results and invoice prices are preserved/);
+  await clickText('Confirm configuration change', document.querySelector('[role=dialog]'));
+  assert.deepEqual(writes, [{ status: 'INACTIVE' }]); assert.match(document.querySelector('table').textContent, /Inactive/);
+});
+
+test('laboratory duplicate errors retain entered values and unpriced activation opens the price form', async () => {
+  const item = { id: 'lab-id', code: null, labelAr: 'فحص مخصص', labelEn: 'Custom review test', category: 'LABORATORY', priceSdg: null, status: 'INACTIVE' };
+  await mount('en', 'labs', (_url, options) => options ? reply({ error: { code: 'CATALOG_DUPLICATE' } }, false) : reply({ items: [item], total: 1 }));
+  await clickText('Activate', document.querySelector('table'));
+  assert.ok(document.querySelector('input[name=priceSdg]'));
+  await fill('code', 'FBS'); await fill('priceSdg', '5000');
+  await submit(); await clickText('Save', document.querySelectorAll('[role=dialog]')[1]);
+  assert.match(document.querySelector('[role=alert]').textContent, /already exists/);
+  assert.equal(document.querySelector('input[name=code]').value, 'fbs');
+  assert.equal(document.querySelector('input[name=priceSdg]').value, '5000');
+});

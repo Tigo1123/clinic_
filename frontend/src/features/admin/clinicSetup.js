@@ -1,5 +1,6 @@
 export const clinicCopy = {
   en: {
+    labTitle: 'Clinical services · Laboratory tests', addTest: 'Add Test', actions: 'Actions', activate: 'Activate', deactivate: 'Deactivate', unpriced: 'Pricing required', emptyTests: 'No laboratory tests yet. Add the clinic’s approved tests to begin.', noTests: 'No tests match your search or status filter.', labStatusHelp: 'Inactive tests cannot be ordered for new visits. Existing orders, results and invoice prices are preserved.',
     title: 'Clinic setup', insurance: 'Insurance companies', insuranceHelp: 'Configure patient copay and covered service categories. Deactivation affects new invoices; historical claims keep their issued amounts.', doctors: 'Doctors', specialties: 'Specialties', services: 'Medical services', labs: 'Laboratory tests', payments: 'Payment methods',
     add: 'Add', edit: 'Edit', save: 'Save', cancel: 'Cancel', search: 'Search by name or code', empty: 'No entries yet. Add the clinic’s actual information to get started.',
     failed: 'Unable to load clinic configuration. Please retry.', saveFailed: 'Unable to save. Check the fields and try again.', retry: 'Retry', saved: 'Changes saved.',
@@ -14,6 +15,7 @@ export const clinicCopy = {
     CONSULTATION: 'Consultation', LABORATORY: 'Laboratory', RADIOLOGY: 'Radiology', CLINICAL_PROCEDURE: 'Clinical procedure',
   },
   ar: {
+    labTitle: 'الخدمات السريرية · فحوص المختبر', addTest: 'إضافة فحص', actions: 'الإجراءات', activate: 'تفعيل', deactivate: 'تعطيل', unpriced: 'يلزم تحديد السعر', emptyTests: 'لا توجد فحوص مخبرية بعد. أضف فحوص العيادة المعتمدة للبدء.', noTests: 'لا توجد فحوص تطابق البحث أو الحالة.', labStatusHelp: 'لا يمكن طلب الفحوص المعطلة للزيارات الجديدة. تبقى الطلبات والنتائج وأسعار الفواتير السابقة محفوظة.',
     title: 'إعداد العيادة', insurance: 'شركات التأمين', insuranceHelp: 'حدّد مساهمة المريض وفئات الخدمات المغطاة. يؤثر التعطيل على الفواتير الجديدة وتبقى مبالغ المطالبات السابقة محفوظة.', doctors: 'الأطباء', specialties: 'التخصصات', services: 'الخدمات الطبية', labs: 'فحوص المختبر', payments: 'طرق الدفع',
     add: 'إضافة', edit: 'تعديل', save: 'حفظ', cancel: 'إلغاء', search: 'البحث بالاسم أو الرمز', empty: 'لا توجد بيانات بعد. أضف البيانات الفعلية للعيادة للبدء.',
     failed: 'تعذر تحميل إعدادات العيادة. يرجى إعادة المحاولة.', saveFailed: 'تعذر الحفظ. تحقق من الحقول وحاول مجدداً.', retry: 'إعادة المحاولة', saved: 'تم حفظ التغييرات.',
@@ -37,5 +39,5 @@ export function setupPayload(resource, draft, editing) {
     const profile = { fullNameAr: draft.labelAr.trim(), fullNameEn: draft.labelEn.trim(), specialtyId: draft.specialtyId, consultationFee: Number(draft.priceSdg) };
     return editing ? { ...profile, status: draft.active ? 'ACTIVE' : 'INACTIVE' } : { ...profile, username: draft.username.trim(), password: draft.password, role: 'DOCTOR' };
   }
-  return { code: draft.code.trim(), labelAr: draft.labelAr.trim(), labelEn: draft.labelEn.trim(), priceSdg: draft.priceSdg, status: draft.active ? 'ACTIVE' : 'INACTIVE', ...(!editing ? { category: resource === 'labs' ? 'LABORATORY' : draft.category } : {}) };
+  return { code: draft.code.normalize('NFKC').trim().toLowerCase(), labelAr: draft.labelAr.trim(), labelEn: draft.labelEn.trim(), priceSdg: draft.priceSdg, status: draft.active ? 'ACTIVE' : 'INACTIVE', ...(!editing ? { category: resource === 'labs' ? 'LABORATORY' : draft.category } : {}) };
 }

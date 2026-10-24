@@ -1793,7 +1793,7 @@ router.post('/lab-order-items/:id/review', authenticate, allowRoles(ROLES.LAB_TE
   }
 
   const fail = (status, code, message) => Object.assign(new Error(message), { status, code });
-  const normalizeName = (value) => String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en');
+  const normalizeName = (value) => String(value || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
 
   try {
     const result = await prisma.$transaction(async (tx) => {
