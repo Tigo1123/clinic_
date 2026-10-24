@@ -52,6 +52,7 @@ export function validateEnvironment() {
   const staffMfaPolicy = process.env.STAFF_MFA_POLICY || (production ? 'required' : 'optional');
   const errors = [];
   const databaseUrl = process.env.DATABASE_URL;
+  const databaseProvider = process.env.DATABASE_PROVIDER || 'self-managed';
   const jwtSecret = process.env.JWT_SECRET;
   const encryptionKey = process.env.MEDICAL_ENCRYPTION_KEY;
   const mfaEncryptionKey = process.env.MFA_ENCRYPTION_KEY;
@@ -65,6 +66,7 @@ export function validateEnvironment() {
   try { facilityBranding = getFacilityBranding(); }
   catch (error) { errors.push(error.message); }
 
+  if (!['neon', 'self-managed'].includes(databaseProvider)) errors.push('DATABASE_PROVIDER must be neon or self-managed.');
   if (!databaseUrl || !/^postgres(?:ql)?:\/\//.test(databaseUrl)) errors.push('DATABASE_URL must be a valid PostgreSQL URL.');
   if (!['postgres', 'memory'].includes(rateLimitStore) || (production && rateLimitStore !== 'postgres')) {
     errors.push('RATE_LIMIT_STORE must be postgres in production; memory is allowed only outside production.');
@@ -93,8 +95,8 @@ export function validateEnvironment() {
     try {
       const runtimeUrl = new URL(databaseUrl);
       const runtimePool = Number(runtimeUrl.searchParams.get('connection_limit'));
-      if (!/-pooler\./i.test(runtimeUrl.hostname)) errors.push('Production DATABASE_URL must use the Neon pooled hostname.');
-      if (!/\.neon\.(?:tech|build)$/i.test(runtimeUrl.hostname)) errors.push('Production DATABASE_URL must target the reviewed Neon PostgreSQL service.');
+      if (databaseProvider === 'neon' && !/-pooler\./i.test(runtimeUrl.hostname)) errors.push('Production DATABASE_URL must use the Neon pooled hostname.');
+      if (databaseProvider === 'neon' && !/\.neon\.(?:tech|build)$/i.test(runtimeUrl.hostname)) errors.push('Production DATABASE_URL must target the reviewed Neon PostgreSQL service.');
       if (runtimeUrl.pathname !== '/neondb') errors.push('Production DATABASE_URL must target database neondb.');
       if ((runtimeUrl.searchParams.get('schema') || 'public') !== 'public') errors.push('Production DATABASE_URL must target schema public.');
       if (!['require', 'verify-full'].includes(runtimeUrl.searchParams.get('sslmode'))) errors.push('Production DATABASE_URL must require TLS with sslmode=require or verify-full.');
@@ -102,12 +104,12 @@ export function validateEnvironment() {
       const poolTimeout = Number(runtimeUrl.searchParams.get('pool_timeout'));
       if (!Number.isInteger(poolTimeout) || poolTimeout < 1 || poolTimeout > 60) errors.push('Production DATABASE_URL must set pool_timeout between 1 and 60 seconds.');
     } catch {
-      errors.push('Production DATABASE_URL must be a valid Neon pooled PostgreSQL URL.');
+      errors.push('Production DATABASE_URL must be a valid PostgreSQL URL.');
     }
     try {
       const listenerUrl = new URL(socketRevocationDatabaseUrl);
-      if (/pooler\./i.test(listenerUrl.hostname)) errors.push('SOCKET_REVOCATION_DATABASE_URL must use a direct, non-pooled Neon hostname.');
-      if (!/\.neon\.(?:tech|build)$/i.test(listenerUrl.hostname)) errors.push('SOCKET_REVOCATION_DATABASE_URL must target the reviewed Neon PostgreSQL service.');
+      if (databaseProvider === 'neon' && /pooler\./i.test(listenerUrl.hostname)) errors.push('SOCKET_REVOCATION_DATABASE_URL must use a direct, non-pooled Neon hostname.');
+      if (databaseProvider === 'neon' && !/\.neon\.(?:tech|build)$/i.test(listenerUrl.hostname)) errors.push('SOCKET_REVOCATION_DATABASE_URL must target the reviewed Neon PostgreSQL service.');
       if (listenerUrl.pathname !== '/neondb') errors.push('SOCKET_REVOCATION_DATABASE_URL must target database neondb.');
       if ((listenerUrl.searchParams.get('schema') || 'public') !== 'public') errors.push('SOCKET_REVOCATION_DATABASE_URL must target schema public.');
       if (!['require', 'verify-full'].includes(listenerUrl.searchParams.get('sslmode'))) errors.push('SOCKET_REVOCATION_DATABASE_URL must require TLS with sslmode=require or verify-full.');
@@ -137,6 +139,7 @@ export function validateEnvironment() {
   if (errors.length) throw new Error(`Invalid environment configuration:\n- ${[...new Set(errors)].join('\n- ')}`);
   return {
     production,
+    databaseProvider,
     staffMfaRequired: staffMfaPolicy === 'required',
     rateLimitStore,
     runtimeDatabaseRole,

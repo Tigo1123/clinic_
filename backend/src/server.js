@@ -27,6 +27,7 @@ import { logger } from './utils/logger.js';
 import { authenticateSocketAccessToken } from './middleware/auth.js';
 import { SocketRevocationService } from './services/socketRevocation.js';
 import { corsMiddleware, securityHeadersMiddleware } from './utils/edgeSecurity.js';
+import { productionDatabaseIdentityReady } from './utils/databaseReadiness.js';
 import { recordHttpRequest, renderMetrics } from './utils/observability.js';
 
 // Load environment configuration
@@ -110,12 +111,12 @@ app.get('/api/health/ready', async (req, res) => {
         (SELECT rolcreaterole FROM pg_roles WHERE rolname = current_user) AS can_create_roles,
         (SELECT rolcreatedb FROM pg_roles WHERE rolname = current_user) AS can_create_databases,
         CASE WHEN to_regclass('public."RateLimitBucket"') IS NULL THEN false
-          ELSE has_table_privilege(current_user, to_regclass('public."RateLimitBucket"'), 'SELECT,INSERT,UPDATE,DELETE') END AS limiter_table_access
+          ELSE has_table_privilege(current_user, to_regclass('public."RateLimitBucket"'), 'SELECT')
+          AND has_table_privilege(current_user, to_regclass('public."RateLimitBucket"'), 'INSERT')
+          AND has_table_privilege(current_user, to_regclass('public."RateLimitBucket"'), 'UPDATE')
+          AND has_table_privilege(current_user, to_regclass('public."RateLimitBucket"'), 'DELETE') END AS limiter_table_access
     `;
-    if (environment.production && (!identity?.limiter_table_access
-      || identity.database !== 'neondb' || identity.schema !== 'public'
-      || identity.role !== environment.runtimeDatabaseRole
-      || identity.superuser || identity.can_create_roles || identity.can_create_databases)) {
+    if (environment.production && !productionDatabaseIdentityReady(identity, environment)) {
       logger.warn('health.production_database_identity_or_limiter', {
         database: identity?.database ?? null,
         role: identity?.role ?? null,
@@ -127,6 +128,14 @@ app.get('/api/health/ready', async (req, res) => {
         canCreateDatabases: identity?.can_create_databases ?? null
       });
       return res.status(503).json({ status: 'unhealthy', dependency: 'production_database_identity_or_limiter' });
+    }
+    if (environment.production && environment.databaseProvider === 'neon'
+        && (identity.can_create_roles || identity.can_create_databases)) {
+      logger.info('health.neon_managed_role_capabilities', {
+        role: identity.role,
+        canCreateRoles: identity.can_create_roles,
+        canCreateDatabases: identity.can_create_databases
+      });
     }
     if (!socketRevocation.isReady()) return res.status(503).json({ status: 'unhealthy' });
     return res.json({ status: 'healthy' });
