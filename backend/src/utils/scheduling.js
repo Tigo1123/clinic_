@@ -15,6 +15,7 @@ export async function lockDoctorScheduleRows(tx, doctorIds) {
   }
   return locked.size === new Set(doctorIds).size;
 }
+const WEEKDAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
 const DAY_MAP = Object.freeze({ Sunday: 'SUNDAY', Monday: 'MONDAY', Tuesday: 'TUESDAY', Wednesday: 'WEDNESDAY', Thursday: 'THURSDAY', Friday: 'FRIDAY', Saturday: 'SATURDAY' });
 const validDate = (date) => { const parsed = DateTime.fromISO(date, { zone: clinicTimeZone() }); return DATE_PATTERN.test(String(date)) && parsed.isValid && parsed.toISODate() === date; };
 const minutes = (value) => Number(value.slice(0, 2)) * 60 + Number(value.slice(3));
@@ -24,7 +25,7 @@ function legacyPeriods(doctor, date) {
   let schedule;
   try { schedule = JSON.parse(doctor.weeklySchedule || '[]'); } catch { diagnostic('MALFORMED_WEEKLY_SCHEDULE', { doctorId: doctor.id }); return []; }
   if (!Array.isArray(schedule)) { diagnostic('AMBIGUOUS_WEEKLY_SCHEDULE', { doctorId: doctor.id }); return []; }
-  const day = DAY_MAP[DateTime.fromISO(date, { zone: clinicTimeZone() }).toFormat('cccc')];
+  const day = WEEKDAYS[DateTime.fromISO(date, { zone: clinicTimeZone() }).weekday % 7];
   const entries = schedule.filter((item) => item?.day && DAY_MAP[String(item.day)] === day);
   if (entries.length > 1) { diagnostic('DUPLICATE_WEEKDAY', { doctorId: doctor.id, day }); return []; }
   const item = entries[0];
@@ -54,13 +55,13 @@ export async function getEffectiveSchedule(doctorId, date, { client = prisma, ig
     return { normalized: false, periods: doctor ? legacyPeriods(doctor, date) : [] };
   }
   if (schedules.length !== 1) { diagnostic('OVERLAPPING_EFFECTIVE_SCHEDULES', { doctorId, date }); return { normalized: true, periods: [] }; }
-  const day = DAY_MAP[DateTime.fromISO(date, { zone: clinicTimeZone() }).toFormat('cccc')];
+  const day = WEEKDAYS[DateTime.fromISO(date, { zone: clinicTimeZone() }).weekday % 7];
   return { normalized: true, periods: schedules[0].periods.filter((period) => period.dayOfWeek === day) };
 }
 
-function generatePeriods(periods, date, now = DateTime.now().setZone(clinicTimeZone())) {
+export function generateScheduleSlots(periods, date, now = null) {
   const slots = [];
-  for (const period of periods) {
+  for (const period of periods.filter(item => item.active !== false)) {
     if (!TIME_PATTERN.test(period.startTime) || !TIME_PATTERN.test(period.endTime) || minutes(period.startTime) >= minutes(period.endTime)) continue;
     const duration = Number(period.slotDurationMinutes);
     if (!Number.isInteger(duration) || duration <= 0 || duration > 1440) continue;
@@ -68,8 +69,13 @@ function generatePeriods(periods, date, now = DateTime.now().setZone(clinicTimeZ
       const hhmm = `${String(Math.floor(current / 60)).padStart(2, '0')}:${String(current % 60).padStart(2, '0')}`;
       const start = DateTime.fromISO(`${date}T${hhmm}`, { zone: clinicTimeZone() });
       const end = start.plus({ minutes: duration });
-      if (date === now.toISODate() && start <= now) continue;
-      const overlapsBreak = (period.breaks || []).some((br) => TIME_PATTERN.test(br.startTime) && TIME_PATTERN.test(br.endTime) && start < DateTime.fromISO(`${date}T${br.endTime}`, { zone: clinicTimeZone() }) && end > DateTime.fromISO(`${date}T${br.startTime}`, { zone: clinicTimeZone() }));
+      const endMinutes = current + duration;
+      const endClock = `${String(Math.floor(endMinutes / 60)).padStart(2, '0')}:${String(endMinutes % 60).padStart(2, '0')}`;
+      // Slot keys store clinic wall time without an offset. Never advertise
+      // nonexistent/ambiguous DST times or intervals crossing an offset change.
+      if (start.toFormat('HH:mm') !== hhmm || start.getPossibleOffsets().length !== 1 || end.toISODate() !== date || end.toFormat('HH:mm') !== endClock || end.getPossibleOffsets().length !== 1) continue;
+      if (now && date === now.toISODate() && start <= now) continue;
+      const overlapsBreak = (period.breaks || []).some(br => br.active !== false && TIME_PATTERN.test(br.startTime) && TIME_PATTERN.test(br.endTime) && current < minutes(br.endTime) && endMinutes > minutes(br.startTime));
       if (!overlapsBreak) slots.push(hhmm);
     }
   }
@@ -77,11 +83,12 @@ function generatePeriods(periods, date, now = DateTime.now().setZone(clinicTimeZ
 }
 
 export async function getConfiguredSlots(doctor, date, now = DateTime.now().setZone(clinicTimeZone()), client = prisma) {
+  now = now.setZone(clinicTimeZone());
   if (!doctor || doctor.status !== 'ACTIVE' || !validDate(date) || date < todayString(now.toJSDate())) return [];
   const eligible = await client.doctor.findFirst({ where: { id: doctor.id, status: 'ACTIVE', user: { status: 'ACTIVE' }, OR: [{ specialtyId: null }, { specialty: { active: true } }] }, select: { id: true } });
   if (!eligible) return [];
   const effective = await getEffectiveSchedule(doctor.id, date, { client });
-  return effective ? generatePeriods(effective.periods, date, now) : [];
+  return effective ? generateScheduleSlots(effective.periods, date, now) : [];
 }
 
 export async function getAvailableSlots(doctor, date, now) {

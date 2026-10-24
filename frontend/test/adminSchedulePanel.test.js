@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { selectScheduleVersion } from '../src/features/admin/scheduleVersion.js';
+import { nextScheduleDate, selectScheduleVersion } from '../src/features/admin/scheduleVersion.js';
 
 const panel = readFileSync(new URL('../src/features/admin/AdminSchedulePanel.jsx', import.meta.url), 'utf8');
 const dashboard = readFileSync(new URL('../src/features/admin/AdminDashboard.jsx', import.meta.url), 'utf8');
@@ -52,4 +52,22 @@ test('schedule management has centralized bilingual labels and responsive presen
   assert.match(styles, /@media \(max-width: 700px\)/);
   assert.match(panel, /role="alert"/);
   assert.match(panel, /role="status"/);
+});
+
+test('next effective date is calendar arithmetic independent of browser/clinic timezone, including UTC+14', () => {
+  for (const zone of ['UTC', 'Pacific/Kiritimati', 'Pacific/Pago_Pago', 'America/Los_Angeles']) {
+    const original = process.env.TZ;
+    try {
+      process.env.TZ = zone;
+      assert.equal(nextScheduleDate('2026-12-31'), '2027-01-01');
+      assert.equal(nextScheduleDate('2028-02-28'), '2028-02-29');
+      assert.equal(nextScheduleDate('2026-03-08'), '2026-03-09');
+    } finally { if (original === undefined) delete process.env.TZ; else process.env.TZ = original; }
+  }
+});
+
+test('an inactive version remains available for editing when there are no active versions', () => {
+  assert.deepEqual(selectScheduleVersion([{ id: 'off', active: false, effectiveFrom: '2190-01-01' }], '2026-01-01'), {
+    schedule: { id: 'off', active: false, effectiveFrom: '2190-01-01' }, kind: 'inactive'
+  });
 });

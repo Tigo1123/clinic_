@@ -12,11 +12,12 @@ try {
  await writeFile(page, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module">
  import '../src/index.css'; import '../src/App.css'; import '../src/components/ui/ui.css';
  import React from 'react'; import { createRoot } from 'react-dom/client'; import Panel from '../src/features/admin/AdminSchedulePanel.jsx';
+ import i18n from '../src/i18n.js';
  const original = window.fetch; window.saved = {}; window.mutations = [];
  window.fetch = async (url, options = {}) => {
   const reply = (data, status = 200) => new Response(JSON.stringify(data), { status });
   if (url.endsWith('/api/public-config')) return reply({ clinicTimeZone: 'Africa/Khartoum' });
-  if (url.endsWith('/api/appointments/doctors')) return reply([{ id:'A', fullNameEn:'Doctor A' }, { id:'B', fullNameEn:'Doctor B' }]);
+  if (url.includes('/api/admin/doctors?')) return reply([{ id:'A', fullNameEn:'Doctor A', fullNameAr:'طبيب أ' }, { id:'B', fullNameEn:'Doctor B', fullNameAr:'طبيب ب' }]);
   const match = url.match(/\\/api\\/admin\\/doctors\\/(A|B)\\/(schedules|schedule-exceptions)/);
   if (!match) return original(url, options);
   const [, id, kind] = match;
@@ -26,7 +27,10 @@ try {
   for (let i=0; i<data.periods.length; i++) for (let j=0; j<i; j++) { const a=data.periods[i], b=data.periods[j]; if(a.active && b.active && a.dayOfWeek===b.dayOfWeek && a.startTime<b.endTime && b.startTime<a.endTime) return reply({error:{message:a.dayOfWeek+': '+a.startTime+'–'+a.endTime+' overlaps '+b.startTime+'–'+b.endTime}},422); }
   window.saved[id] = { ...data, id:'schedule-'+id }; return reply(window.saved[id]);
  };
- createRoot(document.getElementById('root')).render(React.createElement(Panel));
+ const root = createRoot(document.getElementById('root'));
+ const t = i18n.t.bind(i18n);
+ window.setScheduleLanguage = async lang => { await i18n.changeLanguage(lang); document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr'; root.render(React.createElement(Panel, { t, lang })); };
+ await window.setScheduleLanguage('en');
  </script></body></html>`);
  server = await createServer({ server: { host:'127.0.0.1', port:5189, strictPort:true }, logLevel:'error' }); await server.listen();
  chrome = spawn('/opt/google/chrome/chrome', ['--headless=new','--no-sandbox','--disable-gpu','--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'], { stdio:'ignore' }); chrome.on('error',()=>{});
@@ -60,6 +64,10 @@ try {
  assert.equal(await evaluate(`innerWidth`),390);
  assert.equal(await evaluate(`document.documentElement.scrollWidth<=innerWidth`),true);
  const shot=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});await writeFile(profile+'/schedule.png',Buffer.from(shot.data,'base64'));
+ await evaluate(`window.setScheduleLanguage('ar')`); await ready(); await pause(150);
+ assert.equal(await evaluate(`document.documentElement.dir`),'rtl');
+ assert.equal(await evaluate(`document.documentElement.scrollWidth<=innerWidth`),true);
+ const rtlShot=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});await writeFile(profile+'/schedule-rtl.png',Buffer.from(rtlShot.data,'base64'));
  assert.deepEqual(errors,[]);
- console.log(JSON.stringify({passed:['seven weekdays','overlap message and preserved input','multi-day save and reload','repeat edit uses PUT','doctor switching','mobile width','no browser exceptions'],api:'controlled fixture',screenshot:profile+'/schedule.png'},null,2));
+ console.log(JSON.stringify({passed:['seven weekdays','overlap message and preserved input','multi-day save and reload','repeat edit uses PUT','doctor switching','mobile width','Arabic RTL mobile','no browser exceptions'],api:'controlled fixture',screenshots:[profile+'/schedule.png',profile+'/schedule-rtl.png']},null,2));
 } finally { socket?.close();chrome?.kill();await server?.close();await unlink(page).catch(()=>{}); }

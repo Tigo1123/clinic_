@@ -5,5 +5,13 @@ export function selectScheduleVersion(schedules, today, { preferFuture = false }
   if (current && !(preferFuture && future)) return { schedule: current, kind: 'current' };
   if (future) return { schedule: future, kind: 'future' };
   const historical = active.sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))[0];
-  return { schedule: historical || null, kind: historical ? 'historical' : 'empty' };
+  if (historical) return { schedule: historical, kind: 'historical' };
+  const inactive = [...(Array.isArray(schedules) ? schedules : [])].sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))[0];
+  return { schedule: inactive || null, kind: inactive ? 'inactive' : 'empty' };
+}
+
+// Add clinic calendar dates without converting UTC noon through another timezone.
+export function nextScheduleDate(date) {
+  const [year, month, day] = date.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
 }

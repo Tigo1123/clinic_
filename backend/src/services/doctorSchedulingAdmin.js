@@ -1,12 +1,11 @@
 import prisma from '../db.js';
 import { DateTime } from 'luxon';
 import { clinicTimeZone, getClinicDateString } from '../utils/clinicTime.js';
-import { DATE_PATTERN, TIME_PATTERN, OCCUPYING_APPOINTMENT_STATUSES, getAvailableSlots, getEffectiveSchedule } from '../utils/scheduling.js';
+import { DATE_PATTERN, TIME_PATTERN, OCCUPYING_APPOINTMENT_STATUSES, generateScheduleSlots, getAvailableSlots, getEffectiveSchedule } from '../utils/scheduling.js';
 
 export class ScheduleDomainError extends Error { constructor(code, message, status = 422, details) { super(message); this.code = code; this.status = status; this.details = details; } }
 const minutes = (v) => Number(v.slice(0, 2)) * 60 + Number(v.slice(3));
 const validDate = (v) => DATE_PATTERN.test(v) && DateTime.fromISO(v, { zone: clinicTimeZone() }).isValid;
-const dateInRange = (date, from, to) => date >= from && (!to || date <= to);
 const overlap = (a, b, c, d) => a < d && c < b;
 const future = (date, time) => DateTime.fromISO(`${date}T${time}`, { zone: clinicTimeZone() }) > DateTime.now().setZone(clinicTimeZone());
 const previousDate = (date) => DateTime.fromISO(date, { zone: clinicTimeZone() }).minus({ days: 1 }).toISODate();
@@ -15,7 +14,7 @@ function validatePeriods(periods = [], exception = false) {
   const seen = new Map();
   for (const period of periods.filter((p) => p.active !== false)) {
     if (!exception && !['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'].includes(period.dayOfWeek)) throw new ScheduleDomainError('SCHEDULE_INVALID_PERIOD', 'Invalid weekday.');
-    if (!TIME_PATTERN.test(period.startTime) || !TIME_PATTERN.test(period.endTime) || minutes(period.startTime) >= minutes(period.endTime) || !Number.isInteger(period.slotDurationMinutes) || period.slotDurationMinutes < 1 || period.slotDurationMinutes > 1440) throw new ScheduleDomainError('SCHEDULE_INVALID_PERIOD', 'Invalid period time or duration.');
+    if (!TIME_PATTERN.test(period.startTime) || !TIME_PATTERN.test(period.endTime) || minutes(period.startTime) >= minutes(period.endTime) || !Number.isInteger(period.slotDurationMinutes) || period.slotDurationMinutes < 1 || period.slotDurationMinutes > minutes(period.endTime) - minutes(period.startTime)) throw new ScheduleDomainError('SCHEDULE_INVALID_PERIOD', 'Invalid period time or duration.');
     const key = exception ? 'all' : period.dayOfWeek;
     const list = seen.get(key) || [];
     const conflict = list.find((x) => overlap(minutes(x.startTime), minutes(x.endTime), minutes(period.startTime), minutes(period.endTime)));
@@ -33,12 +32,7 @@ function validatePeriods(periods = [], exception = false) {
 
 function slotsForDate(periods, date, exception = false) {
   const day = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'][DateTime.fromISO(date, { zone: clinicTimeZone() }).weekday % 7];
-  const result = [];
-  for (const p of periods.filter((x) => x.active !== false && (exception || x.dayOfWeek === day))) for (let m = minutes(p.startTime); m + p.slotDurationMinutes <= minutes(p.endTime); m += p.slotDurationMinutes) {
-    const end = m + p.slotDurationMinutes;
-    if (!(p.breaks || []).filter((b) => b.active !== false).some((b) => overlap(m, end, minutes(b.startTime), minutes(b.endTime)))) result.push(`${String(Math.floor(m / 60)).padStart(2,'0')}:${String(m % 60).padStart(2,'0')}`);
-  }
-  return result;
+  return generateScheduleSlots(periods.filter(x => x.active !== false && (exception || x.dayOfWeek === day)), date);
 }
 
 async function lockDoctor(tx, doctorId) {
@@ -46,12 +40,6 @@ async function lockDoctor(tx, doctorId) {
   const doctor = await tx.doctor.findUnique({ where: { id: doctorId } });
   if (!doctor) throw new ScheduleDomainError('DOCTOR_NOT_FOUND', 'Doctor not found.', 404);
   return doctor;
-}
-
-async function ensureNoFutureConflicts(tx, doctorId, periods, from, to, exception = false) {
-  const appointments = await tx.appointment.findMany({ where: { doctorId, appointmentDate: { gte: from, ...(to ? { lte: to } : {}) }, status: { in: OCCUPYING_APPOINTMENT_STATUSES } }, select: { id: true, appointmentDate: true, appointmentTime: true } });
-  const invalid = appointments.filter((a) => future(a.appointmentDate, a.appointmentTime) && !slotsForDate(periods, a.appointmentDate, exception).includes(a.appointmentTime));
-  if (invalid.length) throw new ScheduleDomainError('SCHEDULE_FUTURE_APPOINTMENT_CONFLICT', 'Schedule change conflicts with future appointments.', 409, invalid.map(({ id, appointmentDate, appointmentTime }) => ({ appointmentId: id, appointmentDate, appointmentTime })));
 }
 
 function durationOfExistingSlot(periods, date, time) {
@@ -66,11 +54,11 @@ function durationOfExistingSlot(periods, date, time) {
   return null;
 }
 
-async function ensureExistingAppointmentIntervalsFitEffectiveSchedule(tx, doctorId, appointments, options = {}) {
+async function ensureExistingAppointmentIntervalsFitEffectiveSchedule(tx, doctorId, appointments, options = {}, beforeDurations = null) {
   for (const appointment of appointments) {
     if (!future(appointment.appointmentDate, appointment.appointmentTime)) continue;
-    const before = await getEffectiveSchedule(doctorId, appointment.appointmentDate, { client: tx });
-    const duration = durationOfExistingSlot(before?.periods || [], appointment.appointmentDate, appointment.appointmentTime);
+    const before = beforeDurations ? null : await getEffectiveSchedule(doctorId, appointment.appointmentDate, { client: tx });
+    const duration = beforeDurations ? beforeDurations.get(`${appointment.appointmentDate}/${appointment.appointmentTime}`) : durationOfExistingSlot(before?.periods || [], appointment.appointmentDate, appointment.appointmentTime);
     if (!duration) continue; // Appointment rows contain no historical duration to infer.
     const after = await getEffectiveSchedule(doctorId, appointment.appointmentDate, { client: tx, ...options });
     const start = minutes(appointment.appointmentTime);
@@ -78,28 +66,6 @@ async function ensureExistingAppointmentIntervalsFitEffectiveSchedule(tx, doctor
     const covered = (after?.periods || []).some((period) => Number(period.slotDurationMinutes) >= duration && minutes(period.startTime) <= start && minutes(period.endTime) >= end
       && !(period.breaks || []).filter((br) => br.active !== false).some((br) => overlap(start, end, minutes(br.startTime), minutes(br.endTime))));
     if (!covered) throw new ScheduleDomainError('SCHEDULE_FUTURE_APPOINTMENT_CONFLICT', 'Schedule change conflicts with future appointments.', 409, [{ appointmentDate: appointment.appointmentDate, appointmentTime: appointment.appointmentTime }]);
-  }
-}
-
-async function ensureReplacementPreservesExistingCoverage(tx, doctorId, existing, payload) {
-  if (!existing?.active || payload.active === false) return;
-  const appointments = await tx.appointment.findMany({
-    where: { doctorId, appointmentDate: { gte: payload.effectiveFrom, ...(payload.effectiveTo ? { lte: payload.effectiveTo } : {}) }, status: { in: OCCUPYING_APPOINTMENT_STATUSES } },
-    select: { appointmentDate: true, appointmentTime: true }
-  });
-  for (const appointment of appointments) {
-    if (!future(appointment.appointmentDate, appointment.appointmentTime)) continue;
-    const activeException = await tx.doctorScheduleException.findFirst({ where: { doctorId, date: appointment.appointmentDate, active: true }, select: { id: true } });
-    if (activeException) continue;
-    const oldEffective = await getEffectiveSchedule(doctorId, appointment.appointmentDate, { client: tx });
-    const duration = durationOfExistingSlot(oldEffective?.periods || [], appointment.appointmentDate, appointment.appointmentTime);
-    if (!duration) continue; // Appointment rows contain no historical duration to infer.
-    const start = minutes(appointment.appointmentTime);
-    const day = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'][DateTime.fromISO(appointment.appointmentDate, { zone: clinicTimeZone() }).weekday % 7];
-    const remainsCovered = payload.periods.some((period) => period.active !== false && period.dayOfWeek === day && period.slotDurationMinutes >= duration
-      && minutes(period.startTime) <= start && minutes(period.endTime) >= start + duration
-      && !(period.breaks || []).filter((br) => br.active !== false).some((br) => overlap(start, start + duration, minutes(br.startTime), minutes(br.endTime))));
-    if (!remainsCovered) throw new ScheduleDomainError('SCHEDULE_FUTURE_APPOINTMENT_CONFLICT', 'Schedule change conflicts with future appointments.', 409, [{ appointmentDate: appointment.appointmentDate, appointmentTime: appointment.appointmentTime }]);
   }
 }
 
@@ -131,25 +97,46 @@ export async function replaceSchedule(req, doctorId, payload, scheduleId = null)
   const today = getClinicDateString();
   if (!validDate(payload.effectiveFrom) || (payload.effectiveTo && !validDate(payload.effectiveTo)) || (payload.effectiveTo && payload.effectiveTo < payload.effectiveFrom)) throw new ScheduleDomainError('SCHEDULE_INVALID_PERIOD', 'Invalid effective date range.');
   validatePeriods(payload.periods);
+  if (payload.active !== false && !payload.periods.some(period => period.active !== false)) throw new ScheduleDomainError('SCHEDULE_INVALID_PERIOD', 'An active schedule requires a working period.');
   return prisma.$transaction(async (tx) => {
     await lockDoctor(tx, doctorId);
     const active = await tx.doctorSchedule.findMany({ where: { doctorId, active: true } });
     const existing = scheduleId ? await tx.doctorSchedule.findFirst({ where: { id: scheduleId, doctorId }, include: { periods: { include: { breaks: true } } } }) : null;
     if (scheduleId && !existing) throw new ScheduleDomainError('SCHEDULE_NOT_FOUND', 'Schedule not found.', 404);
-    if (existing && existing.effectiveFrom <= today && payload.effectiveFrom < today) throw new ScheduleDomainError('SCHEDULE_CURRENT_IMMUTABLE', 'Effective schedules must be replaced from tomorrow.', 409);
-    if (existing && existing.effectiveFrom <= today && payload.effectiveFrom < getClinicDateString(DateTime.now().setZone(clinicTimeZone()).plus({ days: 1 }).toJSDate())) throw new ScheduleDomainError('SCHEDULE_CURRENT_IMMUTABLE', 'Current schedules require a tomorrow-or-later replacement.', 409);
-    if (!existing && payload.effectiveFrom > today) {
-      const current = active.find((s) => s.effectiveFrom <= today && (!s.effectiveTo || s.effectiveTo >= today));
-      if (current) await tx.doctorSchedule.update({ where: { id: current.id }, data: { effectiveTo: previousDate(payload.effectiveFrom) } });
+    if (existing && existing.effectiveFrom <= today) throw new ScheduleDomainError('SCHEDULE_CURRENT_IMMUTABLE', 'Started schedules must be preserved; create a tomorrow-or-later replacement.', 409);
+    const current = !existing && payload.active !== false && payload.effectiveFrom > today
+      ? active.find(s => s.effectiveFrom <= today && (!s.effectiveTo || s.effectiveTo >= today)) : null;
+    const affected = [payload, existing, current].filter(Boolean);
+    // Include the old range as well as the new one: moving/shrinking dates or
+    // deactivating a version must not silently strand a confirmed booking.
+    const firstNormalized = !existing && !(await tx.doctorSchedule.count({ where: { doctorId } }));
+    const from = firstNormalized ? today : [today, affected.map(s => s.effectiveFrom).sort()[0]].sort().at(-1);
+    const to = firstNormalized || affected.some(s => !s.effectiveTo) ? null : affected.map(s => s.effectiveTo).sort().at(-1);
+    const appointments = await tx.appointment.findMany({
+      where: { doctorId, appointmentDate: { gte: from, ...(to ? { lte: to } : {}) }, status: { in: OCCUPYING_APPOINTMENT_STATUSES } },
+      select: { appointmentDate: true, appointmentTime: true }
+    });
+    const beforeDurations = new Map();
+    const beforeByDate = new Map();
+    for (const appointment of appointments) {
+      if (!beforeByDate.has(appointment.appointmentDate)) beforeByDate.set(appointment.appointmentDate, await getEffectiveSchedule(doctorId, appointment.appointmentDate, { client: tx }));
+      beforeDurations.set(`${appointment.appointmentDate}/${appointment.appointmentTime}`, durationOfExistingSlot(beforeByDate.get(appointment.appointmentDate)?.periods || [], appointment.appointmentDate, appointment.appointmentTime));
     }
-    const remaining = await tx.doctorSchedule.findMany({ where: { doctorId, active: true, id: { not: scheduleId || undefined } } });
-    if (remaining.some((s) => s.effectiveFrom <= (payload.effectiveTo || '9999-12-31') && (s.effectiveTo || '9999-12-31') >= payload.effectiveFrom)) throw new ScheduleDomainError('SCHEDULE_VERSION_OVERLAP', 'Active schedule versions overlap.', 409);
-    await ensureReplacementPreservesExistingCoverage(tx, doctorId, existing, payload);
-    await ensureNoFutureConflicts(tx, doctorId, payload.periods, payload.effectiveFrom, payload.effectiveTo);
+    if (current && (!current.effectiveTo || current.effectiveTo >= payload.effectiveFrom)) {
+      await tx.doctorSchedule.update({ where: { id: current.id }, data: { effectiveTo: previousDate(payload.effectiveFrom) } });
+    }
+    if (payload.active !== false) {
+      const remaining = await tx.doctorSchedule.findMany({ where: { doctorId, active: true, id: { not: scheduleId || undefined } } });
+      if (remaining.some(s => s.effectiveFrom <= (payload.effectiveTo || '9999-12-31') && (s.effectiveTo || '9999-12-31') >= payload.effectiveFrom)) throw new ScheduleDomainError('SCHEDULE_VERSION_OVERLAP', 'Active schedule versions overlap.', 409);
+    }
     let result;
     if (existing) {
       result = await tx.doctorSchedule.update({ where: { id: existing.id }, data: { effectiveFrom: payload.effectiveFrom, effectiveTo: payload.effectiveTo || null, active: payload.active !== false, periods: { deleteMany: {}, create: payload.periods.map((p) => ({ dayOfWeek: p.dayOfWeek, startTime: p.startTime, endTime: p.endTime, slotDurationMinutes: p.slotDurationMinutes, active: p.active !== false, breaks: { create: (p.breaks || []).map((b) => ({ startTime: b.startTime, endTime: b.endTime, active: b.active !== false })) } })) } }, include: { periods: { include: { breaks: true } } } });
     } else result = await tx.doctorSchedule.create({ data: { doctorId, effectiveFrom: payload.effectiveFrom, effectiveTo: payload.effectiveTo || null, active: payload.active !== false, periods: { create: payload.periods.map((p) => ({ dayOfWeek: p.dayOfWeek, startTime: p.startTime, endTime: p.endTime, slotDurationMinutes: p.slotDurationMinutes, active: p.active !== false, breaks: { create: (p.breaks || []).map((b) => ({ startTime: b.startTime, endTime: b.endTime, active: b.active !== false })) } })) } }, include: { periods: { include: { breaks: true } } } });
+    // Validate the resulting effective schedule, including active exceptions.
+    // These checks run before commit and roll back the entire edit on conflict.
+    await ensureAppointmentsFitEffectiveSchedule(tx, doctorId, appointments);
+    await ensureExistingAppointmentIntervalsFitEffectiveSchedule(tx, doctorId, appointments, {}, beforeDurations);
     await audit(tx, req, existing ? 'DOCTOR_SCHEDULE_UPDATED' : 'DOCTOR_SCHEDULE_CREATED', { doctorId, scheduleId: result.id, effectiveFrom: result.effectiveFrom, effectiveTo: result.effectiveTo, active: result.active });
     return result;
   });
@@ -168,6 +155,10 @@ export async function setScheduleStatus(req, doctorId, scheduleId, active) {
       if (others.some((o) => o.effectiveFrom <= (schedule.effectiveTo || '9999-12-31') && (o.effectiveTo || '9999-12-31') >= schedule.effectiveFrom)) {
         throw new ScheduleDomainError('SCHEDULE_VERSION_OVERLAP', 'Active schedule versions overlap.', 409);
       }
+    }
+    if (active) {
+      validatePeriods(schedule.periods);
+      if (!schedule.periods.length) throw new ScheduleDomainError('SCHEDULE_INVALID_PERIOD', 'An active schedule requires a working period.');
     }
     const today = getClinicDateString();
     const from = schedule.effectiveFrom > today ? schedule.effectiveFrom : today;

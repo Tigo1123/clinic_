@@ -20,3 +20,6 @@
 @media (max-width: 700px) { .admin-period-grid { grid-template-columns:1fr; } .admin-break { grid-template-columns:1fr 1fr auto; } .admin-exception { align-items:flex-start; flex-direction:column; } }
 
 .admin-schedule-editor { border: 0; padding: 0; margin: 0; min-width: 0; }
+.admin-schedule-version label { min-width: 0; }
+.admin-schedule-panel .form-input { min-width: 0; }
+.admin-break { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }

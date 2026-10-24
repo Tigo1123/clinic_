@@ -89,7 +89,7 @@ test('future appointment conflicts still reject replacement atomically', async (
  const patient = await prisma.patient.create({ data: { fullNameAr: 'اختبار', fullNameEn: 'Workflow test', gender: 'MALE', dateOfBirth: '1990-01-01', phone: '+250788000001', addressStateId: state.id, emergencyContact: 'Test' } });
  await prisma.appointment.create({ data: { patientId: patient.id, doctorId: doctor.id, appointmentDate: '2190-01-04', appointmentTime: '09:00', status: 'SCHEDULED' } });
  const auditBefore = await prisma.tenantAuditLog.count();
- const rejected = await auth(request(app).put(`/api/admin/doctors/${doctor.id}/schedules/${created.body.id}`)).send({ ...base, periods: [] });
+ const rejected = await auth(request(app).put(`/api/admin/doctors/${doctor.id}/schedules/${created.body.id}`)).send({ ...base, periods: [{ ...basePeriod, startTime: '14:00', endTime: '16:00' }] });
  assert.equal(rejected.status, 409); assert.equal(rejected.body.error.code, 'SCHEDULE_FUTURE_APPOINTMENT_CONFLICT');
  assert.equal(rejected.body.error.details[0].appointmentTime, '09:00');
  const persisted = await prisma.doctorSchedule.findUnique({ where: { id: created.body.id }, include: { periods: true } });

@@ -567,6 +567,8 @@ test('doctor discovery and specialties use real active doctor data', async () =>
 });
 
 test('doctor-row locking serializes concurrent booking with a schedule edit', async () => {
+  // A fresh doctor keeps this race independent of earlier legacy bookings.
+  const doctor = await prisma.doctor.create({ data: { fullNameAr: 'اختبار', fullNameEn: 'Schedule race', specialtyAr: 'اختبار', specialtyEn: 'Test', consultationFee: 10, weeklySchedule: '[]', user: { create: { username: `schedule-race-${crypto.randomUUID()}`, passwordHash: 'unused', role: 'DOCTOR' } } } });
   await prisma.doctorScheduleException.deleteMany({ where: { doctorId: doctor.id } });
   await prisma.doctorSchedule.deleteMany({ where: { doctorId: doctor.id } });
   const effectiveFrom = '2114-01-01';

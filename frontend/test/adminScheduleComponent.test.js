@@ -21,12 +21,12 @@ const reply = (data, ok = true) => ({ ok, headers: { get: () => 'false' }, json:
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 const period = (dayOfWeek = 'MONDAY') => ({ dayOfWeek, startTime: '09:00', endTime: '17:00', slotDurationMinutes: 30, active: true, breaks: [] });
 const version = (id, periods = [period()]) => ({ id, active: true, effectiveFrom: '2190-01-01', effectiveTo: '2191-01-01', periods });
-async function mount(fn = () => reply([]), t) {
+async function mount(fn = () => reply([]), t, config = () => reply({ clinicTimeZone: 'Africa/Khartoum' })) {
  requests = []; handler = fn;
  globalThis.scheduleFetch = async (url, options) => {
   requests.push({ url, options });
   if (url.startsWith('/api/admin/doctors?')) return reply([{ id: 'A', fullNameEn: 'Doctor A' }, { id: 'B', fullNameEn: 'Doctor B' }]);
-  if (url === '/api/public-config') return reply({ clinicTimeZone: 'Africa/Khartoum' });
+  if (url === '/api/public-config') return config();
   return handler(url, options);
  };
  root = createRoot(document.getElementById('root'));
@@ -161,4 +161,62 @@ test('schedule selector reaches doctor 51 through an explicit additional page', 
   await switchTo('doctor-51');
   assert.equal(document.querySelector('#schedule-doctor').value, 'doctor-51');
   assert.ok(requests.some((r) => r.url === '/api/admin/doctors/doctor-51/schedules'));
+});
+
+test('two submits in the same event turn send exactly one mutation', async () => {
+  const pending = deferred();
+  await mount((url, options) => options ? pending.promise : reply(url.endsWith('/schedules') ? [version('single')] : []));
+  await act(async () => {
+    for (let i = 0; i < 2; i++) document.querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  });
+  assert.equal(requests.filter(r => r.options).length, 1);
+  await act(async () => pending.resolve(reply({})));
+  assert.equal([...document.querySelectorAll('button')].find(b => b.textContent.includes('Save schedule')).disabled, false);
+});
+
+test('effective dates and inactive state are editable and persist in PUT', async () => {
+  await mount((url, options) => options ? reply({}) : reply(url.endsWith('/schedules') ? [{ ...version('inactive'), active: false }] : []));
+  assert.equal(document.querySelector('#schedule-version').value, 'inactive');
+  assert.equal(document.querySelector('.admin-schedule-version input[type=checkbox]').checked, false);
+  const dates = document.querySelectorAll('.admin-schedule-version input[type=date]');
+  await change(dates[0], '2190-02-01'); await change(dates[1], '2191-02-01');
+  await submit();
+  const mutation = requests.find(r => r.options);
+  assert.equal(mutation.options.method, 'PUT');
+  assert.equal(JSON.parse(mutation.options.body).active, false);
+  assert.equal(JSON.parse(mutation.options.body).effectiveFrom, '2190-02-01');
+  assert.equal(JSON.parse(mutation.options.body).effectiveTo, '2191-02-01');
+});
+
+test('explicit version selection exposes current and inactive schedules without mixing their forms', async () => {
+  const current = { ...version('current', [period('TUESDAY')]), effectiveFrom: '2020-01-01', effectiveTo: null };
+  const inactive = { ...version('inactive', [period('FRIDAY')]), active: false };
+  await mount(url => reply(url.endsWith('/schedules') ? [current, version('future'), inactive] : []));
+  await change(document.querySelector('#schedule-version'), 'inactive');
+  assert.equal(document.querySelector('.admin-period select').value, 'FRIDAY');
+  await change(document.querySelector('#schedule-version'), 'current');
+  assert.equal(document.querySelector('.admin-period select').value, 'TUESDAY');
+  assert.equal(document.querySelector('.admin-schedule-version input[type=checkbox]').checked, true);
+});
+
+test('switching the initialDoctorId prop clears the old schedule and loads the new doctor', async () => {
+  await mount(url => reply(url.endsWith('/schedules') ? [version(url.includes('/A/') ? 'a' : 'b', [period(url.includes('/A/') ? 'MONDAY' : 'FRIDAY')])] : url === '/api/admin/doctors/B' ? { id: 'B', fullNameEn: 'Doctor B' } : []));
+  await act(async () => root.render(createElement(Panel, { initialDoctorId: 'B' })));
+  assert.equal(document.querySelector('#schedule-doctor').value, 'B');
+  assert.equal(document.querySelector('.admin-period select').value, 'FRIDAY');
+});
+
+test('an empty active schedule is refused before sending a request', async () => {
+  await mount(); await submit();
+  assert.equal(requests.filter(r => r.options).length, 0);
+  assert.match(document.querySelector('[role=alert]').textContent, /working period/);
+});
+
+test('configuration failure blocks editing until a retry obtains the clinic timezone', async () => {
+  let attempts = 0;
+  await mount(() => reply([]), undefined, () => ++attempts === 1 ? reply({ error: { message: 'Config unavailable' } }, false) : reply({ clinicTimeZone: 'Pacific/Kiritimati' }));
+  assert.ok([...document.querySelectorAll('form > fieldset')].every(field => field.disabled));
+  await click('Retry loading schedule');
+  assert.equal(attempts, 2);
+  assert.ok([...document.querySelectorAll('form > fieldset')].every(field => !field.disabled));
 });
