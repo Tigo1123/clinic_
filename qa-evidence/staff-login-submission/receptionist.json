@@ -1,0 +1,11 @@
+{
+  "role": "RECEPTIONIST",
+  "counts": {
+    "login": 1,
+    "verify": 1
+  },
+  "dashboard": true,
+  "session": true,
+  "challengeCleared": true,
+  "exceptions": 0
+}

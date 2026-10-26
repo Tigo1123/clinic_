@@ -1,0 +1,119 @@
+{
+  "backend": {
+    "selectedFiles": 4,
+    "discoveredFiles": 72,
+    "counts": {
+      "tests": 257,
+      "pass": 257,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0
+    },
+    "exitCode": 0,
+    "files": [
+      {
+        "file": "test/integration.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 238,
+          "pass": 238,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/mfa-management.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/mfa.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      },
+      {
+        "file": "test/staff-login-flow.test.js",
+        "status": "passed",
+        "counts": {
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0,
+          "todo": 0
+        }
+      }
+    ]
+  },
+  "frontend": {
+    "files": 59,
+    "pass": 59,
+    "fail": 0,
+    "targetedBehaviorTests": 10
+  },
+  "browserRoles": {
+    "admin": {
+      "role": "ADMIN",
+      "counts": {
+        "login": 1,
+        "verify": 1
+      },
+      "dashboard": true,
+      "session": true,
+      "challengeCleared": true,
+      "exceptions": 0
+    },
+    "pharmacist": {
+      "role": "PHARMACIST",
+      "counts": {
+        "login": 1,
+        "verify": 1
+      },
+      "dashboard": true,
+      "session": true,
+      "challengeCleared": true,
+      "exceptions": 0
+    },
+    "receptionist": {
+      "role": "RECEPTIONIST",
+      "counts": {
+        "login": 1,
+        "verify": 1
+      },
+      "dashboard": true,
+      "session": true,
+      "challengeCleared": true,
+      "exceptions": 0
+    }
+  },
+  "preFixRegression": {
+    "tests": 6,
+    "passed": 4,
+    "failed": 2,
+    "failure": "two requests instead of one from a queued post-response password handler"
+  },
+  "lint": "passed; six existing warnings",
+  "productionBuild": "passed; existing chunk-size advisory",
+  "diffCheck": "passed",
+  "backendAuthCodeChanged": false,
+  "migration": false,
+  "committed": false,
+  "pushed": false
+}

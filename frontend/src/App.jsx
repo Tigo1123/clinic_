@@ -241,6 +241,17 @@ function LoginView({ onLogin, onMfaEnrollmentRequired, t, lang, productName, pro
   const [errorMsg, setErrorMsg] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const submitInFlight = useRef(false);
+  const authFlow = useRef({ step: 'password', generation: 0, challenge: null });
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    const flow = authFlow.current;
+    return () => {
+      mounted.current = false;
+      flow.generation += 1;
+      flow.challenge = null;
+    };
+  }, []);
   const mfaCodeRef = useRef(null);
   const recoveryCodeRef = useRef(null);
 
@@ -253,6 +264,10 @@ function LoginView({ onLogin, onMfaEnrollmentRequired, t, lang, productName, pro
     if (!mfaChallenge) return undefined;
     const remainingMs = new Date(mfaChallenge.expiresAt).getTime() - Date.now();
     const expire = () => {
+      if (authFlow.current.challenge !== mfaChallenge) return;
+      authFlow.current.generation += 1;
+      authFlow.current.step = 'password';
+      authFlow.current.challenge = null;
       setMfaChallenge(null);
       clearMfaCode();
       setErrorMsg(t('mfaChallengeExpired'));
@@ -266,6 +281,10 @@ function LoginView({ onLogin, onMfaEnrollmentRequired, t, lang, productName, pro
   }, [clearMfaCode, mfaChallenge, t]);
 
   const cancelMfa = () => {
+    if (submitInFlight.current) return;
+    authFlow.current.generation += 1;
+    authFlow.current.step = 'password';
+    authFlow.current.challenge = null;
     setMfaChallenge(null);
     setMfaMethod('totp');
     clearMfaCode();
@@ -274,20 +293,38 @@ function LoginView({ onLogin, onMfaEnrollmentRequired, t, lang, productName, pro
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (submitting) return;
+    if (!mounted.current || submitInFlight.current || authFlow.current.step !== 'password') return;
     await withLoginSubmissionLock(submitInFlight, setSubmitting, async () => {
+      const generation = ++authFlow.current.generation;
+      authFlow.current.step = 'password-pending';
       setErrorMsg('');
       try {
-        const result = await startStaffLogin({ username, password }, onLogin);
+        const finalizeLogin = (...args) => {
+          if (!mounted.current || authFlow.current.generation !== generation || authFlow.current.step !== 'password-pending') return;
+          authFlow.current.step = 'authenticated';
+          onLogin(...args);
+        };
+        const result = await startStaffLogin({ username, password }, finalizeLogin);
+        if (!mounted.current || authFlow.current.generation !== generation) return;
         if (result.state === 'MFA_REQUIRED') {
+          const challenge = { token: result.challengeToken, expiresAt: result.expiresAt };
+          // This synchronous phase change survives the request lock releasing
+          // before React commits the MFA screen. Queued password events stop here.
+          authFlow.current.step = 'mfa';
+          authFlow.current.challenge = challenge;
           setPassword('');
           setMfaMethod('totp');
-          setMfaChallenge({ token: result.challengeToken, expiresAt: result.expiresAt });
+          setMfaChallenge(challenge);
         } else if (result.state === 'MFA_ENROLLMENT_REQUIRED') {
+          authFlow.current.step = 'enrollment';
           setPassword('');
           onMfaEnrollmentRequired(result.enrollmentToken);
         }
       } catch (err) {
+        if (!mounted.current || authFlow.current.generation !== generation) return;
+        authFlow.current.step = 'password';
+        authFlow.current.challenge = null;
+        setMfaChallenge(null);
         setErrorMsg(err?.status ? err.message : 'Cannot connect to authorization service.');
       }
     });
@@ -295,7 +332,8 @@ function LoginView({ onLogin, onMfaEnrollmentRequired, t, lang, productName, pro
 
   const handleMfaSubmit = async (e) => {
     e.preventDefault();
-    if (submitting || !mfaChallenge) return;
+    const challenge = authFlow.current.challenge;
+    if (!mounted.current || submitInFlight.current || authFlow.current.step !== 'mfa' || !challenge) return;
     const code = mfaMethod === 'totp'
       ? mfaCodeRef.current?.getValue() || ''
       : String(recoveryCodeRef.current?.value || '').trim();
@@ -309,32 +347,45 @@ function LoginView({ onLogin, onMfaEnrollmentRequired, t, lang, productName, pro
       recoveryCodeRef.current?.focus();
       return;
     }
-    setSubmitting(true);
-    setErrorMsg('');
-    try {
-      if (mfaMethod === 'totp') await completeStaffMfa(mfaChallenge.token, code, onLogin);
-      else await completeStaffMfaRecovery(mfaChallenge.token, code, onLogin);
-      clearMfaCode();
-      setMfaChallenge(null);
-    } catch (err) {
-      if (isTerminalMfaError(err)) {
+    await withLoginSubmissionLock(submitInFlight, setSubmitting, async () => {
+      const generation = authFlow.current.generation;
+      authFlow.current.step = 'mfa-pending';
+      setErrorMsg('');
+      try {
+        const finalizeLogin = (...args) => {
+          if (!mounted.current || authFlow.current.generation !== generation || authFlow.current.challenge !== challenge || authFlow.current.step !== 'mfa-pending') return;
+          authFlow.current.step = 'authenticated';
+          authFlow.current.challenge = null;
+          onLogin(...args);
+        };
+        if (mfaMethod === 'totp') await completeStaffMfa(challenge.token, code, finalizeLogin);
+        else await completeStaffMfaRecovery(challenge.token, code, finalizeLogin);
+        if (!mounted.current || authFlow.current.generation !== generation) return;
         clearMfaCode();
         setMfaChallenge(null);
-        setErrorMsg(t('mfaChallengeExpired'));
-      } else if (err?.status === 429) {
-        setErrorMsg(t('mfaRateLimited'));
-      } else if (err?.code === 'MFA_CODE_INVALID' || err?.code === 'MFA_RECOVERY_INVALID') {
-        if (mfaMethod === 'recovery' && recoveryCodeRef.current) {
-          recoveryCodeRef.current.value = '';
-          recoveryCodeRef.current.focus();
+      } catch (err) {
+        if (!mounted.current || authFlow.current.generation !== generation) return;
+        authFlow.current.step = 'mfa';
+        if (isTerminalMfaError(err)) {
+          authFlow.current.generation += 1;
+          authFlow.current.step = 'password';
+          authFlow.current.challenge = null;
+          clearMfaCode();
+          setMfaChallenge(null);
+          setErrorMsg(t('mfaChallengeExpired'));
+        } else if (err?.status === 429) {
+          setErrorMsg(t('mfaRateLimited'));
+        } else if (err?.code === 'MFA_CODE_INVALID' || err?.code === 'MFA_RECOVERY_INVALID') {
+          if (mfaMethod === 'recovery' && recoveryCodeRef.current) {
+            recoveryCodeRef.current.value = '';
+            recoveryCodeRef.current.focus();
+          }
+          setErrorMsg(mfaMethod === 'recovery' ? t('recoveryCodeInvalid') : t('mfaCodeInvalid'));
+        } else {
+          setErrorMsg(t('mfaServiceUnavailable'));
         }
-        setErrorMsg(mfaMethod === 'recovery' ? t('recoveryCodeInvalid') : t('mfaCodeInvalid'));
-      } else {
-        setErrorMsg(t('mfaServiceUnavailable'));
       }
-    } finally {
-      setSubmitting(false);
-    }
+    });
   };
 
   if (mfaChallenge) return (
@@ -350,7 +401,7 @@ function LoginView({ onLogin, onMfaEnrollmentRequired, t, lang, productName, pro
 
       {errorMsg && <div role="alert" className="patient-alert error">{errorMsg}</div>}
 
-      <form onSubmit={handleMfaSubmit}>
+      <form onSubmit={handleMfaSubmit} aria-busy={submitting}>
         {mfaMethod === 'totp' ? (
           <label className="patient-field">
             {t('authenticatorCode')}

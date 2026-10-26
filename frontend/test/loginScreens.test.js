@@ -54,7 +54,7 @@ test('patient and staff login retain their authentication endpoints, routing and
   assert.match(patientLogin, /to="\/register"/);
 
   assert.match(staffLogin, /withLoginSubmissionLock\(submitInFlight, setSubmitting/);
-  assert.match(staffLogin, /startStaffLogin\(\{ username, password \}, onLogin\)/);
+  assert.match(staffLogin, /startStaffLogin\(\{ username, password \}, finalizeLogin\)/);
   assert.match(staffLogin, /result\.state === 'MFA_REQUIRED'/);
   assert.match(staffLogin, /completeStaffMfa\(/);
   assert.match(staffLogin, /completeStaffMfaRecovery\(/);
