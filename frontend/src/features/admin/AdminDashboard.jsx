@@ -202,7 +202,7 @@ export default function AdminDashboard({ user, lang, t }) {
   return (
     <div className={`dashboard-wrapper admin-workspace ${activeTab === 'scheduling' ? 'admin-schedule-workspace' : activeTab === 'users' ? 'admin-staff-workspace' : ''}`}>
       {/* Side menu */}
-      <aside className="sidebar-menu no-print-section">
+      <aside className="sidebar-menu no-print-section" tabIndex={0} aria-label={lang === 'ar' ? 'التنقل الإداري' : 'Admin navigation'}>
         <div className="menu-items">
           <button
             className={`menu-btn ${activeTab === 'profile' ? 'active' : ''}`}
@@ -247,7 +247,7 @@ export default function AdminDashboard({ user, lang, t }) {
       </aside>
 
       {/* Main Panel Content */}
-      <div className="workspace-panel">
+      <div className="workspace-panel" tabIndex={0} role="region" aria-label={lang === 'ar' ? 'مساحة العمل الإدارية' : 'Admin workspace'}>
         {!['clinic-setup', 'laboratory-catalog', 'scheduling', 'users'].includes(activeTab) && <RoleHero role="admin" lang={lang}/>}
         {['clinic-setup', 'laboratory-catalog'].includes(activeTab) && <ClinicSetupPanel key={activeTab} initialTab={activeTab === 'laboratory-catalog' ? 'labs' : 'doctors'} lang={lang} t={t}/>}
         {activeTab === 'profile' && (

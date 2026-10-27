@@ -12,10 +12,3 @@
   .admin-schedule-panel .admin-break .MuiFormControl-root { grid-column: 1; }
   .admin-schedule-panel .admin-break .MuiIconButton-root { grid-column: 2; grid-row: 1 / 3; }
 }
-
-/* Let the page scrollport anchor the save bar instead of an unconstrained inner scroller. */
-.admin-schedule-workspace, .admin-schedule-workspace .workspace-panel { overflow: visible; }
-html:has(.admin-schedule-workspace), body:has(.admin-schedule-workspace) { overflow-x: clip; overflow-y: visible; }
-@media (max-width: 900px) {
-  .admin-schedule-workspace > .sidebar-menu { position: static; height: auto; }
-}

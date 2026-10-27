@@ -1,0 +1,50 @@
+/* Admin owns a bounded viewport; header, navigation and content are siblings.
+   Keep other staff dashboards and the narrow-screen navigation in normal flow. */
+@media screen and (min-width: 901px) {
+  .app-layout.app-layout--admin {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .app-layout--admin > .nav-header {
+    flex: 0 0 auto;
+    position: relative;
+    top: auto;
+  }
+
+  .app-layout--admin > main {
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .app-layout--admin .admin-workspace {
+    display: flex;
+    flex: 1 1 0;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .app-layout--admin .admin-workspace > .sidebar-menu {
+    flex: 0 0 260px;
+    position: static;
+    height: auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+
+  .app-layout--admin .admin-workspace > .workspace-panel {
+    position: relative;
+    flex: 1 1 0;
+    min-height: 0;
+    min-width: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-gutter: stable;
+  }
+}

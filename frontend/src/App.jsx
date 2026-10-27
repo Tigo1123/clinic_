@@ -19,6 +19,7 @@ import {
 } from './services/staffSocket';
 
 import './App.css';
+import './features/admin/adminShell.css';
 import { useFacilityBranding } from './app/branding/FacilityBrandingContext.js';
 import { brandingSubline } from './app/branding/brandingConfig';
 import { withLoginSubmissionLock } from './features/patient-auth/loginSubmission.js';
@@ -152,7 +153,7 @@ export default function App({ initialView = 'login' }) {
   }
 
   return (
-    <div className="app-layout">
+    <div className={`app-layout${user?.role === 'ADMIN' && !user.mustChangePassword ? ' app-layout--admin' : ''}`}>
       {/* Global Navbar */}
       <header className="nav-header no-print-section">
         <div className="brand-section">
