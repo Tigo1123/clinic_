@@ -38,13 +38,17 @@ const titles = {
 
 export function notificationDto(row) {
   const localized = titles[row.type];
+  // Legacy/custom rows have no structured translations. Never use their
+  // persisted (often English-only) free text as the Arabic copy.
+  const fallbackEn = row.title || 'Operational update';
+  const fallbackAr = 'تحديث تشغيلي';
   return {
     id: row.id, type: row.type, entityType: row.entityType, entityId: row.entityId,
     isRead: row.isRead, createdAt: row.createdAt,
-    title: localized?.[0] || row.title, message: localized ? 'Open the relevant workspace to review this update.' : row.message,
-    titleEn: localized?.[0] || row.title, titleAr: localized?.[1] || row.title,
-    messageEn: localized ? 'Open the relevant workspace to review this update.' : row.message,
-    messageAr: localized ? 'افتح مساحة العمل المعنية لمراجعة هذا التحديث.' : row.message,
+    title: localized?.[0] || fallbackEn, message: 'Open the relevant workspace to review this update.',
+    titleEn: localized?.[0] || fallbackEn, titleAr: localized?.[1] || fallbackAr,
+    messageEn: 'Open the relevant workspace to review this update.',
+    messageAr: 'افتح مساحة العمل المعنية لمراجعة هذا التحديث.',
     topic: localized?.[2] || null
   };
 }

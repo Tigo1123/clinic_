@@ -8,7 +8,7 @@ test('repository inventory includes every Prisma model, relationship and migrati
   assert.ok(inventory.models.some(model => model.name === 'StockNotificationState'));
   assert.ok(inventory.models.find(model => model.name === 'Patient').relationships.some(relation => relation.field === 'invoices' && relation.target === 'Invoice' && relation.cardinality === 'many'));
   assert.ok(inventory.models.find(model => model.name === 'Payment').relationships.some(relation => relation.field === 'invoice' && relation.target === 'Invoice' && relation.cardinality === 'required'));
-  assert.equal(inventory.migrations.length, 29);
+  assert.equal(inventory.migrations.length, 30);
 });
 
 function fixture(readOnly = 'on') {

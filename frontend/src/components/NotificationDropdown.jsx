@@ -50,8 +50,8 @@ export default function NotificationDropdown({ userId, lang = 'ar' }) {
       {feed.loading && <p className="notification-feedback" role="status">{ar ? 'جارٍ التحميل…' : 'Loading…'}</p>}
       {!feed.loading && !feed.error && !feed.notifications.length && <p className="notification-feedback">{ar ? 'لا توجد إشعارات حالياً' : 'No notifications yet'}</p>}
       <ul className="notification-list">{feed.notifications.map(item => <li key={item.id} className={item.isRead ? 'is-read' : 'is-unread'}>
-        <strong>{(ar ? item.titleAr : item.titleEn) || item.title}</strong>
-        <p>{(ar ? item.messageAr : item.messageEn) || item.message}</p>
+        <strong>{ar ? (item.titleAr || 'تحديث تشغيلي') : (item.titleEn || item.title || 'Operational update')}</strong>
+        <p>{ar ? (item.messageAr || 'افتح مساحة العمل المعنية لمراجعة هذا التحديث.') : (item.messageEn || item.message || 'Open the relevant workspace to review this update.')}</p>
         <footer><time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString(ar ? 'ar' : 'en', { dateStyle: 'short', timeStyle: 'short' })}</time>
           {!item.isRead && <button type="button" disabled={feed.pending} onClick={() => store.current?.markRead(item.id)}>{ar ? 'تحديد كمقروء' : 'Mark read'}</button>}
         </footer>

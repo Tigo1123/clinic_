@@ -8,7 +8,7 @@ import prisma from '../src/db.js';
 import { app, httpServer, io, socketRevocation } from '../src/server.js';
 import { signAccessToken } from '../src/services/accessTokens.js';
 import { scanStockNotifications } from '../src/services/stockNotifications.js';
-import { NotificationDelivery, NOTIFICATION_CHANNEL } from '../src/services/notificationDelivery.js';
+import { NotificationDelivery, NOTIFICATION_CHANNEL, notificationDto } from '../src/services/notificationDelivery.js';
 
 const api = request(app);
 const users = {};
@@ -159,6 +159,40 @@ test('Doctor prescription, lab paid/completed, catalog pricing and dispense stat
   } finally { pharmacy.disconnect(); lab.disconnect(); }
 });
 
+test('custom prescription review is the single pharmacy notice for that prescription transaction', async () => {
+  const socket = await connect('PHARMACIST'); const received = [];
+  socket.on('notification', event => received.push(event));
+  try {
+    const delivered = waitEvent(socket, 'notification', event => event.type === 'MEDICATION_REVIEW_REQUIRED');
+    const prescription = await prisma.prescription.create({ data: {
+      medicalRecordId: record.id, patientId: patient.id, doctorId: doctor.id, status: 'ACTIVE',
+      prescribedDrugs: { create: {
+        drugId: null, customDrugName: 'Private custom medicine', dosage: '1', duration: '3 days',
+        instructionsAr: '', instructionsEn: '', qtyPrescribed: 1, pharmacyReviewStatus: 'PENDING_REVIEW'
+      } }
+    } });
+    const rows = await prisma.notification.findMany({ where: { userId: users.PHARMACIST.id, entityId: prescription.id } });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].type, 'MEDICATION_REVIEW_REQUIRED');
+    assert.equal(rows[0].eventKey, `RX_REVIEW:${prescription.id}`);
+    await delivered;
+    assert.equal(received.length, 1);
+    assert.equal(received[0].id, rows[0].id);
+    assert.equal(await prisma.notification.count({ where: { userId: users.PHARMACIST.id, entityId: prescription.id, type: 'PRESCRIPTION_READY' } }), 0);
+    assert.equal(await prisma.notification.count({ where: { userId: users.DOCTOR.id, entityId: prescription.id } }), 0);
+  } finally { socket.disconnect(); }
+});
+
+test('legacy/unknown notification text never leaks English through the Arabic DTO fields', () => {
+  const value = notificationDto({ id: unique(), userId: users.ADMIN.id, title: 'English legacy title', message: 'English private detail', type: 'GENERAL', entityType: null, entityId: null, isRead: false, createdAt: new Date() });
+  assert.equal(value.titleAr, 'تحديث تشغيلي');
+  assert.equal(value.messageAr, 'افتح مساحة العمل المعنية لمراجعة هذا التحديث.');
+  assert.equal(value.titleEn, 'English legacy title');
+  assert.equal(value.messageEn, 'Open the relevant workspace to review this update.');
+  const known = notificationDto({ type: 'PAYMENT_UPDATED', title: 'legacy', message: 'legacy' });
+  assert.equal(known.titleAr, 'تم تحديث حالة الدفع');
+});
+
 test('disconnected recipients recover durable notices after reconnect and read state synchronizes across sockets', async () => {
   let socket = await connect('PHARMACIST'); socket.disconnect();
   const medicine = await createMedicine();
@@ -200,6 +234,20 @@ test('batched delivery coalesces duplicate/read-all hints with bounded queries a
   await new Promise(resolve => setImmediate(resolve)); await new Promise(resolve => setImmediate(resolve));
   assert.equal(queries, 2); assert.equal(sent.length, 1);
   assert.deepEqual(sent[0], { room: 'user_recipient', event: 'notifications:changed', payload: { id: 'notice-0' } }); relay.stop();
+});
+
+test('duplicate committed PG creation hints with the same durable ID produce one local socket delivery', async () => {
+  const sent = [];
+  const relay = new NotificationDelivery({ local: { to: room => ({ emit: (event, payload) => sent.push({ room, event, payload }) }) } }, { prismaClient: {
+    notification: { findMany: async () => [{ id: 'durable-notice-id', userId: 'recipient', type: 'APPOINTMENT_BOOKED', createdAt: new Date(), isRead: false }] },
+    user: { findMany: async () => [{ id: 'recipient' }] }
+  } });
+  const event = JSON.stringify({ id: 'durable-notice-id', change: 'created' });
+  relay.receive(NOTIFICATION_CHANNEL, event); relay.receive(NOTIFICATION_CHANNEL, event);
+  await new Promise(resolve => setImmediate(resolve)); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(sent.filter(item => item.event === 'notification').length, 1);
+  assert.equal(sent.filter(item => item.event === 'workflowUpdated').length, 1);
+  relay.stop();
 });
 
 test('notification sockets reject missing authentication', async () => {

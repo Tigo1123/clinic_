@@ -52,5 +52,12 @@ test('the actual bell recovers durable state, updates live, handles reads/errors
     await act(async () => root.unmount()); assert.equal(notificationTestSocket.listenerCount('notification'), 0); assert.equal(notificationTestSocket.listenerCount('connect'), 0);
     root = createRoot(document.querySelector('#root'));
     await render('en'); assert.equal(document.querySelector('.notification-badge').textContent, '1', 'reload reads durable state');
+    stored = [...stored, { id: 'legacy', title: 'English legacy title', message: 'English legacy message', createdAt: '2026-10-26T00:00:00.000Z', isRead: true }];
+    await act(async () => notificationTestSocket.emit('notification', { id: 'legacy', title: 'English socket compatibility text' }));
+    await render('ar');
+    await act(async () => document.querySelector('.notification-bell').click());
+    assert.match(document.querySelector('.notification-panel').textContent, /تحديث تشغيلي/);
+    assert.doesNotMatch(document.querySelector('.notification-panel').textContent, /English legacy|English socket/);
+    assert.equal(document.querySelector('.notification-badge').textContent, '1', 'read legacy row does not alter the unread count');
   } finally { await act(async () => root.unmount()); dom.window.close(); delete globalThis.notificationTestRequest; delete globalThis.notificationTestSocket; }
 });

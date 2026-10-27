@@ -55,7 +55,7 @@ async function action(role, path, body, method = 'POST') {
   const response = await fetch(`${api}${path}`, { method, headers: { Authorization: `Bearer ${fixture.sessions[role].token}`, 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify(body) });
   const value = await response.json(); assert.ok(response.ok, `${method} ${path}: ${response.status} ${JSON.stringify(value.error)}`); return value;
 }
-const count = async role => pages.get(role).ev("Number(document.querySelector('.notification-bell').getAttribute('aria-label').match(/\\((\\d+)\\)/)[1])");
+const count = async role => pages.get(role).ev("(()=>{const bell=document.querySelector('.notification-bell');return bell?Number(bell.getAttribute('aria-label').match(/\\((\\d+)\\)/)[1]):null})()");
 const bellContains = async (role, text) => pages.get(role).ev(`document.querySelector('.notification-list')?.textContent.includes(${JSON.stringify(text)})`);
 async function screenshot(role, name) { const result = await pages.get(role).send('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(`${output}/${name}.png`, Buffer.from(result.data, 'base64')); }
 try {
@@ -104,6 +104,15 @@ try {
   await until(() => bellContains('PHARMACIST', 'New prescription for pharmacy'), 'Pharmacy live prescription');
   check('Doctor prescription appears live in Pharmacy', await count('PHARMACIST') > 0);
   const rx = consultation.data.prescription; const order = consultation.data.labOrder;
+  const pharmacyBeforeCustomReview = await count('PHARMACIST');
+  const customAppointmentId = crypto.randomUUID();
+  await db.query('INSERT INTO "Appointment" (id,"patientId","doctorId","appointmentDate","appointmentTime",status) VALUES ($1,$2,$3,CURRENT_DATE + 2,$4,$5)', [customAppointmentId, fixture.patientId, fixture.sessions.DOCTOR.user.doctorId, '11:45', 'IN_CONSULTATION']);
+  const customConsultation = await action('DOCTOR', '/api/records', { patientId: fixture.patientId, appointmentId: customAppointmentId, diagnosis: 'Isolated custom medication review', prescribedDrugs: [{ customDrugName: 'Synthetic custom medicine', dosage: '1 daily', duration: '1 day', qtyPrescribed: 1 }] });
+  const customRx = customConsultation.data.prescription;
+  const customRows = await db.query('SELECT id,type,"eventKey" FROM "Notification" WHERE "userId"=$1 AND "entityId"=$2', [fixture.sessions.PHARMACIST.user.id, customRx.id]);
+  check('custom prescription creates one durable actionable Pharmacy notice', customRows.rows.length === 1 && customRows.rows[0].type === 'MEDICATION_REVIEW_REQUIRED' && customRows.rows[0].eventKey === `RX_REVIEW:${customRx.id}`);
+  await until(() => bellContains('PHARMACIST', 'Medication review required'), 'single live custom medication review notice');
+  check('one custom prescription action adds one Pharmacy bell item', await count('PHARMACIST') === pharmacyBeforeCustomReview + 1);
   await action('RECEPTIONIST', '/api/billing/invoice', { patientId: fixture.patientId, labOrderId: order.id, invoiceType: 'LABORATORY' });
   const labInvoice = (await db.query('SELECT id,"totalAmountSdg" FROM "Invoice" WHERE "labOrderId"=$1', [order.id])).rows[0];
   await action('RECEPTIONIST', `/api/billing/invoice/${labInvoice.id}/payments`, { payments: [{ amountSdg: Number(labInvoice.totalAmountSdg), paymentMethod: 'CASH' }] });
@@ -140,6 +149,7 @@ try {
     check(`${lang}/${theme}/${mobile ? 'mobile' : 'desktop'} panel fits and has localized content`, layout.left >= 0 && layout.right <= layout.width + 1 && layout.rows > 0 && layout.text.includes(lang === 'ar' ? 'تم تحديث دليل الأدوية' : 'Medicine catalog updated'));
     await screenshot('PHARMACIST', `${lang}-${theme}-${mobile ? 'mobile' : 'desktop'}`);
   }
+  await until(() => pharmacy.ev("!!document.querySelector('.notification-bell')"), 'Pharmacy bell after viewport changes');
   const beforeReload = await count('PHARMACIST'); await pharmacy.send('Page.reload');
   await until(() => pharmacy.ev("!!document.querySelector('.notification-bell')"), 'reload');
   await until(async () => await count('PHARMACIST') === beforeReload, 'durable unread after reload');
