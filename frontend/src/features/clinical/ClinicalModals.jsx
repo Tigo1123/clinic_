@@ -2,7 +2,8 @@ import PatientBillingDetails from './PatientBillingDetails.jsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertCircle, Calendar, Check, Copy, FileText, Mail, MessageCircle, Pill, Printer, Receipt, Shield, TestTube, User, X } from 'lucide-react';
-import { fetchWithAuth } from '../../services/staffApi';
+import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
+import { localizedApiErrorMessage } from '../../services/apiClient.js';
 import { useAuth } from '../../app/auth/auth-context';
 import './patientFile.css';
 import { useFacilityBranding } from '../../app/branding/FacilityBrandingContext.js';
@@ -89,7 +90,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
         if (apiError?.code === 'CLINICAL_DATA_UNREADABLE') {
           throw new Error(lang === 'ar' ? 'المعلومات السريرية غير متاحة حاليًا.' : 'Clinical information is unavailable.');
         }
-        throw new Error(apiError?.message || errData.error || `HTTP ${res.status}: Failed to load profile`);
+        throw new Error(apiErrorMessage(errData, lang === 'ar' ? 'تعذر تحميل ملف المريض.' : 'Failed to load patient profile.'));
       }
       const data = await res.json();
       if (profileRequestRef.current !== requestId) return;
@@ -195,14 +196,8 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
           return;
         }
 
-        const apiMessage =
-          typeof data?.error === 'string'
-            ? data.error
-            : data?.error?.message;
-
         throw new Error(
-          apiMessage ||
-            (lang === 'ar'
+          apiErrorMessage(data, lang === 'ar'
               ? 'تعذر إصدار رمز ربط الحساب.'
               : 'Failed to generate a claim code.')
         );
@@ -792,23 +787,23 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = '
           const apiError = typeof errData.error === 'object' ? errData.error : null;
           const message = apiError?.code === 'CLINICAL_DATA_UNREADABLE'
             ? (lang === 'ar' ? 'المعلومات السريرية غير متاحة. لم يتم تحميل الملخص أو بدء الطباعة.' : 'Clinical information is unavailable. The summary was not loaded or prepared for printing.')
-            : (apiError?.message || errData.error);
+            : apiErrorMessage(errData, lang === 'ar' ? 'تعذر استرجاع الملخص.' : 'Failed to retrieve summary.');
 
           throw new Error(
             message || `HTTP ${res.status}: Failed to retrieve summary`
           );
         } else {
-          const htmlText = await res.text();
           if (summaryRequestRef.current !== requestId) return;
-          throw new Error(`Server returned non-JSON error (${res.status}): ${htmlText.substring(0, 100)}...`);
+          throw new Error(localizedApiErrorMessage({ status: res.status }, lang === 'ar' ? 'تعذر استرجاع الملخص.' : 'Failed to retrieve summary.'));
         }
       }
       if (!contentType.includes('application/json')) {
-        const text = await res.text();
         if (summaryRequestRef.current !== requestId) return;
-        throw new Error(`Expected JSON response but received: ${text.substring(0, 100)}...`);
+        throw new Error(lang === 'ar' ? 'تعذر قراءة ملخص الزيارة. حاول مرة أخرى.' : 'The visit summary could not be read. Please try again.');
       }
-      const data = await res.json();
+      const data = await res.json().catch(() => {
+        throw new Error(lang === 'ar' ? 'تعذر قراءة ملخص الزيارة. حاول مرة أخرى.' : 'The visit summary could not be read. Please try again.');
+      });
       if (summaryRequestRef.current !== requestId) return;
       setLoadedSummary(data);
       setLoadedSummaryId(idToFetch);
@@ -816,7 +811,7 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = '
       if (summaryRequestRef.current !== requestId) return;
       setLoadedSummaryId(idToFetch);
       console.error('Error fetching summary:', err);
-      setErrorDetails(err.message || 'Network connection failed.');
+      setErrorDetails(err.message || localizedApiErrorMessage({ code: 'NETWORK_ERROR' }));
     } finally {
       if (summaryRequestRef.current === requestId) setLoading(false);
     }
@@ -892,12 +887,11 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = '
           const apiError = typeof errData.error === 'object' ? errData.error : null;
           setEmailMsg(apiError?.code === 'CLINICAL_DATA_UNREADABLE'
             ? (lang === 'ar' ? 'المعلومات السريرية غير متاحة. لم يتم إرسال البريد الإلكتروني.' : 'Clinical information is unavailable. No email was sent.')
-            : (apiError?.message || errData.error ||
-            (lang === 'ar'
+            : apiErrorMessage(errData, lang === 'ar'
               ? 'تعذر إرسال البريد الإلكتروني.'
-              : 'Failed to send email.')));
+              : 'Failed to send email.'));
         } else {
-          setEmailMsg(`Server returned status ${res.status}`);
+          setEmailMsg(localizedApiErrorMessage({ status: res.status }, lang === 'ar' ? 'تعذر إرسال البريد الإلكتروني.' : 'Failed to send email.'));
         }
         return;
       }
@@ -905,7 +899,7 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = '
       if (summaryRequestRef.current !== requestId) return;
       setEmailMsg(lang === 'ar' ? 'تم إرسال ملخص الزيارة إلى البريد بنجاح.' : 'Post-visit summary emailed successfully!');
     } catch {
-      if (summaryRequestRef.current === requestId) setEmailMsg('Error connecting to mail server.');
+      if (summaryRequestRef.current === requestId) setEmailMsg(localizedApiErrorMessage({ code: 'NETWORK_ERROR' }));
     } finally {
       if (summaryRequestRef.current === requestId) setEmailing(false);
     }

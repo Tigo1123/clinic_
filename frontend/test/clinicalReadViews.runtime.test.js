@@ -22,6 +22,7 @@ async function compileComponent(relativePath, replacements) {
   let source = await readFile(new URL(relativePath, import.meta.url), 'utf8');
   if (relativePath.includes('DoctorDashboard')) source = await pagingReplacements(source, 'doctorFetch', 'doctorPaging');
   source = source.replace("'../../hooks/useWorkflowRefresh.js'", JSON.stringify(new URL('../src/hooks/useWorkflowRefresh.js', import.meta.url).href));
+  source = source.replace(/import \{ localizedApiErrorMessage \} from '\.\.\/\.\.\/services\/apiClient\.js';/, 'const localizedApiErrorMessage = () => "Localized request failed";');
   for (const [pattern, replacement] of replacements) source = source.replace(pattern, replacement);
   source = source.replace(/import AppDatePicker[^;]+;/, 'const AppDatePicker = props => <label>{props.label}<input type="date" value={props.value || ""} onChange={event => props.onChange(event.target.value)} /></label>;');
   source = source.replace(/import\s+\{([^}]+)\}\s+from 'lucide-react';/, (_match, names) => names.split(',').map((name) => `const ${name.trim()} = globalThis.clinicalIcon;`).join('\n'));
@@ -38,7 +39,7 @@ const billingModule = await compileComponent('../src/features/clinical/PatientBi
 globalThis.patientBillingComponent = billingModule.default;
 const modalModules = await compileComponent('../src/features/clinical/ClinicalModals.jsx', [
   [/import PatientBillingDetails[^;]+;/, 'const PatientBillingDetails = globalThis.patientBillingComponent;'],
-  [/import \{ fetchWithAuth \} from '\.\.\/\.\.\/services\/staffApi';/, 'const fetchWithAuth = (...args) => globalThis.modalFetch(...args);'],
+  [/import \{ apiErrorMessage, fetchWithAuth \} from '\.\.\/\.\.\/services\/staffApi';/, 'const apiErrorMessage = (data, fallback) => data?.error?.message || fallback; const fetchWithAuth = (...args) => globalThis.modalFetch(...args);'],
   [/import \{ useAuth \} from '\.\.\/\.\.\/app\/auth\/auth-context';/, 'const useAuth = () => ({ user: globalThis.modalUser });'],
   [/import \{ useFacilityBranding \} from '\.\.\/\.\.\/app\/branding\/FacilityBrandingContext\.js';/, "const useFacilityBranding = () => ({ displayNameAr: 'شفاء', displayNameEn: 'Shifa', facilityNameAr: null, facilityNameEn: null, productNameAr: 'شفاء', productNameEn: 'Shifa', productDescriptorAr: 'نظام إدارة المنشآت الصحية', productDescriptorEn: 'Healthcare Facility Management System' });"],
   [/import FacilityIdentityLine from '\.\.\/\.\.\/components\/FacilityIdentityLine';/, 'const FacilityIdentityLine = () => null;']
@@ -305,6 +306,19 @@ test('summary ignores a delayed A response after B has become current', async ()
   await act(async () => a.resolve(reply(summaryResponse('A'))));
   assert.match(document.body.textContent, /Synthetic Summary B/);
   assert.doesNotMatch(document.body.textContent, /Synthetic Summary A|Synthetic diagnosis A/);
+});
+
+for (const lang of ['ar', 'en']) for (const contentType of ['text/html', 'application/json']) test(`${lang}: malformed ${contentType} summaries never display raw response details`, async () => {
+  globalThis.modalFetch = async () => ({
+    ok: true, status: 200,
+    headers: { get: () => contentType },
+    text: async () => '<html>PRIVATE SERVER RESPONSE</html>',
+    json: async () => { throw new SyntaxError('PRIVATE PARSER DETAIL'); }
+  });
+  await render(h(modalModules.PostVisitSummaryModal, { summaryId: 'record-A', lang, onClose() {} }));
+  const content = document.querySelector('[role="dialog"]').textContent;
+  assert.match(content, lang === 'ar' ? /تعذر قراءة ملخص الزيارة/ : /summary could not be read/);
+  assert.doesNotMatch(content, /PRIVATE|Synthetic diagnosis|Expected JSON/);
 });
 
 test('doctor can load and select appointment 51 without an unbounded queue request', async () => {

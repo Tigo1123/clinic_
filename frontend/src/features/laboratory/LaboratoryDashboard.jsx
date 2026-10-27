@@ -1,7 +1,7 @@
 import { useStaffPagedList } from '../../hooks/useStaffPagedList.js';
 import { useWorkflowRefresh } from '../../hooks/useWorkflowRefresh.js';
 import StaffListPaging from '../../components/StaffListPaging.jsx';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ClipboardCheck, FileSpreadsheet, FlaskConical, HelpCircle, History, Sliders, Stethoscope } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import RoleHero from '../../components/healthcare/RoleHero';
@@ -14,6 +14,14 @@ export default function LaboratoryDashboard({ lang }) {
   const [historyOrders, setHistoryOrders] = useState([]);
   const [orderView, setOrderView] = useState('work');
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState(false);
+  const [reviewLoading, setReviewLoading] = useState(true);
+  const [reviewError, setReviewError] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState(false);
+  const requestVersions = useRef({ history: 0, review: 0, catalog: 0 });
+  const mutationInFlight = useRef(false);
+  const [mutating, setMutating] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [resultForms, setResultForms] = useState({});
   const [successMsg, setSuccessMsg] = useState('');
@@ -26,48 +34,69 @@ export default function LaboratoryDashboard({ lang }) {
   const selectedOrder = [...orders, ...historyOrders].find((order) => order.id === selectedOrderId) || null;
 
   useEffect(() => {
+    const versions = requestVersions.current;
     fetchLabHistory();
     fetchReviewRequests();
-    fetchWithAuth('/api/billing/services')
-      .then((res) => res.ok ? res.json() : [])
-      .then((services) => setLabServices((Array.isArray(services) ? services : []).filter((service) => service.category === 'LABORATORY')))
-      .catch(() => setLabServices([]));
+    fetchLabServices();
+    return () => { for (const key of Object.keys(versions)) versions[key] += 1; };
   }, []);
 
+  const fetchLabServices = async () => {
+    const version = ++requestVersions.current.catalog;
+    setCatalogLoading(true);
+    try {
+      const res = await fetchWithAuth('/api/billing/services');
+      const data = await res.json();
+      if (!res.ok || !Array.isArray(data)) throw new Error('CATALOG_UNAVAILABLE');
+      if (version !== requestVersions.current.catalog) return;
+      setLabServices(data.filter(service => service.category === 'LABORATORY'));
+      setCatalogError(false);
+    } catch {
+      if (version === requestVersions.current.catalog) setCatalogError(true);
+    } finally {
+      if (version === requestVersions.current.catalog) setCatalogLoading(false);
+    }
+  };
+
   const fetchReviewRequests = async () => {
+    const version = ++requestVersions.current.review;
+    setReviewLoading(true);
     try {
       const res = await fetchWithAuth('/api/records/lab-order-items/pending-review');
-      const data = await res.json().catch(() => []);
-      setReviewRequests(res.ok && Array.isArray(data) ? data : []);
+      const data = await res.json();
+      if (!res.ok || !Array.isArray(data)) throw new Error('REVIEW_UNAVAILABLE');
+      if (version !== requestVersions.current.review) return;
+      setReviewRequests(data);
+      setReviewError(false);
     } catch {
-      setReviewRequests([]);
+      if (version === requestVersions.current.review) setReviewError(true);
+    } finally {
+      if (version === requestVersions.current.review) setReviewLoading(false);
     }
   };
 
   const fetchLabHistory = async (preferredOrderId = null) => {
+    const version = ++requestVersions.current.history;
     setHistoryLoading(true);
     try {
       const res = await fetchWithAuth('/api/records/lab-orders/history');
-      const data = await res.json().catch(() => []);
-      const nextHistory = res.ok && Array.isArray(data) ? data : [];
+      const nextHistory = await res.json();
+      if (!res.ok || !Array.isArray(nextHistory)) throw new Error('HISTORY_UNAVAILABLE');
+      if (version !== requestVersions.current.history) return;
       setHistoryOrders(nextHistory);
+      setHistoryError(false);
       if (preferredOrderId && nextHistory.some((order) => order.id === preferredOrderId)) {
         setSelectedOrderId(preferredOrderId);
       }
     } catch {
-      setHistoryOrders([]);
+      if (version === requestVersions.current.history) setHistoryError(true);
     } finally {
-      setHistoryLoading(false);
+      if (version === requestVersions.current.history) setHistoryLoading(false);
     }
   };
 
   useWorkflowRefresh(['laboratory', 'catalog'], async () => {
-    await Promise.all([fetchPendingLabOrders(), fetchLabHistory(), fetchReviewRequests()]);
-    try {
-      const response = await fetchWithAuth('/api/billing/services');
-      if (!response.ok) throw new Error('SERVICE_REFRESH_FAILED');
-      setLabServices((await response.json()).filter(service => service.category === 'LABORATORY'));
-    } catch { setErrorMsg(lang === 'ar' ? 'تعذر تحديث دليل الخدمات.' : 'Unable to refresh the service catalog.'); }
+    await Promise.all([fetchPendingLabOrders(), fetchLabHistory(), fetchReviewRequests(), fetchLabServices()]);
   });
 
   const updateReviewForm = (id, changes) => {
@@ -75,6 +104,7 @@ export default function LaboratoryDashboard({ lang }) {
   };
 
   const handleReview = async (request, decision) => {
+    if (mutationInFlight.current || reviewLoading || reviewError || (decision === 'LINK_EXISTING' && (catalogLoading || catalogError))) return;
     const form = reviewForms[request.id] || {};
     const body = { decision };
     if (decision === 'LINK_EXISTING') body.serviceId = form.serviceId;
@@ -82,6 +112,8 @@ export default function LaboratoryDashboard({ lang }) {
       body.service = { labelAr: form.labelAr, labelEn: form.labelEn };
     }
     setReviewingId(request.id);
+    mutationInFlight.current = true;
+    setMutating(true);
     setErrorMsg('');
     setSuccessMsg('');
     try {
@@ -103,6 +135,8 @@ export default function LaboratoryDashboard({ lang }) {
       setErrorMsg(lang === 'ar' ? 'تعذرت مراجعة الفحص.' : 'The test review could not be completed.');
     } finally {
       setReviewingId(null);
+      mutationInFlight.current = false;
+      setMutating(false);
     }
   };
 
@@ -110,6 +144,10 @@ export default function LaboratoryDashboard({ lang }) {
     if (!selectedOrder || selectedOrder.status !== 'PAID') {
       return;
     }
+
+    if (mutationInFlight.current) return;
+    mutationInFlight.current = true;
+    setMutating(true);
 
     setErrorMsg('');
     setSuccessMsg('');
@@ -151,10 +189,14 @@ export default function LaboratoryDashboard({ lang }) {
           ? 'حدث خطأ أثناء تسجيل جمع العينة.'
           : 'An error occurred while recording sample collection.'
       );
+    } finally {
+      mutationInFlight.current = false;
+      setMutating(false);
     }
   };
 
   const handleSubmitResult = async (item) => {
+    if (mutationInFlight.current) return;
     setErrorMsg('');
     setSuccessMsg('');
 
@@ -172,8 +214,14 @@ export default function LaboratoryDashboard({ lang }) {
     const numericValue = Number(form.value);
     const min = form.min === '' || form.min == null ? undefined : Number(form.min);
     const max = form.max === '' || form.max == null ? undefined : Number(form.max);
+    if ((min !== undefined && !Number.isFinite(min)) || (max !== undefined && !Number.isFinite(max)) || (min !== undefined && max !== undefined && min > max)) {
+      setErrorMsg(lang === 'ar' ? 'تحقق من النطاق المرجعي: يجب ألا يتجاوز الحد الأدنى الحد الأعلى.' : 'Check the reference range: the minimum must not exceed the maximum.');
+      return;
+    }
     const isOut = Number.isFinite(numericValue) && ((Number.isFinite(min) && numericValue < min) || (Number.isFinite(max) && numericValue > max));
 
+    mutationInFlight.current = true;
+    setMutating(true);
     try {
       const res = await fetchWithAuth(`/api/records/lab-orders/items/${item.id}/results`, {
         method: 'PUT',
@@ -248,11 +296,17 @@ export default function LaboratoryDashboard({ lang }) {
           ? 'حدث خطأ أثناء معالجة الطلب. يرجى المحاولة مرة أخرى.'
           : 'The request could not be completed. Please try again.'
       );
+    } finally {
+      mutationInFlight.current = false;
+      setMutating(false);
     }
   };
 
   const handleReleaseResults = async () => {
     if (!selectedOrder || selectedOrder.status !== 'COMPLETED') return;
+    if (mutationInFlight.current) return;
+    mutationInFlight.current = true;
+    setMutating(true);
     setErrorMsg('');
     setSuccessMsg('');
     try {
@@ -267,6 +321,9 @@ export default function LaboratoryDashboard({ lang }) {
       setOrderView('history');
     } catch {
       setErrorMsg(lang === 'ar' ? 'تعذر الإفراج عن النتائج للمريض.' : 'Failed to release results to the patient.');
+    } finally {
+      mutationInFlight.current = false;
+      setMutating(false);
     }
   };
 
@@ -296,7 +353,10 @@ export default function LaboratoryDashboard({ lang }) {
             </div>
             <span className="laboratory-review-count">{reviewRequests.length}</span>
           </div>
-          {reviewRequests.length === 0 ? (
+          {reviewError && <div role="alert">{lang === 'ar' ? 'تعذر تحميل الفحوصات المخصصة.' : 'Unable to load custom tests.'} <button type="button" className="btn btn-secondary" disabled={reviewLoading} onClick={fetchReviewRequests}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button></div>}
+          {catalogError && <div role="alert">{lang === 'ar' ? 'تعذر تحميل دليل الخدمات. الربط معطل حتى إعادة التحميل.' : 'Unable to load the service catalog. Linking is disabled until it reloads.'} <button type="button" className="btn btn-secondary" disabled={catalogLoading} onClick={fetchLabServices}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button></div>}
+          {reviewLoading && <p role="status">{lang === 'ar' ? 'جارٍ تحميل الفحوصات المخصصة…' : 'Loading custom tests…'}</p>}
+          {reviewRequests.length === 0 ? (!reviewLoading && !reviewError &&
             <p className="laboratory-review-empty" role="status">
               {lang === 'ar' ? 'لا توجد فحوصات مخصصة بانتظار المراجعة.' : 'No custom tests are awaiting review.'}
             </p>
@@ -304,7 +364,7 @@ export default function LaboratoryDashboard({ lang }) {
             const form = reviewForms[request.id] || {};
             const mode = form.mode || '';
             return (
-              <article key={request.id} className="laboratory-review-card">
+              <article key={request.id} className="laboratory-review-card" aria-busy={reviewingId === request.id}>
                 <div className="laboratory-review-card__header">
                   <div><span>{lang === 'ar' ? 'الفحص المطلوب' : 'Requested test'}</span><strong>{request.customTestName}</strong></div>
                   <span className="badge badge-warning">{lang === 'ar' ? 'بانتظار المراجعة' : 'Pending review'}</span>
@@ -314,6 +374,8 @@ export default function LaboratoryDashboard({ lang }) {
                   <div><dt>{lang === 'ar' ? 'الطبيب' : 'Doctor'}</dt><dd>{lang === 'ar' ? request.labOrder.doctor.fullNameAr : request.labOrder.doctor.fullNameEn}</dd></div>
                   <div><dt>{lang === 'ar' ? 'تاريخ الطلب' : 'Requested'}</dt><dd>{new Date(request.labOrder.orderDate).toLocaleDateString(lang === 'ar' ? 'ar' : 'en')}</dd></div>
                 </dl>
+                <fieldset disabled={mutating || reviewLoading || reviewError} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+                <legend className="sr-only">{request.customTestName}</legend>
                 <div className="laboratory-review-actions">
                   <button className="btn btn-secondary" type="button" onClick={() => updateReviewForm(request.id, { mode: 'LINK_EXISTING' })}>{lang === 'ar' ? 'ربط بخدمة موجودة' : 'Link Existing'}</button>
                   <button className="btn btn-secondary" type="button" onClick={() => updateReviewForm(request.id, { mode: 'CREATE_SERVICE', labelEn: form.labelEn || request.customTestName, labelAr: form.labelAr || request.customTestName })}>{lang === 'ar' ? 'إنشاء للمراجعة الإدارية' : 'Create for Admin Pricing'}</button>
@@ -321,17 +383,17 @@ export default function LaboratoryDashboard({ lang }) {
                 </div>
                 {mode === 'LINK_EXISTING' && (
                   <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
-                    <select className="form-input" value={form.serviceId || ''} onChange={(event) => updateReviewForm(request.id, { serviceId: event.target.value })} style={{ flex: 1 }}>
+                    <select className="form-input" aria-label={lang === 'ar' ? 'اختر خدمة مختبرية' : 'Select a laboratory service'} disabled={catalogLoading || catalogError} value={form.serviceId || ''} onChange={(event) => updateReviewForm(request.id, { serviceId: event.target.value })} style={{ flex: 1 }}>
                       <option value="">{lang === 'ar' ? 'اختر خدمة مختبرية' : 'Select a laboratory service'}</option>
                       {labServices.map((service) => <option key={service.id} value={service.id}>{lang === 'ar' ? service.labelAr : service.labelEn} — {Number(service.baseFeeSdg).toLocaleString()} SDG</option>)}
                     </select>
-                    <button className="btn btn-primary" type="button" disabled={!form.serviceId || reviewingId === request.id} onClick={() => handleReview(request, 'LINK_EXISTING')}>{lang === 'ar' ? 'تأكيد الربط' : 'Confirm Link'}</button>
+                    <button className="btn btn-primary" type="button" disabled={!form.serviceId || catalogLoading || catalogError} onClick={() => handleReview(request, 'LINK_EXISTING')}>{lang === 'ar' ? 'تأكيد الربط' : 'Confirm Link'}</button>
                   </div>
                 )}
                 {mode === 'CREATE_SERVICE' && (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem', marginTop: '0.75rem' }}>
-                    <input className="form-input" placeholder={lang === 'ar' ? 'الاسم بالعربية' : 'Arabic label'} value={form.labelAr || ''} onChange={(event) => updateReviewForm(request.id, { labelAr: event.target.value })}/>
-                    <input className="form-input" placeholder={lang === 'ar' ? 'الاسم بالإنجليزية' : 'English label'} value={form.labelEn || ''} onChange={(event) => updateReviewForm(request.id, { labelEn: event.target.value })}/>
+                    <input className="form-input" aria-label={lang === 'ar' ? 'الاسم بالعربية' : 'Arabic label'} dir="rtl" placeholder={lang === 'ar' ? 'الاسم بالعربية' : 'Arabic label'} value={form.labelAr || ''} onChange={(event) => updateReviewForm(request.id, { labelAr: event.target.value })}/>
+                    <input className="form-input" aria-label={lang === 'ar' ? 'الاسم بالإنجليزية' : 'English label'} dir="ltr" placeholder={lang === 'ar' ? 'الاسم بالإنجليزية' : 'English label'} value={form.labelEn || ''} onChange={(event) => updateReviewForm(request.id, { labelEn: event.target.value })}/>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
                       {lang === 'ar'
                         ? 'ستبقى الخدمة غير نشطة وغير قابلة للفوترة حتى يحدد المسؤول سعرها الرسمي.'
@@ -340,6 +402,7 @@ export default function LaboratoryDashboard({ lang }) {
                     <button className="btn btn-primary" type="button" disabled={!form.labelAr?.trim() || !form.labelEn?.trim() || reviewingId === request.id} onClick={() => handleReview(request, 'CREATE_SERVICE')}>{lang === 'ar' ? 'إنشاء وربط الخدمة المعلقة' : 'Create and Link Pending Service'}</button>
                   </div>
                 )}
+                </fieldset>
               </article>
             );
           })}
@@ -354,13 +417,22 @@ export default function LaboratoryDashboard({ lang }) {
                   ? 'طلبات المختبر'
                   : 'Laboratory Orders'}
               </span>
-              <div className="laboratory-order-tabs" role="tablist" aria-label={lang === 'ar' ? 'عرض طلبات المختبر' : 'Laboratory order view'}>
-                <button type="button" role="tab" aria-selected={orderView === 'work'} className={orderView === 'work' ? 'is-active' : ''} onClick={() => { setOrderView('work'); setSelectedOrderId(null); }}><FlaskConical size={15} />{lang === 'ar' ? 'قائمة العمل' : 'Work Queue'}<span>{orders.length}</span></button>
-                <button type="button" role="tab" aria-selected={orderView === 'history'} className={orderView === 'history' ? 'is-active' : ''} onClick={() => { setOrderView('history'); setSelectedOrderId(null); }}><History size={15} />{lang === 'ar' ? 'السجل المختبري' : 'Lab History'}<span>{historyOrders.length}</span></button>
+              <div className="laboratory-order-tabs" role="tablist" aria-label={lang === 'ar' ? 'عرض طلبات المختبر' : 'Laboratory order view'} onKeyDown={(event) => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                event.preventDefault();
+                const tabs = [...event.currentTarget.querySelectorAll('[role="tab"]')];
+                const next = event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs.at(-1) : tabs.find(tab => tab !== event.target);
+                next?.click(); next?.focus();
+              }}>
+                <button type="button" role="tab" aria-selected={orderView === 'work'} id="laboratory-tab-work" aria-controls="laboratory-order-panel" tabIndex={orderView === 'work' ? 0 : -1} className={orderView === 'work' ? 'is-active' : ''} onClick={() => { setOrderView('work'); setSelectedOrderId(null); }}><FlaskConical size={15} />{lang === 'ar' ? 'قائمة العمل' : 'Work Queue'}<span>{orders.length}</span></button>
+                <button type="button" role="tab" aria-selected={orderView === 'history'} id="laboratory-tab-history" aria-controls="laboratory-order-panel" tabIndex={orderView === 'history' ? 0 : -1} className={orderView === 'history' ? 'is-active' : ''} onClick={() => { setOrderView('history'); setSelectedOrderId(null); }}><History size={15} />{lang === 'ar' ? 'السجل المختبري' : 'Lab History'}<span>{historyOrders.length}</span></button>
               </div>
             </div>
+            <div id="laboratory-order-panel" role="tabpanel" aria-labelledby={`laboratory-tab-${orderView}`} tabIndex={0}>
             {orderView === 'work' && <StaffListPaging list={orderList} lang={lang} label={lang === 'ar' ? 'طلبات المختبر' : 'Laboratory orders'} />}
+            {historyError && orderView === 'history' && <div role="alert">{lang === 'ar' ? 'تعذر تحديث السجل المختبري.' : 'Unable to refresh laboratory history.'} <button type="button" className="btn btn-secondary" disabled={historyLoading} onClick={() => fetchLabHistory()}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button></div>}
             {historyLoading && orderView === 'history' ? <div className="laboratory-orders-empty" role="status">{lang === 'ar' ? 'جارٍ تحميل السجل المختبري...' : 'Loading laboratory history...'}</div> : visibleOrders.length === 0 ? (
+              !(orderView === 'work' ? orderList.loading || orderList.error : historyError) &&
               <div className="laboratory-orders-empty" role="status">
                 <HelpCircle size={36} />
                 <p>{orderView === 'work'
@@ -421,6 +493,7 @@ export default function LaboratoryDashboard({ lang }) {
                 </button>
               ))}</div>
             )}
+            </div>
           </aside>
 
           {/* COLUMN 2: RESULTS ENTRY FORM */}
@@ -433,8 +506,9 @@ export default function LaboratoryDashboard({ lang }) {
                   : 'Laboratory Results Entry'}
               </span>
             </div>
-            {errorMsg && <div className="badge badge-danger" style={{ padding: '0.5rem' }}>{errorMsg}</div>}
-            {successMsg && <div className="badge badge-success" style={{ padding: '0.5rem' }}>{successMsg}</div>}
+            {errorMsg && <div className="badge badge-danger" role="alert" style={{ padding: '0.5rem' }}>{errorMsg}</div>}
+            {successMsg && <div className="badge badge-success" role="status" style={{ padding: '0.5rem' }}>{successMsg}</div>}
+            {mutating && <p role="status">{lang === 'ar' ? 'جارٍ الحفظ…' : 'Saving…'}</p>}
 
             {selectedOrder ? (
               <div>
@@ -499,6 +573,7 @@ export default function LaboratoryDashboard({ lang }) {
                       className="btn btn-primary"
                       style={{ width: '100%' }}
                       onClick={handleCollectSample}
+                      disabled={mutating}
                     >
                       {lang === 'ar'
                         ? 'تأكيد جمع العينة'
@@ -532,7 +607,7 @@ export default function LaboratoryDashboard({ lang }) {
                         ? 'راجع النتائج ثم أفرج عنها لتظهر في بوابة المريض.'
                         : 'Review the results, then release them for the Patient Portal.'}
                     </p>
-                    <button type="button" className="btn btn-primary" style={{ width: '100%' }} onClick={handleReleaseResults}>
+                    <button type="button" className="btn btn-primary" style={{ width: '100%' }} disabled={mutating} onClick={handleReleaseResults}>
                       {lang === 'ar' ? 'الإفراج عن النتائج للمريض' : 'Release Results to Patient'}
                     </button>
                   </div>
@@ -567,10 +642,13 @@ export default function LaboratoryDashboard({ lang }) {
                   const updateForm = (field, value) => setResultForms((current) => ({ ...current, [item.id]: { ...form, [field]: value } }));
 
                   return (
-                    <div key={item.id} className="glass-panel" style={{ padding: '1rem', marginBottom: '1rem', borderLeft: isOutOfRange ? '4px solid var(--danger)' : '1px solid var(--border-color)' }}>
+                    <div key={item.id} className="glass-panel" style={{ padding: '1rem', marginBottom: '1rem', borderInlineStart: isOutOfRange ? '4px solid var(--danger)' : '1px solid var(--border-color)' }}>
                       <strong>{testName}</strong>
+                      {hasUnsavedForm && selectedOrder.status !== 'SAMPLE_COLLECTED' && <p role="note">
+                        {lang === 'ar' ? 'إدخال غير محفوظ للمراجعة:' : 'Unsaved entry for review:'} <bdi>{form.value}</bdi>
+                      </p>}
 
-                      {isCompleted && !hasUnsavedForm ? (
+                      {isCompleted && (!hasUnsavedForm || selectedOrder.status !== 'SAMPLE_COLLECTED') ? (
                         <div
                           className="badge badge-success"
                           style={{ marginTop: '0.75rem', padding: '0.65rem' }}
@@ -601,6 +679,9 @@ export default function LaboratoryDashboard({ lang }) {
                         <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
                           <input
                             type="text"
+                            aria-label={`${lang === 'ar' ? 'قيمة النتيجة' : 'Result value'}: ${testName}`}
+                            maxLength={2000}
+                            disabled={mutating}
                             placeholder={
                               lang === 'ar'
                                 ? 'قيمة النتيجة، مثال: 13.5'
@@ -619,6 +700,8 @@ export default function LaboratoryDashboard({ lang }) {
                               : 'Reference range minimum'
                           }
                           type="number"
+                          disabled={mutating}
+                          dir="ltr"
                           step="any"
                           placeholder={
                             lang === 'ar'
@@ -637,6 +720,8 @@ export default function LaboratoryDashboard({ lang }) {
                               : 'Reference range maximum'
                           }
                           type="number"
+                          disabled={mutating}
+                          dir="ltr"
                           step="any"
                           placeholder={
                             lang === 'ar'
@@ -662,7 +747,7 @@ export default function LaboratoryDashboard({ lang }) {
                       <button
                         className="btn btn-primary"
                         style={{ width: '100%', marginTop: '1rem' }}
-                        disabled={!form.value?.trim()}
+                        disabled={mutating || !form.value?.trim()}
                         onClick={() => handleSubmitResult(item)}
                       >
                         {lang === 'ar'

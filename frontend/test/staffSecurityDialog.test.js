@@ -32,10 +32,29 @@ afterEach(async () => { if (root) await act(async () => root.unmount()); root = 
 async function mount(language = 'en', required = false) {
  await i18n.changeLanguage(language); globalThis.securityRequired = required;
  root = createRoot(document.getElementById('root'));
- await act(async () => root.render(createElement(I18nextProvider, { i18n }, createElement(dialog.default, { user: { mfaEnabled: true }, onClose() {}, t: key => i18n.t(key) }))));
+ await act(async () => root.render(createElement(I18nextProvider, { i18n }, createElement(dialog.default, { user: { mfaEnabled: true }, onClose() { globalThis.securityClosed = true; }, t: key => i18n.t(key) }))));
 }
 async function open() { await act(async () => [...document.querySelectorAll('button')].find(button => button.textContent === i18n.t('disableMfa')).click()); }
 async function passwordValue(value) { const input = document.querySelector('#mfa-current-password'); await act(async () => { Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, value); input.dispatchEvent(new window.Event('input', { bubbles: true })); }); }
+test('security modal traps focus, supports Escape and restores its trigger and scroll state', async () => {
+ const trigger = document.createElement('button'); document.body.appendChild(trigger); trigger.focus();
+ document.body.style.overflow = 'auto'; globalThis.securityClosed = false;
+ await mount();
+ const modal = document.querySelector('[role="dialog"]');
+ const buttons = [...modal.querySelectorAll('button:not(:disabled)')];
+ assert.equal(document.activeElement, buttons[0]);
+ assert.equal(document.body.style.overflow, 'hidden');
+ buttons.at(-1).focus();
+ modal.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+ assert.equal(document.activeElement, buttons[0]);
+ modal.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+ assert.equal(document.activeElement, buttons.at(-1));
+ modal.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+ assert.equal(globalThis.securityClosed, true);
+ await act(async () => root.unmount()); root = null;
+ assert.equal(document.activeElement, trigger); assert.equal(document.body.style.overflow, 'auto');
+ trigger.remove(); document.body.style.overflow = '';
+});
 for (const lang of ['ar', 'en']) test(`${lang}: disable dialog has one current-password label, masks by default and matches its eye state`, async () => {
  await mount(lang); await open();
  const input = document.querySelector('#mfa-current-password'); assert.equal(input.type, 'password'); assert.equal(input.labels.length, 1); assert.equal(input.labels[0].textContent, i18n.t('currentPassword'));

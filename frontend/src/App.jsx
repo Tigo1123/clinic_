@@ -10,7 +10,8 @@ import StaffSecurityDialog from './components/StaffSecurityDialog';
 import MfaCodeInput from './components/MfaCodeInput';
 import { clearStaffSession, readStaffSession, writeStaffSession } from './services/authStorage';
 import { completeStaffMfa, completeStaffMfaRecovery, isTerminalMfaError, startStaffLogin } from './services/staffLogin';
-import { fetchWithAuth } from './services/staffApi';
+import { apiErrorMessage, fetchWithAuth } from './services/staffApi';
+import { localizedApiErrorMessage } from './services/apiClient.js';
 import {
   configureStaffSocketSessionRevocation,
   connectStaffSocket,
@@ -168,7 +169,7 @@ export default function App({ initialView = 'login' }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
               {!user.mustChangePassword && <NotificationDropdown userId={user?.id} lang={lang} />}
               <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                {user.username} ({user.role})
+                <bdi>{user.username}</bdi> ({t(`staffRole_${user.role}`)})
               </span>
               {!user.mustChangePassword && <button className="btn btn-secondary" onClick={() => setSecurityOpen(true)}>
                 <ShieldCheck size={16} />
@@ -212,7 +213,7 @@ function RequiredPasswordChange({ t, onComplete }) {
     try {
       const response = await fetchWithAuth('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
       const body = await response.json();
-      if (!response.ok) throw new Error(body?.error?.message || body?.error || t('passwordChangeFailed'));
+      if (!response.ok) throw new Error(apiErrorMessage(body, t('passwordChangeFailed')));
       await onComplete();
     } catch (requestError) { setError(requestError.message); }
     finally { setSaving(false); }
@@ -325,7 +326,7 @@ function LoginView({ onLogin, onMfaEnrollmentRequired, t, lang, productName, pro
         authFlow.current.step = 'password';
         authFlow.current.challenge = null;
         setMfaChallenge(null);
-        setErrorMsg(err?.status ? err.message : 'Cannot connect to authorization service.');
+        setErrorMsg(localizedApiErrorMessage(err));
       }
     });
   };
@@ -530,7 +531,7 @@ function DashboardContainer({ user, lang, t }) {
   }
   else return (
     <div style={{ padding: '3rem', textAlign: 'center' }}>
-      <h3>Unknown User Role. Contact administrator.</h3>
+      <h3>{t('unknownUserRole')}</h3>
     </div>
   );
   return <Suspense fallback={<div className="portal-loading" role="status"><HeartPulse/><span>{t('loading')}</span></div>}>{dashboard}</Suspense>;

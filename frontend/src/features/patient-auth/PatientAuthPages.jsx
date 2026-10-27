@@ -277,10 +277,7 @@ export function PatientForgotPassword(){
         body:JSON.stringify({ email })
       });
 
-      setMessage(
-        data.message ||
-        t('passwordResetCodeSent')
-      );
+      setMessage(t('passwordResetCodeSent'));
 
       if(data.challengeId){
         setChallengeId(data.challengeId);
@@ -341,7 +338,7 @@ export function PatientForgotPassword(){
           <p>{t('forgotPasswordInstructions')}</p>
 
           <Field
-            label={t('emailOptional')}
+            label={t('email')}
             type="email"
             value={email}
             onChange={setEmail}
@@ -351,7 +348,7 @@ export function PatientForgotPassword(){
           {error && <Alert>{error}</Alert>}
 
           {message && (
-            <div className="patient-alert success">
+            <div className="patient-alert success" role="status">
               {message}
             </div>
           )}
@@ -373,6 +370,7 @@ export function PatientForgotPassword(){
       ) : (
         <form onSubmit={resetPassword}>
           <p>{t('resetPasswordInstructions')}</p>
+          {message && <div className="patient-alert success" role="status">{message}</div>}
 
           {developmentCode && (
             <div className="patient-alert success">
@@ -847,7 +845,7 @@ function AuthShell({ title, children, onboarding = false }) {
         </Link>
         <div className="patient-auth-topbar-actions">
           <ThemeToggle />
-          <div className="patient-auth-language" role="group" aria-label="Language">
+          <div className="patient-auth-language" role="group" aria-label={i18n.language === 'ar' ? 'اللغة' : 'Language'}>
             <button type="button" className={i18n.language === 'ar' ? 'active' : ''} onClick={() => i18n.changeLanguage('ar')} lang="ar" aria-pressed={i18n.language === 'ar'}>العربية</button>
             <button type="button" className={i18n.language !== 'ar' ? 'active' : ''} onClick={() => i18n.changeLanguage('en')} lang="en" aria-pressed={i18n.language !== 'ar'}>English</button>
           </div>

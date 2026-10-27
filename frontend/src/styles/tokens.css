@@ -53,6 +53,8 @@
   --bg-base: var(--color-bg);
   --bg-surface: var(--color-surface);
   --bg-card: var(--color-surface);
+  --card-bg: var(--color-surface);
+  --bg-color: var(--color-bg);
   --border-color: var(--color-border);
   --primary: var(--color-primary);
   --primary-hover: var(--color-primary-hover);
@@ -62,6 +64,7 @@
   --danger-hover: #a92e40;
   --danger-glow: rgba(196, 61, 79, .16);
   --warning: var(--color-warning);
+  --success: var(--color-success);
   --text-primary: var(--color-text);
   --text-secondary: var(--color-text-secondary);
   --text-muted: var(--color-text-muted);

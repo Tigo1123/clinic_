@@ -35,5 +35,5 @@ test('email summary UI surfaces the sanitized read failure and explicitly confir
   const modal = source('src/features/clinical/ClinicalModals.jsx');
   assert.match(modal, /apiError\?\.code === 'CLINICAL_DATA_UNREADABLE'/);
   assert.match(modal, /Clinical information is unavailable\. No email was sent\./);
-  assert.match(modal, /apiError\?\.message \|\| errData\.error/);
+  assert.match(modal, /apiErrorMessage\(errData, lang === 'ar'\s*\? 'تعذر إرسال البريد الإلكتروني\.'/);
 });

@@ -24,7 +24,8 @@ test('laboratory conflicts preserve the local form, refetch, and never auto-retr
   assert.match(conflictBlock, /fetchPendingLabOrders/);
   assert.doesNotMatch(conflictBlock, /handleSubmitResult|fetchWithAuth/);
   assert.match(laboratory, /const hasUnsavedForm = Object\.hasOwn\(resultForms, item\.id\)/);
-  assert.match(laboratory, /isCompleted && !hasUnsavedForm/);
+  assert.match(laboratory, /isCompleted && \(!hasUnsavedForm \|\| selectedOrder\.status !== 'SAMPLE_COLLECTED'\)/);
+  assert.match(laboratory, /Unsaved entry for review:/);
 });
 
 test('finalized result UX refreshes authoritative state without retrying the mutation', () => {

@@ -241,12 +241,14 @@ export default function DoctorDashboard({ user, lang, t }) {
           existingSummary = await summaryRes.json();
           if (patientSelectionRequestRef.current !== selectionRequestId) return;
         } else if (summaryRes.status === 404) {
-          throw new Error('The existing clinical record could not be loaded. This visit was not opened for editing.');
+          throw Object.assign(new Error(lang === 'ar'
+            ? 'تعذر تحميل السجل السريري الحالي. لم يتم فتح الزيارة للتعديل.'
+            : 'The existing clinical record could not be loaded. This visit was not opened for editing.'), { code: 'CLINICAL_RECORD_NOT_FOUND' });
         } else if (summaryRes.status !== 404) {
           const summaryError = await summaryRes.json().catch(() => ({}));
           if (patientSelectionRequestRef.current !== selectionRequestId) return;
           const apiError = typeof summaryError.error === 'object' ? summaryError.error : null;
-          const error = new Error(apiError?.message || summaryError.error || 'Failed to load consultation.');
+          const error = new Error(apiErrorMessage(summaryError, lang === 'ar' ? 'تعذر تحميل الكشف الطبي.' : 'Failed to load consultation.'));
           error.code = apiError?.code;
           throw error;
         }
@@ -265,14 +267,8 @@ export default function DoctorDashboard({ user, lang, t }) {
         if (patientSelectionRequestRef.current !== selectionRequestId) return;
 
         if (!statusRes.ok) {
-          const message =
-            typeof statusData.error === 'object'
-              ? statusData.error.message
-              : statusData.error;
-
           setErrorMsg(
-            message ||
-              (lang === 'ar'
+            apiErrorMessage(statusData, lang === 'ar'
                 ? 'تعذر بدء الكشف الطبي لهذا الموعد.'
                 : 'Unable to start consultation for this appointment.')
           );
@@ -329,13 +325,17 @@ export default function DoctorDashboard({ user, lang, t }) {
       if (patientSelectionRequestRef.current !== selectionRequestId) return;
       console.error(err);
 
-      setErrorMsg(err.code === 'CLINICAL_DATA_UNREADABLE'
+      setErrorMsg(err.code === 'CLINICAL_RECORD_NOT_FOUND'
+        ? (lang === 'ar'
+          ? 'تعذر تحميل السجل السريري الحالي. لم يتم فتح الزيارة للتعديل.'
+          : 'The existing clinical record could not be loaded. This visit was not opened for editing.')
+        : err.code === 'CLINICAL_DATA_UNREADABLE'
         ? (lang === 'ar'
           ? 'المعلومات السريرية لهذه الزيارة غير متاحة. لم يتم فتح الزيارة للتعديل.'
           : 'Clinical information for this visit is unavailable. The visit was not opened for editing.')
-        : (err.message || (lang === 'ar'
+        : apiErrorMessage({ code: err.code, status: err.status }, lang === 'ar'
           ? 'حدث خطأ أثناء فتح الكشف الطبي.'
-          : 'An error occurred while opening the consultation.')));
+          : 'An error occurred while opening the consultation.'));
     }
   };
 

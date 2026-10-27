@@ -19,7 +19,9 @@ class MemoryStorage {
 globalThis.sessionStorage = new MemoryStorage();
 globalThis.localStorage = new MemoryStorage();
 
-const { publicApiRequest, ApiClientError } = await import('../src/services/apiClient.js');
+const { publicApiRequest, ApiClientError, localizedApiErrorMessage } = await import('../src/services/apiClient.js');
+const { apiErrorMessage } = await import('../src/services/staffApi.js');
+const i18n = (await import('../src/i18n.js')).default;
 
 function mockResponse(status, body) {
   return Promise.resolve({
@@ -104,10 +106,89 @@ test('clinical data unreadable response preserves the stable sanitized code and 
       assert.ok(err instanceof ApiClientError);
       assert.equal(err.status, 500);
       assert.equal(err.code, 'CLINICAL_DATA_UNREADABLE');
-      assert.equal(err.message, 'Clinical information is unavailable.');
+      assert.equal(err.message, 'غير متاح');
+      assert.equal(err.serverMessage, 'Clinical information is unavailable.');
       return true;
     }
   );
+});
+
+test('stable API error codes render localized, non-raw messages in both languages', async () => {
+  await i18n.changeLanguage('ar');
+  assert.equal(localizedApiErrorMessage({ code: 'INVALID_CREDENTIALS' }), 'اسم المستخدم أو كلمة المرور غير صحيحة.');
+  assert.equal(apiErrorMessage({ error: { code: 'EMAIL_ALREADY_REGISTERED', message: 'English backend detail' } }), 'يوجد حساب بالفعل بهذا البريد الإلكتروني.');
+  assert.equal(localizedApiErrorMessage({ code: 'MFA_CODE_INVALID' }), i18n.t('mfaCodeInvalid'));
+  assert.equal(localizedApiErrorMessage({ code: 'NETWORK_ERROR' }), 'تعذر الاتصال بالخدمة. تحقق من اتصالك وحاول مرة أخرى.');
+  await i18n.changeLanguage('en');
+  assert.equal(localizedApiErrorMessage({ code: 'INVALID_CREDENTIALS' }), 'The username or password is incorrect.');
+  assert.equal(apiErrorMessage({ error: { code: 'EMAIL_ALREADY_REGISTERED', message: 'تفاصيل داخلية' } }), 'An account already exists for this email address.');
+  assert.equal(localizedApiErrorMessage({ code: 'MFA_CODE_INVALID' }), i18n.t('mfaCodeInvalid'));
+  assert.equal(localizedApiErrorMessage({ code: 'NETWORK_ERROR' }), 'The service could not be reached. Check your connection and try again.');
+  await i18n.changeLanguage('ar');
+});
+
+test('staff login 401 without a backend code maps by request action to localized invalid credentials', async () => {
+  await i18n.changeLanguage('ar');
+  globalThis.fetch = async () => mockResponse(401, { error: 'Invalid username or password.' });
+  await assert.rejects(publicApiRequest('/api/auth/login', { method: 'POST', body: '{}' }), error => {
+    assert.equal(error.code, 'INVALID_CREDENTIALS');
+    assert.equal(error.message, 'اسم المستخدم أو كلمة المرور غير صحيحة.');
+    return true;
+  });
+  await i18n.changeLanguage('en');
+  globalThis.fetch = async () => mockResponse(401, { error: 'Invalid username or password.' });
+  await assert.rejects(publicApiRequest('/api/auth/login', { method: 'POST', body: '{}' }), error => {
+    assert.equal(error.message, 'The username or password is incorrect.');
+    return true;
+  });
+  await i18n.changeLanguage('ar');
+});
+
+test('unmapped backend messages and network exceptions do not leak raw English', async () => {
+  await i18n.changeLanguage('ar');
+  globalThis.fetch = async () => mockResponse(400, { error: { code: 'UNMAPPED_CODE', message: 'Internal English message' } });
+  await assert.rejects(publicApiRequest('/test'), error => {
+    assert.equal(error.code, 'UNMAPPED_CODE');
+    assert.equal(error.message, 'تعذر إكمال الطلب. حاول مرة أخرى.');
+    assert.equal(error.serverMessage, 'Internal English message');
+    return true;
+  });
+  globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
+  await assert.rejects(publicApiRequest('/test'), error => {
+    assert.equal(error.code, 'NETWORK_ERROR');
+    assert.equal(error.message, 'تعذر الاتصال بالخدمة. تحقق من اتصالك وحاول مرة أخرى.');
+    return true;
+  });
+  await i18n.changeLanguage('ar');
+});
+
+test('request cancellation keeps AbortError semantics', async () => {
+  globalThis.fetch = async () => { const error = new Error('aborted'); error.name = 'AbortError'; throw error; };
+  await assert.rejects(publicApiRequest('/test'), error => error.name === 'AbortError');
+});
+
+test('null error bodies preserve HTTP status and localized failures', async () => {
+  await i18n.changeLanguage('ar');
+  for (const [status, expected] of [[429, 'apiErrorRateLimited'], [503, 'apiErrorServiceUnavailable'], [400, 'apiErrorRequestFailed']]) {
+    globalThis.fetch = async () => mockResponse(status, { error: null });
+    await assert.rejects(publicApiRequest('/test'), error => {
+      assert.ok(error instanceof ApiClientError);
+      assert.equal(error.status, status);
+      assert.equal(error.message, i18n.t(expected));
+      return true;
+    });
+  }
+});
+
+test('password and inactive-account failures give actionable translated guidance', async () => {
+  for (const lang of ['ar', 'en']) {
+    await i18n.changeLanguage(lang);
+    for (const [code, key] of [['CURRENT_PASSWORD_INVALID', 'apiErrorCurrentPassword'], ['PASSWORD_REUSE_NOT_ALLOWED', 'apiErrorPasswordReuse'], ['ACCOUNT_INACTIVE', 'apiErrorAccountInactive']]) {
+      assert.equal(apiErrorMessage({ error: { code, message: 'PRIVATE BACKEND DETAIL' } }), i18n.t(key));
+    }
+    assert.notEqual(i18n.t('staffRole_LAB_TECH'), 'LAB_TECH');
+  }
+  await i18n.changeLanguage('ar');
 });
 
 test('precedence: payload.code > error.code > payload.status > REQUEST_FAILED', async () => {

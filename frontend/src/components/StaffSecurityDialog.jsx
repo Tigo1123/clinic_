@@ -1,7 +1,7 @@
 import { getPublicConfig } from '../utils/clinicTime.js';
 import { clearStaffSession } from '../services/authStorage.js';
 import { disconnectStaffSocket, connectStaffSocket } from '../services/staffSocket.js';
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Check, Copy, KeyRound, ShieldCheck, X } from 'lucide-react';
 import {
@@ -53,11 +53,50 @@ export default function StaffSecurityDialog({ user, onClose, t }) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const enrollmentCodeRef = useRef(null);
   const proofRef = useRef(null);
+  const dialogRef = useRef(null);
+  const dismissRef = useRef(null);
+  dismissRef.current = () => {
+    if (!pending && (mode !== 'recovery' || acknowledged)) closeDialog();
+  };
+
+  useEffect(() => {
+    const trigger = document.activeElement;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const dialog = dialogRef.current;
+    const focusable = () => [...dialog.querySelectorAll('button:not(:disabled), input:not(:disabled), summary, a[href], [tabindex="0"]')]
+      .filter(node => !node.closest('[hidden]') && getComputedStyle(node).visibility !== 'hidden');
+    const handleKey = (event) => {
+      if (event.key === 'Escape') { event.preventDefault(); dismissRef.current(); }
+      if (event.key !== 'Tab') return;
+      const items = focusable();
+      const first = items[0], last = items.at(-1);
+      if (!first) { event.preventDefault(); dialog.focus(); }
+      else if (event.shiftKey && (document.activeElement === first || !items.includes(document.activeElement))) {
+        event.preventDefault(); last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !items.includes(document.activeElement))) {
+        event.preventDefault(); first.focus();
+      }
+    };
+    dialog.addEventListener('keydown', handleKey);
+    return () => {
+      dialog.removeEventListener('keydown', handleKey);
+      document.body.style.overflow = overflow;
+      trigger?.focus?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    (dialog.querySelector('input:not(:disabled), button:not(:disabled)') || dialog).focus();
+  }, [mode]);
 
   const resetSensitive = (nextMode = 'overview') => {
     enrollmentCodeRef.current?.clear();
     proofRef.current?.clear();
     setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
     setEnrollment(null);
     setRecoveryCodes(null);
     setProof('');
@@ -152,8 +191,8 @@ export default function StaffSecurityDialog({ user, onClose, t }) {
   };
 
   return <div className="security-dialog-backdrop" role="presentation">
-    <section className="security-dialog glass-panel" role="dialog" aria-modal="true" aria-labelledby="security-dialog-title">
-      <button type="button" className="security-dialog-close" aria-label={t('close')} disabled={mode === 'recovery' && !acknowledged} onClick={closeDialog}><X size={20} /></button>
+    <section ref={dialogRef} tabIndex={-1} className="security-dialog glass-panel" role="dialog" aria-modal="true" aria-labelledby="security-dialog-title">
+      <button type="button" className="security-dialog-close" aria-label={t('close')} disabled={pending || (mode === 'recovery' && !acknowledged)} onClick={closeDialog}><X size={20} /></button>
       <div className="security-dialog-heading">
         <span className="staff-mfa-icon"><ShieldCheck size={28} /></span>
         <div><h2 id="security-dialog-title">{t('securitySettings')}</h2><p>{t('mfaSettingsDescription')}</p></div>
