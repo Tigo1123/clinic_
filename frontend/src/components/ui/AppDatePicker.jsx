@@ -10,6 +10,9 @@ import { useTheme as useAppTheme } from '../../app/theme/ThemeContext.jsx';
 import { createPatientMuiTheme, patientStyleCaches } from '../../utils/patientMuiTheme.js';
 import { formatDateOnly, parseDateOnly } from '../../utils/dateOnly.js';
 
+// Both desktop and mobile calendars portal to body, above the app's Dialog.
+const pickerOverlayZIndex = 'calc(var(--z-index-dialog, 2000) + 1)';
+
 const arabicCalendarText = {
   openDatePickerDialogue: value => value ? 'تغيير التاريخ المحدد' : 'اختر تاريخًا',
   openTimePickerDialogue: 'اختر الوقت',
@@ -47,7 +50,7 @@ export default function AppDatePicker({
         label={label}
         name={name}
         value={parseDateOnly(value)}
-        onChange={next => { if (next == null) onChange?.(''); else if (next.isValid()) onChange?.(formatDateOnly(next)); }}
+        onChange={next => onChange?.(formatDateOnly(next))}
         minDate={parseDateOnly(minDate)}
         maxDate={parseDateOnly(maxDate)}
         disabled={disabled}
@@ -61,7 +64,7 @@ export default function AppDatePicker({
         slotProps={{
           field: { openPickerButtonPosition: direction === 'rtl' ? 'start' : 'end' },
           textField: {
-            id, required, error: Boolean(error), helperText, fullWidth, size, className,
+            id, required, error: error || undefined, helperText, fullWidth, size, className,
             onClick: () => { if (!disabled) setOpen(true); },
             slotProps: {
               inputLabel: {
@@ -111,12 +114,13 @@ export default function AppDatePicker({
               color: 'var(--color-text-secondary)',
             },
           },
+          dialog: { dir: direction, sx: { zIndex: pickerOverlayZIndex } },
           popper: {
             dir: direction,
             placement: direction === 'rtl' ? 'bottom-end' : 'bottom-start',
             modifiers: [{ name: 'preventOverflow', options: { boundary: 'viewport', padding: 8 } }],
             sx: {
-              zIndex: theme => theme.zIndex.modal + 1,
+              zIndex: pickerOverlayZIndex,
               '& .MuiPaper-root': { backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', border: '1px solid var(--color-border)', boxShadow: 'var(--shadow-lg)' },
               '& .MuiPickersDay-root': { color: 'var(--color-text)' },
               '& .MuiPickersDay-root.Mui-selected': { color: '#fff', backgroundColor: 'var(--color-primary-action)' },

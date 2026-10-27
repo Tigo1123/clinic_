@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { clinicCalendarDays, clinicDateString } from '../src/utils/clinicTime.js';
 import {
   buildBatchPayload,
   buildMedicinePayload,
@@ -191,6 +192,19 @@ test('management errors and batch validation are safe and localized', () => {
   assert.doesNotMatch(pharmacyManagementError({ error: { message: 'Prisma P2002 secret' } }, 500, 'en'), /Prisma|P2002/);
   const errors = validateBatchForm({ batchNumber: '', expiryDate: 'not-a-date', receivedQuantity: '0', minReorderLevel: '-1' }, 'en');
   assert.deepEqual(Object.keys(errors).sort(), ['batchNumber', 'expiryDate', 'minReorderLevel', 'receivedQuantity']);
+});
+
+test('batch expiry rejects invalid, impossible, past and same-day dates and preserves future date-only payloads', () => {
+  const form = { batchNumber: 'QA', receivedQuantity: '2', minReorderLevel: '0' };
+  const future = clinicCalendarDays(2)[1].date;
+  for (const lang of ['en', 'ar']) {
+    for (const expiryDate of ['', 'invalid', '2030-02-30', '2020-01-01', clinicDateString()]) {
+      assert.ok(validateBatchForm({ ...form, expiryDate }, lang).expiryDate, `${lang}: ${expiryDate}`);
+    }
+    assert.deepEqual(validateBatchForm({ ...form, expiryDate: future }, lang), {});
+  }
+  assert.equal(buildMedicinePayload({ ...form, includeInitialBatch: true, expiryDate: future }).initialBatch.expiryDate, future);
+  assert.equal(buildBatchPayload({ ...form, expiryDate: future }).expiryDate, future);
 });
 
 test('422 expiry and network failures are safely localized without raw errors', () => {

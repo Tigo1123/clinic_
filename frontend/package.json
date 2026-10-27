@@ -10,7 +10,8 @@
     "test": "node --test test/*.test.js",
     "preview": "vite preview",
     "qa:browser": "node scripts/browser-qa.mjs",
-    "qa:schedule": "node scripts/verify-doctor-schedule.mjs"
+    "qa:schedule": "node scripts/verify-doctor-schedule.mjs",
+    "qa:pharmacy-expiry": "node scripts/verify-pharmacy-expiry-picker.mjs"
   },
   "dependencies": {
     "@emotion/cache": "^11.14.0",

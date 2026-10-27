@@ -98,6 +98,14 @@ test('AppDatePicker field opens its calendar and returns selected dates in canon
   assert.equal(globalThis.mockMuiTheme.direction, 'rtl');
   await act(async () => document.querySelector('button').click());
   assert.equal(selected, '2013-05-07');
+  // An invalid manual edit must clear the canonical form value so a previous
+  // valid date cannot silently be submitted instead of the visible edit.
+  globalThis.mockPickedDate = { isValid: () => false };
+  await act(async () => document.querySelector('button').click());
+  assert.equal(selected, '');
+  globalThis.mockPickedDate = null;
+  await act(async () => document.querySelector('button').click());
+  assert.equal(selected, '');
   globalThis.mockLanguage = 'en'; globalThis.mockMode = 'light';
   await act(async () => root.render(createElement(AppDatePicker, { label: 'Date of birth', value: '2013-05-07', onChange: value => { selected = value; } })));
   assert.equal(document.querySelector('[data-format="MM/DD/YYYY"]')?.dataset.dir, 'ltr');

@@ -3,6 +3,7 @@ import { PackagePlus, RefreshCw, Search } from 'lucide-react';
 import Dialog from '../../components/ui/Dialog';
 import AppDatePicker from '../../components/ui/AppDatePicker.jsx';
 import { fetchWithAuth } from '../../services/staffApi';
+import { clinicCalendarDays } from '../../utils/clinicTime.js';
 import {
   authoritativeStockSummary, batchPresentation, buildBatchPayload, buildMedicinePayload,
   buildMetadataPayload, localizedMovementType, localizedStockState, pharmacyManagementError,
@@ -49,7 +50,7 @@ function MedicineFields({ form, setForm, lang, labelsOnly = false }) {
 function BatchFields({ form, setForm, lang, errors = {}, idPrefix = 'batch' }) {
   return <div className="pharmacy-form-grid">
     <Field id={`${idPrefix}-batchNumber`} name="batchNumber" dir="ltr" required error={errors.batchNumber} label={lang === 'ar' ? 'رقم الدفعة' : 'Batch number'} value={form.batchNumber} onChange={(event) => setForm((current) => ({ ...current, batchNumber: event.target.value }))} />
-    <Field id={`${idPrefix}-expiryDate`} name="expiryDate" dir="ltr" required type="date" error={errors.expiryDate} label={lang === 'ar' ? 'تاريخ الصلاحية' : 'Expiry date'} value={form.expiryDate} onChange={(value) => setForm((current) => ({ ...current, expiryDate: value }))} />
+    <Field id={`${idPrefix}-expiryDate`} name="expiryDate" dir="ltr" required type="date" min={clinicCalendarDays(2)[1].date} error={errors.expiryDate} label={lang === 'ar' ? 'تاريخ الصلاحية' : 'Expiry date'} value={form.expiryDate} onChange={(value) => setForm((current) => ({ ...current, expiryDate: value }))} />
     <Field id={`${idPrefix}-receivedQuantity`} name="receivedQuantity" dir="ltr" required type="number" min="1" step="1" error={errors.receivedQuantity} label={lang === 'ar' ? 'الكمية المستلمة' : 'Received quantity'} value={form.receivedQuantity} onChange={(event) => setForm((current) => ({ ...current, receivedQuantity: event.target.value }))} />
     <Field id={`${idPrefix}-minReorderLevel`} name="minReorderLevel" dir="ltr" required type="number" min="0" step="1" error={errors.minReorderLevel} label={lang === 'ar' ? 'حد إعادة الطلب' : 'Reorder level'} value={form.minReorderLevel} onChange={(event) => setForm((current) => ({ ...current, minReorderLevel: event.target.value }))} />
   </div>;
