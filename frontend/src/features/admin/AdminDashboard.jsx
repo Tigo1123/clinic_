@@ -19,6 +19,8 @@ export default function AdminDashboard({ user, lang, t }) {
   const [pricing, setPricing] = useState(null);
   const [pricingDrafts, setPricingDrafts] = useState({});
   const [pricingLoading, setPricingLoading] = useState(false);
+  const [pricingSaving, setPricingSaving] = useState({});
+  const pricingSavesInFlight = useRef(new Set());
 
   const [specialties, setSpecialties] = useState([]);
   const [specialtyDraft, setSpecialtyDraft] = useState({ code: '', nameAr: '', nameEn: '' });
@@ -115,6 +117,8 @@ export default function AdminDashboard({ user, lang, t }) {
 
   const saveOfficialPrice = async (kind, item) => {
     const key = `${kind}:${item.id}`;
+    if (pricingSavesInFlight.current.has(key)) return;
+    setSuccessMsg('');
     const currentPrice = kind === 'doctors' ? item.consultationFee : kind === 'services' ? item.baseFeeSdg : item.unitPriceSdg;
     const draft = pricingDrafts[key] || { priceSdg: currentPrice == null ? '' : String(Number(currentPrice)), status: item.status };
     const priceSdg = Number(draft.priceSdg);
@@ -133,6 +137,8 @@ export default function AdminDashboard({ user, lang, t }) {
           : 'Are you sure you want to deactivate this service? It will no longer appear to doctors as an available service.'))
       : (lang === 'ar' ? 'تأكيد تغيير السعر الرسمي؟' : 'Confirm this official price change?');
     if (!globalThis.confirm(confirmationMessage)) return;
+    pricingSavesInFlight.current.add(key);
+    setPricingSaving(current => ({ ...current, [key]: true }));
     setErrorMsg('');
     setSuccessMsg('');
     try {
@@ -150,6 +156,9 @@ export default function AdminDashboard({ user, lang, t }) {
       setSuccessMsg(lang === 'ar' ? 'تم تحديث السعر الرسمي.' : 'Official price updated.');
     } catch (error) {
       setErrorMsg(error.message);
+    } finally {
+      pricingSavesInFlight.current.delete(key);
+      setPricingSaving(current => ({ ...current, [key]: false }));
     }
   };
 
@@ -217,13 +226,13 @@ export default function AdminDashboard({ user, lang, t }) {
                 ? 'تُستخدم الأسعار المحفوظة هنا للفواتير الجديدة فقط، ولا تتغير الفواتير التاريخية.'
                 : 'Prices saved here apply to future invoices only. Historical invoices remain unchanged.'}
             </p>
-            {errorMsg && <div className="badge badge-danger" style={{ padding: '0.6rem', marginBottom: '1rem' }}>{errorMsg}</div>}
-            {successMsg && <div className="badge badge-success" style={{ padding: '0.6rem', marginBottom: '1rem' }}>{successMsg}</div>}
+            {errorMsg && <div role="alert" className="badge badge-danger" style={{ padding: '0.6rem', marginBottom: '1rem' }}>{errorMsg}</div>}
+            {successMsg && <div role="status" className="badge badge-success" style={{ padding: '0.6rem', marginBottom: '1rem' }}>{successMsg}</div>}
             {pricingLoading || !pricing ? <div className="spinner" /> : (
               <>
-                <PricingTable title={lang === 'ar' ? 'رسوم الاستشارات' : 'Consultation Fees'} kind="doctors" items={pricing.doctors} lang={lang} drafts={pricingDrafts} setDrafts={setPricingDrafts} onSave={saveOfficialPrice} />
-                <PricingTable title={lang === 'ar' ? 'الخدمات السريرية والمختبرية' : 'Clinical & Laboratory Services'} kind="services" items={pricing.services} lang={lang} drafts={pricingDrafts} setDrafts={setPricingDrafts} onSave={saveOfficialPrice} />
-                <PricingTable title={lang === 'ar' ? 'أسعار الصيدلية' : 'Pharmacy Selling Prices'} kind="medicines" items={pricing.medicines} lang={lang} drafts={pricingDrafts} setDrafts={setPricingDrafts} onSave={saveOfficialPrice} />
+                <PricingTable title={lang === 'ar' ? 'رسوم الاستشارات' : 'Consultation Fees'} kind="doctors" items={pricing.doctors} lang={lang} drafts={pricingDrafts} setDrafts={setPricingDrafts} saving={pricingSaving} onSave={saveOfficialPrice} />
+                <PricingTable title={lang === 'ar' ? 'الخدمات السريرية والمختبرية' : 'Clinical & Laboratory Services'} kind="services" items={pricing.services} lang={lang} drafts={pricingDrafts} setDrafts={setPricingDrafts} saving={pricingSaving} onSave={saveOfficialPrice} />
+                <PricingTable title={lang === 'ar' ? 'أسعار الصيدلية' : 'Pharmacy Selling Prices'} kind="medicines" items={pricing.medicines} lang={lang} drafts={pricingDrafts} setDrafts={setPricingDrafts} saving={pricingSaving} onSave={saveOfficialPrice} />
               </>
             )}
           </div>
@@ -262,7 +271,7 @@ export default function AdminDashboard({ user, lang, t }) {
   );
 }
 
-function PricingTable({ title, kind, items, lang, drafts, setDrafts, onSave }) {
+function PricingTable({ title, kind, items, lang, drafts, setDrafts, saving = {}, onSave }) {
   const priceField = kind === 'doctors' ? 'consultationFee' : kind === 'services' ? 'baseFeeSdg' : 'unitPriceSdg';
   return <section style={{ marginTop: '1.5rem', overflowX: 'auto' }}>
     <h4>{title}</h4>
@@ -275,10 +284,16 @@ function PricingTable({ title, kind, items, lang, drafts, setDrafts, onSave }) {
         return <tr key={item.id}>
           <td>{lang === 'ar' ? (item.fullNameAr || item.labelAr) : (item.fullNameEn || item.labelEn)}</td>
           <td>{item.category || item.specialtyEn || item.dosageForm || '—'}</td>
-          <td><input aria-label={`${kind} price`} className="form-input" type="number" min="1" step="1" placeholder={lang === 'ar' ? 'غير محدد' : 'Not configured'} value={draft.priceSdg} onChange={(event) => setDrafts((current) => ({ ...current, [key]: { ...draft, priceSdg: event.target.value } }))} /></td>
-          <td><select aria-label={`${kind} status`} className="form-input" value={draft.status} onChange={(event) => setDrafts((current) => ({ ...current, [key]: { ...draft, status: event.target.value } }))}><option value="ACTIVE">{lang === 'ar' ? 'نشط' : 'Active'}</option><option value="INACTIVE">{lang === 'ar' ? 'غير نشط' : 'Inactive'}</option></select></td>
+          <td><input aria-label={`${kind} price`} className="form-input" type="number" min="1" step="1" disabled={saving[key]} placeholder={lang === 'ar' ? 'غير محدد' : 'Not configured'} value={draft.priceSdg} onChange={(event) => {
+            const priceSdg = event.target.value;
+            setDrafts(current => ({ ...current, [key]: { ...draft, ...current[key], priceSdg } }));
+          }} /></td>
+          <td><select aria-label={`${kind} status`} className="form-input" value={draft.status} disabled={saving[key]} onChange={(event) => {
+            const status = event.target.value;
+            setDrafts(current => ({ ...current, [key]: { ...draft, ...current[key], status } }));
+          }}><option value="ACTIVE">{lang === 'ar' ? 'نشط' : 'Active'}</option><option value="INACTIVE">{lang === 'ar' ? 'غير نشط' : 'Inactive'}</option></select></td>
           <td>{item.updatedAt ? new Date(item.updatedAt).toLocaleString(lang === 'ar' ? 'ar' : 'en') : '—'}</td>
-          <td><button type="button" className="btn btn-primary" onClick={() => onSave(kind, item)}>{lang === 'ar' ? 'حفظ' : 'Save'}</button></td>
+          <td><button type="button" className="btn btn-primary" disabled={saving[key]} aria-busy={Boolean(saving[key])} onClick={() => onSave(kind, item)}>{saving[key] ? (lang === 'ar' ? 'جارٍ الحفظ…' : 'Saving…') : (lang === 'ar' ? 'حفظ' : 'Save')}</button></td>
         </tr>;
       })}</tbody>
     </table>
