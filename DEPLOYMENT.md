@@ -134,7 +134,7 @@ The frontend is compiled static content. `VITE_*` values are public build inputs
 | --- | --- |
 | `VITE_API_BASE_URL` | Shared API client; empty means same-origin `/api/...`. |
 | `VITE_STAFF_API_URL` | Staff API/logout override, otherwise `VITE_API_BASE_URL`, otherwise same origin. Recognized by code although absent from the frontend example. |
-| `VITE_STAFF_SOCKET_URL` | Staff socket origin; production defaults to browser origin, development to `http://localhost:5000`. Keep standard `/socket.io/` routing. |
+| `VITE_STAFF_SOCKET_URL` | Optional staff socket override. Otherwise uses the origin of absolute `VITE_STAFF_API_URL` / `VITE_API_BASE_URL`; with relative or empty API settings production uses the browser origin and development uses `http://localhost:5000`. Keep standard `/socket.io/` routing. |
 | `VITE_CLINIC_TIME_ZONE` | Fallback clinic timezone, default `Africa/Khartoum`; the frontend also loads `/api/public-config`. Keep build/runtime timezones aligned. |
 | `VITE_GOOGLE_CLIENT_ID` | Patient Google button; blank means unavailable. Must match the backend web client ID when enabled. |
 | `VITE_PROXY_TARGET` | Vite development API proxy target, default `http://127.0.0.1:5000`; not a deployed API URL. The dev proxy covers `/api`, not Socket.IO. |

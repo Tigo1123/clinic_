@@ -1,4 +1,5 @@
 import { useStaffPagedList } from '../../hooks/useStaffPagedList.js';
+import { useWorkflowRefresh } from '../../hooks/useWorkflowRefresh.js';
 import StaffListPaging from '../../components/StaffListPaging.jsx';
 import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ClipboardCheck, FileSpreadsheet, FlaskConical, HelpCircle, History, Sliders, Stethoscope } from 'lucide-react';
@@ -59,6 +60,15 @@ export default function LaboratoryDashboard({ lang }) {
       setHistoryLoading(false);
     }
   };
+
+  useWorkflowRefresh(['laboratory', 'catalog'], async () => {
+    await Promise.all([fetchPendingLabOrders(), fetchLabHistory(), fetchReviewRequests()]);
+    try {
+      const response = await fetchWithAuth('/api/billing/services');
+      if (!response.ok) throw new Error('SERVICE_REFRESH_FAILED');
+      setLabServices((await response.json()).filter(service => service.category === 'LABORATORY'));
+    } catch { setErrorMsg(lang === 'ar' ? 'تعذر تحديث دليل الخدمات.' : 'Unable to refresh the service catalog.'); }
+  });
 
   const updateReviewForm = (id, changes) => {
     setReviewForms((current) => ({ ...current, [id]: { ...(current[id] || {}), ...changes } }));

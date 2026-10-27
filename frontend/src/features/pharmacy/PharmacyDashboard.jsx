@@ -1,4 +1,5 @@
 import { useStaffPagedList } from '../../hooks/useStaffPagedList.js';
+import { useWorkflowRefresh } from '../../hooks/useWorkflowRefresh.js';
 import StaffListPaging from '../../components/StaffListPaging.jsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, FileText, HelpCircle, Sliders, Stethoscope } from 'lucide-react';
@@ -80,11 +81,23 @@ export default function PharmacyDashboard({ lang, t: _t }) {
   }, [prescriptions]);
 
   const fetchPrescriptionHistory = useCallback(() => {
-    fetchWithAuth('/api/records/prescriptions/history')
+    return fetchWithAuth('/api/records/prescriptions/history')
       .then((res) => res.ok ? res.json() : [])
       .then((data) => setPrescriptionHistory(Array.isArray(data) ? data : []))
       .catch(() => setPrescriptionHistory([]));
   }, []);
+
+  useWorkflowRefresh(['prescriptions', 'billing', 'catalog', 'inventory'], async changed => {
+    await Promise.all([fetchPendingRx(), fetchMedicationReviews(), fetchPrescriptionHistory()]);
+    setPaymentRefresh(value => value + 1);
+    if (!changed.some(topic => ['catalog', 'inventory', 'reconnected'].includes(topic))) return;
+    setManagementRefresh(value => value + 1);
+    try {
+      const response = await fetchWithAuth('/api/records/drugs');
+      if (!response.ok) throw new Error('CATALOG_REFRESH_FAILED');
+      setDrugCatalog(await response.json());
+    } catch { setErrorMsg(lang === 'ar' ? 'تعذر تحديث دليل الأدوية.' : 'Unable to refresh the medicine catalog.'); }
+  });
 
   useEffect(() => {
     fetchPrescriptionHistory();

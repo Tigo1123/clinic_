@@ -144,6 +144,8 @@ for (const loggingFails of [false, true]) {
     const stored = await prisma.appointment.findFirst({ where: { patientId: p.id, appointmentDate: '2099-01-05', appointmentTime: time } });
     assert.ok(stored);
     assert.equal(stored.status, 'PENDING');
+    const reception = await prisma.user.findFirstOrThrow({ where: { role: 'RECEPTIONIST', status: 'ACTIVE' } });
+    assert.equal(await prisma.notification.count({ where: { userId: reception.id, entityId: stored.id, type: 'APPOINTMENT_BOOKED' } }), 1);
     assert.equal(booked.body.patient?.user, undefined);
     assert.equal(JSON.stringify(booked.body).includes('@example.invalid'), false);
     const replay = await request(app).post('/api/appointments/book').send({

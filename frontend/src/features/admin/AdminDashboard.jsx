@@ -1,6 +1,7 @@
 import './clinicSetup.css';
 import ClinicSetupPanel from './ClinicSetupPanel';
 import { useEffect, useRef, useState } from 'react';
+import { useWorkflowRefresh } from '../../hooks/useWorkflowRefresh.js';
 import { Activity, Building, CalendarDays, DollarSign, Sliders, Users } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import RoleHero from '../../components/healthcare/RoleHero';
@@ -23,6 +24,13 @@ export default function AdminDashboard({ user, lang, t }) {
   const pricingSavesInFlight = useRef(new Set());
   const pricingReadVersion = useRef(0);
   const pricingReadController = useRef(null);
+  const [pricingRefresh, setPricingRefresh] = useState(0);
+  const pricingRefreshPending = useRef(false);
+  useWorkflowRefresh(['catalog'], () => {
+    if (activeTab !== 'pricing') return;
+    if (pricingSavesInFlight.current.size) pricingRefreshPending.current = true;
+    else setPricingRefresh(value => value + 1);
+  });
 
   const invalidatePricingRead = () => {
     pricingReadVersion.current += 1;
@@ -133,7 +141,7 @@ export default function AdminDashboard({ user, lang, t }) {
       controller.abort();
       if (version === pricingReadVersion.current) pricingReadVersion.current += 1;
     };
-  }, [activeTab, lang]);
+  }, [activeTab, lang, pricingRefresh]);
 
   const saveOfficialPrice = async (kind, item) => {
     const key = `${kind}:${item.id}`;
@@ -183,6 +191,10 @@ export default function AdminDashboard({ user, lang, t }) {
       setErrorMsg(error.message);
     } finally {
       pricingSavesInFlight.current.delete(key);
+      if (!pricingSavesInFlight.current.size && pricingRefreshPending.current) {
+        pricingRefreshPending.current = false;
+        setPricingRefresh(value => value + 1);
+      }
       setPricingSaving(current => ({ ...current, [key]: false }));
     }
   };

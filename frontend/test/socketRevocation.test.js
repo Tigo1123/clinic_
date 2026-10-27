@@ -128,8 +128,8 @@ test('staff realtime notifications use one shared authenticated socket', () => {
   const notifications = source('src/components/NotificationDropdown.jsx');
   assert.equal((service.match(/\bio\s*\(/g) || []).length, 1);
   assert.doesNotMatch(notifications, /from ['"]socket\.io-client['"]/);
-  assert.match(notifications, /staffSocket as socket/);
-  assert.match(notifications, /socket\.off\('notification', handleNotification\)/);
+  assert.match(notifications, /staffSocket/);
+  assert.match(notifications, /staffSocket\.off\('notification', refresh\)/);
   assert.doesNotMatch(notifications, /socket\.off\('notification'\)/);
 });
 

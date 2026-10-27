@@ -21,6 +21,7 @@ globalThis.staffSocketMock = { on() {}, off() {} };
 async function compileComponent(relativePath, replacements) {
   let source = await readFile(new URL(relativePath, import.meta.url), 'utf8');
   if (relativePath.includes('DoctorDashboard')) source = await pagingReplacements(source, 'doctorFetch', 'doctorPaging');
+  source = source.replace("'../../hooks/useWorkflowRefresh.js'", JSON.stringify(new URL('../src/hooks/useWorkflowRefresh.js', import.meta.url).href));
   for (const [pattern, replacement] of replacements) source = source.replace(pattern, replacement);
   source = source.replace(/import AppDatePicker[^;]+;/, 'const AppDatePicker = props => <label>{props.label}<input type="date" value={props.value || ""} onChange={event => props.onChange(event.target.value)} /></label>;');
   source = source.replace(/import\s+\{([^}]+)\}\s+from 'lucide-react';/, (_match, names) => names.split(',').map((name) => `const ${name.trim()} = globalThis.clinicalIcon;`).join('\n'));

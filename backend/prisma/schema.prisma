@@ -724,9 +724,21 @@ model Notification {
   title     String
   message   String
   isRead    Boolean  @default(false)
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(dbgenerated("timezone('UTC'::text, CURRENT_TIMESTAMP)"))
+  type       String   @default("GENERAL")
+  entityType String?
+  entityId   String?
+  eventKey   String?
 
   @@index([userId, isRead])
+  @@index([userId, createdAt, id])
+  @@unique([userId, eventKey])
+}
+
+model StockNotificationState {
+  drugId   String @id
+  state    String @default("UNKNOWN")
+  revision Int    @default(0)
 }
 
 model PatientInsurance {

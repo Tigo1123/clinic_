@@ -5,7 +5,7 @@ import { Activity, CalendarDays, CheckCircle2, Clock3, FlaskConical, Lock, Messa
 import { PatientProfileModal, PostVisitSummaryModal } from '../clinical/ClinicalModals';
 import { getWhatsAppLink } from '../reception/clinicData';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
-import { staffSocket as socket } from '../../services/staffSocket';
+import { useWorkflowRefresh } from '../../hooks/useWorkflowRefresh.js';
 import RoleHero from '../../components/healthcare/RoleHero';
 import { clinicDateString } from '../../utils/clinicTime';
 import { staffApiRequest as apiRequest } from '../../services/apiClient';
@@ -156,18 +156,10 @@ export default function DoctorDashboard({ user, lang, t }) {
     return age >= 0 ? age : null;
   };
 
-  useEffect(() => {
-    const handleQueueUpdate = (data) => {
-      if (!data || !data.doctorId || data.doctorId === user.doctorId || data.targetDoctorId === user.doctorId) {
-        fetchDoctorQueue();
-      }
-    };
-
-    socket.on('queueUpdated', handleQueueUpdate);
-    return () => {
-      socket.off('queueUpdated', handleQueueUpdate);
-    };
-  }, [fetchDoctorQueue, user.doctorId]);
+  useWorkflowRefresh(['appointments', 'prescriptions', 'laboratory'], async () => {
+    await fetchDoctorQueue();
+    if (selectedPatient?.id) fetchPatientHistory(selectedPatient.id, patientSelectionRequestRef.current);
+  });
 
   // Fetch lists on load
   useEffect(() => {

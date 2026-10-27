@@ -1,213 +1,62 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Bell, CheckCheck } from 'lucide-react';
-import { staffApiRequest as apiRequest } from '../services/apiClient';
-import { readStaffSession } from '../services/authStorage';
-import { staffSocket as socket } from '../services/staffSocket';
+import { useEffect, useId, useRef, useState } from 'react';
+import { Bell, CheckCheck, X } from 'lucide-react';
+import { staffApiRequest } from '../services/apiClient';
+import { staffSocket } from '../services/staffSocket';
+import { createNotificationFeed, emptyNotificationFeed } from '../services/notificationFeed.js';
+import './notificationDropdown.css';
 
 export default function NotificationDropdown({ userId, lang = 'ar' }) {
-  const [notifications, setNotifications] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef(null);
-
-  // Fetch initial notifications
-  const fetchNotifications = async () => {
-    try {
-      if (!readStaffSession()) return;
-      const data = await apiRequest('/api/notifications');
-      setNotifications(data.notifications || []);
-      setUnreadCount(data.unreadCount || 0);
-    } catch (err) {
-      console.error('Failed to fetch notifications:', err);
-    }
-  };
+  const [feed, setFeed] = useState(emptyNotificationFeed);
+  const [open, setOpen] = useState(false);
+  const root = useRef(null); const bell = useRef(null); const store = useRef(null);
+  const panelId = useId(); const ar = lang === 'ar';
+  const label = ar ? 'الإشعارات' : 'Notifications';
 
   useEffect(() => {
+    setFeed(emptyNotificationFeed);
     if (!userId) return;
-
-    fetchNotifications();
-
-    // Listen for real-time notifications
-    const handleNotification = (newNotif) => {
-      setNotifications((prev) => [newNotif, ...prev]);
-      setUnreadCount((prev) => prev + 1);
-    };
-    socket.on('notification', handleNotification);
-
+    const current = createNotificationFeed(staffApiRequest, setFeed); store.current = current;
+    const refresh = () => { current.refresh(); };
+    const visible = () => { if (document.visibilityState === 'visible') refresh(); };
+    staffSocket.on('notification', refresh); staffSocket.on('notifications:changed', refresh); staffSocket.on('connect', refresh);
+    window.addEventListener('focus', refresh); document.addEventListener('visibilitychange', visible);
+    refresh();
     return () => {
-      socket.off('notification', handleNotification);
+      current.dispose(); store.current = null;
+      staffSocket.off('notification', refresh); staffSocket.off('notifications:changed', refresh); staffSocket.off('connect', refresh);
+      window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', visible);
     };
   }, [userId]);
 
-  // Close dropdown on click outside
   useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+    if (!open) return;
+    const outside = event => { if (!root.current?.contains(event.target)) setOpen(false); };
+    const escape = event => { if (event.key === 'Escape') { setOpen(false); bell.current?.focus(); } };
+    document.addEventListener('pointerdown', outside); document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
+  }, [open]);
 
-  // Mark single notification as read
-  const markAsRead = async (id) => {
-    try {
-      await apiRequest(`/api/notifications/${id}/read`, { method: 'PATCH' });
-      setNotifications((prev) =>
-        prev.map((item) => (item.id === id ? { ...item, isRead: true } : item))
-      );
-      setUnreadCount((prev) => Math.max(0, prev - 1));
-    } catch (err) {
-      console.error('Failed to mark notification as read:', err);
-    }
-  };
-
-  // Mark all notifications as read
-  const markAllAsRead = async () => {
-    try {
-      await apiRequest('/api/notifications/read-all', { method: 'PATCH' });
-      setNotifications((prev) => prev.map((item) => ({ ...item, isRead: true })));
-      setUnreadCount(0);
-    } catch (err) {
-      console.error('Failed to mark all notifications as read:', err);
-    }
-  };
-
-  return (
-    <div className="relative inline-block text-left" ref={dropdownRef} style={{ position: 'relative' }}>
-      {/* Bell Button with Badge Counter */}
-      <button
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2 rounded-full hover:bg-gray-700/50 transition-colors focus:outline-none"
-        style={{
-          position: 'relative',
-          background: 'transparent',
-          border: 'none',
-          cursor: 'pointer',
-          padding: '0.5rem',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: 'var(--text-primary)'
-        }}
-        aria-label="Notifications"
-      >
-        <Bell size={22} />
-        {unreadCount > 0 && (
-          <span
-            style={{
-              position: 'absolute',
-              top: '2px',
-              right: '2px',
-              backgroundColor: '#ef4444',
-              color: '#ffffff',
-              fontSize: '0.7rem',
-              fontWeight: 'bold',
-              borderRadius: '9999px',
-              padding: '0.1rem 0.35rem',
-              lineHeight: 1,
-              minWidth: '16px',
-              textAlign: 'center'
-            }}
-          >
-            {unreadCount > 99 ? '99+' : unreadCount}
-          </span>
-        )}
-      </button>
-
-      {/* Notifications Dropdown Panel */}
-      {isOpen && (
-        <div
-          style={{
-            position: 'absolute',
-            [lang === 'ar' ? 'left' : 'right']: 0,
-            top: 'calc(100% + 0.5rem)',
-            width: '320px',
-            maxHeight: '400px',
-            backgroundColor: 'var(--bg-card, #1e293b)',
-            border: '1px solid var(--border-color, #334155)',
-            borderRadius: '0.75rem',
-            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5)',
-            zIndex: 1000,
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden'
-          }}
-        >
-          {/* Header */}
-          <div
-            style={{
-              padding: '0.75rem 1rem',
-              borderBottom: '1px solid var(--border-color, #334155)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              backgroundColor: 'rgba(255, 255, 255, 0.03)'
-            }}
-          >
-            <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600 }}>
-              {lang === 'ar' ? 'الإشعارات' : 'Notifications'}
-            </h4>
-            {unreadCount > 0 && (
-              <button
-                type="button"
-                onClick={markAllAsRead}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--primary, #0d9488)',
-                  fontSize: '0.75rem',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }}
-              >
-                <CheckCheck size={14} />
-                {lang === 'ar' ? 'تحديد الكل كمقروء' : 'Mark all read'}
-              </button>
-            )}
-          </div>
-
-          {/* List */}
-          <div style={{ overflowY: 'auto', flex: 1, padding: '0.5rem 0' }}>
-            {notifications.length === 0 ? (
-              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary, #94a3b8)', fontSize: '0.85rem' }}>
-                {lang === 'ar' ? 'لا توجد إشعارات حالياً' : 'No notifications yet'}
-              </div>
-            ) : (
-              notifications.map((item) => (
-                <div
-                  key={item.id}
-                  onClick={() => !item.isRead && markAsRead(item.id)}
-                  style={{
-                    padding: '0.75rem 1rem',
-                    borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
-                    backgroundColor: item.isRead ? 'transparent' : 'rgba(13, 148, 136, 0.08)',
-                    cursor: item.isRead ? 'default' : 'pointer',
-                    transition: 'background-color 0.2s',
-                    position: 'relative'
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <span style={{ fontWeight: item.isRead ? 500 : 700, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
-                      {item.title}
-                    </span>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary, #94a3b8)' }}>
-                      {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                  <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: 'var(--text-secondary, #cbd5e1)', lineHeight: 1.4 }}>
-                    {item.message}
-                  </p>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  return <div className="notification-root" ref={root} dir={ar ? 'rtl' : 'ltr'}>
+    <button type="button" ref={bell} className="notification-bell" aria-label={`${label} (${feed.unreadCount})`} aria-expanded={open} aria-controls={panelId}
+      onClick={() => { if (!open) store.current?.refresh(); setOpen(value => !value); }}>
+      <Bell size={22} aria-hidden="true" />
+      {feed.unreadCount > 0 && <span className="notification-badge" aria-hidden="true">{feed.unreadCount > 99 ? '99+' : feed.unreadCount}</span>}
+    </button>
+    <span className="notification-sr" role="status" aria-live="polite">{ar ? `إشعارات غير مقروءة: ${feed.unreadCount}` : `${feed.unreadCount} unread notifications`}</span>
+    {open && <section id={panelId} className="notification-panel" aria-label={label}>
+      <header><strong>{label}</strong><button type="button" className="notification-close" aria-label={ar ? 'إغلاق الإشعارات' : 'Close notifications'} onClick={() => { setOpen(false); bell.current?.focus(); }}><X size={18} /></button></header>
+      {feed.unreadCount > 0 && <button type="button" className="notification-read-all" disabled={feed.pending} onClick={() => store.current?.markRead()}><CheckCheck size={16} />{ar ? 'تحديد الكل كمقروء' : 'Mark all read'}</button>}
+      {feed.error && <div role="alert" className="notification-feedback">{ar ? 'تعذر تحديث الإشعارات.' : 'Unable to update notifications.'} <button type="button" onClick={() => store.current?.refresh()}>{ar ? 'إعادة المحاولة' : 'Retry'}</button></div>}
+      {feed.loading && <p className="notification-feedback" role="status">{ar ? 'جارٍ التحميل…' : 'Loading…'}</p>}
+      {!feed.loading && !feed.error && !feed.notifications.length && <p className="notification-feedback">{ar ? 'لا توجد إشعارات حالياً' : 'No notifications yet'}</p>}
+      <ul className="notification-list">{feed.notifications.map(item => <li key={item.id} className={item.isRead ? 'is-read' : 'is-unread'}>
+        <strong>{(ar ? item.titleAr : item.titleEn) || item.title}</strong>
+        <p>{(ar ? item.messageAr : item.messageEn) || item.message}</p>
+        <footer><time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString(ar ? 'ar' : 'en', { dateStyle: 'short', timeStyle: 'short' })}</time>
+          {!item.isRead && <button type="button" disabled={feed.pending} onClick={() => store.current?.markRead(item.id)}>{ar ? 'تحديد كمقروء' : 'Mark read'}</button>}
+        </footer>
+      </li>)}</ul>
+      {feed.nextCursor && <button type="button" className="notification-more" disabled={feed.loading || feed.pending} onClick={() => store.current?.loadMore()}>{ar ? 'عرض المزيد' : 'Load more'}</button>}
+    </section>}
+  </div>;
 }

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { resolveStaffSocketUrl } from '../../frontend/src/services/staffSocketUrl.js';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const read = (relativePath) => readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
@@ -34,8 +35,10 @@ test('LAN browser API configuration defaults to relative same-origin paths', () 
 });
 
 test('production Socket.IO falls back to the browser origin and standard path', () => {
-  assert.match(staffSocket, /VITE_STAFF_SOCKET_URL/);
-  assert.match(staffSocket, /environment\.DEV\s*\?\s*['"]http:\/\/localhost:5000['"]\s*:\s*globalThis\.window\?\.location\?\.origin/);
+  assert.match(staffSocket, /resolveStaffSocketUrl\(environment, globalThis\.window\?\.location\?\.origin\)/);
+  assert.equal(resolveStaffSocketUrl({}, 'https://clinic.example.internal'), 'https://clinic.example.internal');
+  assert.equal(resolveStaffSocketUrl({ VITE_API_BASE_URL: '/api' }, 'https://clinic.example.internal'), 'https://clinic.example.internal');
+  assert.equal(resolveStaffSocketUrl({ VITE_STAFF_API_URL: 'https://api.example.internal' }, 'https://clinic.example.internal'), 'https://api.example.internal');
   assert.doesNotMatch(lanEnvironment, /^VITE_STAFF_SOCKET_URL=.+$/m);
   assert.match(nginx, /location \/socket\.io\/ \{/);
   assert.match(nginx, /proxy_http_version 1\.1;/);
@@ -49,7 +52,8 @@ test('Nginx preserves API paths, forwarded headers, and same-origin readiness', 
   for (const header of ['Host', 'X-Real-IP', 'X-Forwarded-For', 'X-Forwarded-Host', 'X-Forwarded-Proto']) {
     assert.match(nginx, new RegExp(`proxy_set_header ${header} `));
   }
-  assert.match(backendServer, /app\.get\(\['\/api\/health', '\/api\/health\/ready'\]/);
+  assert.match(backendServer, /app\.get\(\['\/api\/health', '\/api\/health\/live'\]/);
+  assert.match(backendServer, /app\.get\('\/api\/health\/ready'/);
   assert.match(serviceBlock('backend'), /^      TRUST_PROXY: ['"]true['"]$/m);
 });
 

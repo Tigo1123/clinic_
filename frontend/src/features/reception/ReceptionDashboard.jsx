@@ -5,7 +5,7 @@ import { AlertCircle, CalendarDays, Check, CheckCircle, ChevronLeft, ChevronRigh
 import { PatientProfileModal } from '../clinical/ClinicalModals';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import { getWhatsAppLink, SUDANESE_STATES } from './clinicData';
-import { staffSocket as socket } from '../../services/staffSocket';
+import { useWorkflowRefresh } from '../../hooks/useWorkflowRefresh.js';
 import RoleHero from '../../components/healthcare/RoleHero';
 import { clinicDateString } from '../../utils/clinicTime';
 import { staffApiRequest as apiRequest } from '../../services/apiClient';
@@ -356,17 +356,13 @@ export default function ReceptionDashboard({ lang, t }) {
     if (!selectedDoctor && doctors.length) setSelectedDoctor(doctors[0]);
   }, [doctors, selectedDoctor]);
 
-  useEffect(() => {
-    const handleQueueUpdate = () => {
-      refreshDoctorQueue();
-      fetchPendingAppointments();
-    };
-
-    socket.on('queueUpdated', handleQueueUpdate);
-    return () => {
-      socket.off('queueUpdated', handleQueueUpdate);
-    };
-  }, [refreshDoctorQueue, fetchPendingAppointments]);
+  useWorkflowRefresh(['appointments', 'reception', 'billing', 'catalog', 'laboratory'], async () => {
+    await Promise.all([refreshDoctorQueue(), fetchPendingAppointments()]);
+    try {
+      const [doctors, services] = await Promise.all([apiRequest('/api/appointments/doctors'), apiRequest('/api/billing/services')]);
+      setDoctors(doctors); setClinicalServices(services);
+    } catch { setErrorMsg(lang === 'ar' ? 'تعذر تحديث بيانات الاستقبال.' : 'Unable to refresh reception data.'); }
+  });
 
   const handlePatientSearch = (val) => {
     setSearchQuery(val);

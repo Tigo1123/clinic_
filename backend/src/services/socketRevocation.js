@@ -1,6 +1,7 @@
 import { Client } from 'pg';
 import prisma from '../db.js';
 import { logger } from '../utils/logger.js';
+import { NotificationDelivery, NOTIFICATION_CHANNEL, INVENTORY_CHANNEL } from './notificationDelivery.js';
 
 export const SOCKET_REVOCATION_CHANNEL = 'clinic_auth_revocation_v1';
 export const REVOCATION_STATES = Object.freeze({
@@ -36,13 +37,16 @@ export class SocketRevocationService {
   constructor(io, config, {
     prismaClient = prisma,
     ClientClass = Client,
-    timers = { setTimeout, clearTimeout, setInterval, clearInterval }
+    timers = { setTimeout, clearTimeout, setInterval, clearInterval },
+    onInventoryChanged, onReady = () => {}
   } = {}) {
     this.io = io;
     this.config = config;
     this.prisma = prismaClient;
     this.ClientClass = ClientClass;
     this.timers = timers;
+    this.notifications = new NotificationDelivery(io, { prismaClient, onInventoryChanged });
+    this.onReady = onReady;
     this.state = REVOCATION_STATES.STOPPED;
     this.client = null;
     this.stopping = false;
@@ -84,10 +88,13 @@ export class SocketRevocationService {
     client.on('end', () => unhealthy(new Error('PostgreSQL revocation listener ended.')));
     client.on('notification', (message) => {
       if (message.channel === SOCKET_REVOCATION_CHANNEL) this.handleNotification(message.payload);
+      else this.notifications.receive(message.channel, message.payload);
     });
     try {
       await client.connect();
       await client.query(`LISTEN ${SOCKET_REVOCATION_CHANNEL}`);
+      await client.query(`LISTEN ${NOTIFICATION_CHANNEL}`);
+      await client.query(`LISTEN ${INVENTORY_CHANNEL}`);
       await this.reconcile();
       if (this.stopping || failed || this.client !== client || this.connectionGeneration !== generation) return;
       this.state = REVOCATION_STATES.READY;
@@ -95,6 +102,7 @@ export class SocketRevocationService {
       this.reconnectAttempt = 0;
       this.#clearUnhealthyTimer();
       this.#scheduleReconciliation(client, generation);
+      this.onReady();
       logger.info('socket.revocation_listener_ready');
     } catch (error) {
       unhealthy(error);
@@ -153,6 +161,7 @@ export class SocketRevocationService {
   }
 
   async stop() {
+    this.notifications.stop();
     this.stopping = true;
     this.state = REVOCATION_STATES.STOPPED;
     this.readyGeneration = null;

@@ -26,6 +26,7 @@ import { validateEnvironment, staffMfaRequired } from './config.js';
 import { logger } from './utils/logger.js';
 import { authenticateSocketAccessToken } from './middleware/auth.js';
 import { SocketRevocationService } from './services/socketRevocation.js';
+import { createStockNotificationJob } from './services/stockNotifications.js';
 import { corsMiddleware, securityHeadersMiddleware } from './utils/edgeSecurity.js';
 import { productionDatabaseIdentityReady } from './utils/databaseReadiness.js';
 import { recordHttpRequest, renderMetrics } from './utils/observability.js';
@@ -50,7 +51,11 @@ const io = new Server(httpServer, {
 });
 
 io.use(authenticateSocketAccessToken);
-const socketRevocation = new SocketRevocationService(io, environment.socketRevocation);
+const stockNotifications = createStockNotificationJob();
+const socketRevocation = new SocketRevocationService(io, environment.socketRevocation, {
+  onInventoryChanged: stockNotifications.request,
+  onReady: () => { socketRevocation.notifications.recover(); stockNotifications.request(); }
+});
 io.use((socket, next) => {
   if (socketRevocation.isReady()) return next();
   const error = new Error('Realtime session security is temporarily unavailable.');
@@ -207,6 +212,7 @@ app.use(errorHandler);
 
 // Launch listening loop
 export function startServer(port = PORT) {
+  stockNotifications.start();
   socketRevocation.start().catch((error) => logger.error('socket.revocation_start_failed', { error }));
   return httpServer.listen(port, () => {
     logger.info('server.started', { port: Number(port), environment: process.env.NODE_ENV || 'development' });
@@ -218,6 +224,7 @@ export async function shutdown(signal = 'manual') {
   if (shuttingDown) return;
   shuttingDown = true;
   logger.info('server.shutdown_started', { signal });
+  await stockNotifications.stop();
   await socketRevocation.stop();
   io.close();
   if (httpServer.listening) await new Promise((resolve) => httpServer.close(resolve));

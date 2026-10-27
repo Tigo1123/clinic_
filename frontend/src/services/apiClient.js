@@ -51,8 +51,8 @@ export async function apiFetch(path, options = {}, auth = null, baseUrl = API_BA
   return response;
 }
 
-async function request(path, options = {}, auth = null) {
-  const response = await apiFetch(path, options, auth);
+async function request(path, options = {}, auth = null, baseUrl = API_BASE) {
+  const response = await apiFetch(path, options, auth, baseUrl);
 
   const payload =
     response.status === 204
@@ -90,7 +90,7 @@ async function request(path, options = {}, auth = null) {
 }
 
 export function staffApiRequest(path, options = {}) {
-  return request(path, options, 'staff');
+  return request(path, options, 'staff', import.meta.env?.VITE_STAFF_API_URL || API_BASE);
 }
 
 export function patientApiRequest(path, options = {}) {

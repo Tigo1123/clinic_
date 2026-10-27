@@ -3,7 +3,6 @@ import { asyncRouter } from '../utils/asyncRouter.js';
 import prisma from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { sendSMS, sendBookingConfirmation, sendStatusUpdateNotification } from '../utils/notifications.js';
-import { sendNotification } from './notifications.js';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { allowRoles, ROLES } from '../middleware/policies.js';
@@ -275,32 +274,6 @@ router.post('/book', bookingLimiter, validate(structuredPatientNameSchema.extend
     // Emit WebSocket update & notify receptionists in real-time
     const io = req.app.get('io');
     emitQueueUpdate(io, { type: 'BOOKING_PENDING', appointmentId: appointment.id, doctorId }, [doctorId]);
-
-    // Query receptionists and admin users to send target notifications
-    try {
-      const receptionists = await prisma.user.findMany({
-        where: {
-          role: { in: ['RECEPTIONIST', 'ADMIN'] },
-          status: 'ACTIVE'
-        },
-        select: { id: true }
-      });
-
-      const patientName = patient.fullNameAr || patient.fullNameEn;
-      const doctorName = appointment.doctor?.fullNameAr || appointment.doctor?.fullNameEn || 'الطبيب';
-      const notifTitle = 'طلب موعد جديد بانتظار التأكيد';
-      const notifMsg = `تم استلام طلب موعد جديد للمريض (${patientName}) مع (${doctorName}) بتاريخ ${appointmentDate} الساعة ${appointmentTime}.`;
-
-      for (const recep of receptionists) {
-        await sendNotification(io, {
-          userId: recep.id,
-          title: notifTitle,
-          message: notifMsg
-        });
-      }
-    } catch (notifErr) {
-      console.error('Failed to dispatch receptionist notifications:', notifErr);
-    }
 
     return res.status(201).json(toPublicBookingConfirmation(appointment));
 

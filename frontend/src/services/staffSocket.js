@@ -1,11 +1,11 @@
 import { io } from 'socket.io-client';
 import { readStaffSession } from './authStorage.js';
+import { resolveStaffSocketUrl } from './staffSocketUrl.js';
 
 const environment = import.meta.env || {};
 
 export const staffSocket = io(
-  environment.VITE_STAFF_SOCKET_URL
-    || (environment.DEV ? 'http://localhost:5000' : globalThis.window?.location?.origin || 'http://localhost:5000'),
+  resolveStaffSocketUrl(environment, globalThis.window?.location?.origin),
   { autoConnect: false, auth: (callback) => callback({ token: readStaffSession()?.token }) }
 );
 
