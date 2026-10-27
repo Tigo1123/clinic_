@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "qa:browser": "node scripts/browser-qa.mjs",
     "qa:schedule": "node scripts/verify-doctor-schedule.mjs",
-    "qa:pharmacy-expiry": "node scripts/verify-pharmacy-expiry-picker.mjs"
+    "qa:pharmacy-expiry": "node scripts/verify-pharmacy-expiry-picker.mjs",
+    "qa:pharmacy-presentation": "node scripts/verify-pharmacy-presentation.mjs"
   },
   "dependencies": {
     "@emotion/cache": "^11.14.0",

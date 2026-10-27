@@ -9,6 +9,7 @@ import PharmacyManagement from './PharmacyManagement';
 import PharmacyPayment from './PharmacyPayment';
 import AppDatePicker from '../../components/ui/AppDatePicker.jsx';
 import Dialog from '../../components/ui/Dialog';
+import './pharmacy.css';
 import { authoritativeStockSummary, buildMedicationReviewPayload, customMedicineRequiresReview, localizedStockState, pharmacyAlertModel, stockPresentation } from '../../utils/pharmacyManagement';
 
 export default function PharmacyDashboard({ lang, t: _t }) {
@@ -486,7 +487,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
   const alertModel = pharmacyAlertModel(alertMedicines || []);
 
   return (
-    <div className="dashboard-wrapper">
+    <div className="dashboard-wrapper pharmacy-workspace">
       <StaffListPaging list={reviewList} lang={lang} label={lang === 'ar' ? 'مراجعة الأدوية' : 'Medication reviews'} />
       <div className="workspace-panel" style={{ padding: '1rem' }}>
         <RoleHero role="pharmacy" lang={lang}/>

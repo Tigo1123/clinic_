@@ -1,0 +1,154 @@
+/* Pharmacy uses the existing theme tokens; other workspaces keep their palette. */
+[data-theme='dark'] :is(.pharmacy-workspace, .pharmacy-management) {
+  --color-bg: #0f172a;
+  --color-surface: #162033;
+  --color-surface-muted: #1d2a3d;
+  --color-border: rgba(148, 163, 184, .18);
+  --color-text: #f8fafc;
+  --color-text-secondary: #94a3b8;
+  --color-primary: #3b82f6;
+  --color-primary-hover: #2563eb;
+  --color-primary-strong: #93c5fd;
+  /* White button text needs a deeper blue than the accent color. */
+  --color-primary-action: #2563eb;
+  --color-primary-action-hover: #1d4ed8;
+  --color-primary-soft: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-success-soft: color-mix(in srgb, var(--color-success) 10%, transparent);
+  --color-warning-soft: color-mix(in srgb, var(--color-warning) 10%, transparent);
+  --color-danger-soft: color-mix(in srgb, var(--color-danger) 10%, transparent);
+  /* Rebind legacy aliases locally so inherited root values cannot go stale. */
+  --primary: var(--color-primary);
+  --primary-hover: var(--color-primary-hover);
+  --text-primary: var(--color-text);
+  --text-secondary: var(--color-text-secondary);
+  --border-color: var(--color-border);
+  --warning: var(--color-warning);
+  --bg-surface: var(--color-surface);
+  --bg-card: var(--color-surface);
+}
+
+.pharmacy-workspace { background: var(--color-bg); color: var(--color-text); }
+.pharmacy-workspace .role-hero {
+  min-height: 116px;
+  padding: 1rem 1.25rem;
+  margin-bottom: .75rem;
+  box-shadow: none;
+}
+.pharmacy-workspace .role-hero__eyebrow { display: none; }
+.pharmacy-workspace .role-hero h2 { font-size: 1.2rem; }
+.pharmacy-workspace .role-hero p { display: block; margin: 0; font-size: .8125rem; }
+.pharmacy-workspace .role-hero .healthcare-illustration { flex: 0 0 150px; width: 150px; height: 84px; }
+.pharmacy-workspace .role-hero .healthcare-illustration__card--main { width: 76px; height: 80px; top: 0; right: 24px; border-radius: 20px; }
+.pharmacy-workspace .role-hero .healthcare-illustration__card--main svg { width: 38px; height: 38px; }
+.pharmacy-workspace .role-hero .healthcare-illustration__card--small { width: 46px; height: 46px; left: 10px; bottom: 0; border-radius: 14px; }
+.pharmacy-workspace .role-hero .healthcare-illustration__card--small svg { width: 24px; height: 24px; }
+.pharmacy-workspace .role-hero .healthcare-illustration__badge { width: 32px; height: 32px; right: 8px; bottom: 0; border-width: 2px; }
+.pharmacy-workspace .role-hero .healthcare-illustration__badge svg { width: 16px; }
+[data-theme='dark'] .pharmacy-workspace .role-hero {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+[data-theme='dark'] .pharmacy-workspace .role-hero h2 { color: var(--color-text); }
+[data-theme='dark'] .pharmacy-workspace .role-hero p { color: var(--color-text-secondary); }
+[data-theme='dark'] .pharmacy-workspace .healthcare-illustration__card {
+  background: var(--color-surface-muted);
+  border-color: var(--color-border);
+  color: var(--color-primary-strong);
+  box-shadow: none;
+}
+[data-theme='dark'] .pharmacy-workspace .healthcare-illustration__badge { background: var(--color-primary-action); border-color: var(--color-surface); }
+[data-theme='dark'] .pharmacy-workspace .healthcare-illustration__orb { background: var(--color-primary-soft); }
+
+.pharmacy-workspace .pharmacy-pilot-summary > div { background: transparent; border: 0; padding: .25rem .5rem; }
+.pharmacy-workspace .pharmacy-pilot-summary strong { color: var(--color-text); font-size: .9375rem; }
+.pharmacy-workspace :is(.pharmacy-workspace-tabs, .pharmacy-queue-tabs) { background: var(--color-surface); border-color: var(--color-border); }
+.pharmacy-workspace :is(.pharmacy-workspace-tabs, .pharmacy-queue-tabs) button { color: var(--color-text-secondary); }
+.pharmacy-workspace :is(.pharmacy-workspace-tabs, .pharmacy-queue-tabs) button:hover { background: var(--color-surface-muted); color: var(--color-text); }
+.pharmacy-workspace :is(.pharmacy-workspace-tabs, .pharmacy-queue-tabs) button.is-active {
+  background: var(--color-primary-soft);
+  border-color: color-mix(in srgb, var(--color-primary) 32%, transparent);
+  color: var(--color-primary-strong);
+  box-shadow: none;
+}
+
+.pharmacy-management { color: var(--color-text); background: var(--color-surface); border-color: var(--color-border); box-shadow: none; }
+.pharmacy-management:hover { box-shadow: none; }
+.pharmacy-management .pharmacy-management-header { align-items: flex-start; gap: 1rem; }
+.pharmacy-management .pharmacy-management-header h2 { font-size: 1rem; line-height: 1.5; }
+.pharmacy-management .pharmacy-management-header p { font-size: .8125rem; line-height: 1.6; }
+.pharmacy-management :is(.pharmacy-toolbar, .pharmacy-pagination) .btn {
+  background: transparent;
+  border: 1px solid var(--color-control-border);
+  color: var(--color-text-secondary);
+  box-shadow: none;
+  padding: .5rem .75rem;
+  font-size: .8125rem;
+  font-weight: 600;
+}
+.pharmacy-management :is(.pharmacy-toolbar, .pharmacy-pagination) .btn:hover:not(:disabled) { background: var(--color-surface-muted); color: var(--color-text); }
+.pharmacy-management .btn-primary { background: var(--color-primary-action); box-shadow: none; font-size: .8125rem; }
+.pharmacy-management .btn-primary:hover { background: var(--color-primary-action-hover); box-shadow: none; }
+.pharmacy-management .pharmacy-search { min-height: 44px; border-color: var(--color-control-border); background: var(--color-surface); }
+.pharmacy-management .pharmacy-search svg { color: var(--color-text-secondary); flex-shrink: 0; }
+.pharmacy-management .pharmacy-search:focus-within { outline: 2px solid var(--color-primary-strong); outline-offset: 2px; }
+.pharmacy-management .pharmacy-search input { min-width: 0; }
+.pharmacy-management .pharmacy-search input::placeholder { color: var(--color-text-secondary); opacity: 1; }
+.pharmacy-management .pharmacy-toolbar select { min-height: 44px; padding: .5rem .75rem; background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-control-border); border-radius: 10px; font-size: .8125rem; }
+.pharmacy-management .pharmacy-inventory-list { border-color: var(--color-border); }
+.pharmacy-management .pharmacy-inventory-table { font-size: .8125rem; line-height: 1.6; }
+.pharmacy-management .pharmacy-inventory-table th { background: var(--color-surface-muted); color: var(--color-text-secondary); font-size: .75rem; font-weight: 600; }
+.pharmacy-management .pharmacy-inventory-table :is(th, td) { padding: .85rem .65rem; border-color: var(--color-border); }
+.pharmacy-management .pharmacy-inventory-table tbody tr:hover { background: color-mix(in srgb, var(--color-primary) 4%, transparent); }
+.pharmacy-management .pharmacy-medicine-identity { min-width: 0; display: grid; gap: .2rem; overflow-wrap: anywhere; }
+.pharmacy-management .pharmacy-medicine-identity strong { color: var(--color-text); font-size: .875rem; font-weight: 700; }
+.pharmacy-management :is(.pharmacy-medicine-identity small, .pharmacy-medicine-details, .pharmacy-numeric small) { color: var(--color-text-secondary); font-size: .75rem; }
+.pharmacy-management .pharmacy-numeric { font-variant-numeric: tabular-nums; }
+.pharmacy-management .pharmacy-numeric :is(strong, small) { display: block; }
+.pharmacy-management .pharmacy-numeric bdi { white-space: nowrap; }
+.pharmacy-management .pharmacy-inventory-table .pharmacy-admin-note {
+  margin: .15rem 0 0;
+  padding: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: .75rem;
+  font-weight: 400;
+  line-height: 1.6;
+}
+.pharmacy-management .badge { padding: .2rem .55rem; min-height: 24px; font-size: .75rem; font-weight: 600; white-space: normal; }
+.pharmacy-feedback.badge { display: block; padding: .5rem .75rem; margin: .65rem 0; border-radius: var(--radius-sm); font-size: .8125rem; font-weight: 400; line-height: 1.6; white-space: normal; }
+.pharmacy-management .pharmacy-action-trigger {
+  width: 44px;
+  min-height: 44px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid transparent;
+}
+.pharmacy-management .pharmacy-action-trigger:hover { background: var(--color-surface-muted); color: var(--color-text); border-color: var(--color-border); }
+.pharmacy-management .pharmacy-action-popover { background: var(--color-surface-muted); color: var(--color-text); border-color: var(--color-border); }
+.pharmacy-management .pharmacy-action-popover button { min-height: 44px; font-size: .8125rem; }
+.pharmacy-management .pharmacy-action-popover button:hover { background: var(--color-primary-soft); color: var(--color-primary-strong); }
+.pharmacy-workspace button:focus-visible, .pharmacy-management :is(button, select):focus-visible { outline: 2px solid var(--color-primary-strong); outline-offset: 3px; }
+
+@media (max-width: 900px) {
+  .pharmacy-management .pharmacy-inventory-list { border: 0; }
+  .pharmacy-management .pharmacy-inventory-table,
+  .pharmacy-management .pharmacy-inventory-table :is(tbody, tr, td) { display: block; width: 100%; }
+  .pharmacy-management .pharmacy-inventory-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+  .pharmacy-management .pharmacy-inventory-table tr { position: relative; padding: .875rem; margin-bottom: .75rem; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface); }
+  .pharmacy-management .pharmacy-inventory-table td { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; padding: .35rem 0; border: 0; }
+  .pharmacy-management .pharmacy-inventory-table td::before { content: attr(data-label); flex: 0 0 38%; color: var(--color-text-secondary); font-size: .75rem; }
+  .pharmacy-management .pharmacy-inventory-table .pharmacy-medicine-cell { display: block; padding: 0; padding-inline-end: 2.75rem; margin-bottom: .75rem; }
+  .pharmacy-management .pharmacy-inventory-table .pharmacy-medicine-cell::before { display: none; }
+  .pharmacy-management .pharmacy-inventory-table .pharmacy-action-cell { position: absolute; inset-block-start: .5rem; inset-inline-end: .5rem; width: auto; padding: 0; }
+  .pharmacy-management .pharmacy-inventory-table .pharmacy-action-cell::before { display: none; }
+  .pharmacy-management .pharmacy-action-popover { position: fixed; inset-inline: 1rem; top: auto; bottom: 1rem; min-width: 0; }
+  .pharmacy-management .pharmacy-toolbar label { flex-basis: 100%; }
+}
+@media (max-width: 480px) {
+  .pharmacy-workspace .role-hero { gap: .75rem; padding: 1rem; min-height: 100px; }
+  .pharmacy-workspace .role-hero .healthcare-illustration { display: none; }
+  .pharmacy-management .pharmacy-management-header > .btn { flex: 1 1 100%; }
+}
