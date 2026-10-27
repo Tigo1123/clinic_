@@ -105,6 +105,39 @@ test('pharmacists cannot change the official price or activation state', async (
   assert.equal(stored.unitPriceSdg, null); assert.equal(stored.status, 'INACTIVE');
 });
 
+test('authenticated medicine reads are no-store and old ETags cannot validate a catalogue after a save', async () => {
+  const medicine = await createMedicine();
+  const paths = [
+    { path: '/api/admin/pricing', user: admin },
+    { path: `/api/pharmacy/formulary/${medicine.id}`, user: pharmacist },
+    { path: `/api/pharmacy/formulary?search=${encodeURIComponent(medicine.brandName)}`, user: pharmacist }
+  ];
+  for (const route of paths) {
+    const first = await api.get(route.path).set(auth(route.user));
+    assert.equal(first.status, 200);
+    assert.match(first.headers['cache-control'], /no-store/);
+    assert.equal(first.headers.pragma, 'no-cache');
+    assert.equal(first.headers['last-modified'], undefined);
+    route.etag = first.headers.etag;
+    assert.ok(route.etag, 'Express supplies a validator, not permission to cache');
+  }
+  const save = await api.patch(`/api/admin/pricing/medicines/${medicine.id}`).set(auth(admin)).send({ priceSdg: 4560, status: 'ACTIVE' });
+  assert.equal(save.status, 200);
+  for (const route of paths) {
+    const refreshed = await api.get(route.path).set(auth(route.user)).set('If-None-Match', route.etag);
+    assert.equal(refreshed.status, 200, 'a pre-save ETag must not return 304');
+    assert.match(refreshed.headers['cache-control'], /no-store/);
+    assert.notEqual(refreshed.headers.etag, route.etag);
+    const item = refreshed.body.medicines?.find(item => item.id === medicine.id) || refreshed.body.items?.find(item => item.id === medicine.id) || refreshed.body;
+    assert.equal(Number(item.unitPriceSdg), 4560); assert.equal(item.status, 'ACTIVE');
+    const conditional = await api.get(route.path).set(auth(route.user)).set('If-None-Match', refreshed.headers.etag);
+    assert.equal(conditional.status, 304, 'only an explicitly supplied current validator returns 304');
+    assert.match(conditional.headers['cache-control'], /no-store/);
+    const ordinary = await api.get(route.path).set(auth(route.user));
+    assert.equal(ordinary.status, 200, 'ordinary operational refresh returns a fresh body');
+  }
+});
+
 test('an audit failure rolls back the price, status and timestamp and returns an explicit failure', async () => {
   const medicine = await createMedicine();
   const before = await prisma.drugFormulary.findUniqueOrThrow({ where: { id: medicine.id } });

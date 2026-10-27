@@ -21,6 +21,14 @@ export default function AdminDashboard({ user, lang, t }) {
   const [pricingLoading, setPricingLoading] = useState(false);
   const [pricingSaving, setPricingSaving] = useState({});
   const pricingSavesInFlight = useRef(new Set());
+  const pricingReadVersion = useRef(0);
+  const pricingReadController = useRef(null);
+
+  const invalidatePricingRead = () => {
+    pricingReadVersion.current += 1;
+    pricingReadController.current?.abort();
+    setPricingLoading(false);
+  };
 
   const [specialties, setSpecialties] = useState([]);
   const [specialtyDraft, setSpecialtyDraft] = useState({ code: '', nameAr: '', nameEn: '' });
@@ -101,18 +109,30 @@ export default function AdminDashboard({ user, lang, t }) {
           setLoadingAnalytics(false);
         });
     }
-    if (activeTab === 'pricing') {
-      setPricingLoading(true);
-      fetchWithAuth('/api/admin/pricing')
-        .then(async (res) => {
-          const data = await res.json();
-          if (!res.ok) throw new Error(apiErrorMessage(data, 'Failed to load pricing.'));
-          return data;
-        })
-        .then((data) => setPricing(data))
-        .catch((err) => setErrorMsg(err.message))
-        .finally(() => setPricingLoading(false));
-    }
+  }, [activeTab, lang]);
+
+  useEffect(() => {
+    if (activeTab !== 'pricing') return;
+    const version = ++pricingReadVersion.current;
+    const controller = new AbortController();
+    pricingReadController.current = controller;
+    setPricingLoading(true);
+    setErrorMsg('');
+    fetchWithAuth('/api/admin/pricing', { signal: controller.signal })
+      .then(async res => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(apiErrorMessage(data, 'Failed to load pricing.'));
+        return data;
+      })
+      .then(data => { if (version === pricingReadVersion.current) setPricing(data); })
+      .catch(error => {
+        if (!controller.signal.aborted && version === pricingReadVersion.current) setErrorMsg(error.message);
+      })
+      .finally(() => { if (version === pricingReadVersion.current) setPricingLoading(false); });
+    return () => {
+      controller.abort();
+      if (version === pricingReadVersion.current) pricingReadVersion.current += 1;
+    };
   }, [activeTab, lang]);
 
   const saveOfficialPrice = async (kind, item) => {
@@ -137,6 +157,10 @@ export default function AdminDashboard({ user, lang, t }) {
           : 'Are you sure you want to deactivate this service? It will no longer appear to doctors as an available service.'))
       : (lang === 'ar' ? 'تأكيد تغيير السعر الرسمي؟' : 'Confirm this official price change?');
     if (!globalThis.confirm(confirmationMessage)) return;
+    // Reads started before this mutation, or while it is pending, must never
+    // overwrite its authoritative response. Cancellation alone is insufficient
+    // when response parsing has already started.
+    invalidatePricingRead();
     pricingSavesInFlight.current.add(key);
     setPricingSaving(current => ({ ...current, [key]: true }));
     setErrorMsg('');
@@ -148,6 +172,7 @@ export default function AdminDashboard({ user, lang, t }) {
       });
       const updated = await res.json();
       if (!res.ok) throw new Error(apiErrorMessage(updated, 'Failed to update pricing.'));
+      invalidatePricingRead();
       setPricing((current) => ({
         ...current,
         [kind]: current[kind].map((entry) => entry.id === item.id ? updated : entry)

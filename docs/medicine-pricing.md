@@ -54,6 +54,42 @@ while pending. Success replaces the row with the persisted response and clears
 its draft. Errors retain the edit, show an accessible alert, and do not show a
 success message. No client-side activation or Pharmacy display workaround is used.
 
+## Read ordering, refresh and browser caching
+
+Admin catalogue GETs also need protection across tab/language changes and saves.
+Previously, an older successful GET could overwrite the newer PATCH response, and
+an older rejection/finalizer could change the error/loading state of a newer read.
+Request ordering, rather than database rollback, explains that stale UI path.
+
+Each Admin pricing read now has a version and AbortController. Cleanup aborts and
+invalidates the read. Mutation start invalidates reads that predate the save;
+successful mutation completion also invalidates reads started while it was
+pending. The saved response is applied directly; there is no redundant post-save
+GET or full-page reload. Subsequent tab/language reloads read the server normally.
+Version checks cover responses whose transport or body processing cannot be
+cancelled. Obsolete data, errors and finalizers are ignored.
+
+Pharmacy already had latest-request checks. It now revalidates the current page
+and filters on focus/visibility return, so an existing Pharmacy tab notices Admin
+changes. A new foreground read supersedes an older pending read; paired focus and
+visibility events share an in-flight foreground refresh. Listeners are removed on
+unmount. Manual refresh remains available, with no polling or production delays.
+
+Authenticated Admin and Pharmacy routes already return `Cache-Control: no-store`
+and `Pragma: no-cache`. Express supplies ETags but no Last-Modified header. An
+explicit current If-None-Match validator can produce 304, still with no-store;
+a pre-save ETag after a mutation produces 200 with the changed body. Ordinary
+browser operational reads do not cache or reuse these responses. This fix adds
+no cache-busting query strings or shared API-client/cache-policy changes.
+
+`frontend/scripts/verify-pricing-races.mjs` verifies real windowed Chrome with the
+DevTools frontend closed, open with cache enabled, and open with Disable cache.
+It preserves the isolated backend's HTTP headers and gates an old response body
+until after a real save. It deliberately ignores transport abort for that GET
+to exercise the version guard. It also checks retained Pharmacy-tab focus refresh,
+one PATCH per click, persisted reloads and HTTP cache-hit metadata. Test-only
+response gates and CDP waits do not add any delays to application code.
+
 ## Verification
 
 - `backend/test/medicine-pricing.test.js` uses real authenticated routes and an

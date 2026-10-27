@@ -98,11 +98,14 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
   const [movementLoading, setMovementLoading] = useState(false);
   const [movementError, setMovementError] = useState('');
   const formularyRequestRef = useRef(0);
+  const formularyLoadingRef = useRef(false);
+  const foregroundRefreshRef = useRef(null);
   const detailRequestRef = useRef(0);
   const savingRef = useRef(false);
 
   const loadFormulary = useCallback(async (page, submittedSearch, selectedStatus) => {
     const requestId = ++formularyRequestRef.current;
+    formularyLoadingRef.current = true;
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), pageSize: '20' });
@@ -116,7 +119,7 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
     } catch (error) {
       if (requestId === formularyRequestRef.current) setFeedback({ type: 'danger', text: error.message });
     } finally {
-      if (requestId === formularyRequestRef.current) setLoading(false);
+      if (requestId === formularyRequestRef.current) { formularyLoadingRef.current = false; setLoading(false); }
     }
   }, [lang]);
 
@@ -124,6 +127,24 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
     loadFormulary(1, search, status);
     return () => { formularyRequestRef.current += 1; };
   }, [loadFormulary, refreshToken, search, searchSubmission, status]);
+
+  useEffect(() => {
+    const revalidate = () => {
+      if (document.hidden) { foregroundRefreshRef.current = null; return; }
+      if (formularyLoadingRef.current && foregroundRefreshRef.current === formularyRequestRef.current) return;
+      loadFormulary(pagination.page, search, status);
+      foregroundRefreshRef.current = formularyRequestRef.current;
+    };
+    const background = () => { foregroundRefreshRef.current = null; };
+    window.addEventListener('focus', revalidate);
+    window.addEventListener('blur', background);
+    document.addEventListener('visibilitychange', revalidate);
+    return () => {
+      window.removeEventListener('focus', revalidate);
+      window.removeEventListener('blur', background);
+      document.removeEventListener('visibilitychange', revalidate);
+    };
+  }, [loadFormulary, pagination.page, search, status]);
 
   useEffect(() => { savingRef.current = saving; }, [saving]);
 

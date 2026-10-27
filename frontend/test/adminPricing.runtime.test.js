@@ -102,3 +102,71 @@ test('Admin saves once, waits for persistence, surfaces failures and reloads aut
     }
   } finally { await act(async () => root.unmount()); dom.window.close(); delete globalThis.pricingTestFetch; delete globalThis.confirm; }
 });
+
+test('older catalogue reads, stale failures and StrictMode renders cannot overwrite a persisted save', async () => {
+  const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost/' });
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, Node: dom.window.Node, IS_REACT_ACT_ENVIRONMENT: true, confirm: () => true });
+  const { act, createElement, StrictMode } = await import('react');
+  const { createRoot } = await import('react-dom/client');
+  let source = readFileSync(new URL('../src/features/admin/AdminDashboard.jsx', import.meta.url), 'utf8');
+  source = source.replace(/import '\.\/clinicSetup\.css';/, '')
+    .replace(/import ([A-Za-z]+) from [^;]+;/g, 'const $1 = () => null;')
+    .replace(/import \{[^}]+\} from 'lucide-react';/, 'const Activity=()=>null,Building=Activity,CalendarDays=Activity,DollarSign=Activity,Sliders=Activity,Users=Activity;')
+    .replace(/import \{ apiErrorMessage, fetchWithAuth \}[^;]+;/, 'const fetchWithAuth=(...args)=>globalThis.pricingRaceFetch(...args); const apiErrorMessage=(payload,fallback)=>payload.error?.message||fallback;');
+  const modulePath = new URL(`.pricing-race-${process.pid}.mjs`, import.meta.url);
+  await writeFile(modulePath, (await transformWithOxc(source, 'AdminDashboard.jsx', { jsx: { runtime: 'automatic' } })).code);
+  let Admin;
+  try { Admin = (await import(modulePath.href)).default; } finally { await unlink(modulePath); }
+  const reads = [], writes = [];
+  const medicine = { id: 'medicine', labelEn: 'Amoxicillin', unitPriceSdg: '1000', status: 'INACTIVE' };
+  const response = data => ({ ok: true, json: async () => data });
+  const catalogue = item => ({ doctors: [], services: [], medicines: [item] });
+  // Deliberately ignore aborts: an already-resolved response/body may still finish.
+  globalThis.pricingRaceFetch = async (url, options = {}) => {
+    if (options.method === 'PATCH') return new Promise(resolve => writes.push({ resolve, options }));
+    if (url === '/api/admin/pricing') return new Promise((resolve, reject) => reads.push({ resolve, reject, signal: options.signal }));
+    return response([]);
+  };
+  const root = createRoot(document.querySelector('#root'));
+  const render = async () => act(async () => root.render(createElement(StrictMode, null, createElement(Admin, { user: { role: 'ADMIN' }, lang: 'en', t: key => key }))));
+  const tab = () => [...document.querySelectorAll('.menu-btn')].find(button => button.textContent === 'Pricing Management');
+  const leave = async () => act(async () => document.querySelector('.menu-btn').click());
+  const enter = async () => act(async () => tab().click());
+  try {
+    await render(); await enter(); // slow read A
+    await leave(); await enter(); // fast read B
+    await act(async () => reads[1].resolve(response(catalogue(medicine))));
+    const input = document.querySelector('input');
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, '3450');
+    await act(async () => input.dispatchEvent(new window.Event('input', { bubbles: true })));
+    const select = document.querySelector('select'); select.value = 'ACTIVE';
+    await act(async () => select.dispatchEvent(new window.Event('change', { bubbles: true })));
+    await act(async () => document.querySelector('tbody button').click());
+    assert.equal(writes.length, 1);
+    assert.deepEqual(JSON.parse(writes[0].options.body), { priceSdg: 3450, status: 'ACTIVE' });
+    await leave(); await enter(); // read C starts while the PATCH is pending
+    const saved = { ...medicine, unitPriceSdg: 3450, status: 'ACTIVE' };
+    await act(async () => writes[0].resolve(response(saved)));
+    await act(async () => reads[2].resolve(response(catalogue(medicine))));
+    await act(async () => reads[0].resolve(response(catalogue(medicine))));
+    assert.equal(document.querySelector('input').value, '3450');
+    assert.equal(document.querySelector('select').value, 'ACTIVE');
+    assert.equal(document.querySelector('[role="alert"]'), null);
+    assert.ok(reads[0].signal?.aborted); assert.ok(reads[2].signal?.aborted);
+    const readCount = reads.length;
+    for (let i = 0; i < 3; i++) await render();
+    assert.equal(reads.length, readCount, 'ordinary renders must not refetch');
+    // Current read errors remain visible, but an older rejection cannot replace them.
+    await leave(); await enter();
+    await leave(); await enter();
+    await act(async () => reads[4].reject(new Error('Current catalogue unavailable')));
+    await act(async () => reads[3].reject(new Error('Obsolete catalogue failure')));
+    assert.match(document.querySelector('[role="alert"]').textContent, /Current catalogue unavailable/);
+    assert.doesNotMatch(document.querySelector('[role="alert"]').textContent, /Obsolete/);
+    // A later successful explicit reload returns the server's persisted values.
+    await leave(); await enter();
+    await act(async () => reads[5].resolve(response(catalogue(saved))));
+    assert.equal(document.querySelector('input').value, '3450');
+    assert.equal(document.querySelector('select').value, 'ACTIVE');
+  } finally { await act(async () => root.unmount()); dom.window.close(); delete globalThis.pricingRaceFetch; delete globalThis.confirm; }
+});
