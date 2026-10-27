@@ -43,6 +43,20 @@ test('the actual bell recovers durable state, updates live, handles reads/errors
     assert.equal(document.querySelector('.notification-badge').textContent, '1');
     await render('ar'); assert.equal(document.querySelector('.notification-root').dir, 'rtl');
     assert.match(document.querySelector('.notification-panel').textContent, /موعد جديد/);
+    stored = [
+      { id: 'price', type: 'MEDICINE_PRICE_UPDATED', titleEn: 'Medicine price updated', titleAr: 'تم تحديث سعر الدواء', messageEn: 'A medicine price changed.', messageAr: 'تم تغيير سعر دواء.', createdAt: '2026-10-27T00:00:00.000Z', isRead: false },
+      { id: 'availability', type: 'MEDICINE_STATUS_UPDATED', titleEn: 'Medicine availability updated', titleAr: 'تم تحديث حالة توفر الدواء', messageEn: 'A medicine availability setting changed.', messageAr: 'تم تغيير حالة توفر دواء.', createdAt: '2026-10-27T00:00:00.000Z', isRead: true }
+    ];
+    await act(async () => notificationTestSocket.emit('notification', { id: 'price', title: 'English socket compatibility text' }));
+    assert.equal(document.querySelectorAll('.notification-list li').length, 2);
+    assert.match(document.querySelector('.notification-panel').textContent, /تم تحديث سعر الدواء/);
+    assert.match(document.querySelector('.notification-panel').textContent, /تم تحديث حالة توفر الدواء/);
+    await render('en');
+    assert.match(document.querySelector('.notification-panel').textContent, /Medicine price updated/);
+    assert.match(document.querySelector('.notification-panel').textContent, /Medicine availability updated/);
+    await render('ar');
+    assert.match(document.querySelector('.notification-panel').textContent, /تم تحديث سعر الدواء/);
+    assert.equal(document.querySelector('.notification-badge').textContent, '1');
     fail = true; await act(async () => document.querySelector('.notification-read-all').click());
     assert.ok(document.querySelector('[role=alert]')); assert.equal(document.querySelector('.notification-badge').textContent, '1');
     fail = false; await act(async () => document.querySelector('[role=alert] button').click());

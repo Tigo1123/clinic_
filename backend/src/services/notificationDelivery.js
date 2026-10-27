@@ -23,6 +23,9 @@ const titles = {
   LAB_BILLING_REQUIRED: ['Laboratory billing required', 'مطلوب فوترة طلب مختبر', 'billing'],
   MEDICINE_PRICING_REQUIRED: ['Medicine pricing or activation required', 'مطلوب تسعير أو تفعيل دواء', 'catalog'],
   MEDICINE_UPDATED: ['Medicine catalog updated', 'تم تحديث دليل الأدوية', 'catalog'],
+  MEDICINE_PRICE_UPDATED: ['Medicine price updated', 'تم تحديث سعر الدواء', 'catalog'],
+  MEDICINE_STATUS_UPDATED: ['Medicine availability updated', 'تم تحديث حالة توفر الدواء', 'catalog'],
+  MEDICINE_PRICE_AND_STATUS_UPDATED: ['Medicine price and availability updated', 'تم تحديث سعر الدواء وحالة توفره', 'catalog'],
   SERVICE_PRICING_REQUIRED: ['Service pricing or activation required', 'مطلوب تسعير أو تفعيل خدمة', 'catalog'],
   SERVICE_CATALOG_UPDATED: ['Service catalog updated', 'تم تحديث دليل الخدمات', 'catalog'],
   PAYMENT_REQUIRED: ['Payment action required', 'مطلوب إجراء دفع', 'billing'],
@@ -36,19 +39,26 @@ const titles = {
   BATCH_EXPIRED: ['Medicine batch has expired', 'انتهت صلاحية دفعة دواء', 'inventory']
 };
 
+const messages = {
+  MEDICINE_PRICE_UPDATED: ['A medicine price changed. Open the formulary to review it.', 'تم تغيير سعر دواء. افتح دليل الأدوية لمراجعته.'],
+  MEDICINE_STATUS_UPDATED: ['A medicine availability setting changed. Open the formulary to review it.', 'تم تغيير حالة توفر دواء. افتح دليل الأدوية لمراجعتها.'],
+  MEDICINE_PRICE_AND_STATUS_UPDATED: ['A medicine price and availability setting changed. Open the formulary to review them.', 'تم تغيير سعر دواء وحالة توفره. افتح دليل الأدوية لمراجعتهما.']
+};
+
 export function notificationDto(row) {
   const localized = titles[row.type];
   // Legacy/custom rows have no structured translations. Never use their
   // persisted (often English-only) free text as the Arabic copy.
   const fallbackEn = row.title || 'Operational update';
   const fallbackAr = 'تحديث تشغيلي';
+  const message = messages[row.type];
   return {
     id: row.id, type: row.type, entityType: row.entityType, entityId: row.entityId,
     isRead: row.isRead, createdAt: row.createdAt,
-    title: localized?.[0] || fallbackEn, message: 'Open the relevant workspace to review this update.',
+    title: localized?.[0] || fallbackEn, message: message?.[0] || 'Open the relevant workspace to review this update.',
     titleEn: localized?.[0] || fallbackEn, titleAr: localized?.[1] || fallbackAr,
-    messageEn: 'Open the relevant workspace to review this update.',
-    messageAr: 'افتح مساحة العمل المعنية لمراجعة هذا التحديث.',
+    messageEn: message?.[0] || 'Open the relevant workspace to review this update.',
+    messageAr: message?.[1] || 'افتح مساحة العمل المعنية لمراجعة هذا التحديث.',
     topic: localized?.[2] || null
   };
 }

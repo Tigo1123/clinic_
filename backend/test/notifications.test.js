@@ -159,6 +159,48 @@ test('Doctor prescription, lab paid/completed, catalog pricing and dispense stat
   } finally { pharmacy.disconnect(); lab.disconnect(); }
 });
 
+test('separate medicine price and availability updates create one safe, distinct pharmacy notice each', async () => {
+  const priceMedicine = await createMedicine();
+  const statusMedicine = await prisma.drugFormulary.create({ data: {
+    brandName: unique(), genericName: unique(), identityKey: unique(), labelAr: 'دواء اختبار', labelEn: 'Test medicine',
+    strength: '1mg', dosageForm: 'Tablet', unitPriceSdg: 100, status: 'ACTIVE'
+  } });
+  const combinedMedicine = await createMedicine();
+  const pharmacy = await connect('PHARMACIST'); const events = [];
+  pharmacy.on('notification', event => events.push(event));
+  try {
+    await prisma.drugFormulary.update({ where: { id: priceMedicine.id }, data: { unitPriceSdg: 125 } });
+    await prisma.drugFormulary.update({ where: { id: statusMedicine.id }, data: { status: 'INACTIVE' } });
+    await prisma.drugFormulary.update({ where: { id: combinedMedicine.id }, data: { unitPriceSdg: 150, status: 'ACTIVE' } });
+    for (const type of ['MEDICINE_PRICE_UPDATED', 'MEDICINE_STATUS_UPDATED', 'MEDICINE_PRICE_AND_STATUS_UPDATED']) {
+      for (let i = 0; i < 50 && !events.some(event => event.type === type); i++) await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    const medicineIds = [priceMedicine.id, statusMedicine.id, combinedMedicine.id];
+    const rows = await prisma.notification.findMany({ where: { userId: users.PHARMACIST.id, entityId: { in: medicineIds } } });
+    assert.equal(rows.length, 3);
+    assert.deepEqual(new Set(rows.map(row => row.type)), new Set(['MEDICINE_PRICE_UPDATED', 'MEDICINE_STATUS_UPDATED', 'MEDICINE_PRICE_AND_STATUS_UPDATED']));
+    assert.equal(new Set(rows.map(row => row.eventKey)).size, 3);
+    assert.equal(new Set(rows.map(row => row.entityId)).size, 3);
+    assert.equal(events.length, 3);
+    assert.equal(new Set(events.map(event => event.id)).size, 3);
+    assert.deepEqual(new Set(events.map(event => event.type)), new Set(['MEDICINE_PRICE_UPDATED', 'MEDICINE_STATUS_UPDATED', 'MEDICINE_PRICE_AND_STATUS_UPDATED']));
+    const expectedCopy = {
+      MEDICINE_PRICE_UPDATED: ['Medicine price updated', 'تم تحديث سعر الدواء', 'A medicine price changed. Open the formulary to review it.', 'تم تغيير سعر دواء. افتح دليل الأدوية لمراجعته.'],
+      MEDICINE_STATUS_UPDATED: ['Medicine availability updated', 'تم تحديث حالة توفر الدواء', 'A medicine availability setting changed. Open the formulary to review it.', 'تم تغيير حالة توفر دواء. افتح دليل الأدوية لمراجعتها.'],
+      MEDICINE_PRICE_AND_STATUS_UPDATED: ['Medicine price and availability updated', 'تم تحديث سعر الدواء وحالة توفره', 'A medicine price and availability setting changed. Open the formulary to review them.', 'تم تغيير سعر دواء وحالة توفره. افتح دليل الأدوية لمراجعتهما.']
+    };
+    for (const row of rows) {
+      const dto = notificationDto(row);
+      assert.deepEqual([dto.titleEn, dto.titleAr, dto.messageEn, dto.messageAr], expectedCopy[row.type]);
+      assert.doesNotMatch(JSON.stringify(dto), /125|150|INACTIVE|brandName|genericName/);
+    }
+    for (const role of ['ADMIN', 'RECEPTIONIST', 'DOCTOR', 'LAB_TECH', 'PATIENT']) {
+      assert.equal(await prisma.notification.count({ where: { userId: users[role].id, entityId: { in: medicineIds }, type: { in: ['MEDICINE_PRICE_UPDATED', 'MEDICINE_STATUS_UPDATED', 'MEDICINE_PRICE_AND_STATUS_UPDATED'] } } }), 0, `${role} does not receive pharmacist catalog notices`);
+    }
+    assert.equal(await prisma.notification.count({ where: { userId: users.ADMIN.id, entityId: { in: medicineIds }, type: 'MEDICINE_PRICING_REQUIRED' } }), 2, 'existing pricing-required notice remains intact for newly created inactive medicines');
+  } finally { pharmacy.disconnect(); }
+});
+
 test('custom prescription review is the single pharmacy notice for that prescription transaction', async () => {
   const socket = await connect('PHARMACIST'); const received = [];
   socket.on('notification', event => received.push(event));
@@ -290,7 +332,7 @@ test('notification triggers remain security invoker and runtime privileges do no
   const schema = new URL(process.env.DATABASE_URL).searchParams.get('schema'); const role = `notice_runtime_${Date.now()}`;
   try {
     const definitions = await client.query("SELECT proname,prosecdef FROM pg_proc WHERE pronamespace=$1::regnamespace AND proname LIKE 'clinic_%'", [schema]);
-    assert.ok(definitions.rows.filter(r => r.proname.startsWith('clinic_notify') || r.proname === 'clinic_workflow_notice').every(r => !r.prosecdef));
+    assert.ok(definitions.rows.filter(r => r.proname.startsWith('clinic_notify') || ['clinic_workflow_notice', 'clinic_drugformulary_notice'].includes(r.proname)).every(r => !r.prosecdef));
     await client.query(`CREATE ROLE "${role}" NOLOGIN`);
     await client.query(`GRANT USAGE ON SCHEMA "${schema}" TO "${role}"`);
     await client.query(`GRANT SELECT ON "User","Doctor" TO "${role}"`);
