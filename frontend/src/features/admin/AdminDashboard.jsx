@@ -11,6 +11,7 @@ import ClinicProfilePanel from './ClinicProfilePanel';
 import SpecialtiesPanel from './SpecialtiesPanel.jsx';
 import StaffAccountsPanel from './StaffAccountsPanel.jsx';
 import AdminSchedulePanel from './AdminSchedulePanel';
+import { createPricingDiagnostics } from './pricingDiagnostics.js';
 
 export default function AdminDashboard({ user, lang, t }) {
   const [activeTab, setActiveTab] = useState('profile');
@@ -21,6 +22,19 @@ export default function AdminDashboard({ user, lang, t }) {
   const [pricingDrafts, setPricingDrafts] = useState({});
   const [pricingLoading, setPricingLoading] = useState(false);
   const [pricingSaving, setPricingSaving] = useState({});
+  const [pricingTraceRevision, setPricingTraceRevision] = useState(0);
+  const pricingRootRef = useRef(null);
+  const pricingDiagnosticsRef = useRef(null);
+  if (!pricingDiagnosticsRef.current) pricingDiagnosticsRef.current = createPricingDiagnostics();
+  const pricingDiagnostics = pricingDiagnosticsRef.current;
+  useEffect(() => {
+    pricingDiagnostics.onIdle(() => setPricingTraceRevision(value => value + 1));
+    pricingDiagnostics.mount();
+    return () => pricingDiagnostics.unmount();
+  }, [pricingDiagnostics]);
+  useEffect(() => {
+    pricingDiagnostics.ui({ pricing, drafts: pricingDrafts, saving: pricingSaving, loading: pricingLoading, activeTab }, pricingRootRef.current);
+  }, [pricingDiagnostics, pricing, pricingDrafts, pricingSaving, pricingLoading, activeTab, pricingTraceRevision]);
   const pricingSavesInFlight = useRef(new Set());
   const pricingReadVersion = useRef(0);
   const pricingReadController = useRef(null);
@@ -28,12 +42,14 @@ export default function AdminDashboard({ user, lang, t }) {
   const pricingRefreshPending = useRef(false);
   useWorkflowRefresh(['catalog'], () => {
     if (activeTab !== 'pricing') return;
+    pricingDiagnostics.event('refresh.requested', { deferred: pricingSavesInFlight.current.size > 0 });
     if (pricingSavesInFlight.current.size) pricingRefreshPending.current = true;
     else setPricingRefresh(value => value + 1);
   });
 
   const invalidatePricingRead = () => {
     pricingReadVersion.current += 1;
+    pricingDiagnostics.event('read.invalidated', { version: pricingReadVersion.current });
     pricingReadController.current?.abort();
     setPricingLoading(false);
   };
@@ -124,33 +140,47 @@ export default function AdminDashboard({ user, lang, t }) {
     const version = ++pricingReadVersion.current;
     const controller = new AbortController();
     pricingReadController.current = controller;
+    const requestId = pricingDiagnostics.requestStart('GET', { version, reason: 'pricing-effect' });
+    let httpStatus, responseData, applied = false, errorName;
     setPricingLoading(true);
     setErrorMsg('');
-    fetchWithAuth('/api/admin/pricing', { signal: controller.signal })
+    fetchWithAuth('/api/admin/pricing', { signal: controller.signal, headers: pricingDiagnostics.headers(requestId) })
       .then(async res => {
+        httpStatus = res.status;
         const data = await res.json();
+        responseData = data;
         if (!res.ok) throw new Error(apiErrorMessage(data, 'Failed to load pricing.'));
         return data;
       })
-      .then(data => { if (version === pricingReadVersion.current) setPricing(data); })
+      .then(data => { if (version === pricingReadVersion.current) { applied = true; setPricing(data); } })
       .catch(error => {
+        errorName = error.name;
         if (!controller.signal.aborted && version === pricingReadVersion.current) setErrorMsg(error.message);
       })
-      .finally(() => { if (version === pricingReadVersion.current) setPricingLoading(false); });
+      .finally(() => {
+        if (version === pricingReadVersion.current) setPricingLoading(false);
+        pricingDiagnostics.requestEnd(requestId, { status: httpStatus, data: responseData, applied, aborted: controller.signal.aborted, errorName, version });
+      });
     return () => {
       controller.abort();
+      pricingDiagnostics.event('read.abortRequested', { version });
       if (version === pricingReadVersion.current) pricingReadVersion.current += 1;
     };
-  }, [activeTab, lang, pricingRefresh]);
+  }, [activeTab, lang, pricingRefresh, pricingDiagnostics]);
 
   const saveOfficialPrice = async (kind, item) => {
     const key = `${kind}:${item.id}`;
-    if (pricingSavesInFlight.current.has(key)) return;
-    setSuccessMsg('');
     const currentPrice = kind === 'doctors' ? item.consultationFee : kind === 'services' ? item.baseFeeSdg : item.unitPriceSdg;
     const draft = pricingDrafts[key] || { priceSdg: currentPrice == null ? '' : String(Number(currentPrice)), status: item.status };
+    const actionId = pricingDiagnostics.click(kind, item, draft);
+    if (pricingSavesInFlight.current.has(key)) {
+      pricingDiagnostics.event('save.blocked', { actionId, reason: 'duplicate' });
+      return;
+    }
+    setSuccessMsg('');
     const priceSdg = Number(draft.priceSdg);
     if (!Number.isSafeInteger(priceSdg) || priceSdg <= 0 || priceSdg > 1000000000) {
+      pricingDiagnostics.event('save.blocked', { actionId, reason: 'validation' });
       setErrorMsg(lang === 'ar' ? 'أدخل سعراً صحيحاً موجباً.' : 'Enter a valid positive whole-number price.');
       return;
     }
@@ -164,7 +194,12 @@ export default function AdminDashboard({ user, lang, t }) {
           ? 'هل أنت متأكد من تعطيل هذه الخدمة؟ لن تظهر للأطباء كخدمة متاحة جديدة.'
           : 'Are you sure you want to deactivate this service? It will no longer appear to doctors as an available service.'))
       : (lang === 'ar' ? 'تأكيد تغيير السعر الرسمي؟' : 'Confirm this official price change?');
-    if (!globalThis.confirm(confirmationMessage)) return;
+    if (!globalThis.confirm(confirmationMessage)) {
+      pricingDiagnostics.event('save.blocked', { actionId, reason: 'cancelled' });
+      return;
+    }
+    const payload = { priceSdg, status: draft.status || item.status };
+    pricingDiagnostics.startSave(actionId, payload);
     // Reads started before this mutation, or while it is pending, must never
     // overwrite its authoritative response. Cancellation alone is insufficient
     // when response parsing has already started.
@@ -173,12 +208,17 @@ export default function AdminDashboard({ user, lang, t }) {
     setPricingSaving(current => ({ ...current, [key]: true }));
     setErrorMsg('');
     setSuccessMsg('');
+    const requestId = pricingDiagnostics.requestStart('PATCH', { actionId });
+    let httpStatus, responseData, errorName, outcome = 'failure';
     try {
       const res = await fetchWithAuth(`/api/admin/pricing/${kind}/${item.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ priceSdg, status: draft.status || item.status })
+        headers: pricingDiagnostics.headers(requestId),
+        body: JSON.stringify(payload)
       });
+      httpStatus = res.status;
       const updated = await res.json();
+      responseData = updated;
       if (!res.ok) throw new Error(apiErrorMessage(updated, 'Failed to update pricing.'));
       invalidatePricingRead();
       setPricing((current) => ({
@@ -186,8 +226,11 @@ export default function AdminDashboard({ user, lang, t }) {
         [kind]: current[kind].map((entry) => entry.id === item.id ? updated : entry)
       }));
       setPricingDrafts((current) => ({ ...current, [key]: undefined }));
+      pricingDiagnostics.saved(actionId, kind, updated);
+      outcome = 'success';
       setSuccessMsg(lang === 'ar' ? 'تم تحديث السعر الرسمي.' : 'Official price updated.');
     } catch (error) {
+      errorName = error.name;
       setErrorMsg(error.message);
     } finally {
       pricingSavesInFlight.current.delete(key);
@@ -196,11 +239,13 @@ export default function AdminDashboard({ user, lang, t }) {
         setPricingRefresh(value => value + 1);
       }
       setPricingSaving(current => ({ ...current, [key]: false }));
+      pricingDiagnostics.requestEnd(requestId, { status: httpStatus, data: responseData, applied: outcome === 'success', errorName });
+      pricingDiagnostics.endSave(actionId, outcome);
     }
   };
 
   return (
-    <div className={`dashboard-wrapper admin-workspace ${activeTab === 'scheduling' ? 'admin-schedule-workspace' : activeTab === 'users' ? 'admin-staff-workspace' : ''}`}>
+    <div ref={pricingRootRef} className={`dashboard-wrapper admin-workspace ${activeTab === 'scheduling' ? 'admin-schedule-workspace' : activeTab === 'users' ? 'admin-staff-workspace' : ''}`}>
       {/* Side menu */}
       <aside className="sidebar-menu no-print-section" tabIndex={0} aria-label={lang === 'ar' ? 'التنقل الإداري' : 'Admin navigation'}>
         <div className="menu-items">
@@ -318,7 +363,7 @@ function PricingTable({ title, kind, items, lang, drafts, setDrafts, saving = {}
         const key = `${kind}:${item.id}`;
         const currentPrice = item[priceField];
         const draft = drafts[key] || { priceSdg: currentPrice == null ? '' : String(Number(currentPrice)), status: item.status };
-        return <tr key={item.id}>
+        return <tr key={item.id} data-pricing-kind={kind} data-pricing-id={item.id}>
           <td>{lang === 'ar' ? (item.fullNameAr || item.labelAr) : (item.fullNameEn || item.labelEn)}</td>
           <td>{item.category || item.specialtyEn || item.dosageForm || '—'}</td>
           <td><input aria-label={`${kind} price`} className="form-input" type="number" min="1" step="1" disabled={saving[key]} placeholder={lang === 'ar' ? 'غير محدد' : 'Not configured'} value={draft.priceSdg} onChange={(event) => {

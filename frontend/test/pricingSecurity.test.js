@@ -70,5 +70,5 @@ test('admin pricing uses dedicated confirmations for service status changes', ()
   assert.match(admin, /هل أنت متأكد من تفعيل هذه الخدمة؟ ستصبح متاحة للأطباء/);
   assert.match(admin, /Are you sure you want to activate this service\? It will become available to doctors\./);
   assert.match(admin, /lang === 'ar' \? 'تأكيد تغيير السعر الرسمي؟' : 'Confirm this official price change\?'/);
-  assert.match(admin, /if \(!globalThis\.confirm\(confirmationMessage\)\) return;/);
+  assert.match(admin, /if \(!globalThis\.confirm\(confirmationMessage\)\) \{\s*pricingDiagnostics\.event\('save.blocked', \{ actionId, reason: 'cancelled' \}\);\s*return;/);
 });

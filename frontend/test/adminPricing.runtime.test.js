@@ -46,7 +46,7 @@ test('Admin saves once, waits for persistence, surfaces failures and reloads aut
   const { act, createElement } = await import('react');
   const { createRoot } = await import('react-dom/client');
   let source = readFileSync(new URL('../src/features/admin/AdminDashboard.jsx', import.meta.url), 'utf8');
-  source = source.replace("'../../hooks/useWorkflowRefresh.js'", JSON.stringify(new URL('../src/hooks/useWorkflowRefresh.js', import.meta.url).href)).replace(/import '\.\/clinicSetup\.css';/, '')
+  source = source.replace("'./pricingDiagnostics.js'", JSON.stringify(new URL('../src/features/admin/pricingDiagnostics.js', import.meta.url).href)).replace("'../../hooks/useWorkflowRefresh.js'", JSON.stringify(new URL('../src/hooks/useWorkflowRefresh.js', import.meta.url).href)).replace(/import '\.\/clinicSetup\.css';/, '')
     .replace(/import ([A-Za-z]+) from [^;]+;/g, 'const $1 = () => null;')
     .replace(/import \{[^}]+\} from 'lucide-react';/, 'const Activity=()=>null,Building=Activity,CalendarDays=Activity,DollarSign=Activity,Sliders=Activity,Users=Activity;')
     .replace(/import \{ apiErrorMessage, fetchWithAuth \}[^;]+;/, 'const fetchWithAuth=(...args)=>globalThis.pricingTestFetch(...args); const apiErrorMessage=(payload,fallback)=>payload.error?.message||fallback;');
@@ -109,7 +109,7 @@ test('older catalogue reads, stale failures and StrictMode renders cannot overwr
   const { act, createElement, StrictMode } = await import('react');
   const { createRoot } = await import('react-dom/client');
   let source = readFileSync(new URL('../src/features/admin/AdminDashboard.jsx', import.meta.url), 'utf8');
-  source = source.replace("'../../hooks/useWorkflowRefresh.js'", JSON.stringify(new URL('../src/hooks/useWorkflowRefresh.js', import.meta.url).href)).replace(/import '\.\/clinicSetup\.css';/, '')
+  source = source.replace("'./pricingDiagnostics.js'", JSON.stringify(new URL('../src/features/admin/pricingDiagnostics.js', import.meta.url).href)).replace("'../../hooks/useWorkflowRefresh.js'", JSON.stringify(new URL('../src/hooks/useWorkflowRefresh.js', import.meta.url).href)).replace(/import '\.\/clinicSetup\.css';/, '')
     .replace(/import ([A-Za-z]+) from [^;]+;/g, 'const $1 = () => null;')
     .replace(/import \{[^}]+\} from 'lucide-react';/, 'const Activity=()=>null,Building=Activity,CalendarDays=Activity,DollarSign=Activity,Sliders=Activity,Users=Activity;')
     .replace(/import \{ apiErrorMessage, fetchWithAuth \}[^;]+;/, 'const fetchWithAuth=(...args)=>globalThis.pricingRaceFetch(...args); const apiErrorMessage=(payload,fallback)=>payload.error?.message||fallback;');
