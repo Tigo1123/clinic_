@@ -24,10 +24,10 @@ import { useFacilityBranding } from './app/branding/FacilityBrandingContext.js';
 import { brandingSubline } from './app/branding/brandingConfig';
 import { withLoginSubmissionLock } from './features/patient-auth/loginSubmission.js';
 import PasswordField from './components/PasswordField.jsx';
+import PharmacyPage from './features/pharmacy/PharmacyPage.jsx';
 
 const AdminDashboard = lazy(() => import('./features/admin/AdminDashboard'));
 const LaboratoryDashboard = lazy(() => import('./features/laboratory/LaboratoryDashboard'));
-const PharmacyDashboard = lazy(() => import('./features/pharmacy/PharmacyDashboard'));
 const DoctorDashboard = lazy(() => import('./features/doctor/DoctorDashboard'));
 const ReceptionDashboard = lazy(() => import('./features/reception/ReceptionDashboard'));
 const RequiredStaffMfaEnrollment = lazy(() => import('./components/RequiredStaffMfaEnrollment.jsx'));
@@ -525,7 +525,7 @@ function DashboardContainer({ user, lang, t }) {
     dashboard = <DoctorDashboard user={user} lang={lang} t={t} />;
   }
   else if (user.role === 'PHARMACIST') {
-    dashboard = <PharmacyDashboard lang={lang} t={t} />;
+    dashboard = <PharmacyPage lang={lang} t={t} />;
   }
   else if (user.role === 'LAB_TECH') {
     dashboard = <LaboratoryDashboard lang={lang} />;

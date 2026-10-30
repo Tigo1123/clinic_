@@ -440,7 +440,7 @@ test('one search submission has one effect-owned request and keeps latest-respon
   assert.equal((submit.match(/loadFormulary/g) || []).length, 0);
   assert.match(management, /const requestId = \+\+formularyRequestRef\.current/);
   assert.match(management, /if \(requestId === formularyRequestRef\.current\) \{\s*setItems\(data\.items \|\| \[\]\)/);
-  assert.match(management, /return \(\) => \{ formularyRequestRef\.current \+= 1; \}/);
+  assert.match(management, /return \(\) => \{ formularyRequestRef\.current \+= 1; formularyControllerRef\.current\?\.abort\(\); \}/);
 });
 
 test('dialog close identity stays stable so ordinary field rerenders preserve focus', () => {

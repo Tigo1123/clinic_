@@ -152,7 +152,8 @@ export function pharmacyManagementError(payload, status, lang = 'en', fallback =
   };
   if (byStatus[status]) return byStatus[status][lang === 'ar' ? 0 : 1];
   if (!status) return lang === 'ar' ? 'تعذر الاتصال بالخادم. تحقق من الاتصال وحاول مرة أخرى.' : 'Unable to reach the server. Check your connection and try again.';
-  return fallback || (lang === 'ar' ? 'تعذر الاتصال بالخادم. حاول مرة أخرى.' : 'Unable to reach the server. Please try again.');
+  const localizedFallback = fallback && ((lang === 'ar') === /[\u0600-\u06ff]/u.test(fallback)) ? fallback : '';
+  return localizedFallback || (lang === 'ar' ? 'تعذر الاتصال بالخادم. حاول مرة أخرى.' : 'Unable to reach the server. Please try again.');
 }
 
 export function pharmacyInventoryAlert(medicine = {}) {

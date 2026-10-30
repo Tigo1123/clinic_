@@ -16,6 +16,7 @@ test('Pharmacy revalidates on focus, deduplicates visibility/focus and rejects o
     .replace(/import \{[^}]+\} from 'lucide-react';/, 'const PackagePlus=()=>null,RefreshCw=PackagePlus,Search=PackagePlus;')
     .replace(/import \{ fetchWithAuth \}[^;]+;/, 'const fetchWithAuth=(...args)=>globalThis.pharmacyRefreshFetch(...args);')
     .replace("'../../utils/clinicTime.js'", JSON.stringify(new URL('../src/utils/clinicTime.js', import.meta.url).href))
+    .replace("'../../services/pharmacyReads.js'", JSON.stringify(new URL('../src/services/pharmacyReads.js', import.meta.url).href))
     .replace("'../../utils/pharmacyManagement'", JSON.stringify(new URL('../src/utils/pharmacyManagement.js', import.meta.url).href));
   const modulePath = new URL(`.pharmacy-refresh-${process.pid}.mjs`, import.meta.url);
   await writeFile(modulePath, (await transformWithOxc(source, 'PharmacyManagement.jsx', { jsx: { runtime: 'automatic' } })).code);

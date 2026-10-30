@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
+import { PharmacyReadError, pharmacyReadErrorMessage, validatePharmacyPayload } from '../../services/pharmacyReads.js';
 import { buildPaymentPayload, newPaymentAttempt, paymentAttemptIsReflected, pharmacyBillingPendingCopy, pharmacyBillingRequiresReview, samePaymentAttempt } from '../../utils/pharmacyManagement';
 
 const methodLabels = { CASH: 'CASH', CARD: 'CARD', BANKAK: 'BANKAK', FAWRY: 'FAWRY' };
@@ -14,6 +15,7 @@ export default function PharmacyPayment({ prescriptionId, lang, onStateChange })
   const attemptRef = useRef(null);
   const reconciliationRequiredRef = useRef(false);
   const stateRequestRef = useRef(0);
+  const stateControllerRef = useRef(null);
   const mountedRef = useRef(true);
 
   const requireReconciliation = useCallback((required) => {
@@ -24,9 +26,13 @@ export default function PharmacyPayment({ prescriptionId, lang, onStateChange })
   const loadState = useCallback(async () => {
     if (!prescriptionId) return null;
     const requestId = ++stateRequestRef.current;
+    stateControllerRef.current?.abort();
+    const controller = new AbortController();
+    stateControllerRef.current = controller;
     setLoading(true);
+    setMessage({ type: '', text: '' });
     try {
-      const response = await fetchWithAuth(`/api/pharmacy/prescriptions/${prescriptionId}/payment-state`);
+      const response = await fetchWithAuth(`/api/pharmacy/prescriptions/${prescriptionId}/payment-state`, { signal: controller.signal });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok && pharmacyBillingRequiresReview(payload?.error?.code)) {
         const pendingState = {
@@ -42,8 +48,9 @@ export default function PharmacyPayment({ prescriptionId, lang, onStateChange })
         onStateChange?.(pendingState);
         return pendingState;
       }
-      if (!response.ok) throw new Error(apiErrorMessage(payload, 'Unable to load payment state.'));
+      if (!response.ok) throw new PharmacyReadError(response.status);
       if (!mountedRef.current || requestId !== stateRequestRef.current) return null;
+      validatePharmacyPayload(payload, 'payment');
       setState(payload);
       setMethod(current => (payload.allowedPaymentMethods || []).includes(current) ? current : payload.allowedPaymentMethods?.[0] || '');
       setAmount(payload.invoice?.outstandingAmountSdg > 0 ? String(payload.invoice.outstandingAmountSdg) : '');
@@ -61,7 +68,7 @@ export default function PharmacyPayment({ prescriptionId, lang, onStateChange })
       onStateChange?.(payload);
       return payload;
     } catch (error) {
-      if (mountedRef.current && requestId === stateRequestRef.current) setMessage({ type: 'danger', text: error.message });
+      if (mountedRef.current && requestId === stateRequestRef.current) setMessage({ type: 'danger', text: pharmacyReadErrorMessage(error, lang) });
       return null;
     } finally {
       if (mountedRef.current && requestId === stateRequestRef.current) setLoading(false);
@@ -71,7 +78,7 @@ export default function PharmacyPayment({ prescriptionId, lang, onStateChange })
   useEffect(() => {
     mountedRef.current = true;
     setState(null); setMessage({ type: '', text: '' }); attemptRef.current = null; requireReconciliation(false); loadState();
-    return () => { mountedRef.current = false; stateRequestRef.current += 1; };
+    return () => { mountedRef.current = false; stateRequestRef.current += 1; stateControllerRef.current?.abort(); };
   }, [loadState, requireReconciliation]);
 
   const submit = async (event) => {
@@ -121,7 +128,8 @@ export default function PharmacyPayment({ prescriptionId, lang, onStateChange })
     }
   };
 
-  if (loading && !state) return <section className="pharmacy-payment"><p>{lang === 'ar' ? 'جارٍ تحميل فاتورة الأدوية…' : 'Loading medicine invoice…'}</p></section>;
+  if (loading && !state) return <section className="pharmacy-payment"><p role="status">{lang === 'ar' ? 'جارٍ تحميل فاتورة الأدوية…' : 'Loading medicine invoice…'}</p><button type="button" className="btn" onClick={() => { stateRequestRef.current += 1; stateControllerRef.current?.abort(); setLoading(false); setMessage({ type: 'danger', text: pharmacyReadErrorMessage(new PharmacyReadError(0, 'CANCELLED'), lang) }); }}>{lang === 'ar' ? 'إلغاء التحميل' : 'Cancel loading'}</button></section>;
+  if (!state && message.type === 'danger') return <section className="pharmacy-payment"><p role="alert">{message.text}</p><button type="button" className="btn" onClick={loadState}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button></section>;
   if (!state?.invoice) return <section className="pharmacy-payment"><h3>{lang === 'ar' ? 'فاتورة الأدوية' : 'Medicine Invoice'}</h3><p>{pharmacyBillingPendingCopy(state?.billingPending?.code, lang)}</p><button type="button" className="btn" disabled={loading} onClick={loadState}>{lang === 'ar' ? 'تحديث' : 'Refresh'}</button></section>;
   const invoice = state.invoice;
   return <section className="pharmacy-payment" aria-labelledby="medicine-invoice-title">

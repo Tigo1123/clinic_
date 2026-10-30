@@ -1,7 +1,8 @@
-import { useStaffPagedList } from '../../hooks/useStaffPagedList.js';
+import { usePharmacyRead } from './usePharmacyRead.js';
+import PharmacyReadFeedback from './PharmacyReadFeedback.jsx';
+import { pharmacyReadErrorMessage, readPharmacyJson } from '../../services/pharmacyReads.js';
 import { useWorkflowRefresh } from '../../hooks/useWorkflowRefresh.js';
-import StaffListPaging from '../../components/StaffListPaging.jsx';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, FileText, HelpCircle, Sliders, Stethoscope } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import RoleHero from '../../components/healthcare/RoleHero';
@@ -14,9 +15,10 @@ import './pharmacy.css';
 import { authoritativeStockSummary, buildMedicationReviewPayload, customMedicineRequiresReview, localizedStockState, pharmacyAlertModel, stockPresentation } from '../../utils/pharmacyManagement';
 
 export default function PharmacyDashboard({ lang, t: _t }) {
-  const prescriptionList = useStaffPagedList('/api/records/prescriptions/pending');
+  const prescriptionList = usePharmacyRead('/api/records/prescriptions/pending', 'prescriptions', true);
   const { data: prescriptions, reload: fetchPendingRx } = prescriptionList;
-  const [prescriptionHistory, setPrescriptionHistory] = useState([]);
+  const historyResource = usePharmacyRead('/api/records/prescriptions/history', 'prescriptions');
+  const { data: prescriptionHistory, reload: fetchPrescriptionHistory } = historyResource;
   const [queueView, setQueueView] = useState('active');
   const [selectedRx, setSelectedRx] = useState(null);
   const [successMsg, setSuccessMsg] = useState('');
@@ -26,16 +28,18 @@ export default function PharmacyDashboard({ lang, t: _t }) {
   const [paymentRefresh, setPaymentRefresh] = useState(0);
   const [dispensing, setDispensing] = useState(false);
   const [activeSection, setActiveSection] = useState('dispensing');
-  const [alertMedicines, setAlertMedicines] = useState(null);
-  const [alertLoadError, setAlertLoadError] = useState('');
+  const alertResource = usePharmacyRead('/api/pharmacy/formulary', 'alerts');
+  const { data: alertMedicines, reload: loadAlertInventory } = alertResource;
+  const alertLoadError = alertResource.error ? pharmacyReadErrorMessage(alertResource.error, lang) : '';
 
   const [selectedStock, setSelectedStock] = useState({});
 
   // Read-only formulary pricing; official prices are configured by ADMIN.
-  const [drugCatalog, setDrugCatalog] = useState([]);
+  const catalogResource = usePharmacyRead('/api/records/drugs', 'catalog');
+  const { data: drugCatalog, setData: setDrugCatalog, reload: fetchDrugCatalog } = catalogResource;
 
   // Custom medications awaiting pharmacist review
-  const reviewList = useStaffPagedList('/api/records/medication-reviews/pending');
+  const reviewList = usePharmacyRead('/api/records/medication-reviews/pending', 'reviews', true);
   const { data: medicationReviews, reload: fetchMedicationReviews, setData: setMedicationReviews } = reviewList;
   const [reviewModeById, setReviewModeById] = useState({});
   const [reviewForms, setReviewForms] = useState({});
@@ -48,90 +52,41 @@ export default function PharmacyDashboard({ lang, t: _t }) {
   const [unavailableNote, setUnavailableNote] = useState('');
   const [unavailableSaving, setUnavailableSaving] = useState(false);
   const reviewSectionRef = useRef(null);
-  const alertRequestRef = useRef(0);
-
-  const loadAlertInventory = useCallback(async () => {
-    const requestId = ++alertRequestRef.current;
-    setAlertLoadError('');
-    try {
-      const firstResponse = await fetchWithAuth('/api/pharmacy/formulary?page=1&pageSize=100');
-      if (!firstResponse.ok) throw new Error('FORMULARY_ALERT_LOAD_FAILED');
-      const firstPage = await firstResponse.json();
-      const totalPages = Math.max(1, Number(firstPage.pagination?.totalPages) || 1);
-      const allItems = [...(firstPage.items || [])];
-      for (let page = 2; page <= totalPages; page += 1) {
-        const response = await fetchWithAuth(`/api/pharmacy/formulary?page=${page}&pageSize=100`);
-        if (!response.ok) throw new Error('FORMULARY_ALERT_LOAD_FAILED');
-        const payload = await response.json();
-        allItems.push(...(payload.items || []));
-      }
-      if (requestId === alertRequestRef.current) {
-        setAlertMedicines(allItems);
-      }
-    } catch {
-      if (requestId === alertRequestRef.current) {
-        setAlertMedicines(null);
-        setAlertLoadError(lang === 'ar' ? 'تعذر تحميل تنبيهات المخزون.' : 'Unable to load inventory alerts.');
-      }
-    }
-  }, [lang]);
-
   useEffect(() => {
     setSelectedRx((current) => current ? prescriptions.find((rx) => rx.id === current.id) || null : null);
   }, [prescriptions]);
 
-  const fetchPrescriptionHistory = useCallback(() => {
-    return fetchWithAuth('/api/records/prescriptions/history')
-      .then((res) => res.ok ? res.json() : [])
-      .then((data) => setPrescriptionHistory(Array.isArray(data) ? data : []))
-      .catch(() => setPrescriptionHistory([]));
-  }, []);
-
-  useWorkflowRefresh(['prescriptions', 'billing', 'catalog', 'inventory'], async changed => {
-    await Promise.all([fetchPendingRx(), fetchMedicationReviews(), fetchPrescriptionHistory()]);
+  useWorkflowRefresh(['prescriptions', 'billing', 'catalog', 'inventory'], changed => {
+    // Start each refresh independently. A slow history read must not postpone
+    // stock/catalog revalidation or lock the workflow subscriber in `running`.
+    fetchPendingRx(); fetchMedicationReviews(); fetchPrescriptionHistory();
     setPaymentRefresh(value => value + 1);
-    if (!changed.some(topic => ['catalog', 'inventory', 'reconnected'].includes(topic))) return;
-    setManagementRefresh(value => value + 1);
-    try {
-      const response = await fetchWithAuth('/api/records/drugs');
-      if (!response.ok) throw new Error('CATALOG_REFRESH_FAILED');
-      setDrugCatalog(await response.json());
-    } catch { setErrorMsg(lang === 'ar' ? 'تعذر تحديث دليل الأدوية.' : 'Unable to refresh the medicine catalog.'); }
+    if (changed.some(topic => ['catalog', 'inventory', 'reconnected'].includes(topic))) {
+      setManagementRefresh(value => value + 1);
+      fetchDrugCatalog();
+    }
   });
 
+  const previousManagementRefresh = useRef(managementRefresh);
   useEffect(() => {
-    fetchPrescriptionHistory();
+    if (previousManagementRefresh.current !== managementRefresh) loadAlertInventory();
+    previousManagementRefresh.current = managementRefresh;
+  }, [managementRefresh, loadAlertInventory]);
 
-    fetchWithAuth('/api/records/drugs')
-      .then((res) => res.ok ? res.json() : [])
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setDrugCatalog(data);
-        } else {
-          setDrugCatalog([]);
-        }
-      })
-      .catch(() => {
-        setDrugCatalog([]);
-      });
-  }, [fetchPrescriptionHistory]);
-
+  const [stockError, setStockError] = useState(null);
+  const [stockRefresh, setStockRefresh] = useState(0);
   useEffect(() => {
-    loadAlertInventory();
-    return () => { alertRequestRef.current += 1; };
-  }, [loadAlertInventory, managementRefresh]);
-
-  useEffect(() => {
-    let active = true;
-    const ids = [...new Set((selectedRx?.prescribedDrugs || []).map((item) => item.drugId || item.drug?.id).filter(Boolean))];
-    if (!ids.length) { setSelectedStock({}); return () => { active = false; }; }
-    Promise.all(ids.map(async (id) => {
-      const response = await fetchWithAuth(`/api/pharmacy/formulary/${id}`);
-      if (!response.ok) return [id, null];
-      return [id, await response.json()];
-    })).then((entries) => { if (active) setSelectedStock(Object.fromEntries(entries)); }).catch(() => { if (active) setSelectedStock({}); });
-    return () => { active = false; };
-  }, [selectedRx, managementRefresh]);
+    const controller = new AbortController();
+    const ids = [...new Set((selectedRx?.prescribedDrugs || []).filter(item => item.drug).map(item => item.drugId || item.drug.id))];
+    setSelectedStock({}); setStockError(null);
+    ids.forEach(async id => {
+      try {
+        const { data } = await readPharmacyJson(fetchWithAuth, `/api/pharmacy/formulary/${id}`, 'medicine', controller.signal);
+        if (!controller.signal.aborted) setSelectedStock(current => ({ ...current, [id]: data }));
+      } catch (error) { if (!controller.signal.aborted) setStockError(error); }
+    });
+    return () => controller.abort();
+  }, [selectedRx, managementRefresh, stockRefresh]);
 
   const setReviewMode = (item, mode) => {
     setReviewErrorMsg('');
@@ -501,7 +456,8 @@ export default function PharmacyDashboard({ lang, t: _t }) {
 
   return (
     <div className="dashboard-wrapper pharmacy-workspace">
-      <StaffListPaging list={reviewList} lang={lang} label={lang === 'ar' ? 'مراجعة الأدوية' : 'Medication reviews'} />
+      <PharmacyReadFeedback resource={reviewList} lang={lang} label={lang === 'ar' ? 'مراجعة الأدوية' : 'Medication reviews'} />
+      <PharmacyReadFeedback resource={catalogResource} lang={lang} label={lang === 'ar' ? 'دليل الأدوية' : 'Medicine catalog'} />
       <div className="workspace-panel" style={{ padding: '1rem' }}>
         <RoleHero role="pharmacy" lang={lang}/>
         <div className="pharmacy-pilot-summary" aria-label={lang === 'ar' ? 'ملخص العمل' : 'Operational summary'}>
@@ -645,7 +601,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
             </div>
           )}
 
-          {medicationReviews.length === 0 ? (
+          {medicationReviews.length === 0 ? (reviewList.status === 'success' && (
             <div
               style={{
                 textAlign: 'center',
@@ -659,7 +615,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                   : 'No medication requests awaiting review.'}
               </strong>
             </div>
-          ) : (
+          )) : (
             <div
               style={{
                 display: 'grid',
@@ -1390,13 +1346,14 @@ export default function PharmacyDashboard({ lang, t: _t }) {
               <button type="button" role="tab" aria-selected={queueView === 'active'} className={queueView === 'active' ? 'is-active' : ''} onClick={() => setQueueView('active')}>{lang === 'ar' ? 'بانتظار الصرف' : 'Awaiting Dispensing'} <span>{prescriptions.length}</span></button>
               <button type="button" role="tab" aria-selected={queueView === 'history'} className={queueView === 'history' ? 'is-active' : ''} onClick={() => { setQueueView('history'); fetchPrescriptionHistory(); }}>{lang === 'ar' ? 'السجل' : 'History'} <span>{prescriptionHistory.length}</span></button>
             </div>
-            {queueView === 'active' && <StaffListPaging list={prescriptionList} lang={lang} label={lang === 'ar' ? 'الوصفات' : 'Prescriptions'} />}
-            {(queueView === 'active' ? prescriptions : prescriptionHistory).length === 0 ? (
+            {queueView === 'active' && <PharmacyReadFeedback resource={prescriptionList} lang={lang} label={lang === 'ar' ? 'الوصفات' : 'Prescriptions'} />}
+            {queueView === 'history' && <PharmacyReadFeedback resource={historyResource} lang={lang} label={lang === 'ar' ? 'السجل' : 'History'} />}
+            {(queueView === 'active' ? prescriptions : prescriptionHistory).length === 0 ? ((queueView === 'active' ? prescriptionList : historyResource).status === 'success' && (
               <div className="pharmacy-compact-empty">
                 <HelpCircle size={24} />
                 <p>{queueView === 'active' ? (lang === 'ar' ? 'لا توجد وصفات بانتظار الصرف.' : 'No prescriptions are awaiting dispensing.') : (lang === 'ar' ? 'لا توجد وصفات محفوظة في السجل.' : 'No prescription history is available.')}</p>
               </div>
-            ) : (
+            )) : (
               (queueView === 'active' ? prescriptions : prescriptionHistory).map((rx) => (
                 <div
                   key={rx.id}
@@ -1527,6 +1484,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
             {errorMsg && <div className="badge badge-danger" style={{ padding: '0.5rem' }}>{errorMsg}</div>}
             {successMsg && <div className="badge badge-success" style={{ padding: '0.5rem' }}>{successMsg}</div>}
 
+            {stockError && <div role="alert">{pharmacyReadErrorMessage(stockError, lang)} <button type="button" className="btn" onClick={() => setStockRefresh(value => value + 1)}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button></div>}
             {selectedRx ? (
               <div>
                 <h4>
@@ -1708,7 +1666,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
             {alertLoadError ? (
               <div className="pharmacy-compact-empty"><p role="alert">{alertLoadError}</p><button type="button" className="btn" onClick={loadAlertInventory}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button></div>
             ) : alertMedicines === null ? (
-              <div className="pharmacy-compact-empty"><p>{lang === 'ar' ? 'جارٍ تحميل التنبيهات…' : 'Loading alerts…'}</p></div>
+              <PharmacyReadFeedback resource={alertResource} lang={lang} label={lang === 'ar' ? 'التنبيهات' : 'Alerts'} />
             ) : alertModel.totalAlertCount === 0 ? (
               <div className="pharmacy-compact-empty">
                 <p>

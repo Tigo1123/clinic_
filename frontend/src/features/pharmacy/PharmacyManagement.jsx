@@ -3,6 +3,7 @@ import { PackagePlus, RefreshCw, Search } from 'lucide-react';
 import Dialog from '../../components/ui/Dialog';
 import AppDatePicker from '../../components/ui/AppDatePicker.jsx';
 import { fetchWithAuth } from '../../services/staffApi';
+import { pharmacyReadErrorMessage, readPharmacyJson, validatePharmacyPayload } from '../../services/pharmacyReads.js';
 import { clinicCalendarDays } from '../../utils/clinicTime.js';
 import './pharmacy.css';
 import {
@@ -28,6 +29,10 @@ async function jsonRequest(url, options, fallback, lang) {
   catch { throw new Error(pharmacyManagementError({}, 0, lang, fallback)); }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(pharmacyManagementError(payload, response.status, lang, fallback));
+  if (!options?.method || options.method === 'GET') {
+    try { validatePharmacyPayload(payload, /\/(batches|movements)\?/.test(url) ? 'page' : 'medicine'); }
+    catch (error) { throw new Error(pharmacyReadErrorMessage(error, lang)); }
+  }
   return payload;
 }
 
@@ -81,6 +86,7 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
   const [searchSubmission, setSearchSubmission] = useState(0);
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
+  const [formularyError, setFormularyError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState({ type: '', text: '' });
   const [dialog, setDialog] = useState(null);
@@ -98,6 +104,7 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
   const [movementLoading, setMovementLoading] = useState(false);
   const [movementError, setMovementError] = useState('');
   const formularyRequestRef = useRef(0);
+  const formularyControllerRef = useRef(null);
   const formularyLoadingRef = useRef(false);
   const foregroundRefreshRef = useRef(null);
   const detailRequestRef = useRef(0);
@@ -105,27 +112,31 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
 
   const loadFormulary = useCallback(async (page, submittedSearch, selectedStatus) => {
     const requestId = ++formularyRequestRef.current;
+    formularyControllerRef.current?.abort();
+    const controller = new AbortController();
+    formularyControllerRef.current = controller;
     formularyLoadingRef.current = true;
     setLoading(true);
+    setFormularyError(null);
     try {
       const params = new URLSearchParams({ page: String(page), pageSize: '20' });
       if (submittedSearch) params.set('search', submittedSearch);
       if (selectedStatus) params.set('status', selectedStatus);
-      const data = await jsonRequest(`/api/pharmacy/formulary?${params}`, {}, 'Unable to load formulary.', lang);
+      const { data } = await readPharmacyJson(fetchWithAuth, `/api/pharmacy/formulary?${params}`, 'formulary', controller.signal);
       if (requestId === formularyRequestRef.current) {
         setItems(data.items || []);
         setPagination(data.pagination || { page, totalPages: 1, total: 0 });
       }
     } catch (error) {
-      if (requestId === formularyRequestRef.current) setFeedback({ type: 'danger', text: error.message });
+      if (requestId === formularyRequestRef.current) setFormularyError(error);
     } finally {
       if (requestId === formularyRequestRef.current) { formularyLoadingRef.current = false; setLoading(false); }
     }
-  }, [lang]);
+  }, []);
 
   useEffect(() => {
     loadFormulary(1, search, status);
-    return () => { formularyRequestRef.current += 1; };
+    return () => { formularyRequestRef.current += 1; formularyControllerRef.current?.abort(); };
   }, [loadFormulary, refreshToken, search, searchSubmission, status]);
 
   useEffect(() => {
@@ -240,7 +251,9 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
       <button className="btn" type="button" disabled={loading} onClick={async () => { await loadFormulary(pagination.page, search, status); onInventoryChanged(); }}><RefreshCw size={15} /> {lang === 'ar' ? 'تحديث' : 'Refresh'}</button>
     </form>
     {feedback.text && <div role="status" className={`pharmacy-feedback badge badge-${feedback.type}`}>{feedback.text}</div>}
-    {loading && items.length === 0 ? <p className="pharmacy-empty">{lang === 'ar' ? 'جارٍ تحميل الأدوية…' : 'Loading medicines…'}</p> : items.length === 0 ? <p className="pharmacy-empty">{lang === 'ar' ? 'لا توجد أدوية مطابقة.' : 'No medicines found.'}</p> : <div className={`pharmacy-inventory-list${loading ? ' is-refreshing' : ''}`}>
+    {formularyError && <div role="alert">{pharmacyReadErrorMessage(formularyError, lang)} <button type="button" className="btn" onClick={() => loadFormulary(pagination.page, search, status)}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button></div>}
+    {loading && <button type="button" className="btn" onClick={() => formularyControllerRef.current?.abort()}>{lang === 'ar' ? 'إلغاء التحميل' : 'Cancel loading'}</button>}
+    {loading && items.length === 0 ? <p role="status" className="pharmacy-empty">{lang === 'ar' ? 'جارٍ تحميل الأدوية…' : 'Loading medicines…'}</p> : items.length === 0 ? (!formularyError && <p className="pharmacy-empty">{lang === 'ar' ? 'لا توجد أدوية مطابقة.' : 'No medicines found.'}</p>) : <div className={`pharmacy-inventory-list${loading ? ' is-refreshing' : ''}`}>
       <table className="pharmacy-inventory-table" aria-labelledby="pharmacy-management-title">
         <thead><tr><th scope="col">{lang === 'ar' ? 'الدواء' : 'Medicine'}</th><th scope="col">{lang === 'ar' ? 'البيانات الدوائية' : 'Generic / strength / form'}</th><th scope="col">{lang === 'ar' ? 'السعر الرسمي' : 'Official price'}</th><th scope="col">{lang === 'ar' ? 'المخزون الصالح' : 'Usable stock'}</th><th scope="col">{lang === 'ar' ? 'أقرب صلاحية' : 'Nearest expiry'}</th><th scope="col">{lang === 'ar' ? 'حالة المخزون' : 'Stock status'}</th><th scope="col">{lang === 'ar' ? 'حالة القائمة' : 'Formulary status'}</th><th scope="col"><span className="sr-only">{lang === 'ar' ? 'الإجراءات' : 'Actions'}</span></th></tr></thead>
         <tbody>{items.map((medicine) => { const stock = authoritativeStockSummary(medicine); const state = stockPresentation(stock); const tone = { OUT_OF_STOCK: 'danger', EXPIRED: 'danger', LOW_STOCK: 'warning', NEAR_EXPIRY: 'warning', HEALTHY: 'success' }[state]; return <tr key={medicine.id}>
