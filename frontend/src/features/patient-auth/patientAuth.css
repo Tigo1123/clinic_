@@ -2063,9 +2063,7 @@
 .patient-auth-shell--login :is(a, button):focus-visible { outline-color: var(--color-primary-strong); }
 .patient-auth-shell--flow .patient-field__password-toggle { width: 44px; height: 44px; }
 
-/* External labels share the native field rhythm; only MUI's fieldset owns the border. */
-.shifa-password-field { width: 100%; min-width: 0; margin-bottom: 16px; }
-.shifa-password-label { display: block; margin-bottom: 5px; color: var(--text-secondary); font-size: 0.9rem; font-weight: 700; line-height: 1.45; }
+/* Authentication-only password spacing; shared field rules live in ui.css. */
 .patient-auth .patient-field input:not(.MuiInputBase-input):not(.MuiPickersInputBase-input) { font-size: 16px; line-height: 1.45; height: 50px; }
 .patient-auth .shifa-password-field + .patient-auth-forgot { margin-top: 16px; margin-bottom: 20px; }
 .patient-auth .shifa-password-field + .patient-button { margin-top: 8px; }
