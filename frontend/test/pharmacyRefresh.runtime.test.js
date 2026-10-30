@@ -12,6 +12,7 @@ test('Pharmacy revalidates on focus, deduplicates visibility/focus and rejects o
   const { createRoot } = await import('react-dom/client');
   let source = readFileSync(new URL('../src/features/pharmacy/PharmacyManagement.jsx', import.meta.url), 'utf8');
   source = source.replace(/import '\.\/pharmacy\.css';/, '')
+    .replace(/import \{ usePharmacyHistory \}[^;]+;/, "const usePharmacyHistory=()=>({data:null,status:'idle',loading:false,loadPage:()=>{},reload:()=>{}});")
     .replace(/import ([A-Za-z]+) from [^;]+;/g, 'const $1=()=>null;')
     .replace(/import \{[^}]+\} from 'lucide-react';/, 'const PackagePlus=()=>null,RefreshCw=PackagePlus,Search=PackagePlus;')
     .replace(/import \{ fetchWithAuth \}[^;]+;/, 'const fetchWithAuth=(...args)=>globalThis.pharmacyRefreshFetch(...args);')

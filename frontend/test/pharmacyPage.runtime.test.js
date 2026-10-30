@@ -68,3 +68,19 @@ test('pending payment-state is cancellable and stops loading without a response'
   try { assert.ok(document.querySelector('[role=status]')); await click(); assert.equal(document.querySelector('[role=status]'), null); assert.match(document.querySelector('[role=alert]').textContent, /cancelled/); }
   finally { await cleanup(); delete globalThis.pharmacyPaymentFetch; }
 });
+
+for (const lang of ['ar', 'en']) for (const hasInvoice of [false, true]) test(`payment refresh preserves ${hasInvoice ? 'invoice totals' : 'confirmed billing-pending snapshot'} and exposes ${lang} failure`, async () => {
+  let fail = false;
+  const payload = { prescriptionId: 'rx', invoice: hasInvoice ? { id: 'invoice', totalAmountSdg: 500, paidAmountSdg: 100, outstandingAmountSdg: 400, paymentStatus: 'PARTIALLY_PAID' } : null, billingPending: { code: 'PHARMACY_INVOICE_PENDING' }, dispensingAllowed: false, allowedPaymentMethods: ['CASH'] };
+  globalThis.pharmacyPaymentFetch = async () => new Response(JSON.stringify(fail ? { error: 'RAW BACKEND ENGLISH' } : payload), { status: fail ? 500 : 200 });
+  const cleanup = await mount(Payment, { prescriptionId: 'rx', lang });
+  try {
+    assert.equal(document.querySelector('[role=alert]'), null);
+    fail = true; await click();
+    assert.ok(document.querySelector('[role=alert]'));
+    assert.equal(/[\u0600-\u06ff]/u.test(document.querySelector('[role=alert]').textContent), lang === 'ar');
+    assert.doesNotMatch(document.body.textContent, /RAW BACKEND/);
+    assert.match(document.body.textContent, hasInvoice ? /500/ : lang === 'ar' ? /قيد التجهيز/ : /being prepared automatically/);
+    fail = false; await click(); assert.equal(document.querySelector('[role=alert]'), null);
+  } finally { await cleanup(); delete globalThis.pharmacyPaymentFetch; }
+});

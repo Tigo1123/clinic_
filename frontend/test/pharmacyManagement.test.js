@@ -142,7 +142,7 @@ test('pilot redesign preserves management actions, search, filters, alerts, and 
   assert.match(management, /setDialog\('create'\)/);
   assert.match(management, /showDetails\(medicine, action === 'details'/);
   assert.match(management, /openBatchDialog\(medicine\)/);
-  assert.match(management, /loadMovements\(medicine\.id, 1\)/);
+  assert.match(management, /usePharmacyHistory\([^\n]*'movement-history'/);
   assert.match(dashboard, /لا توجد تنبيهات مخزون أو صلاحية حالياً/);
   assert.match(dashboard, /alertModel\.stockAlerts/);
   assert.match(dashboard, /chooseReviewDecision\('LINK_EXISTING'\)/);
@@ -280,9 +280,9 @@ test('management provides paging, retry, lifecycle copy, and no operational thre
   const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
   assert.match(management, /batchPagination\.page - 1/);
   assert.match(management, /movementPagination\.page \+ 1/);
-  assert.match(management, /Loading batches/);
+  assert.match(management, /PharmacyReadFeedback resource=\{batchResource\}/);
   assert.match(management, /No inventory batches found/);
-  assert.match(management, /Loading movements/);
+  assert.match(management, /PharmacyReadFeedback resource=\{movementResource\}/);
   assert.match(management, /No stock movements found/);
   assert.match(management, /Retry/);
   assert.match(management, /remain inactive and unpriced until an Admin/);
@@ -334,7 +334,7 @@ test('unresolved custom medicine exposes the review dialog and exactly three sup
   assert.equal(customMedicineRequiresReview({ customDrugName: 'rest', drug: null, drugId: null, pharmacyReviewStatus: 'PENDING_REVIEW' }), true);
   assert.equal(customMedicineRequiresReview({ customDrugName: 'rest', drugId: 'drug-1', pharmacyReviewStatus: 'APPROVED' }), false);
   assert.equal(customMedicineRequiresReview({ customDrugName: 'rest', drug: null, drugId: null, pharmacyReviewStatus: 'EXTERNAL' }), false);
-  assert.match(dashboard, /requiresReview && \(/);
+  assert.match(dashboard, /requiresReview && queueView === 'active' && \(/);
   assert.match(dashboard, /مراجعة الدواء/);
   assert.match(dashboard, /chooseReviewDecision\('LINK_EXISTING'\)/);
   assert.match(dashboard, /chooseReviewDecision\('CREATE_FORMULARY'\)/);

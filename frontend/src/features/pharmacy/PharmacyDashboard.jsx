@@ -1,4 +1,5 @@
 import { usePharmacyRead } from './usePharmacyRead.js';
+import { usePharmacyHistory } from './usePharmacyHistory.js';
 import PharmacyReadFeedback from './PharmacyReadFeedback.jsx';
 import { pharmacyReadErrorMessage, readPharmacyJson } from '../../services/pharmacyReads.js';
 import { useWorkflowRefresh } from '../../hooks/useWorkflowRefresh.js';
@@ -17,8 +18,6 @@ import { authoritativeStockSummary, buildMedicationReviewPayload, customMedicine
 export default function PharmacyDashboard({ lang, t: _t }) {
   const prescriptionList = usePharmacyRead('/api/records/prescriptions/pending', 'prescriptions', true);
   const { data: prescriptions, reload: fetchPendingRx } = prescriptionList;
-  const historyResource = usePharmacyRead('/api/records/prescriptions/history', 'prescriptions');
-  const { data: prescriptionHistory, reload: fetchPrescriptionHistory } = historyResource;
   const [queueView, setQueueView] = useState('active');
   const [selectedRx, setSelectedRx] = useState(null);
   const [successMsg, setSuccessMsg] = useState('');
@@ -28,6 +27,8 @@ export default function PharmacyDashboard({ lang, t: _t }) {
   const [paymentRefresh, setPaymentRefresh] = useState(0);
   const [dispensing, setDispensing] = useState(false);
   const [activeSection, setActiveSection] = useState('dispensing');
+  const historyResource = usePharmacyHistory('/api/records/prescriptions/history', 'prescription-history', activeSection === 'dispensing' && queueView === 'history');
+  const { data: prescriptionHistory, reload: fetchPrescriptionHistory } = historyResource;
   const alertResource = usePharmacyRead('/api/pharmacy/formulary', 'alerts');
   const { data: alertMedicines, reload: loadAlertInventory } = alertResource;
   const alertLoadError = alertResource.error ? pharmacyReadErrorMessage(alertResource.error, lang) : '';
@@ -53,8 +54,8 @@ export default function PharmacyDashboard({ lang, t: _t }) {
   const [unavailableSaving, setUnavailableSaving] = useState(false);
   const reviewSectionRef = useRef(null);
   useEffect(() => {
-    setSelectedRx((current) => current ? prescriptions.find((rx) => rx.id === current.id) || null : null);
-  }, [prescriptions]);
+    setSelectedRx((current) => current ? (queueView === 'history' ? prescriptionHistory : prescriptions).find((rx) => rx.id === current.id) || null : null);
+  }, [prescriptions, prescriptionHistory, queueView]);
 
   useWorkflowRefresh(['prescriptions', 'billing', 'catalog', 'inventory'], changed => {
     // Start each refresh independently. A slow history read must not postpone
@@ -77,7 +78,9 @@ export default function PharmacyDashboard({ lang, t: _t }) {
   const [stockRefresh, setStockRefresh] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
-    const ids = [...new Set((selectedRx?.prescribedDrugs || []).filter(item => item.drug).map(item => item.drugId || item.drug.id))];
+    // Historical drug DTOs contain labels, not inventory IDs. They do not
+    // require current stock or payment reads to display completed dispensing.
+    const ids = queueView === 'history' ? [] : [...new Set((selectedRx?.prescribedDrugs || []).filter(item => item.drug).map(item => item.drugId || item.drug.id))];
     setSelectedStock({}); setStockError(null);
     ids.forEach(async id => {
       try {
@@ -86,7 +89,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
       } catch (error) { if (!controller.signal.aborted) setStockError(error); }
     });
     return () => controller.abort();
-  }, [selectedRx, managementRefresh, stockRefresh]);
+  }, [selectedRx, managementRefresh, stockRefresh, queueView]);
 
   const setReviewMode = (item, mode) => {
     setReviewErrorMsg('');
@@ -1343,11 +1346,12 @@ export default function PharmacyDashboard({ lang, t: _t }) {
               </button>
             </div>
             <div className="pharmacy-queue-tabs" role="tablist" aria-label={lang === 'ar' ? 'عرض الوصفات' : 'Prescription view'}>
-              <button type="button" role="tab" aria-selected={queueView === 'active'} className={queueView === 'active' ? 'is-active' : ''} onClick={() => setQueueView('active')}>{lang === 'ar' ? 'بانتظار الصرف' : 'Awaiting Dispensing'} <span>{prescriptions.length}</span></button>
-              <button type="button" role="tab" aria-selected={queueView === 'history'} className={queueView === 'history' ? 'is-active' : ''} onClick={() => { setQueueView('history'); fetchPrescriptionHistory(); }}>{lang === 'ar' ? 'السجل' : 'History'} <span>{prescriptionHistory.length}</span></button>
+              <button type="button" role="tab" aria-selected={queueView === 'active'} className={queueView === 'active' ? 'is-active' : ''} onClick={() => { setQueueView('active'); setSelectedRx(null); setPaymentState(null); }}>{lang === 'ar' ? 'بانتظار الصرف' : 'Awaiting Dispensing'} <span>{prescriptions.length}</span></button>
+              <button type="button" role="tab" aria-selected={queueView === 'history'} className={queueView === 'history' ? 'is-active' : ''} onClick={() => { setQueueView('history'); setSelectedRx(null); setPaymentState(null); }}>{lang === 'ar' ? 'السجل' : 'History'} <span>{prescriptionHistory.length}</span></button>
             </div>
             {queueView === 'active' && <PharmacyReadFeedback resource={prescriptionList} lang={lang} label={lang === 'ar' ? 'الوصفات' : 'Prescriptions'} />}
             {queueView === 'history' && <PharmacyReadFeedback resource={historyResource} lang={lang} label={lang === 'ar' ? 'السجل' : 'History'} />}
+            {queueView === 'history' && historyResource.error && prescriptionHistory.length > 0 && <p role="status">{lang === 'ar' ? 'يُعرض آخر سجل تم تحميله بنجاح.' : 'Showing the last successfully loaded history.'}</p>}
             {(queueView === 'active' ? prescriptions : prescriptionHistory).length === 0 ? ((queueView === 'active' ? prescriptionList : historyResource).status === 'success' && (
               <div className="pharmacy-compact-empty">
                 <HelpCircle size={24} />
@@ -1444,7 +1448,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                               color: 'var(--primary)'
                             }}
                           >
-                            {item.pharmacyReviewStatus === 'EXTERNAL'
+                            {queueView === 'history' ? `${lang === 'ar' ? 'المصروف:' : 'Dispensed:'} ${Number(item.qtyDispensed || 0)}` : item.pharmacyReviewStatus === 'EXTERNAL'
                               ? (lang === 'ar' ? 'تعذر الصرف' : 'Unavailable')
                               : `${lang === 'ar' ? 'المتبقي:' : 'Remaining:'} ${remainingQty}`}
                           </span>
@@ -1546,7 +1550,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                             ? 'هذا الدواء تمت كتابته يدويًا بواسطة الطبيب ولن يتم خصمه تلقائيًا من مخزون العيادة.'
                             : 'This medication was entered manually by the doctor and will not be deducted automatically from clinic inventory.'}
                         </div>
-                        {requiresReview && (
+                        {requiresReview && queueView === 'active' && (
                           <div className="pharmacy-item-actions">
                             <button type="button" className="btn btn-primary" onClick={() => openCustomMedicineReview(item)}>{lang === 'ar' ? 'مراجعة / ربط الدواء' : 'Review / Link Medication'}</button>
                             <button type="button" className="btn" onClick={() => openUnavailableResolution(item, 'DOCTOR_REVIEW_REQUIRED')}>{lang === 'ar' ? 'تعذر الصرف' : 'Unable to Dispense'}</button>
@@ -1564,7 +1568,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                   const stock = authoritativeStockSummary(authoritativeMedicine || {});
                   const stockState = authoritativeMedicine ? stockPresentation(stock) : null;
                   const isInsufficient = authoritativeMedicine && stock.usableStock < item.qtyPrescribed;
-                  const badgeTone = !authoritativeMedicine || isInsufficient || ['OUT_OF_STOCK', 'EXPIRED'].includes(stockState) ? 'danger' : ['LOW_STOCK', 'NEAR_EXPIRY'].includes(stockState) ? 'warning' : 'success';
+                  const badgeTone = queueView === 'history' ? 'success' : !authoritativeMedicine || isInsufficient || ['OUT_OF_STOCK', 'EXPIRED'].includes(stockState) ? 'danger' : ['LOW_STOCK', 'NEAR_EXPIRY'].includes(stockState) ? 'warning' : 'success';
 
                   return (
                     <div
@@ -1575,7 +1579,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                         marginBottom: '0.5rem',
                         fontSize: '0.9rem',
                         borderLeft:
-                          !authoritativeMedicine || isInsufficient || ['OUT_OF_STOCK', 'EXPIRED'].includes(stockState)
+                          queueView === 'history' ? '3px solid var(--border-color)' : !authoritativeMedicine || isInsufficient || ['OUT_OF_STOCK', 'EXPIRED'].includes(stockState)
                             ? '3px solid var(--danger)'
                             : ['LOW_STOCK', 'NEAR_EXPIRY'].includes(stockState)
                               ? '3px solid var(--warning)'
@@ -1604,11 +1608,11 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                         </span>
 
                         <span className={`badge badge-${badgeTone}`} style={{ fontSize: '0.7rem' }}>
-                          {!authoritativeMedicine ? (lang === 'ar' ? 'جارٍ التحقق من المخزون' : 'Checking stock') : isInsufficient ? (lang === 'ar' ? `غير كافٍ (${stock.usableStock})` : `Insufficient (${stock.usableStock})`) : `${localizedStockState(stockState, lang)} (${stock.usableStock})`}
+                          {queueView === 'history' ? `${lang === 'ar' ? 'المصروف:' : 'Dispensed:'} ${Number(item.qtyDispensed || 0)}` : !authoritativeMedicine ? (lang === 'ar' ? 'جارٍ التحقق من المخزون' : 'Checking stock') : isInsufficient ? (lang === 'ar' ? `غير كافٍ (${stock.usableStock})` : `Insufficient (${stock.usableStock})`) : `${localizedStockState(stockState, lang)} (${stock.usableStock})`}
                         </span>
                       </div>
 
-                      <div
+                      {queueView === 'active' && <div
                         style={{
                           fontSize: '0.75rem',
                           color: 'var(--warning)',
@@ -1616,7 +1620,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                         }}
                       >
                         {lang === 'ar' ? 'أقرب صلاحية سارية: ' : 'Nearest unexpired expiry: '}{stock.nearestUnexpiredExpiry || '—'}
-                      </div>
+                      </div>}
                       {!isUnavailable && authoritativeMedicine && (isInsufficient || ['OUT_OF_STOCK', 'EXPIRED'].includes(stockState)) && (
                         <div className="pharmacy-item-actions"><button type="button" className="btn" onClick={() => openUnavailableResolution(item, 'OUT_OF_STOCK')}>{lang === 'ar' ? 'تعذر الصرف' : 'Unable to Dispense'}</button></div>
                       )}

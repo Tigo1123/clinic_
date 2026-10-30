@@ -15,11 +15,30 @@ export function pharmacyReadErrorMessage(error, lang) {
 }
 const invalid = () => { throw new PharmacyReadError(200, 'MALFORMED_PAYLOAD'); };
 const row = value => value && typeof value === 'object' && !Array.isArray(value) && (typeof value.id === 'string' || typeof value.id === 'number');
+const object = value => value && typeof value === 'object' && !Array.isArray(value);
+const text = value => value == null || typeof value === 'string';
+const dated = value => typeof value === 'string' && Number.isFinite(Date.parse(value));
+const named = value => object(value) && text(value.fullNameAr) && text(value.fullNameEn)
+  && (typeof value.fullNameAr === 'string' || typeof value.fullNameEn === 'string');
+const historyKinds = new Set(['prescription-history', 'batch-history', 'movement-history']);
 export function validatePharmacyPayload(value, kind) {
-  if (kind === 'formulary' || kind === 'page') {
+  if (kind === 'formulary' || kind === 'page' || kind === 'batch-history' || kind === 'movement-history') {
     if (!value || !Array.isArray(value.items) || !value.items.every(row)
       || !Number.isInteger(value.pagination?.page) || value.pagination.page < 1
       || !Number.isInteger(value.pagination?.totalPages) || value.pagination.totalPages < 0) invalid();
+    if (historyKinds.has(kind)) {
+      if (!Number.isInteger(value.pagination.total) || value.pagination.total < value.items.length) invalid();
+      // An empty page with a positive collection count is not "no history".
+      // Retain the previous page rather than publishing contradictory metadata.
+      if ((value.pagination.total === 0) !== (value.pagination.totalPages === 0)
+        || (value.pagination.total > 0 && (value.items.length === 0 || value.pagination.page > value.pagination.totalPages))) invalid();
+      if (kind === 'movement-history' && !value.items.every(item => typeof item.movementType === 'string'
+        && dated(item.createdAt) && Number.isFinite(item.quantityDelta) && Number.isFinite(item.resultingBalance)
+        && (item.batch == null || (object(item.batch) && text(item.batch.batchNumber)))
+        && (item.actor == null || (object(item.actor) && text(item.actor.username))))) invalid();
+      if (kind === 'batch-history' && !value.items.every(item => typeof item.batchNumber === 'string'
+        && dated(item.expiryDate) && Number.isFinite(item.qtyOnHand) && Number.isFinite(item.minReorderLevel))) invalid();
+    }
   } else if (kind === 'payment') {
     if (!value || typeof value.dispensingAllowed !== 'boolean' || !Array.isArray(value.allowedPaymentMethods)
       || (value.invoice && (!row(value.invoice) || !['totalAmountSdg', 'paidAmountSdg', 'outstandingAmountSdg'].every(key => Number.isFinite(value.invoice[key]))))) invalid();
@@ -27,6 +46,11 @@ export function validatePharmacyPayload(value, kind) {
   else {
     if (!Array.isArray(value) || !value.every(row)) invalid();
     if (kind === 'prescriptions' && !value.every(rx => rx.patient && rx.doctor && Array.isArray(rx.prescribedDrugs) && rx.prescribedDrugs.every(row))) invalid();
+    if (kind === 'prescription-history' && !value.every(rx => named(rx.patient) && named(rx.doctor)
+      && dated(rx.prescriptionDate) && typeof rx.status === 'string' && Array.isArray(rx.prescribedDrugs)
+      && rx.prescribedDrugs.every(item => row(item) && text(item.customDrugName) && text(item.dosage) && text(item.duration)
+        && Number.isFinite(item.qtyPrescribed) && Number.isFinite(item.qtyDispensed)
+        && (item.drug == null || (object(item.drug) && text(item.drug.labelAr) && text(item.drug.labelEn)))))) invalid();
   }
   return value;
 }
@@ -81,7 +105,24 @@ export function createPharmacyRead(loader, { paged = false, initialData = [] } =
   return {
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }, getSnapshot: () => state,
     reload: () => load(), loadMore: () => load(true), dispose,
+    suspend() { dispose(); publish({ loading: false, status: state.page ? 'success' : 'idle', error: null }); },
     cancel() { dispose(); publish({ loading: false, status: 'retryable-error', error: new PharmacyReadError(0, 'CANCELLED') }); },
     setData(update) { publish({ data: typeof update === 'function' ? update(state.data) : update }); }
   };
+}
+
+// The history endpoint contracts are either an array (prescriptions) or a
+// paged { items, pagination } snapshot. Failed reads never replace that snapshot.
+export function createPharmacyHistoryRead(request, path, kind) {
+  if (!historyKinds.has(kind)) throw new Error('Unsupported Pharmacy history kind');
+  let requestedPage = 1;
+  const resource = createPharmacyRead(async signal => {
+    const page = requestedPage;
+    const paged = kind !== 'prescription-history';
+    const { data } = await readPharmacyJson(request, paged ? `${path}?page=${page}&pageSize=50` : path, kind, signal);
+    if (paged && data.pagination.page !== page) invalid();
+    const unique = items => [...new Map(items.map(item => [item.id, item])).values()];
+    return { data: paged ? { ...data, items: unique(data.items) } : unique(data) };
+  }, { initialData: kind === 'prescription-history' ? [] : null });
+  return { ...resource, loadPage(page = 1) { requestedPage = page; return resource.reload(); } };
 }

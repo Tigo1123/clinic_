@@ -1,3 +1,5 @@
+import { usePharmacyHistory } from './usePharmacyHistory.js';
+import PharmacyReadFeedback from './PharmacyReadFeedback.jsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PackagePlus, RefreshCw, Search } from 'lucide-react';
 import Dialog from '../../components/ui/Dialog';
@@ -95,20 +97,26 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
   const [medicineForm, setMedicineForm] = useState(emptyMedicine);
   const [batchForm, setBatchForm] = useState(emptyBatch);
   const [batchErrors, setBatchErrors] = useState({});
-  const [batches, setBatches] = useState([]);
-  const [batchPagination, setBatchPagination] = useState({ page: 1, totalPages: 1, total: 0 });
-  const [batchLoading, setBatchLoading] = useState(false);
-  const [batchError, setBatchError] = useState('');
-  const [movements, setMovements] = useState([]);
-  const [movementPagination, setMovementPagination] = useState({ page: 1, totalPages: 1, total: 0 });
-  const [movementLoading, setMovementLoading] = useState(false);
-  const [movementError, setMovementError] = useState('');
+  // Keep the selected history identity after closing so reopening the same
+  // medicine can show its last successful snapshot while revalidating.
+  const [historyMedicineId, setHistoryMedicineId] = useState(null);
+  const batchResource = usePharmacyHistory(historyMedicineId ? `/api/pharmacy/formulary/${historyMedicineId}/batches` : null, 'batch-history', dialog === 'batches');
+  const movementResource = usePharmacyHistory(historyMedicineId ? `/api/pharmacy/formulary/${historyMedicineId}/movements` : null, 'movement-history', dialog === 'movements');
+  const batches = batchResource.data?.items ?? [];
+  const batchPagination = batchResource.data?.pagination ?? { page: 1, totalPages: 1, total: 0 };
+  const batchLoading = batchResource.loading;
+  const movements = movementResource.data?.items ?? [];
+  const movementPagination = movementResource.data?.pagination ?? { page: 1, totalPages: 1, total: 0 };
+  const movementLoading = movementResource.loading;
+  const loadBatches = (_medicineId, page = 1) => batchResource.loadPage(page);
+  const loadMovements = (_medicineId, page = 1) => movementResource.loadPage(page);
   const formularyRequestRef = useRef(0);
   const formularyControllerRef = useRef(null);
   const formularyLoadingRef = useRef(false);
   const foregroundRefreshRef = useRef(null);
   const detailRequestRef = useRef(0);
   const savingRef = useRef(false);
+  useEffect(() => () => { detailRequestRef.current += 1; }, []);
 
   const loadFormulary = useCallback(async (page, submittedSearch, selectedStatus) => {
     const requestId = ++formularyRequestRef.current;
@@ -162,34 +170,13 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
   const closeDialog = useCallback((force = false) => {
     if (savingRef.current && force !== true) return;
     detailRequestRef.current += 1;
-    setDialog(null); setSelected(null); setMedicineForm(emptyMedicine); setBatchForm(emptyBatch); setBatchErrors({}); setBatches([]); setMovements([]); setBatchError(''); setMovementError('');
+    setDialog(null); setSelected(null); setMedicineForm(emptyMedicine); setBatchForm(emptyBatch); setBatchErrors({});
   }, []);
-
-  const loadBatches = useCallback(async (medicineId, page = 1) => {
-    const requestId = ++detailRequestRef.current;
-    setBatchLoading(true); setBatchError('');
-    try {
-      const data = await jsonRequest(`/api/pharmacy/formulary/${medicineId}/batches?page=${page}&pageSize=50`, {}, lang === 'ar' ? 'تعذر تحميل الدفعات.' : 'Unable to load batches.', lang);
-      if (requestId === detailRequestRef.current) { setBatches(data.items || []); setBatchPagination(data.pagination || { page, totalPages: 1, total: 0 }); }
-    } catch (error) { if (requestId === detailRequestRef.current) setBatchError(error.message); }
-    finally { if (requestId === detailRequestRef.current) setBatchLoading(false); }
-  }, [lang]);
-
-  const loadMovements = useCallback(async (medicineId, page = 1) => {
-    const requestId = ++detailRequestRef.current;
-    setMovementLoading(true); setMovementError('');
-    try {
-      const data = await jsonRequest(`/api/pharmacy/formulary/${medicineId}/movements?page=${page}&pageSize=50`, {}, lang === 'ar' ? 'تعذر تحميل الحركات.' : 'Unable to load movements.', lang);
-      if (requestId === detailRequestRef.current) { setMovements(data.items || []); setMovementPagination(data.pagination || { page, totalPages: 1, total: 0 }); }
-    } catch (error) { if (requestId === detailRequestRef.current) setMovementError(error.message); }
-    finally { if (requestId === detailRequestRef.current) setMovementLoading(false); }
-  }, [lang]);
 
   const showDetails = async (medicine, mode = 'details') => {
     const requestId = ++detailRequestRef.current;
     setSelected(medicine); setDialog(mode); setFeedback({ type: '', text: '' });
-    if (mode === 'batches') { loadBatches(medicine.id, 1); return; }
-    if (mode === 'movements') { loadMovements(medicine.id, 1); return; }
+    if (mode === 'batches' || mode === 'movements') { setHistoryMedicineId(medicine.id); return; }
     try {
       const detail = await jsonRequest(`/api/pharmacy/formulary/${medicine.id}`, {}, 'Unable to load medicine.', lang);
       if (requestId !== detailRequestRef.current) return;
@@ -275,11 +262,15 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
     <Dialog open={dialog === 'receive'} title={`${lang === 'ar' ? 'إضافة دفعة' : 'Receive batch'} — ${selected?.brandName || ''}`} onClose={closeDialog}><DialogFeedback feedback={feedback} /><form onSubmit={submitBatch}><BatchFields form={batchForm} setForm={setBatchForm} lang={lang} errors={batchErrors} /><div className="dialog-actions"><button type="button" className="btn" onClick={() => closeDialog()}>{lang === 'ar' ? 'إغلاق' : 'Close'}</button><button disabled={saving} className="btn btn-primary">{saving ? '…' : lang === 'ar' ? 'استلام' : 'Receive'}</button></div></form></Dialog>
     <Dialog open={dialog === 'details'} title={lang === 'ar' ? 'تفاصيل الدواء' : 'Medicine details'} onClose={closeDialog}><DialogFeedback feedback={feedback} />{selected && (() => { const stock = authoritativeStockSummary(selected); return <><StockBadges medicine={selected} lang={lang} /><dl className="pharmacy-detail-list">{[['brandName','Brand'],['labelAr','Arabic label'],['labelEn','English label'],['genericName','Generic'],['strength','Strength'],['dosageForm','Dosage form'],['status','Status'],['unitPriceSdg','Official price']].map(([field,label]) => <div key={field}><dt>{label}</dt><dd>{field === 'status' ? formularyStatusLabel(selected[field], lang) : selected[field] ?? '—'}</dd></div>)}{[['totalOnHand','Total on hand'],['usableStock','Usable stock'],['nearestUnexpiredExpiry','Nearest unexpired expiry'],['expiredBatchCount','Expired batches'],['lowStockBatchCount','Low-stock batches'],['batchCount','Batch count']].map(([field,label]) => <div key={field}><dt>{label}</dt><dd>{stock[field] ?? '—'}</dd></div>)}</dl><button type="button" className="btn" onClick={() => closeDialog()}>{lang === 'ar' ? 'إغلاق' : 'Close'}</button></>; })()}</Dialog>
     <Dialog open={dialog === 'batches'} title={lang === 'ar' ? 'دفعات المخزون' : 'Inventory batches'} onClose={closeDialog}>
-      {batchLoading ? <p className="pharmacy-empty">{lang === 'ar' ? 'جارٍ تحميل الدفعات…' : 'Loading batches…'}</p> : batchError ? <div className="pharmacy-dialog-state"><div role="alert" className="badge badge-danger">{batchError}</div><button type="button" className="btn" onClick={() => loadBatches(selected.id, batchPagination.page)}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button></div> : batches.length === 0 ? <p className="pharmacy-empty">{lang === 'ar' ? 'لا توجد دفعات مسجلة.' : 'No inventory batches found.'}</p> : <div className="pharmacy-scroll-table"><table><thead><tr><th scope="col">{lang === 'ar' ? 'الدفعة' : 'Batch'}</th><th scope="col">{lang === 'ar' ? 'الصلاحية' : 'Expiry'}</th><th scope="col">{lang === 'ar' ? 'الكمية' : 'Quantity'}</th><th scope="col">{lang === 'ar' ? 'إعادة الطلب' : 'Reorder'}</th><th scope="col">{lang === 'ar' ? 'الحالة' : 'State'}</th></tr></thead><tbody>{batches.map((batch) => { const state = batchPresentation(batch); const tone = ['EXPIRED', 'OUT_OF_STOCK'].includes(state) ? 'danger' : ['LOW_STOCK', 'NEAR_EXPIRY'].includes(state) ? 'warning' : 'success'; return <tr key={batch.id}><td dir="ltr">{batch.batchNumber}</td><td dir="ltr">{batch.expiryDate}</td><td>{batch.qtyOnHand}</td><td>{batch.minReorderLevel}</td><td><span className={`badge badge-${tone}`}>{localizedStockState(state, lang)}</span></td></tr>; })}</tbody></table></div>}
+      <PharmacyReadFeedback resource={batchResource} lang={lang} label={lang === 'ar' ? 'الدفعات' : 'Inventory batches'} />
+      {batchResource.error && batches.length > 0 && <p role="status">{lang === 'ar' ? 'يُعرض آخر سجل تم تحميله بنجاح.' : 'Showing the last successfully loaded history.'}</p>}
+      {batches.length === 0 ? (batchResource.status === 'success' && ( <p className="pharmacy-empty">{lang === 'ar' ? 'لا توجد دفعات مسجلة.' : 'No inventory batches found.'}</p>)) : <div className="pharmacy-scroll-table"><table><thead><tr><th scope="col">{lang === 'ar' ? 'الدفعة' : 'Batch'}</th><th scope="col">{lang === 'ar' ? 'الصلاحية' : 'Expiry'}</th><th scope="col">{lang === 'ar' ? 'الكمية' : 'Quantity'}</th><th scope="col">{lang === 'ar' ? 'إعادة الطلب' : 'Reorder'}</th><th scope="col">{lang === 'ar' ? 'الحالة' : 'State'}</th></tr></thead><tbody>{batches.map((batch) => { const state = batchPresentation(batch); const tone = ['EXPIRED', 'OUT_OF_STOCK'].includes(state) ? 'danger' : ['LOW_STOCK', 'NEAR_EXPIRY'].includes(state) ? 'warning' : 'success'; return <tr key={batch.id}><td dir="ltr">{batch.batchNumber}</td><td dir="ltr">{batch.expiryDate}</td><td>{batch.qtyOnHand}</td><td>{batch.minReorderLevel}</td><td><span className={`badge badge-${tone}`}>{localizedStockState(state, lang)}</span></td></tr>; })}</tbody></table></div>}
       <div className="pharmacy-pagination"><button type="button" className="btn" disabled={batchLoading || batchPagination.page <= 1} onClick={() => loadBatches(selected.id, batchPagination.page - 1)}>{lang === 'ar' ? 'السابق' : 'Previous'}</button><span>{batchPagination.page} / {Math.max(1, batchPagination.totalPages)}</span><button type="button" className="btn" disabled={batchLoading || batchPagination.page >= batchPagination.totalPages} onClick={() => loadBatches(selected.id, batchPagination.page + 1)}>{lang === 'ar' ? 'التالي' : 'Next'}</button></div><div className="dialog-actions"><button type="button" className="btn" disabled={batchLoading} onClick={() => loadBatches(selected.id, batchPagination.page)}><RefreshCw size={15} /> {lang === 'ar' ? 'تحديث' : 'Refresh'}</button><button type="button" className="btn" onClick={() => closeDialog()}>{lang === 'ar' ? 'إغلاق' : 'Close'}</button></div>
     </Dialog>
     <Dialog open={dialog === 'movements'} title={lang === 'ar' ? 'سجل حركة المخزون' : 'Stock movement ledger'} onClose={closeDialog}>
-      {movementLoading ? <p className="pharmacy-empty">{lang === 'ar' ? 'جارٍ تحميل الحركات…' : 'Loading movements…'}</p> : movementError ? <div className="pharmacy-dialog-state"><div role="alert" className="badge badge-danger">{movementError}</div><button type="button" className="btn" onClick={() => loadMovements(selected.id, movementPagination.page)}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button></div> : movements.length === 0 ? <p className="pharmacy-empty">{lang === 'ar' ? 'لا توجد حركات مخزون مسجلة.' : 'No stock movements found.'}</p> : <div className="pharmacy-scroll-table"><table><thead><tr><th scope="col">{lang === 'ar' ? 'النوع' : 'Type'}</th><th scope="col">{lang === 'ar' ? 'الدفعة' : 'Batch'}</th><th scope="col">{lang === 'ar' ? 'التغيير' : 'Delta'}</th><th scope="col">{lang === 'ar' ? 'الرصيد' : 'Balance'}</th><th scope="col">{lang === 'ar' ? 'المنفذ' : 'Actor'}</th><th scope="col">{lang === 'ar' ? 'الوقت' : 'Time'}</th></tr></thead><tbody>{movements.map((movement) => <tr key={movement.id}><td>{localizedMovementType(movement.movementType, lang)}</td><td dir="ltr">{movement.batch?.batchNumber || '—'}</td><td dir="ltr">{movement.quantityDelta}</td><td>{movement.resultingBalance}</td><td>{movement.actor?.username || '—'}</td><td>{new Date(movement.createdAt).toLocaleString(lang === 'ar' ? 'ar' : 'en')}</td></tr>)}</tbody></table></div>}
+      <PharmacyReadFeedback resource={movementResource} lang={lang} label={lang === 'ar' ? 'الحركات' : 'Movement history'} />
+      {movementResource.error && movements.length > 0 && <p role="status">{lang === 'ar' ? 'يُعرض آخر سجل تم تحميله بنجاح.' : 'Showing the last successfully loaded history.'}</p>}
+      {movements.length === 0 ? (movementResource.status === 'success' && ( <p className="pharmacy-empty">{lang === 'ar' ? 'لا توجد حركات مخزون مسجلة.' : 'No stock movements found.'}</p>)) : <div className="pharmacy-scroll-table"><table><thead><tr><th scope="col">{lang === 'ar' ? 'النوع' : 'Type'}</th><th scope="col">{lang === 'ar' ? 'الدفعة' : 'Batch'}</th><th scope="col">{lang === 'ar' ? 'التغيير' : 'Delta'}</th><th scope="col">{lang === 'ar' ? 'الرصيد' : 'Balance'}</th><th scope="col">{lang === 'ar' ? 'المنفذ' : 'Actor'}</th><th scope="col">{lang === 'ar' ? 'الوقت' : 'Time'}</th></tr></thead><tbody>{movements.map((movement) => <tr key={movement.id}><td>{localizedMovementType(movement.movementType, lang)}</td><td dir="ltr">{movement.batch?.batchNumber || '—'}</td><td dir="ltr">{movement.quantityDelta}</td><td>{movement.resultingBalance}</td><td>{movement.actor?.username || '—'}</td><td>{new Date(movement.createdAt).toLocaleString(lang === 'ar' ? 'ar' : 'en')}</td></tr>)}</tbody></table></div>}
       <div className="pharmacy-pagination"><button type="button" className="btn" disabled={movementLoading || movementPagination.page <= 1} onClick={() => loadMovements(selected.id, movementPagination.page - 1)}>{lang === 'ar' ? 'السابق' : 'Previous'}</button><span>{movementPagination.page} / {Math.max(1, movementPagination.totalPages)}</span><button type="button" className="btn" disabled={movementLoading || movementPagination.page >= movementPagination.totalPages} onClick={() => loadMovements(selected.id, movementPagination.page + 1)}>{lang === 'ar' ? 'التالي' : 'Next'}</button></div><p className="form-help">{lang === 'ar' ? 'هذا السجل للقراءة فقط ولا يمكن تعديله أو حذفه.' : 'This immutable ledger is read-only and cannot be edited or deleted.'}</p><div className="dialog-actions"><button type="button" className="btn" disabled={movementLoading} onClick={() => loadMovements(selected.id, movementPagination.page)}><RefreshCw size={15} /> {lang === 'ar' ? 'تحديث' : 'Refresh'}</button><button type="button" className="btn" onClick={() => closeDialog()}>{lang === 'ar' ? 'إغلاق' : 'Close'}</button></div>
     </Dialog>
   </section>;
