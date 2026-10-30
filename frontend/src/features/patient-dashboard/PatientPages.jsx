@@ -8,7 +8,7 @@ import { clearPatientSession } from '../../services/authStorage.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { patientApiRequest as apiRequest, apiFetch } from '../../services/apiClient';
+import { patientApiRequest as apiRequest, apiFetch, localizedApiErrorMessage } from '../../services/apiClient';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { GoogleIdentityButton } from '../patient-auth/GoogleIdentityButton.jsx';
 import { CalendarDays, FileHeart, FlaskConical, HeartPulse, Pill, Search, Stethoscope, UserRound } from 'lucide-react';
@@ -49,7 +49,7 @@ function usePagedList(path, { pageSize = 25, pollWhen = null, pollInterval = 450
     const url = `${path}${path.includes('?') ? '&' : '?'}page=1&pageSize=${pageSize}`;
     patientApiFetch(url).then(async (response) => {
       const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.error?.message || body?.error || 'Unable to load this list.');
+      if (!response.ok) throw new Error(localizedApiErrorMessage({ code: body?.code || body?.error?.code, status: response.status }, 'Unable to load this list.'));
       if (!active) return;
       const data = Array.isArray(body) ? body : [];
       setResult({ data, error: null, loading: false, loadingMore: false, hasMore: response.headers.get('X-Has-More') === 'true', page: 1 });
@@ -65,7 +65,7 @@ function usePagedList(path, { pageSize = 25, pollWhen = null, pollInterval = 450
       const url = `${path}${path.includes('?') ? '&' : '?'}page=${nextPage}&pageSize=${pageSize}`;
       const response = await patientApiFetch(url);
       const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.error?.message || body?.error || 'Unable to load more records.');
+      if (!response.ok) throw new Error(localizedApiErrorMessage({ code: body?.code || body?.error?.code, status: response.status }, 'Unable to load more records.'));
       setResult((current) => ({ ...current, data: [...(current.data || []), ...(Array.isArray(body) ? body : [])], loadingMore: false, hasMore: response.headers.get('X-Has-More') === 'true', page: nextPage }));
     } catch (error) {
       setResult((current) => ({ ...current, loadingMore: false, error: error.message }));

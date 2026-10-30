@@ -4,7 +4,7 @@ import { ThemeProvider } from '@mui/material/styles';
 import { Alert, Box, Button, Card, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Stack, Switch, Tab, Tabs, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import { useTheme } from '../../app/theme/ThemeContext.jsx';
 import { createPatientMuiTheme, patientStyleCaches } from '../../utils/patientMuiTheme.js';
-import { fetchWithAuth } from '../../services/staffApi';
+import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import { isStaffPasswordValid } from '../../utils/staffPasswordPolicy';
 import { clinicCopy, setupPayload } from './clinicSetup.js';
 import AdminSchedulePanel from './AdminSchedulePanel';
@@ -17,7 +17,7 @@ const blank = { copayPercentage: '20', billingCycleDays: '30', coveredCategories
 async function request(url, options) {
   const response = await fetchWithAuth(url, options);
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw Object.assign(new Error(payload?.error?.message || ''), { code: payload?.error?.code });
+  if (!response.ok) throw Object.assign(new Error(apiErrorMessage(payload)), { code: payload?.error?.code });
   return url.startsWith('/api/admin/doctors?') ? { items: payload, total: Number(response.headers.get('X-Total-Count')) } : payload;
 }
 

@@ -22,6 +22,7 @@ const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
 const body = app.slice(app.indexOf('function LoginView('), app.indexOf('/* ==========================================\n   ROLE DASHBOARDS CONTAINER'));
 const imports = `import React,{useState,useEffect,useRef,useCallback} from 'react';
 import {startStaffLogin,completeStaffMfa,completeStaffMfaRecovery,isTerminalMfaError} from ${JSON.stringify(new URL('../src/services/staffLogin.js', import.meta.url).href)};
+import {localizedApiErrorMessage} from ${JSON.stringify(new URL('../src/services/apiClient.js', import.meta.url).href)};
 import {withLoginSubmissionLock} from ${JSON.stringify(new URL('../src/features/patient-auth/loginSubmission.js', import.meta.url).href)};
 import MfaCodeInput from ${JSON.stringify(new URL('../src/components/MfaCodeInput.js', import.meta.url).href)};
 const PasswordField=globalThis.loginPasswordField;const HeartPulse=()=>null;const ShieldCheck=()=>null;

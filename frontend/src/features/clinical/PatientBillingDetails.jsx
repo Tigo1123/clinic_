@@ -1,11 +1,15 @@
 import AppDatePicker from '../../components/ui/AppDatePicker.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { fetchWithAuth } from '../../services/staffApi';
+import { localizedApiErrorMessage } from '../../services/apiClient.js';
 
 async function request(url, options) {
   const response = await fetchWithAuth(url, options);
   const data = await response.json();
-  if (!response.ok) throw new Error(data?.error?.message || 'Unable to save.');
+  if (!response.ok) throw new Error(localizedApiErrorMessage({
+    code: data?.code || data?.error?.code,
+    status: response.status
+  }, 'تعذر إكمال الطلب.'));
   return data;
 }
 const transitions = { DRAFT: ['SUBMITTED'], SUBMITTED: ['UNDER_REVIEW'], UNDER_REVIEW: ['APPROVED', 'REJECTED'], APPROVED: ['PAID'] };

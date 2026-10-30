@@ -127,7 +127,7 @@ test('registration and recovery share an artwork-free auth shell with a centered
   assert.match(styles, /\.patient-auth-stage--no-art\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
   assert.match(styles, /@media\s*\(max-width:\s*640px\)[\s\S]*?\.patient-auth-shell--register \.patient-auth-brand,\s*\.patient-auth-shell--flow \.patient-auth-brand\s*\{[^}]*flex:\s*1 1 auto/s);
   assert.doesNotMatch(styles, /\[data-theme='dark'\]\s+\.patient-auth-aside\s*\{[^}]*display:\s*flex/s);
-  assert.match(router, /path="\/forgot-password" element=\{<PatientForgotPassword\/>\}/);
+  assert.match(router, /path="\/forgot-password"\s+element=\{<PatientForgotPassword\s*\/>\}/);
   assert.match(page, /setStep\('reset'\)/);
 });
 

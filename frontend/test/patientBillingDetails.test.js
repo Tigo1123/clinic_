@@ -6,6 +6,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 let source = await readFile(new URL('../src/features/clinical/PatientBillingDetails.jsx', import.meta.url), 'utf8');
 source = source.replace(/import AppDatePicker[^;]+;/, 'const AppDatePicker = props => <label>{props.label}</label>;')
+ .replace(/import \{ localizedApiErrorMessage \} from '\.\.\/\.\.\/services\/apiClient\.js';/, 'const localizedApiErrorMessage = (_error, fallback) => fallback || "Request failed";')
  .replace(/import \{ fetchWithAuth \}[^;]+;/, 'const fetchWithAuth = () => { throw Error("Unexpected network during render"); };');
 const file = new URL(`.billing-details-${process.pid}.mjs`, import.meta.url);
 await writeFile(file, (await transformWithOxc(source, 'PatientBillingDetails.jsx', { jsx: { runtime: 'automatic' } })).code);

@@ -13,7 +13,7 @@ const { createRoot } = await import('react-dom/client');
 let source = await readFile(new URL('../src/features/admin/ClinicSetupPanel.jsx', import.meta.url), 'utf8');
 source = source
   .replace(/import \{ useTheme \}[^;]+;/, "const useTheme = () => ({ theme: globalThis.setupTestMode || 'light' });")
-  .replace(/import \{ fetchWithAuth \}[^;]+;/, 'const fetchWithAuth = (...args) => globalThis.setupTestRequest(...args);')
+  .replace(/import \{ apiErrorMessage, fetchWithAuth \}[^;]+;/, 'const apiErrorMessage = (_payload, fallback) => fallback || "Request failed"; const fetchWithAuth = (...args) => globalThis.setupTestRequest(...args);')
   .replace(/import PasswordField[^;]+;/, 'const PasswordField = ({label,value,onChange,name,autoComplete}) => <label>{label}<input name={name} aria-label={label} value={value} onChange={onChange} type="password" autoComplete={autoComplete}/></label>;')
   .replace(/import AdminSchedulePanel[^;]+;/, 'const AdminSchedulePanel = ({initialDoctorId}) => <div data-schedule-doctor={initialDoctorId}/>;')
   .replace("'../../utils/patientMuiTheme.js'", JSON.stringify(new URL('../src/utils/patientMuiTheme.js', import.meta.url).href))

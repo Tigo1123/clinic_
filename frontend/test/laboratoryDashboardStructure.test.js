@@ -41,6 +41,13 @@ test('existing laboratory state transitions and actions remain status guarded', 
   assert.match(dashboard, /Payment[\s\S]*Sample collection[\s\S]*Result entry[\s\S]*Completion[\s\S]*Release/);
 });
 
+test('laboratory completion marker uses a theme-aware high-contrast foreground and keeps mobile labels readable', () => {
+  const styles = source('src/features/laboratory/laboratoryDashboard.css');
+  assert.match(styles, /\.laboratory-workflow li\.is-done > span\s*\{[^}]*color:\s*var\(--color-bg/);
+  assert.doesNotMatch(styles, /\.laboratory-workflow li\.is-done > span\s*\{[^}]*color:\s*white/);
+  assert.match(styles, /@media \(max-width: 620px\)[\s\S]*?\.laboratory-workflow li small \{ font-size: \.6rem/);
+});
+
 test('released clinical history is read only and has no hard delete control', () => {
   const dashboard = source('src/features/laboratory/LaboratoryDashboard.jsx');
   const records = source('../backend/src/routes/records.js');

@@ -1,7 +1,12 @@
-import { apiFetch } from './apiClient';
+import { apiFetch, localizedApiErrorMessage } from './apiClient.js';
 
 export function apiErrorMessage(payload, fallback) {
-  return typeof payload?.error === 'string' ? payload.error : payload?.error?.message || fallback;
+  const error = payload?.error;
+  return localizedApiErrorMessage({
+    code: payload?.code || (typeof error === 'object' && error ? error.code : undefined)
+      || (typeof payload?.status === 'string' ? payload.status : undefined),
+    status: payload?.status
+  }, fallback);
 }
 
 export async function fetchWithAuth(url, options = {}) {

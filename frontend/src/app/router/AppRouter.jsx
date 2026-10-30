@@ -40,4 +40,47 @@ function DocumentLanguage() {
   return null;
 }
 
-export default function AppRouter(){return <BrowserRouter><ThemeProvider><AuthProvider><FacilityBrandingProvider><DocumentLanguage/><Suspense fallback={<main className="route-loading" role="status">Loading healthcare workspace…</main>}><Routes><Route path="/" element={<LandingPage/>}/><Route path="/staff/*" element={<LegacyApp initialView="login"/>}/><Route path="/patient-login" element={<PatientLogin/>}/><Route path="/forgot-password" element={<PatientForgotPassword/>}/><Route path="/register" element={<PatientRegister/>}/><Route path="/patient/claim" element={<PatientClaim/>}/><Route element={<PatientRoute/>}><Route path="/patient" element={<PatientLayout/>}><Route index element={<Dashboard/>}/><Route path="doctors" element={<Doctors/>}/><Route path="doctors/:id" element={<DoctorDetails/>}/><Route path="book/:doctorId" element={<BookAppointment/>}/><Route path="appointments" element={<Appointments/>}/><Route path="appointments/:id" element={<AppointmentDetails/>}/><Route path="appointments/:id/reschedule" element={<RescheduleAppointment/>}/><Route path="lab-results" element={<LabResults/>}/><Route path="prescriptions" element={<Prescriptions/>}/><Route path="records" element={<MedicalRecords/>}/><Route path="profile" element={<Profile/>}/></Route></Route><Route path="*" element={<LandingPage/>}/></Routes></Suspense></FacilityBrandingProvider></AuthProvider></ThemeProvider></BrowserRouter>}
+function RouteLoading() {
+  const { t } = useTranslation();
+  return <main className="route-loading" role="status">{t('routeLoading')}</main>;
+}
+
+export default function AppRouter() {
+  return (
+    <BrowserRouter>
+      <ThemeProvider>
+        <AuthProvider>
+          <FacilityBrandingProvider>
+            <DocumentLanguage />
+            <Suspense fallback={<RouteLoading />}>
+              <Routes>
+                <Route path="/" element={<LandingPage />} />
+                <Route path="/staff/*" element={<LegacyApp initialView="login" />} />
+                <Route path="/patient-login" element={<PatientLogin />} />
+                <Route path="/forgot-password" element={<PatientForgotPassword />} />
+                <Route path="/register" element={<PatientRegister />} />
+                <Route path="/patient/claim" element={<PatientClaim />} />
+                <Route element={<PatientRoute />}>
+                  <Route path="/patient" element={<PatientLayout />}>
+                    <Route index element={<Dashboard />} />
+                    <Route path="doctors" element={<Doctors />} />
+                    <Route path="doctors/:id" element={<DoctorDetails />} />
+                    <Route path="book/:doctorId" element={<BookAppointment />} />
+                    <Route path="appointments" element={<Appointments />} />
+                    <Route path="appointments/:id" element={<AppointmentDetails />} />
+                    <Route path="appointments/:id/reschedule" element={<RescheduleAppointment />} />
+                    <Route path="lab-results" element={<LabResults />} />
+                    <Route path="prescriptions" element={<Prescriptions />} />
+                    <Route path="records" element={<MedicalRecords />} />
+                    <Route path="profile" element={<Profile />} />
+                  </Route>
+                </Route>
+                <Route path="*" element={<LandingPage />} />
+              </Routes>
+            </Suspense>
+          </FacilityBrandingProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </BrowserRouter>
+  );
+}
