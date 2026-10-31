@@ -105,8 +105,8 @@ export function Dashboard() {
   if (profile.errorCode === 'PATIENT_RECORD_NOT_LINKED') return <><h1>{t('claimRecord')}</h1><p className="patient-alert info">{t('claimInstructions')}</p><Link className="patient-button" to="/patient/claim">{t('claimRecord')}</Link></>;
   return <CacheProvider value={patientStyleCaches[direction]}><MuiThemeProvider theme={muiTheme}>
     <State loading={profile.loading} error={profile.error} onRetry={profile.reload}>
-      <Stack className="patient-dashboard" spacing={5} dir={direction}>
-        <Paper component="section" className="patient-hero patient-dashboard__greeting" sx={{ p: { xs: 4, sm: 5 }, m: 0 }}>
+      <Stack className="patient-dashboard" spacing={{ xs: 3, md: 4 }} dir={direction}>
+        <Paper component="section" className="patient-hero patient-dashboard__greeting" sx={{ p: { xs: 2.5, sm: 3.5 }, m: 0 }}>
           <Box className="patient-hero__copy">
             <Typography component="span" variant="body2" className="patient-hero__eyebrow"><HeartPulse size={16} aria-hidden="true"/>{t('patientPortalShort')}</Typography>
             <Typography component="h1" variant="h1">{patientGreeting(profile.data, language)}</Typography>
@@ -118,9 +118,9 @@ export function Dashboard() {
           </Stack>
         </Paper>
 
-        <Grid container spacing={3} aria-label={t('recentPatientInfo')}>
+        <Grid container spacing={{ xs: 1.5, sm: 2 }} aria-label={t('recentPatientInfo')}>
           {[['/patient/appointments', CalendarDays, 'upcomingAppointments', 'upcomingAppointments', 'primary'], ['/patient/lab-results', FlaskConical, 'recentLabResults', 'releasedLabResults', 'success'], ['/patient/prescriptions', Pill, 'prescriptions', 'prescriptions', 'warning'], ['/patient/records', FileHeart, 'medicalRecords', 'medicalRecords', 'primary']].map(([to, Icon, title, metric, accent]) => <Grid key={to} size={{ xs: 6, md: 3 }}>
-            <Card component={Link} to={to} className="health-summary-card patient-dashboard__summary" sx={{ p: { xs: 3, sm: 4 }, height: '100%' }}>
+            <Card component={Link} to={to} className="health-summary-card patient-dashboard__summary" sx={{ p: { xs: 2, sm: 2.5 }, height: '100%' }}>
               <Box className="patient-dashboard__icon" sx={{ color: `var(--color-${accent === 'primary' ? 'primary-strong' : accent})`, bgcolor: `var(--color-${accent}-soft)` }}><Icon size={20} aria-hidden="true"/></Box>
               <Typography component="h2" variant="body2" color="text.secondary">{t(title)}</Typography>
               <Typography component="strong" className="patient-dashboard__count" aria-live="polite">{value(metric)}</Typography>

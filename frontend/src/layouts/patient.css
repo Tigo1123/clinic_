@@ -46,8 +46,19 @@
 }
 
 @media(max-width:900px){.patient-header__brand-group{position:static;inset:auto;width:auto;height:auto;padding:0;border:0;flex:1}.patient-header__brand-group>.patient-brand{flex:0 1 auto}.patient-header__brand-group>.pwa-install-button{position:static;inset:auto}}
-@media(max-width:430px){.patient-header{height:auto;min-height:68px;flex-wrap:wrap;align-items:center;padding-block:.5rem;row-gap:.25rem}.patient-header__brand-group,.patient-header__actions{flex:1 0 100%;width:100%}.patient-header__actions{justify-content:flex-end}}
+@media(max-width:430px){.patient-header{height:68px;min-height:68px;flex-wrap:nowrap;align-items:center;padding-block:0;row-gap:0}.patient-header__brand-group{flex:0 1 auto;width:auto;min-width:44px}.patient-header__actions{flex:0 0 auto;width:auto;justify-content:flex-end;gap:.25rem}.patient-header__brand-group>.patient-brand{flex:0 0 auto}}
 @media(max-width:520px){.shifa-logo-responsive.patient-brand__logo{width:44px;height:44px;flex:0 0 44px}}
+
+/* Account utilities stay together in a single accessible menu. */
+.patient-account-trigger{background:linear-gradient(145deg,var(--color-primary-soft),var(--color-surface))!important;box-shadow:inset 0 1px 0 color-mix(in srgb,var(--color-surface) 85%,transparent),0 2px 8px color-mix(in srgb,var(--color-primary-strong) 10%,transparent)}
+.patient-header .patient-icon-button:focus-visible,.patient-account-menu__action:focus-visible{outline:3px solid var(--color-primary-strong);outline-offset:2px}
+.patient-account-menu{display:grid;gap:.5rem;min-width:min(100%,280px)}
+.patient-account-menu__theme,.patient-account-menu__action{min-height:48px;padding:.55rem .7rem;display:flex;align-items:center;justify-content:space-between;gap:.75rem;border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-surface);color:var(--color-text);font:inherit;font-weight:700;text-align:start}
+.patient-account-menu__theme .theme-toggle-btn{width:44px;height:44px;flex:none}
+.patient-account-menu__action{justify-content:flex-start;cursor:pointer}
+.patient-account-menu__action svg{width:19px;height:19px;flex:none;color:var(--color-primary-strong)}
+.patient-account-menu__action:hover{background:var(--color-primary-soft)}
+.patient-account-menu__logout{color:var(--color-danger)}
 
 .medical-record-card:hover {
   transform: translateY(-2px);
@@ -152,15 +163,15 @@
 }
 
 /* Dashboard uses MUI; keep visual values shared with the rest of Shifa. */
-.patient-dashboard .patient-dashboard__greeting{min-height:0;margin:0;background:var(--patient-hero-gradient);gap:1.25rem}
+.patient-dashboard .patient-dashboard__greeting{min-height:0;margin:0;background:var(--patient-hero-gradient);gap:1rem;border-radius:var(--radius-lg);box-shadow:var(--shadow-sm)}
 .patient-dashboard .patient-dashboard__greeting h1{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:clamp(1.2rem,1.6vw,1.6rem);line-height:1.6;margin:0 0 .25rem}
 .patient-dashboard .patient-dashboard__greeting p{margin:0;font-size:.85rem}
 .patient-dashboard__booking{flex:0 0 auto;max-width:250px}
-.patient-dashboard .patient-dashboard__summary{display:grid;grid-template-columns:40px minmax(0,1fr);grid-template-rows:auto auto;gap:.2rem .75rem;text-decoration:none;color:var(--color-text);background:linear-gradient(135deg,var(--color-surface),var(--color-surface-muted));box-sizing:border-box;transition:border-color var(--transition),background var(--transition)}
+.patient-dashboard .patient-dashboard__summary{display:grid;grid-template-columns:40px minmax(0,1fr);grid-template-rows:auto auto;gap:.2rem .75rem;min-height:112px;text-decoration:none;color:var(--color-text);background:linear-gradient(135deg,var(--color-surface),var(--color-surface-muted));border:1px solid var(--color-border);border-radius:var(--radius-lg);box-sizing:border-box;transition:border-color var(--transition),background var(--transition)}
 .patient-dashboard__summary .patient-dashboard__icon{grid-row:1/3}
 .patient-dashboard .patient-dashboard__count{font-size:1.6rem;line-height:1.35;font-weight:750;overflow-wrap:anywhere}
 .patient-dashboard .patient-dashboard__summary h2{font-size:.77rem;line-height:1.6;margin:0;font-weight:600}
-.patient-dashboard__icon{width:40px;height:40px;flex:none;display:grid;place-items:center;border-radius:var(--radius-md);background:var(--color-primary-soft);color:var(--color-primary-strong)}
+.patient-dashboard__icon{width:40px;height:40px;flex:none;display:grid;place-items:center;border:1px solid color-mix(in srgb,var(--color-primary-strong) 12%,var(--color-border));border-radius:var(--radius-md);background:var(--color-primary-soft);color:var(--color-primary-strong)}
 .patient-dashboard__date{width:64px;min-height:72px;flex:none;text-align:center;display:flex;flex-direction:column;justify-content:center;border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-primary-soft);color:var(--color-primary-strong)}
 .patient-dashboard__date strong{font-size:1.65rem;line-height:1.3}
 .patient-dashboard .patient-dashboard__action{justify-content:flex-start;padding:.4rem .65rem;gap:.75rem;text-align:start;color:var(--color-text);border:1px solid var(--color-border);background:var(--color-surface-muted)}
@@ -170,6 +181,7 @@
 .patient-dashboard .patient-dashboard__summary:hover,.patient-dashboard .patient-dashboard__action:hover{border-color:var(--color-primary-strong);background:var(--color-primary-soft)}
 .patient-dashboard a:focus-visible{outline:3px solid var(--color-primary-strong);outline-offset:3px}
 .patient-dashboard .patient-dashboard__panel>.patient-card{box-shadow:none;padding:0;border:0;margin:0}
+.patient-dashboard__panel{border:1px solid var(--color-border);border-radius:var(--radius-lg);background:var(--color-surface);box-shadow:var(--shadow-sm)}
 @media(max-width:599px){
  .patient-dashboard .patient-dashboard__greeting{align-items:stretch;flex-direction:column;gap:.75rem}
  .patient-dashboard__booking{max-width:none}
@@ -179,3 +191,4 @@
  .patient-dashboard .patient-dashboard__count{font-size:1.4rem}
  .patient-dashboard__activity time{max-width:5rem}
 }
+@media(max-width:359px){.patient-header{padding-inline:.5rem}.patient-header__actions{gap:.15rem}.patient-header__actions>.pwa-install-button{width:44px;min-width:44px;padding-inline:3px;justify-content:center}.patient-header__actions>.pwa-install-button .pwa-install-button__label{display:none}}

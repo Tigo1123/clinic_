@@ -9,6 +9,7 @@ import './patient.css';
 import { useFacilityBranding } from '../app/branding/FacilityBrandingContext.js';
 import ShifaLogo from '../components/brand/ShifaLogo.jsx';
 import PwaInstallButton from '../components/pwa/PwaInstallButton.jsx';
+import { useTheme } from '../app/theme/ThemeContext.jsx';
 
 export default function PatientLayout() {
   const { t, i18n } = useTranslation();
@@ -16,9 +17,12 @@ export default function PatientLayout() {
   const language = (i18n.resolvedLanguage || i18n.language || 'ar').startsWith('ar') ? 'ar' : 'en';
   const facilityName = language === 'ar' ? branding.facilityNameAr : branding.facilityNameEn;
   const { logout } = useAuth();
+  const { theme } = useTheme();
+  const themeLabelKey = theme === 'dark' ? 'lightMode' : 'darkMode';
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [updatesOpen, setUpdatesOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const links = [['/patient', 'patientHome', House], ['/patient/doctors', 'doctors', Stethoscope], ['/patient/appointments', 'myAppointments', CalendarDays], ['/patient/records', 'medicalRecords', FileHeart], ['/patient/profile', 'profile', UserRound]];
   const secondary = [['/patient/lab-results', 'labResults', FlaskConical], ['/patient/prescriptions', 'prescriptions', Pill]];
@@ -34,13 +38,11 @@ export default function PatientLayout() {
           <ShifaLogo responsive className="patient-brand__logo" />
           {facilityName && <span className="patient-brand__facility">{facilityName}</span>}
         </NavLink>
-        <PwaInstallButton />
       </div>
       <div className="patient-header__actions">
+        <PwaInstallButton />
         <button type="button" className="patient-icon-button" aria-label={t('notifications')} aria-haspopup="dialog" aria-expanded={updatesOpen} onClick={() => setUpdatesOpen(true)}><Bell aria-hidden="true"/></button>
-        <ThemeToggle className="patient-icon-button" size={18}/>
-        <button type="button" className="patient-icon-button" onClick={() => i18n.changeLanguage(language === 'ar' ? 'en' : 'ar')} aria-label={language === 'ar' ? 'English' : 'العربية'} title={language === 'ar' ? 'English' : 'العربية'}><Languages aria-hidden="true"/></button>
-        <button type="button" className="patient-icon-button" disabled={loggingOut} onClick={async () => { if (loggingOut) return; setLoggingOut(true); await logout(); navigate('/patient-login'); }} aria-label={t('logout')}><LogOut aria-hidden="true"/></button>
+        <button type="button" className="patient-icon-button patient-account-trigger" aria-haspopup="dialog" aria-expanded={accountOpen} aria-label={t('patientAccountMenu')} title={t('patientAccountMenu')} onClick={() => setAccountOpen(true)}><UserRound aria-hidden="true"/></button>
       </div>
     </header>
     <nav className="patient-nav" aria-label={t('patientNavigation')}>
@@ -53,6 +55,13 @@ export default function PatientLayout() {
     </main>
     <Dialog open={updatesOpen} onClose={() => setUpdatesOpen(false)} title={t('notifications')} description={t('patientUpdatesDescription')}>
       <div className="patient-list">{[['/patient/appointments', 'myAppointments'], ['/patient/lab-results', 'labResults']].map(([to, key]) => <Link key={to} to={to} className="patient-button secondary" onClick={() => setUpdatesOpen(false)}>{t(key)}</Link>)}<button className="patient-button secondary" onClick={() => setUpdatesOpen(false)}>{t('close')}</button></div>
+    </Dialog>
+    <Dialog open={accountOpen} onClose={() => setAccountOpen(false)} title={t('patientAccountMenu')} description={t('patientAccountMenuDescription')}>
+      <div className="patient-account-menu">
+        <div className="patient-account-menu__theme"><span>{t(themeLabelKey)}</span><ThemeToggle className="patient-icon-button" size={18}/></div>
+        <button type="button" className="patient-account-menu__action" onClick={() => i18n.changeLanguage(language === 'ar' ? 'en' : 'ar')}><Languages aria-hidden="true"/><span>{language === 'ar' ? t('switchToEnglish') : t('switchToArabic')}</span></button>
+        <button type="button" className="patient-account-menu__action patient-account-menu__logout" disabled={loggingOut} onClick={async () => { if (loggingOut) return; setLoggingOut(true); setAccountOpen(false); await logout(); navigate('/patient-login'); }}><LogOut aria-hidden="true"/><span>{t('logout')}</span></button>
+      </div>
     </Dialog>
   </div>;
 }
