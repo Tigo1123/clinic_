@@ -5,7 +5,7 @@ import { usePwaInstall } from '../../app/pwa/usePwaInstall.js';
 import Dialog from '../ui/Dialog.jsx';
 import './pwaInstall.css';
 
-export default function PwaInstallButton({ compact = false, onInteract }) {
+export default function PwaInstallButton({ onInteract }) {
   const { t } = useTranslation();
   const { mode, pending, outcome, install } = usePwaInstall();
   const [instructionsOpen, setInstructionsOpen] = useState(false);
@@ -16,7 +16,7 @@ export default function PwaInstallButton({ compact = false, onInteract }) {
   return <>
     {visible && <button
       type="button"
-      className={`pwa-install-button${compact ? ' pwa-install-button--compact' : ''}`}
+      className="pwa-install-button"
       disabled={pending}
       aria-busy={pending}
       aria-label={t(mode === 'ios' ? 'pwaInstallIosLabel' : 'pwaInstallLabel')}

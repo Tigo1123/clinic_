@@ -32,8 +32,6 @@
 .pwa-install-button svg { flex: none; }
 .pwa-install-button__icon-tile { width: 28px; height: 28px; display: grid; place-items: center; flex: none; border: 1px solid color-mix(in srgb, var(--color-primary) 25%, transparent); border-radius: 10px; background: color-mix(in srgb, var(--color-primary-soft) 78%, transparent); box-shadow: inset 0 1px 0 color-mix(in srgb, white 78%, transparent); }
 .pwa-install-button__label { font-size: .82rem; font-weight: 750; letter-spacing: -.01em; }
-.pwa-install-button--compact { width: 44px; height: 44px; gap: 0; padding: .35rem; }
-.pwa-install-button--compact .pwa-install-button__label { display: none; }
 .pwa-install-hint { display: flex; align-items: center; gap: .65rem; color: var(--color-text-secondary); }
 .pwa-install-hint svg { flex: none; }
 .pwa-install-hint-close { min-width: 88px; min-height: 44px; margin-block-start: 1rem; }

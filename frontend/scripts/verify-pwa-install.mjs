@@ -158,6 +158,7 @@ try {
         const shot = profile.name === 'chromium' && (
           (route.name === 'public' && width === 390 && ((lang === 'ar' && theme === 'light') || (lang === 'en' && theme === 'light') || (lang === 'ar' && theme === 'dark'))) ||
           (route.name === 'public' && lang === 'en' && theme === 'light' && width === 1440) ||
+          (['patient-login', 'patient-layout'].includes(route.name) && width === 390 && theme === 'light') ||
           (route.name === 'patient-login' && lang === 'en' && theme === 'light' && width === 1440)
         );
         if (shot) { const name = `${id}.png`; await page.screenshot({ path: path.join(output,name), fullPage: false }); report.screenshots.push(name); }

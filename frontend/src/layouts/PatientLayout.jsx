@@ -34,7 +34,7 @@ export default function PatientLayout() {
           <ShifaLogo responsive className="patient-brand__logo" />
           {facilityName && <span className="patient-brand__facility">{facilityName}</span>}
         </NavLink>
-        <PwaInstallButton compact />
+        <PwaInstallButton />
       </div>
       <div className="patient-header__actions">
         <button type="button" className="patient-icon-button" aria-label={t('notifications')} aria-haspopup="dialog" aria-expanded={updatesOpen} onClick={() => setUpdatesOpen(true)}><Bell aria-hidden="true"/></button>
