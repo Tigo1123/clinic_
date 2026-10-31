@@ -16,10 +16,11 @@ assert.ok(['127.0.0.1', 'localhost'].includes(new URL(origin).hostname), 'Use a 
 const playwright = await import(process.env.QA_PLAYWRIGHT_MODULE || 'playwright');
 const axe = await readFile(process.env.QA_AXE_PATH || createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8');
 const engines = (process.env.QA_BROWSERS || 'chromium,firefox,webkit').split(',');
-const scenarios = ['public', 'staff-login', 'patient-login', 'forgot-password', 'reset-password', 'registration', 'staff-mfa', 'staff-recovery', 'staff-enrollment', 'patient-verification', 'admin', 'patient-layout', 'staff-password-required'];
+const loginScenarios = ['staff-login', 'patient-login', 'patient-login-via-staff'];
+const scenarios = ['public', ...loginScenarios, 'forgot-password', 'reset-password', 'registration', 'staff-mfa', 'staff-recovery', 'staff-enrollment', 'patient-verification', 'admin', 'patient-layout', 'staff-password-required'];
 const selected = process.env.QA_SCENARIOS?.split(',') || scenarios;
 const sizes = [{ name: 'mobile', width: 390, height: 844 }, { name: 'tablet', width: 768, height: 1024 }, { name: 'desktop', width: 1440, height: 1000 }];
-const report = { generatedAt: new Date().toISOString(), origin, api: 'Controlled synthetic API and Google button fixtures; no real account or production data. Authentication, MFA transport and Google OAuth are not end-to-end tested.', assets: [], browsers: [], matrix: [], reflow: [], interactions: [], screenshots: [], errors: [], accessibility: [], expectedFixtureConsole: [], assetDecodeByBrowser: {} };
+const report = { generatedAt: new Date().toISOString(), origin, api: 'Controlled synthetic API and Google button fixtures; no real account or production data. Authentication, MFA transport and Google OAuth are not end-to-end tested.', assets: [], browsers: [], matrix: [], reflow: [], interactions: [], portalTransitions: [], screenshots: [], errors: [], accessibility: [], expectedFixtureConsole: [], assetDecodeByBrowser: {} };
 await mkdir(output, { recursive: true });
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -68,13 +69,21 @@ async function submitLogin(page) {
 }
 
 async function setup(page, scenario) {
-  const url = scenario === 'public' ? '/' : scenario === 'registration' ? '/register'
+  const url = scenario === 'patient-login-via-staff' ? '/staff' : scenario === 'public' ? '/' : scenario === 'registration' ? '/register'
     : scenario.includes('password') && !scenario.startsWith('staff') ? '/forgot-password'
       : scenario === 'patient-layout' ? '/patient/appointments' : scenario.startsWith('patient') ? '/patient-login' : '/staff';
   await page.goto(origin + url, { waitUntil: 'load' });
   const ready = scenario === 'public' ? '.public-footer' : scenario === 'admin' ? '.admin-sidebar-brand'
     : scenario === 'patient-layout' ? '.patient-nav' : scenario === 'staff-password-required' ? '.staff-login-card' : '.auth-form-shifa-logo';
   await page.locator(ready).waitFor();
+  if (scenario === 'patient-login-via-staff') {
+    assert.equal(new URL(page.url()).pathname, '/staff');
+    const portal = page.locator('.patient-auth-topbar .staff-topbar-patient-link');
+    assert.equal(await portal.getAttribute('href'), '/patient-login');
+    await portal.click();
+    await page.waitForURL(origin + '/patient-login');
+    await page.locator('#patient-auth-title').waitFor();
+  }
   if (scenario === 'reset-password') {
     await page.locator('input[type="email"]').fill('branding@example.test');
     await page.locator('form > button.patient-button').first().click();
@@ -111,6 +120,12 @@ async function inspect(page, scenario, lang, theme) {
       overflowElements: [...document.querySelectorAll('body *')].filter(visible).filter(e => e.getBoundingClientRect().right > innerWidth + 1).slice(0, 8).map(e => ({ tag: e.tagName, class: e.className, ...box(e) })),
       logos: [...document.querySelectorAll('img[src^="/brand/"]')].filter(visible).map(i => ({ src: i.getAttribute('src'), alt: i.alt, naturalWidth: i.naturalWidth, naturalHeight: i.naturalHeight, fit: getComputedStyle(i).objectFit, filter: getComputedStyle(i).filter, transform: getComputedStyle(i).transform, ...box(i) })),
       authLogo: document.querySelector('.auth-form-shifa-logo') ? box(document.querySelector('.auth-form-shifa-logo')) : null,
+      authHeader: (() => {
+        const brand = document.querySelector('.patient-auth-topbar .patient-auth-brand');
+        if (!brand) return null;
+        const lockup = brand.querySelector('.shifa-logo-responsive');
+        return { href: brand.getAttribute('href'), sharedLogoCount: brand.querySelectorAll('.shifa-logo-responsive').length, role: lockup?.getAttribute('role'), label: lockup?.getAttribute('aria-label'), full: lockup?.querySelector('.shifa-logo-responsive__full')?.getAttribute('src'), compact: lockup?.querySelector('.shifa-logo-responsive__compact')?.getAttribute('src'), visibleImages: [...brand.querySelectorAll('img')].filter(visible).map(i => i.getAttribute('src')), legacyMarkup: Boolean(brand.querySelector('.patient-auth-brand-mark, .brand-product-descriptor, svg')) };
+      })(),
       form: document.querySelector('form') ? box(document.querySelector('form')) : null,
       unlabelledControls: [...document.querySelectorAll('button,a,input,select')].filter(visible).filter(e => !e.getAttribute('aria-label') && !e.getAttribute('aria-labelledby') && !e.textContent.trim() && !e.labels?.length && !e.querySelector('img[alt]:not([alt=""])')).map(e => e.outerHTML.slice(0, 140))
     };
@@ -132,6 +147,16 @@ async function inspect(page, scenario, lang, theme) {
     assert.ok(info.authLogo.width >= 200 && info.authLogo.width <= 273, 'Prominent full auth logo');
     assert.ok(info.authLogo.y + info.authLogo.height <= info.form.y, 'Full logo above form');
   }
+  if (info.authHeader) {
+    assert.equal(info.authHeader.href, '/', 'Auth header retains home navigation');
+    assert.equal(info.authHeader.sharedLogoCount, 1, 'Header itself uses the single shared ShifaLogo');
+    assert.equal(info.authHeader.role, 'img');
+    assert.ok(info.authHeader.label, 'Header logo has an accessible name');
+    assert.equal(info.authHeader.full, `/brand/shifa-logo-${lang}-${theme}.png`);
+    assert.equal(info.authHeader.compact, '/brand/shifa-mark-light.png');
+    assert.equal(info.authHeader.legacyMarkup, false, 'No legacy blue icon/text lockup in the auth header');
+    assert.equal(info.authHeader.visibleImages.length, 1, 'Exactly one visible header logo');
+  } else if (info.authLogo && scenario !== 'staff-password-required') assert.fail('Authentication header is missing');
   assert.deepEqual(info.unlabelledControls, [], 'Controls have accessible names');
   return info;
 }
@@ -176,12 +201,16 @@ for (const engine of engines) {
       // The offline visual fixture deliberately has no live notification socket.
       await page.route('**/socket.io/**', route => route.fulfill({ contentType: 'text/plain', body: '0{"sid":"synthetic","upgrades":[],"pingInterval":60000,"pingTimeout":60000}' }));
       try {
-        await setup(page, scenario);
+        if (scenario !== 'patient-login-via-staff') await setup(page, scenario);
         for (const size of sizes) {
           await page.setViewportSize(size);
+          if (scenario === 'patient-login-via-staff') {
+            await setup(page, scenario);
+            report.portalTransitions.push({ id, viewport: size.name, from: '/staff', control: 'Patient portal', to: new URL(page.url()).pathname, hrefPreserved: true });
+          }
           const info = await inspect(page, scenario, lang, theme);
           report.matrix.push({ id, viewport: size.name, status: 'pass', ...info });
-          const authShot = ['staff-login', 'patient-login'].includes(scenario) && size.name === (theme === 'dark' ? 'mobile' : 'desktop');
+          const authShot = loginScenarios.includes(scenario) && size.name === (theme === 'dark' ? 'mobile' : 'desktop');
           const otherShot = engine === 'chromium' && lang === 'ar' && theme === 'dark' && ['public', 'admin', 'patient-layout', 'staff-mfa', 'staff-enrollment', 'reset-password', 'registration'].includes(scenario) && size.name === 'tablet';
           if (authShot || otherShot) {
             const name = `${id}-${size.name}.png`;
@@ -192,7 +221,7 @@ for (const engine of engines) {
         await page.setViewportSize({ width: 320, height: 640 });
         await inspect(page, scenario, lang, theme);
         report.reflow.push({ id, width: 320, status: 'pass' });
-        if (engine === 'chromium' || ['staff-login', 'patient-login'].includes(scenario)) {
+        if (engine === 'chromium' || loginScenarios.includes(scenario)) {
           for (const viewport of engine === 'chromium' ? [sizes[0], sizes[2]] : [sizes[2]]) {
           await page.setViewportSize(viewport);
           await page.evaluate(axe);
@@ -203,7 +232,7 @@ for (const engine of engines) {
           report.accessibility.push({ id, viewport: viewport.name, ...scan });
           }
         }
-        if (['staff-login', 'patient-login'].includes(scenario)) {
+        if (loginScenarios.includes(scenario)) {
           const navigationCount = await page.evaluate(() => performance.getEntriesByType('navigation').length);
           const next = lang === 'en' ? 'ar' : 'en';
           await page.locator(`.patient-auth-language button[lang="${next}"]`).click();
