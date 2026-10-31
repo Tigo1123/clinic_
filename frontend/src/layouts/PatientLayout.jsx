@@ -8,6 +8,7 @@ import ThemeToggle from '../components/ui/ThemeToggle';
 import './patient.css';
 import { useFacilityBranding } from '../app/branding/FacilityBrandingContext.js';
 import ShifaLogo from '../components/brand/ShifaLogo.jsx';
+import PwaInstallButton from '../components/pwa/PwaInstallButton.jsx';
 
 export default function PatientLayout() {
   const { t, i18n } = useTranslation();
@@ -28,10 +29,13 @@ export default function PatientLayout() {
   return <div className="patient-app">
     <a className="patient-skip-link" href="#patient-main">{t('patientSkipToContent')}</a>
     <header className="patient-header">
-      <NavLink to="/patient" className="patient-brand" aria-label={language === 'ar' ? branding.displayNameAr : branding.displayNameEn}>
-        <ShifaLogo responsive className="patient-brand__logo" />
-        {facilityName && <span className="patient-brand__facility">{facilityName}</span>}
-      </NavLink>
+      <div className="patient-header__brand-group">
+        <NavLink to="/patient" className="patient-brand" aria-label={language === 'ar' ? branding.displayNameAr : branding.displayNameEn}>
+          <ShifaLogo responsive className="patient-brand__logo" />
+          {facilityName && <span className="patient-brand__facility">{facilityName}</span>}
+        </NavLink>
+        <PwaInstallButton compact />
+      </div>
       <div className="patient-header__actions">
         <button type="button" className="patient-icon-button" aria-label={t('notifications')} aria-haspopup="dialog" aria-expanded={updatesOpen} onClick={() => setUpdatesOpen(true)}><Bell aria-hidden="true"/></button>
         <ThemeToggle className="patient-icon-button" size={18}/>

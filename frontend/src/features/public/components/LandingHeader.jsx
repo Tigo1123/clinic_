@@ -3,6 +3,7 @@ import { ArrowUpRight, Languages, Menu, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import ThemeToggle from '../../../components/ui/ThemeToggle.jsx';
 import ShifaLogo from '../../../components/brand/ShifaLogo.jsx';
+import PwaInstallButton from '../../../components/pwa/PwaInstallButton.jsx';
 
 export default function LandingHeader({ copy, brand, facilityName, language, onLanguageChange }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -56,10 +57,13 @@ export default function LandingHeader({ copy, brand, facilityName, language, onL
 
   return <header className="public-header">
     <div className="public-header__inner">
-      <Link className="public-brand" to="/" onClick={closeMenu} aria-label={brand}>
-        <ShifaLogo responsive className="public-brand__logo" />
-        {facilityName && <span className="public-brand__facility">{facilityName}</span>}
-      </Link>
+      <div className="public-header__brand-group">
+        <Link className="public-brand" to="/" onClick={closeMenu} aria-label={brand}>
+          <ShifaLogo responsive className="public-brand__logo" />
+          {facilityName && <span className="public-brand__facility">{facilityName}</span>}
+        </Link>
+        <PwaInstallButton onInteract={closeMenu} />
+      </div>
       <nav className="public-nav" aria-label={language === 'ar' ? 'التنقل الرئيسي' : 'Main navigation'}>
         {links.map(([href, label]) => <a key={href} href={href}>{label}</a>)}
       </nav>

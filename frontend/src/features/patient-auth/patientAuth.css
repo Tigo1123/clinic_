@@ -2076,3 +2076,6 @@
 
 .patient-auth .patient-alert.error { color: var(--color-danger); background: var(--color-danger-soft); }
 .patient-auth .patient-alert.success { color: var(--color-success); background: var(--color-success-soft); border: 1px solid var(--color-success); }
+
+.patient-auth-brand-group { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.patient-auth-brand-group > .patient-auth-brand { width: auto; flex: 0 1 auto; align-items: center; }

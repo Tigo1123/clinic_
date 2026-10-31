@@ -19,6 +19,7 @@ import PasswordField from '../../components/PasswordField.jsx';
 import AppDatePicker from '../../components/ui/AppDatePicker.jsx';
 import { todayDateOnly } from '../../utils/dateOnly.js';
 import ShifaLogo from '../../components/brand/ShifaLogo.jsx';
+import PwaInstallButton from '../../components/pwa/PwaInstallButton.jsx';
 
 export function PatientLogin(){
   const{t}=useTranslation();
@@ -838,10 +839,13 @@ function AuthShell({ title, children, onboarding = false }) {
   return <main className={`patient-auth-shell patient-auth-shell--${mode}`}>
     <header className="patient-auth-topbar">
       <div className="patient-auth-topbar-inner">
-        <Link className="patient-auth-brand" to="/" aria-label={displayName}>
-          <ShifaLogo responsive className="auth-shifa-logo" />
-          {facilityName && <span className="patient-auth-brand-facility">{facilityName}</span>}
-        </Link>
+        <div className="patient-auth-brand-group">
+          <Link className="patient-auth-brand" to="/" aria-label={displayName}>
+            <ShifaLogo responsive className="auth-shifa-logo" />
+            {facilityName && <span className="patient-auth-brand-facility">{facilityName}</span>}
+          </Link>
+          <PwaInstallButton />
+        </div>
         <div className="patient-auth-topbar-actions">
           <ThemeToggle />
           <div className="patient-auth-language" role="group" aria-label={i18n.language === 'ar' ? 'اللغة' : 'Language'}>

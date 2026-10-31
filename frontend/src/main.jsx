@@ -12,6 +12,11 @@ import './i18n.js'
 import AppRouter from './app/router/AppRouter.jsx'
 import AppErrorBoundary from './components/feedback/AppErrorBoundary.jsx'
 import { loadClinicTimeZone } from './utils/clinicTime.js'
+import { pwaInstall } from './app/pwa/pwaInstallStore.js'
+
+// Capture installation offers before public-config loading and lazy routes.
+const stopPwaInstallTracking = pwaInstall.start()
+if (import.meta.hot) import.meta.hot.dispose(stopPwaInstallTracking)
 
 loadClinicTimeZone().finally(() => createRoot(document.getElementById('root')).render(
   <StrictMode>

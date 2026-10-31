@@ -5,6 +5,16 @@ const resources = {
   ar: {
     translation: {
       brandName: 'شفاء',
+      pwaInstallApp: 'ثبّت التطبيق',
+      pwaInstallLabel: 'تثبيت تطبيق شفاء',
+      pwaInstallIosLabel: 'كيفية إضافة شفاء إلى الشاشة الرئيسية',
+      pwaInstallIosTitle: 'إضافة شفاء إلى الشاشة الرئيسية',
+      pwaInstallIosInstructions: 'على iPhone أو iPad، افتح هذه الصفحة في Safari، واضغط على «مشاركة» (قد تجدها ضمن قائمة الصفحة أو «المزيد»)، ثم اختر «إضافة إلى الشاشة الرئيسية» واضغط «إضافة». إذا ظهر خيار «فتح كتطبيق ويب»، اتركه مفعّلاً.',
+      pwaInstallIosShare: 'مشاركة ← إضافة إلى الشاشة الرئيسية ← إضافة',
+      pwaInstallAccepted: 'تم قبول طلب التثبيت.',
+      pwaInstallComplete: 'تم تثبيت تطبيق شفاء.',
+      pwaInstallDismissed: 'تم إغلاق طلب التثبيت. يمكنك المحاولة عندما يعرض المتصفح التثبيت مجدداً.',
+      pwaInstallUnavailable: 'التثبيت غير متاح حالياً في هذا المتصفح.',
       apiErrorInvalidCredentials: 'اسم المستخدم أو كلمة المرور غير صحيحة.',
       apiErrorAccessDenied: 'ليس لديك صلاحية لتنفيذ هذا الإجراء.',
       apiErrorRequestFailed: 'تعذر إكمال الطلب. حاول مرة أخرى.',
@@ -229,6 +239,16 @@ clinicProfileEyebrow:'ملف المنشأة',clinicProfileTitle:'الملف ال
   en: {
     translation: {
       brandName: 'Shifa',
+      pwaInstallApp: 'Install app',
+      pwaInstallLabel: 'Install Shifa app',
+      pwaInstallIosLabel: 'How to add Shifa to Home Screen',
+      pwaInstallIosTitle: 'Add Shifa to Home Screen',
+      pwaInstallIosInstructions: 'On iPhone or iPad, open this page in Safari, tap Share (it may be in the Page Menu or More menu), choose Add to Home Screen, then tap Add. If Open as Web App appears, leave it enabled.',
+      pwaInstallIosShare: 'Share → Add to Home Screen → Add',
+      pwaInstallAccepted: 'Installation request accepted.',
+      pwaInstallComplete: 'Shifa is installed.',
+      pwaInstallDismissed: 'Installation dismissed. You can try again when your browser offers installation.',
+      pwaInstallUnavailable: 'Installation is not available in this browser right now.',
       apiErrorInvalidCredentials: 'The username or password is incorrect.',
       apiErrorAccessDenied: 'You do not have permission to perform this action.',
       apiErrorRequestFailed: 'We could not complete the request. Please try again.',
