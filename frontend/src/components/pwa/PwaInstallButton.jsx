@@ -25,8 +25,8 @@ export default function PwaInstallButton({ compact = false, onInteract }) {
       title={t(mode === 'ios' ? 'pwaInstallIosLabel' : 'pwaInstallLabel')}
       onClick={() => { onInteract?.(); if (mode === 'ios') setInstructionsOpen(true); else void install(); }}
     >
-      <Download size={18} aria-hidden="true" />
-      <span className="pwa-install-button__label">{t('pwaInstallApp')}</span>
+      <span className="pwa-install-button__icon-tile"><Download size={17} aria-hidden="true" /></span>
+      <span className="pwa-install-button__label">{t(mode === 'ios' ? 'pwaInstallIosButton' : 'pwaInstallApp')}</span>
     </button>}
     <Dialog open={mode === 'ios' && instructionsOpen} title={t('pwaInstallIosTitle')} description={t('pwaInstallIosInstructions')} onClose={closeInstructions}>
       <p className="pwa-install-hint"><Share size={20} aria-hidden="true" /><span>{t('pwaInstallIosShare')}</span></p>

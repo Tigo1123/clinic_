@@ -40,8 +40,11 @@ async function inspect(page, expectedButton) {
     const header = document.querySelector('.public-header, .patient-auth-topbar, .patient-header');
     const button = header?.querySelector('.pwa-install-button');
     const logo = header?.querySelector('.shifa-logo-responsive');
-    return { width: innerWidth, scrollWidth: document.documentElement.scrollWidth, lang: document.documentElement.lang, dir: document.documentElement.dir, theme: document.documentElement.dataset.theme,
-      button: button ? { ...rect(button), label: button.getAttribute('aria-label'), text: button.textContent.trim(), disabled: button.disabled, busy: button.getAttribute('aria-busy'), focus: getComputedStyle(button).outlineStyle } : null,
+    button?.focus({ preventScroll: true, focusVisible: true });
+    const focus = button ? { style: getComputedStyle(button).outlineStyle, width: getComputedStyle(button).outlineWidth } : null;
+    button?.blur();
+    return { width: innerWidth, scrollWidth: document.documentElement.scrollWidth, header: header ? rect(header) : null, lang: document.documentElement.lang, dir: document.documentElement.dir, theme: document.documentElement.dataset.theme,
+      button: button ? { ...rect(button), label: button.getAttribute('aria-label'), text: button.textContent.trim(), disabled: button.disabled, busy: button.getAttribute('aria-busy'), focus } : null,
       logo: logo ? rect(logo) : null,
       controls: [...(header?.querySelectorAll('a,button') || [])].filter(visible).map(e => ({ ...rect(e), label: e.getAttribute('aria-label') || e.textContent.trim(), install: e === button })) };
   });
@@ -51,6 +54,8 @@ async function inspect(page, expectedButton) {
   if (expectedButton) {
     const b = layout.button;
     assert.ok(b.width >= 44 && b.height >= 44, '44px touch target');
+    assert.equal(b.focus.style, 'solid', 'Keyboard focus is visibly outlined');
+    assert.ok(Number.parseFloat(b.focus.width) >= 3, 'Keyboard focus ring is at least 3px wide');
     assert.ok(b.x >= -1 && b.x + b.width <= layout.width + 1, 'Install control inside viewport');
     for (const c of layout.controls.filter(c => !c.install)) {
       const overlapX = Math.min(b.x+b.width,c.x+c.width)-Math.max(b.x,c.x);
@@ -131,13 +136,30 @@ try {
           });
           report.interactions.push({ id, accessibilityBeforeInstallOffer: baseline });
         }
-        if (profile.mode === 'prompt' && !gate) assert.equal(await page.evaluate(() => window.__offerInstall()), true);
+        let layoutBeforeOffer = null;
+        if (profile.mode === 'prompt' && !gate) {
+          layoutBeforeOffer = await inspect(page, false);
+          assert.equal(await page.evaluate(() => window.__offerInstall()), true);
+        }
         if (profile.mode !== 'hidden') await page.locator('.pwa-install-button').waitFor();
         const info = await inspect(page, profile.mode !== 'hidden');
+        if (layoutBeforeOffer && info.button) {
+          const sameRect = (a, b) => ['x', 'y', 'width', 'height'].every(key => Math.abs(a[key] - b[key]) < 1);
+          assert.equal(layoutBeforeOffer.header.height, info.header.height, `Header height changed when offer appeared: ${id}`);
+          assert.ok(sameRect(layoutBeforeOffer.logo, info.logo), `Logo shifted when offer appeared: ${id}`);
+          const beforeMenu = layoutBeforeOffer.controls.find(control => /menu|القائمة/i.test(control.label));
+          const afterMenu = info.controls.find(control => /menu|القائمة/i.test(control.label));
+          if (beforeMenu && afterMenu) assert.ok(sameRect(beforeMenu, afterMenu), `Menu shifted when offer appeared: ${id}`);
+          report.interactions.push({ id, stableHeaderHeight: true, stableLogoPosition: true, stableMenuPosition: !beforeMenu || sameRect(beforeMenu, afterMenu) });
+        }
         assert.equal(info.lang, lang); assert.equal(info.dir, lang === 'ar' ? 'rtl' : 'ltr'); assert.equal(info.theme, theme);
         assert.equal(await page.evaluate(() => window.__promptCalls), 0, 'No automatic prompt');
         report.matrix.push({ id, profile: profile.name, route: route.url, mode: profile.mode, earlyOffer: gate, status: 'pass', ...info });
-        const shot = ['chromium', 'android-chromium', 'ios-webkit'].includes(profile.name) && ((lang === 'ar' && theme === 'dark' && width === 390) || (lang === 'en' && theme === 'light' && width === 1440));
+        const shot = profile.name === 'chromium' && (
+          (route.name === 'public' && width === 390 && ((lang === 'ar' && theme === 'light') || (lang === 'en' && theme === 'light') || (lang === 'ar' && theme === 'dark'))) ||
+          (route.name === 'public' && lang === 'en' && theme === 'light' && width === 1440) ||
+          (route.name === 'patient-login' && lang === 'en' && theme === 'light' && width === 1440)
+        );
         if (shot) { const name = `${id}.png`; await page.screenshot({ path: path.join(output,name), fullPage: false }); report.screenshots.push(name); }
         if (profile.name === 'chromium' && route.name === 'public' && lang === 'en' && theme === 'light' && width === 1440) {
           for (const w of [320,520,620,900,1050,1051,1100,1180,1200,1280]) { await page.setViewportSize({ width:w,height:900 }); await inspect(page,true); }
@@ -146,7 +168,7 @@ try {
           const timeOrigin = await page.evaluate(() => performance.timeOrigin);
           await page.locator('.public-language').click();
           await page.waitForFunction(() => document.documentElement.lang === 'ar');
-          assert.equal(await page.locator('.pwa-install-button').innerText(), 'ثبّت التطبيق');
+          assert.equal(await page.locator('.pwa-install-button').innerText(), 'حمل التطبيق');
           await page.locator('.public-theme-toggle').click();
           await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
           await page.locator('.public-language').click(); await page.locator('.public-theme-toggle').click();

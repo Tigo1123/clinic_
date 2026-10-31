@@ -2,6 +2,7 @@
 .patient-app{--patient-hero-gradient:linear-gradient(120deg,var(--color-primary-soft),var(--color-surface));--patient-sidebar-width:208px;min-height:100dvh;background:var(--color-bg);color:var(--color-text);padding-inline-start:var(--patient-sidebar-width)}
 .patient-header{height:68px;position:sticky;top:0;z-index:30;display:flex;justify-content:flex-end;align-items:center;padding-inline:1.5rem;background:var(--color-surface);border-bottom:1px solid var(--color-border);gap:1rem}
 .patient-header__brand-group{position:fixed;z-index:31;inset-block-start:0;inset-inline-start:0;width:var(--patient-sidebar-width);height:68px;padding-inline:1rem;display:flex;align-items:center;gap:.5rem;min-width:0;background:var(--color-surface);border-inline-end:1px solid var(--color-border)}
+.patient-header__brand-group>.pwa-install-button--compact{position:absolute;inset-block-start:12px;inset-inline-end:-44px}
 .patient-brand{height:44px;display:flex;align-items:center;gap:.65rem;color:var(--color-primary-strong);text-decoration:none;font-size:1rem;font-weight:800;min-width:0;flex:0 1 auto}
 .patient-brand__logo{width:176px;height:44px;flex:0 1 176px}
 .patient-brand__facility{min-width:0;font-size:.8rem;font-weight:750;overflow-wrap:anywhere}
@@ -44,7 +45,7 @@
     border-color 160ms ease;
 }
 
-@media(max-width:900px){.patient-header__brand-group{position:static;inset:auto;width:auto;height:auto;padding:0;border:0;flex:1}.patient-header__brand-group>.patient-brand{flex:0 1 auto}}
+@media(max-width:900px){.patient-header__brand-group{position:static;inset:auto;width:auto;height:auto;padding:0;border:0;flex:1}.patient-header__brand-group>.patient-brand{flex:0 1 auto}.patient-header__brand-group>.pwa-install-button--compact{position:static;inset:auto}}
 @media(max-width:520px){.shifa-logo-responsive.patient-brand__logo{width:44px;height:44px;flex:0 0 44px}}
 
 .medical-record-card:hover {

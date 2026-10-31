@@ -5,7 +5,8 @@ const resources = {
   ar: {
     translation: {
       brandName: 'شفاء',
-      pwaInstallApp: 'ثبّت التطبيق',
+      pwaInstallApp: 'حمل التطبيق',
+      pwaInstallIosButton: 'حمل التطبيق',
       pwaInstallLabel: 'تثبيت تطبيق شفاء',
       pwaInstallIosLabel: 'كيفية إضافة شفاء إلى الشاشة الرئيسية',
       pwaInstallIosTitle: 'إضافة شفاء إلى الشاشة الرئيسية',
@@ -240,6 +241,7 @@ clinicProfileEyebrow:'ملف المنشأة',clinicProfileTitle:'الملف ال
     translation: {
       brandName: 'Shifa',
       pwaInstallApp: 'Install app',
+      pwaInstallIosButton: 'Install app',
       pwaInstallLabel: 'Install Shifa app',
       pwaInstallIosLabel: 'How to add Shifa to Home Screen',
       pwaInstallIosTitle: 'Add Shifa to Home Screen',
