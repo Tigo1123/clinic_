@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, Navigate } from 'react-router-dom';
-import { Check, HeartPulse } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { patientApiRequest, publicApiRequest as apiRequest } from '../../services/apiClient';
 import { useAuth } from '../../app/auth/auth-context';
@@ -14,11 +14,11 @@ import { clearGoogleOnboardingToken, getGoogleOnboardingToken } from './googleOn
 import { useGooglePatientAuth } from './useGooglePatientAuth.js';
 import ThemeToggle from '../../components/ui/ThemeToggle.jsx';
 import { useFacilityBranding } from '../../app/branding/FacilityBrandingContext.js';
-import { brandingSubline } from '../../app/branding/brandingConfig';
 import { withLoginSubmissionLock } from './loginSubmission.js';
 import PasswordField from '../../components/PasswordField.jsx';
 import AppDatePicker from '../../components/ui/AppDatePicker.jsx';
 import { todayDateOnly } from '../../utils/dateOnly.js';
+import ShifaLogo from '../../components/brand/ShifaLogo.jsx';
 
 export function PatientLogin(){
   const{t}=useTranslation();
@@ -828,7 +828,6 @@ function AuthShell({ title, children, onboarding = false }) {
   const branding = useFacilityBranding();
   const language = (i18n.resolvedLanguage || i18n.language || 'ar').startsWith('ar') ? 'ar' : 'en';
   const displayName = language === 'ar' ? branding.displayNameAr : branding.displayNameEn;
-  const descriptor = brandingSubline(branding, language);
   const facilityName = language === 'ar' ? branding.facilityNameAr : branding.facilityNameEn;
   const productName = language === 'ar' ? branding.productNameAr : branding.productNameEn;
   const productDescriptor = language === 'ar' ? branding.productDescriptorAr : branding.productDescriptorEn;
@@ -840,8 +839,8 @@ function AuthShell({ title, children, onboarding = false }) {
     <header className="patient-auth-topbar">
       <div className="patient-auth-topbar-inner">
         <Link className="patient-auth-brand" to="/" aria-label={displayName}>
-          <span className="patient-auth-brand-mark"><HeartPulse size={20} aria-hidden="true" /></span>
-          <span>{displayName}{(!facilityName || !isLogin) && <small className="brand-product-descriptor">{descriptor}</small>}</span>
+          <ShifaLogo responsive className="auth-shifa-logo" />
+          {facilityName && <span className="patient-auth-brand-facility">{facilityName}</span>}
         </Link>
         <div className="patient-auth-topbar-actions">
           <ThemeToggle />
@@ -855,9 +854,9 @@ function AuthShell({ title, children, onboarding = false }) {
     <div className={`patient-auth-stage${isLogin ? ' patient-auth-stage--login' : ' patient-auth-stage--no-art'}`}>
       <div className="patient-auth-content">
         <section className="patient-auth" aria-labelledby="patient-auth-title">
+          <ShifaLogo className="auth-form-shifa-logo" />
           <header className="patient-auth-heading">
             {isLogin ? <div className="patient-auth-login-intro">
-              <HeartPulse className="patient-auth-login-intro__icon" size={27} strokeWidth={1.8} aria-hidden="true" />
               <div>
                 {facilityName && <p className="patient-auth-product-line">{productName}<span aria-hidden="true"> · </span>{productDescriptor}</p>}
                 <p className="patient-auth-welcome">{t('welcomeBack')}</p>

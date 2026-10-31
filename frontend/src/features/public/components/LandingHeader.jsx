@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUpRight, HeartPulse, Languages, Menu, X } from 'lucide-react';
+import { ArrowUpRight, Languages, Menu, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import ThemeToggle from '../../../components/ui/ThemeToggle.jsx';
+import ShifaLogo from '../../../components/brand/ShifaLogo.jsx';
 
-export default function LandingHeader({ copy, brand, descriptor, language, onLanguageChange }) {
+export default function LandingHeader({ copy, brand, facilityName, language, onLanguageChange }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const toggleRef = useRef(null);
@@ -56,8 +57,8 @@ export default function LandingHeader({ copy, brand, descriptor, language, onLan
   return <header className="public-header">
     <div className="public-header__inner">
       <Link className="public-brand" to="/" onClick={closeMenu} aria-label={brand}>
-        <span className="public-brand__mark"><HeartPulse aria-hidden="true" /></span>
-        <span className="public-brand__lockup"><span className="public-brand__name">{brand}</span><small>{descriptor}</small></span>
+        <ShifaLogo responsive className="public-brand__logo" />
+        {facilityName && <span className="public-brand__facility">{facilityName}</span>}
       </Link>
       <nav className="public-nav" aria-label={language === 'ar' ? 'التنقل الرئيسي' : 'Main navigation'}>
         {links.map(([href, label]) => <a key={href} href={href}>{label}</a>)}

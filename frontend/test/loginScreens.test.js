@@ -63,7 +63,7 @@ test('patient and staff login retain their authentication endpoints, routing and
   assert.doesNotMatch(staffLogin, /placeholder="••/);
 });
 
-test('both login screens keep the medical mark with the form introduction and use theme-token styling', () => {
+test('both login screens show the approved full logo above the form and use theme-token styling', () => {
   const patientStart = patientPage.indexOf('export function PatientLogin');
   const patientEnd = patientPage.indexOf('export function PatientForgotPassword');
   const patientLogin = patientPage.slice(patientStart, patientEnd);
@@ -78,18 +78,18 @@ test('both login screens keep the medical mark with the form introduction and us
   const staffLogin = staffPage.slice(staffFormStart, staffFormEnd);
 
   assert.match(patientShell, /patient-auth-login-intro/);
-  assert.match(patientShell, /patient-auth-login-intro__icon/);
+  assert.match(patientShell, /<ShifaLogo className="auth-form-shifa-logo" \/>/);
   assert.match(patientShell, /facilityName && <p className="patient-auth-product-line">/);
   assert.doesNotMatch(patientShell, /patient-auth-login-icon|Stethoscope/);
   assert.doesNotMatch(patientLogin, /patient-auth-illustration|doctor3dScene/);
   assert.match(staffShell, /patient-auth-stage--login/);
   assert.match(staffLogin, /patient-auth-login-intro/);
-  assert.match(staffLogin, /patient-auth-login-intro__icon/);
+  assert.match(staffLogin, /<ShifaLogo className="auth-form-shifa-logo" \/>/);
   assert.match(staffLogin, /showProductIdentity && <p className="patient-auth-product-line">/);
   assert.match(staffShell, /patientPortalShort/);
   assert.match(translations, /patientPortalShort: 'بوابة المرضى'/);
   assert.match(translations, /patientPortalShort: 'Patient portal'/);
-  assert.match(patientShell, /\(!facilityName \|\| !isLogin\).*brand-product-descriptor/);
+  assert.match(patientShell, /<ShifaLogo responsive className="auth-shifa-logo" \/>/);
   assert.doesNotMatch(staffShell, /patient-auth-login-icon|Stethoscope/);
   assert.doesNotMatch(staffShell, /patient-auth-illustration|staff3dScene/);
   assert.match(patientLogin, /<Field label=\{t\('password'\)\} type="password"/);

@@ -25,7 +25,7 @@ import {startStaffLogin,completeStaffMfa,completeStaffMfaRecovery,isTerminalMfaE
 import {localizedApiErrorMessage} from ${JSON.stringify(new URL('../src/services/apiClient.js', import.meta.url).href)};
 import {withLoginSubmissionLock} from ${JSON.stringify(new URL('../src/features/patient-auth/loginSubmission.js', import.meta.url).href)};
 import MfaCodeInput from ${JSON.stringify(new URL('../src/components/MfaCodeInput.js', import.meta.url).href)};
-const PasswordField=globalThis.loginPasswordField;const HeartPulse=()=>null;const ShieldCheck=()=>null;
+const PasswordField=globalThis.loginPasswordField;const HeartPulse=()=>null;const ShieldCheck=()=>null;const ShifaLogo=()=>null;
 `;
 const { default: LoginView } = await compile(imports+body+'\nexport default LoginView;', 'LoginView');
 let root, calls, completed, enrollments, originalFetch;

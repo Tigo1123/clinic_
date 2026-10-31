@@ -12,6 +12,7 @@ import SpecialtiesPanel from './SpecialtiesPanel.jsx';
 import StaffAccountsPanel from './StaffAccountsPanel.jsx';
 import AdminSchedulePanel from './AdminSchedulePanel';
 import { createPricingDiagnostics } from './pricingDiagnostics.js';
+import ShifaLogo from '../../components/brand/ShifaLogo.jsx';
 
 export default function AdminDashboard({ user, lang, t }) {
   const [activeTab, setActiveTab] = useState('profile');
@@ -248,6 +249,7 @@ export default function AdminDashboard({ user, lang, t }) {
     <div ref={pricingRootRef} className={`dashboard-wrapper admin-workspace ${activeTab === 'scheduling' ? 'admin-schedule-workspace' : activeTab === 'users' ? 'admin-staff-workspace' : ''}`}>
       {/* Side menu */}
       <aside className="sidebar-menu no-print-section" tabIndex={0} aria-label={lang === 'ar' ? 'التنقل الإداري' : 'Admin navigation'}>
+        <div className="admin-sidebar-brand"><ShifaLogo responsive className="admin-sidebar-shifa-logo" /></div>
         <div className="menu-items">
           <button
             className={`menu-btn ${activeTab === 'profile' ? 'active' : ''}`}

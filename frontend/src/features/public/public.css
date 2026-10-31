@@ -3,14 +3,14 @@ html:has(.public-site), body:has(.public-site) { overflow-x: visible; }
 .public-site {
   --landing-bg: #f8fafc;
   --landing-surface: #fff;
-  --landing-ink: #132742;
-  --landing-ink-soft: #40536c;
-  --landing-muted: #67778e;
-  --landing-border: #dfe7ef;
-  --landing-primary: var(--color-primary, #1479ee);
-  --landing-primary-dark: #0b5fc5;
-  --landing-primary-soft: #eaf4ff;
-  --landing-secondary: #d8eef0;
+  --landing-ink: var(--brand-dark-slate, #0F172A);
+  --landing-ink-soft: #334155;
+  --landing-muted: #64748b;
+  --landing-border: #cbd5e1;
+  --landing-primary: var(--brand-deep-teal, #0F766E);
+  --landing-primary-dark: #115e59;
+  --landing-primary-soft: #ccfbf1;
+  --landing-secondary: var(--brand-aqua-mint, #5EEAD4);
   --landing-success: #16815f;
   --landing-warning: #a56924;
   --landing-error: #bd4752;
@@ -40,11 +40,8 @@ html:has(.public-site), body:has(.public-site) { overflow-x: visible; }
 .public-header { position: sticky; top: 0; z-index: 90; height: 82px; border-bottom: 1px solid rgba(28, 65, 106, .08); background: rgba(248, 250, 252, .94); backdrop-filter: blur(18px); }
 .public-header__inner { width: min(calc(100% - clamp(2rem, 6vw, 5rem)), var(--landing-container)); height: 100%; margin-inline: auto; display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; }
 .public-brand { display: inline-flex; align-items: center; gap: .7rem; min-width: 0; color: var(--landing-ink) !important; }
-.public-brand__mark { width: 40px; height: 40px; flex: 0 0 40px; display: grid; place-items: center; color: #fff; background: var(--landing-primary); border-radius: 13px; box-shadow: 0 7px 17px rgba(20, 121, 238, .16); }
-.public-brand__mark svg { width: 23px; height: 23px; stroke-width: 2.2; }
-.public-brand__name { font-size: .98rem; line-height: 1.25; font-weight: 800; white-space: nowrap; }
-.public-brand__lockup { display: grid; gap: .12rem; min-width: 0; }
-.public-brand__lockup small { color: var(--landing-muted); font-size: .62rem; line-height: 1.25; font-weight: 600; }
+.public-brand__logo { width: 190px; height: 46px; flex: 0 1 190px; }
+.public-brand__facility { min-width: 0; max-width: 180px; font-size: .82rem; font-weight: 750; overflow-wrap: anywhere; }
 .public-nav { display: flex; align-items: center; gap: clamp(1.1rem, 2.2vw, 2.1rem); margin-inline: auto; }
 .public-nav a, .public-staff-link { color: var(--landing-ink-soft) !important; font-size: .89rem; font-weight: 700; white-space: nowrap; transition: color var(--landing-duration) var(--landing-ease); }
 .public-nav a:hover, .public-staff-link:hover { color: var(--landing-primary) !important; }
@@ -61,8 +58,7 @@ html:has(.public-site), body:has(.public-site) { overflow-x: visible; }
 
 @media (min-width: 1051px) {
   .public-brand { flex: 0 1 min(34vw, 420px); }
-  .public-brand__lockup { flex: 1 1 auto; max-width: 100%; }
-  .public-brand__name { white-space: normal; overflow-wrap: anywhere; }
+  .public-brand__logo { max-width: 100%; }
   .public-nav { flex: 0 1 auto; gap: clamp(.6rem, 1.2vw, 1.2rem); }
 }
 
@@ -83,7 +79,7 @@ html:has(.public-site), body:has(.public-site) { overflow-x: visible; }
 
 .public-hero { position: relative; background: radial-gradient(circle at 89% 43%, rgba(217, 235, 255, .55), transparent 33%), linear-gradient(180deg, #f9fbfd 0%, #f5f9fd 100%); }
 .public-hero__inner { min-height: 710px; display: grid; grid-template-columns: minmax(0, .98fr) minmax(0, 1.02fr); align-items: center; gap: clamp(2rem, 4vw, 4rem); padding-block: 5.5rem 6.5rem; }
-.public-hero__copy { position: relative; z-index: 1; max-width: 650px; }
+.public-hero__copy { position: relative; z-index: 1; min-width: 0; max-width: 650px; }
 .public-hero h1 { display: grid; gap: .04em; margin-top: 1.6rem; font-size: clamp(3.6rem, 5.2vw, 6rem); line-height: 1.02; letter-spacing: -.065em; font-weight: 800; }
 .public-hero h1 span { display: block; }
 .public-hero__accent { color: var(--landing-primary); }
@@ -155,7 +151,7 @@ html:has(.public-site), body:has(.public-site) { overflow-x: visible; }
 }
 
 @media (max-width: 940px) {
-  .public-hero__inner { grid-template-columns: 1fr; min-height: auto; gap: 3rem; padding-block: 5rem 5.5rem; }
+  .public-hero__inner { grid-template-columns: minmax(0, 1fr); min-height: auto; gap: 3rem; padding-block: 5rem 5.5rem; }
   .public-hero__copy { max-width: 720px; }
   .public-hero h1 { font-size: clamp(3.6rem, 7vw, 6rem); }
   .care-network { max-width: 610px; }
@@ -174,13 +170,13 @@ html:has(.public-site), body:has(.public-site) { overflow-x: visible; }
 @media (max-width: 620px) {
   .public-header { height: 68px; }
   .public-header__inner { gap: .5rem; }
-  .public-brand__mark { width: 35px; height: 35px; flex-basis: 35px; border-radius: 11px; }
-  .public-brand__mark svg { width: 21px; height: 21px; }
-  .public-brand__name { font-size: .8rem; white-space: normal; }
+  .public-brand__logo { width: 44px; height: 44px; flex: 0 0 44px; }
+  .public-brand__logo .shifa-logo-responsive__full { display: none !important; }
+  .public-brand__logo .shifa-logo-responsive__compact { display: block !important; }
   .public-menu-backdrop { inset-block-start: 68px; height: calc(100dvh - 68px); }
   .public-mobile-menu { top: 68px; max-height: calc(100dvh - 68px); }
   .public-hero__inner { gap: 2.5rem; padding-block: 4rem 4.2rem; }
-  .public-hero h1 { margin-top: 1.25rem; font-size: clamp(2.8rem, 11vw, 4.4rem); letter-spacing: -.055em; }
+  .public-hero h1 { margin-top: 1.25rem; font-size: clamp(2.8rem, 11vw, 4.4rem); letter-spacing: -.055em; overflow-wrap: anywhere; }
   [dir='rtl'] .public-hero h1 { font-size: clamp(2.55rem, 9.5vw, 4rem); }
   .public-hero__copy > p { margin-top: 1.2rem; font-size: 1rem; line-height: 1.7; }
   .public-hero__actions { gap: .65rem; margin-top: 1.7rem; }
@@ -229,16 +225,16 @@ html:has(.public-site), body:has(.public-site) { overflow-x: visible; }
    Public Site Dark Theme Overrides
    ========================================== */
 [data-theme='dark'] .public-site {
-  --landing-bg: #0b131e;
-  --landing-surface: #131f2d;
-  --landing-ink: #f0f6fc;
-  --landing-ink-soft: #9ab0c8;
-  --landing-muted: #71849d;
-  --landing-border: #223246;
-  --landing-primary: #248bfb;
-  --landing-primary-dark: #1976d2;
-  --landing-primary-soft: #162b44;
-  --landing-secondary: #17324c;
+  --landing-bg: var(--brand-dark-slate, #0F172A);
+  --landing-surface: #1e293b;
+  --landing-ink: var(--brand-off-white, #F8FAFC);
+  --landing-ink-soft: #cbd5e1;
+  --landing-muted: #94a3b8;
+  --landing-border: #334155;
+  --landing-primary: var(--brand-deep-teal, #0F766E);
+  --landing-primary-dark: #115e59;
+  --landing-primary-soft: #134e4a;
+  --landing-secondary: #5EEAD4;
   --landing-shadow: 0 20px 50px rgba(0, 0, 0, .45);
 }
 
@@ -338,3 +334,5 @@ html:has(.public-site), body:has(.public-site) { overflow-x: visible; }
 [data-theme='dark'] .care-network__caption span {
   background: #395778;
 }
+
+[data-theme='dark'] .public-kicker { color: var(--brand-aqua-mint); }

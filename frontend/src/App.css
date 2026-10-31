@@ -37,20 +37,10 @@
   gap: 0.75rem;
 }
 
-.logo-icon {
-  color: var(--primary);
-  filter: drop-shadow(0 0 8px var(--primary-glow));
-}
-
-.brand-title {
-  font-size: 1.4rem;
-  font-weight: 800;
-  letter-spacing: -0.025em;
-  background: linear-gradient(135deg, var(--text-primary) 0%, var(--primary) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
+.shifa-logo-responsive.staff-header-shifa-logo { width: 208px; height: 48px; flex: 0 1 208px; }
+.staff-header-facility { min-width: 0; font-size: .9rem; font-weight: 750; color: var(--text-primary); overflow-wrap: anywhere; }
+.admin-sidebar-brand { display: flex; align-items: center; min-height: 58px; padding: 0 .35rem .8rem; border-bottom: 1px solid var(--border-color); margin-bottom: .65rem; }
+.shifa-logo-responsive.admin-sidebar-shifa-logo { width: 192px; height: 46px; }
 .brand-product-descriptor { display: block; color: var(--text-secondary); font-size: .58rem; line-height: 1.2; font-weight: 600; letter-spacing: 0; -webkit-text-fill-color: var(--text-secondary); }
 .facility-identity-line { display: grid; gap: .16rem; margin-block: .25rem .7rem; color: var(--text-primary); text-align: start; }
 .facility-identity-line strong { font-size: 1rem; font-weight: 800; }
@@ -404,7 +394,7 @@
 }
 
 .menu-btn:hover, .menu-btn.active {
-  color: var(--primary);
+  color: var(--color-primary-strong);
   background: rgba(20, 184, 166, 0.08);
 }
 
@@ -804,9 +794,6 @@
   .nav-header {
     padding: 0.75rem 1rem;
   }
-  .brand-title {
-    font-size: 1.1rem;
-  }
   .header-actions {
     gap: 0.5rem;
   }
@@ -871,6 +858,18 @@
   .workspace-panel {
     padding: 1rem;
   }
+}
+
+@media (max-width: 760px) {
+  .sidebar-menu { display: flex; align-items: center; gap: .45rem; }
+  .admin-sidebar-brand { flex: 0 0 44px; min-height: 44px; margin: 0; padding: 0; border: 0; }
+  .shifa-logo-responsive.admin-sidebar-shifa-logo { width: 44px; height: 44px; }
+  .admin-sidebar-shifa-logo .shifa-logo-responsive__full { display: none !important; }
+  .admin-sidebar-shifa-logo .shifa-logo-responsive__compact { display: block !important; }
+}
+
+@media (max-width: 520px) {
+  .shifa-logo-responsive.staff-header-shifa-logo { width: 44px; height: 44px; flex-basis: 44px; }
 }
 .pharmacy-management { padding: 1rem; margin-bottom: 1rem; }
 .pharmacy-management-header, .pharmacy-toolbar, .pharmacy-card-actions, .pharmacy-badges, .pharmacy-pagination, .dialog-actions { display: flex; align-items: center; gap: .65rem; flex-wrap: wrap; }

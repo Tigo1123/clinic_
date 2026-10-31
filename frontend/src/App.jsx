@@ -12,6 +12,7 @@ import { clearStaffSession, readStaffSession, writeStaffSession } from './servic
 import { completeStaffMfa, completeStaffMfaRecovery, isTerminalMfaError, startStaffLogin } from './services/staffLogin';
 import { apiErrorMessage, fetchWithAuth } from './services/staffApi';
 import { localizedApiErrorMessage } from './services/apiClient.js';
+import ShifaLogo from './components/brand/ShifaLogo.jsx';
 import {
   configureStaffSocketSessionRevocation,
   connectStaffSocket,
@@ -21,7 +22,6 @@ import {
 import './App.css';
 import './features/admin/adminShell.css';
 import { useFacilityBranding } from './app/branding/FacilityBrandingContext.js';
-import { brandingSubline } from './app/branding/brandingConfig';
 import { withLoginSubmissionLock } from './features/patient-auth/loginSubmission.js';
 import PasswordField from './components/PasswordField.jsx';
 import PharmacyPage from './features/pharmacy/PharmacyPage.jsx';
@@ -44,7 +44,6 @@ export default function App({ initialView = 'login' }) {
   const lang = (i18n.resolvedLanguage || i18n.language || 'ar')
     .split('-')[0];
   const displayName = lang === 'ar' ? branding.displayNameAr : branding.displayNameEn;
-  const productDescriptor = brandingSubline(branding, lang);
   const facilityName = lang === 'ar' ? branding.facilityNameAr : branding.facilityNameEn;
   const productName = lang === 'ar' ? branding.productNameAr : branding.productNameEn;
   const [securityOpen, setSecurityOpen] = useState(false);
@@ -109,12 +108,12 @@ export default function App({ initialView = 'login' }) {
 
   if (view === 'login') {
     return (
-      <div className="patient-auth-shell patient-auth-shell--staff">
+      <main className="patient-auth-shell patient-auth-shell--staff">
         <header className="patient-auth-topbar">
           <div className="patient-auth-topbar-inner">
             <a className="patient-auth-brand" href="/" aria-label={displayName}>
-              <span className="patient-auth-brand-mark"><HeartPulse size={20} aria-hidden="true" /></span>
-              <span>{displayName}{!facilityName && <small className="brand-product-descriptor">{productDescriptor}</small>}</span>
+              <ShifaLogo responsive className="auth-shifa-logo" />
+              {facilityName && <span className="patient-auth-brand-facility">{facilityName}</span>}
             </a>
             <div className="patient-auth-topbar-actions patient-auth-topbar-actions--staff">
               <a
@@ -148,7 +147,7 @@ export default function App({ initialView = 'login' }) {
               : <LoginView onLogin={handleLogin} onMfaEnrollmentRequired={setMfaEnrollmentToken} t={t} lang={lang} productName={productName} productDescriptor={branding.productDescriptorAr && lang === 'ar' ? branding.productDescriptorAr : branding.productDescriptorEn} showProductIdentity={Boolean(facilityName)} />}
           </div>
         </div>
-      </div>
+      </main>
     );
   }
 
@@ -157,8 +156,8 @@ export default function App({ initialView = 'login' }) {
       {/* Global Navbar */}
       <header className="nav-header no-print-section">
         <div className="brand-section">
-          <HeartPulse className="logo-icon" size={28} />
-          <span className="brand-title">{displayName}<small className="brand-product-descriptor">{productDescriptor}</small></span>
+          <ShifaLogo responsive className="staff-header-shifa-logo" />
+          {facilityName && <span className="staff-header-facility">{facilityName}</span>}
         </div>
         <div className="header-actions">
           <button className="lang-toggle-btn" onClick={toggleLanguage}>
@@ -220,6 +219,7 @@ function RequiredPasswordChange({ t, onComplete }) {
     finally { setSaving(false); }
   };
   return <section className="staff-login-card" style={{ maxWidth: 460, margin: '3rem auto' }}>
+    <ShifaLogo className="auth-form-shifa-logo" />
     <div className="staff-mfa-icon"><ShieldCheck size={30} /></div>
     <h2>{t('passwordChangeRequired')}</h2><p>{t('passwordChangeRequiredDescription')}</p>
     <form onSubmit={submit} className="staff-login-form">
@@ -392,6 +392,7 @@ function LoginView({ onLogin, onMfaEnrollmentRequired, t, lang, productName, pro
 
   if (mfaChallenge) return (
     <section className="patient-auth" aria-labelledby="staff-mfa-title">
+      <ShifaLogo className="auth-form-shifa-logo" />
       <header className="patient-auth-heading">
         {showProductIdentity && <p className="patient-auth-product-line">{productName}<span aria-hidden="true"> · </span>{productDescriptor}</p>}
         <div className="patient-auth-brand-mark" style={{ marginBottom: '12px', width: '40px', height: '40px' }}>
@@ -451,9 +452,9 @@ function LoginView({ onLogin, onMfaEnrollmentRequired, t, lang, productName, pro
 
   return (
     <section className="patient-auth" aria-labelledby="staff-auth-title">
+      <ShifaLogo className="auth-form-shifa-logo" />
       <header className="patient-auth-heading">
         <div className="patient-auth-login-intro">
-          <HeartPulse className="patient-auth-login-intro__icon" size={27} strokeWidth={1.8} aria-hidden="true" />
           <div>
             {showProductIdentity && <p className="patient-auth-product-line">{productName}<span aria-hidden="true"> · </span>{productDescriptor}</p>}
             <p className="patient-auth-welcome">{t('staffPortal') || 'بوابة الموظفين'}</p>

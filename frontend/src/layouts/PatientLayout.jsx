@@ -2,17 +2,18 @@ import { useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../app/auth/auth-context';
-import { ArrowLeft, Bell, CalendarDays, FileHeart, FlaskConical, HeartPulse, House, Languages, LogOut, Pill, Stethoscope, UserRound } from 'lucide-react';
+import { ArrowLeft, Bell, CalendarDays, FileHeart, FlaskConical, House, Languages, LogOut, Pill, Stethoscope, UserRound } from 'lucide-react';
 import Dialog from '../components/ui/Dialog';
 import ThemeToggle from '../components/ui/ThemeToggle';
 import './patient.css';
 import { useFacilityBranding } from '../app/branding/FacilityBrandingContext.js';
-import { brandingSubline } from '../app/branding/brandingConfig';
+import ShifaLogo from '../components/brand/ShifaLogo.jsx';
 
 export default function PatientLayout() {
   const { t, i18n } = useTranslation();
   const branding = useFacilityBranding();
   const language = (i18n.resolvedLanguage || i18n.language || 'ar').startsWith('ar') ? 'ar' : 'en';
+  const facilityName = language === 'ar' ? branding.facilityNameAr : branding.facilityNameEn;
   const { logout } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -27,9 +28,9 @@ export default function PatientLayout() {
   return <div className="patient-app">
     <a className="patient-skip-link" href="#patient-main">{t('patientSkipToContent')}</a>
     <header className="patient-header">
-      <NavLink to="/patient" className="patient-brand">
-        <span className="patient-brand__mark"><HeartPulse aria-hidden="true"/></span>
-        <span className="patient-brand__lockup">{language === 'ar' ? branding.displayNameAr : branding.displayNameEn}<small className="brand-product-descriptor">{brandingSubline(branding, language)}</small></span>
+      <NavLink to="/patient" className="patient-brand" aria-label={language === 'ar' ? branding.displayNameAr : branding.displayNameEn}>
+        <ShifaLogo responsive className="patient-brand__logo" />
+        {facilityName && <span className="patient-brand__facility">{facilityName}</span>}
       </NavLink>
       <div className="patient-header__actions">
         <button type="button" className="patient-icon-button" aria-label={t('notifications')} aria-haspopup="dialog" aria-expanded={updatesOpen} onClick={() => setUpdatesOpen(true)}><Bell aria-hidden="true"/></button>

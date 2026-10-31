@@ -131,7 +131,7 @@ test('registration and recovery share an artwork-free auth shell with a centered
   assert.match(page, /setStep\('reset'\)/);
 });
 
-test('patient login groups its medical mark with the introduction and keeps registration access clear', async () => {
+test('patient login shows the full Shifa logo above the form and keeps registration access clear', async () => {
   const page = readFileSync(new URL('../src/features/patient-auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
   const loginStart = page.indexOf('export function PatientLogin');
   const loginEnd = page.indexOf('export function PatientForgotPassword');
@@ -139,7 +139,7 @@ test('patient login groups its medical mark with the introduction and keeps regi
   assert.doesNotMatch(login, /patient-auth-illustration|doctor3dScene/);
   const shell = page.slice(page.indexOf('function AuthShell'));
   assert.match(shell, /patient-auth-login-intro/);
-  assert.match(shell, /patient-auth-login-intro__icon/);
+  assert.match(shell, /<ShifaLogo className="auth-form-shifa-logo" \/>/);
   assert.doesNotMatch(shell, /patient-auth-login-icon|Stethoscope/);
   assert.doesNotMatch(shell, /doctor3dScene/);
   assert.match(page, /patient-auth-divider/);

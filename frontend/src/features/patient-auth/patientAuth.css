@@ -63,6 +63,8 @@
 
 .patient-auth-brand > span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .patient-auth-brand .brand-product-descriptor { display: block; white-space: normal; }
+.shifa-logo-responsive.auth-shifa-logo { width: 204px; height: 46px; flex: 0 1 204px; }
+.patient-auth-brand-facility { min-width: 0; max-width: 200px; color: var(--auth-ink); font-size: .88rem; font-weight: 750; overflow-wrap: anywhere; }
 
 .patient-auth-brand-mark {
   display: grid;
@@ -476,7 +478,7 @@
   align-items: center;
   gap: 0.85rem;
   margin: 16px 0 13px;
-  color: #7b8c94;
+  color: var(--color-text-secondary);
   font-size: 0.76rem;
   font-weight: 650;
 }
@@ -787,7 +789,7 @@
 }
 
 .onboarding-resend-button:disabled {
-  color: #7b8c94;
+  color: var(--color-text-secondary);
   cursor: default;
 }
 
@@ -836,6 +838,8 @@
     font-size: 0.84rem;
     max-width: calc(100% - 5.5rem);
   }
+
+  .shifa-logo-responsive.auth-shifa-logo { width: 204px; height: 44px; }
 
   .patient-auth-brand-mark {
     width: 32px;
@@ -1140,6 +1144,8 @@
   .patient-auth-brand {
     font-size: 0.74rem;
   }
+
+  .shifa-logo-responsive.auth-shifa-logo { width: 44px; height: 44px; flex-basis: 44px; }
 
   .patient-auth-brand-mark {
     width: 28px;
@@ -1858,12 +1864,6 @@
   gap: 12px;
 }
 
-.patient-auth-login-intro__icon {
-  flex: 0 0 auto;
-  margin-top: 5px;
-  color: var(--secondary);
-}
-
 .patient-auth-shell--login .patient-auth-welcome,
 .patient-auth-shell--staff .patient-auth-welcome {
   margin: 0 0 3px;
@@ -1931,7 +1931,7 @@
 .patient-auth-shell--login .patient-auth-forgot,
 .patient-auth-shell--login .patient-auth-secondary-button,
 .patient-auth-shell--staff .patient-auth-secondary-button {
-  color: var(--primary);
+  color: var(--color-primary-strong);
 }
 
 .patient-auth-shell--staff .patient-auth-topbar-inner {
@@ -2069,3 +2069,10 @@
 .patient-auth .shifa-password-field + .patient-button { margin-top: 8px; }
 
 .patient-auth .shifa-password-label { color: var(--text-primary); }
+
+@media (max-width: 520px) {
+  .shifa-logo-responsive.auth-shifa-logo { width: 44px; height: 44px; flex-basis: 44px; }
+}
+
+.patient-auth .patient-alert.error { color: var(--color-danger); background: var(--color-danger-soft); }
+.patient-auth .patient-alert.success { color: var(--color-success); background: var(--color-success-soft); border: 1px solid var(--color-success); }

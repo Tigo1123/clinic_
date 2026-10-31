@@ -3,6 +3,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Check, ShieldCheck } from 'lucide-react';
 import MfaCodeInput from './MfaCodeInput.js';
 import { confirmRequiredMfaEnrollment, startRequiredMfaEnrollment } from '../services/staffLogin.js';
+import ShifaLogo from './brand/ShifaLogo.jsx';
 
 export default function RequiredStaffMfaEnrollment({ token, t, onDone }) {
   const [enrollment, setEnrollment] = useState(null);
@@ -43,6 +44,7 @@ export default function RequiredStaffMfaEnrollment({ token, t, onDone }) {
   };
 
   return <section className="patient-auth" aria-labelledby="required-staff-mfa-title">
+    <ShifaLogo className="auth-form-shifa-logo" />
     <header className="patient-auth-heading">
       <div className="patient-auth-brand-mark" style={{ marginBottom: 12, width: 40, height: 40 }}><ShieldCheck size={22} aria-hidden="true" /></div>
       <h1 id="required-staff-mfa-title">{t('staffMfaRequiredTitle')}</h1>

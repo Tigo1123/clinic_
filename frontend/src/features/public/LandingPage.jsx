@@ -14,11 +14,12 @@ export default function LandingPage() {
   const copy = landingCopy[language] || landingCopy.en;
   const branding = useFacilityBranding();
   const brand = language === 'ar' ? branding.displayNameAr : branding.displayNameEn;
+  const facilityName = language === 'ar' ? branding.facilityNameAr : branding.facilityNameEn;
   const descriptor = brandingSubline(branding, language);
 
   return <div className="public-site">
     <a className="public-skip-link" href="#main-content">{copy.skip}</a>
-    <LandingHeader copy={copy} brand={brand} descriptor={descriptor} language={language} onLanguageChange={() => i18n.changeLanguage(language === 'ar' ? 'en' : 'ar')} />
+    <LandingHeader copy={copy} brand={brand} facilityName={facilityName} language={language} onLanguageChange={() => i18n.changeLanguage(language === 'ar' ? 'en' : 'ar')} />
     <main id="main-content">
       <LandingHero copy={copy} />
       <SystemOverview copy={copy} />
@@ -29,6 +30,6 @@ export default function LandingPage() {
       <RoleSection copy={copy} />
       <FinalCTA copy={copy} />
     </main>
-    <LandingFooter copy={copy} brand={brand} descriptor={descriptor} />
+    <LandingFooter copy={copy} brand={brand} descriptor={descriptor} facilityName={facilityName} />
   </div>;
 }
