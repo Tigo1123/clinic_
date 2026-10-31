@@ -1,3 +1,5 @@
+import ReceptionCancellationDialog from './ReceptionCancellationDialog.jsx';
+import { createCancellationFence } from './receptionCancellation.js';
 import { useStaffPagedList } from '../../hooks/useStaffPagedList.js';
 import StaffListPaging from '../../components/StaffListPaging.jsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -73,19 +75,24 @@ export default function ReceptionDashboard({ lang, t }) {
   const [billingSubmitting, setBillingSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [cancellationTarget, setCancellationTarget] = useState(null);
+  const [cancellationSucceeded, setCancellationSucceeded] = useState(false);
+  const cancellationFocusRef = useRef(null);
+  const cancellationFence = useRef(null);
+  if (!cancellationFence.current) cancellationFence.current = createCancellationFence();
 
   // Shift cash ledger
   const [physicalCash, setPhysicalCash] = useState('');
   const [expectedCash, setExpectedCash] = useState('');
   const [reconcileResult, setReconcileResult] = useState(null);
   const [filterDate, setFilterDate] = useState(clinicDateString());
-  const doctorQueueList = useStaffPagedList(selectedDoctor ? `/api/appointments/queue/${selectedDoctor.id}?date=${filterDate}` : null);
-  const { data: appointments, reload: refreshDoctorQueue } = doctorQueueList;
+  const doctorQueueList = useStaffPagedList(selectedDoctor ? `/api/appointments/queue/${selectedDoctor.id}?date=${filterDate}` : null, cancellationFence.current.reconcile);
+  const { data: appointments, reload: refreshDoctorQueue, setData: setDoctorQueue } = doctorQueueList;
   const [viewingProfilePatientId, setViewingProfilePatientId] = useState(null);
 
   // Pending Approvals State
-  const pendingList = useStaffPagedList('/api/appointments/pending');
-  const { data: pendingAppointments, reload: fetchPendingAppointments } = pendingList;
+  const pendingList = useStaffPagedList('/api/appointments/pending', cancellationFence.current.reconcile);
+  const { data: pendingAppointments, reload: fetchPendingAppointments, setData: setPendingAppointments } = pendingList;
   const [queueTab, setQueueTab] = useState('queue'); // 'queue' | 'pending'
   const [billingAppointment, setBillingAppointment] = useState(null);
 
@@ -245,34 +252,22 @@ export default function ReceptionDashboard({ lang, t }) {
     }
   };
 
-  const handleCancelAppointment = async (appId) => {
-    const confirmed = window.confirm(
-      lang === 'ar'
-        ? 'هل أنت متأكد أنك تريد إلغاء هذا الموعد؟'
-        : 'Are you sure you want to cancel this appointment?'
-    );
-
-    if (!confirmed) return;
-
-    try {
-      const res = await fetchWithAuth(`/api/appointments/${appId}/status`, {
-        method: 'PUT',
-        body: JSON.stringify({ status: 'CANCELLED' })
-      });
-      if (res.ok) {
-        setSuccessMsg(lang === 'ar' ? 'تم إلغاء الموعد.' : 'Appointment cancelled.');
-        fetchPendingAppointments();
-        refreshDoctorQueue();
-      }
-    } catch (err) {
-      console.error(err);
-      setErrorMsg(
-        lang === 'ar'
-          ? 'تعذر إلغاء الموعد. يرجى المحاولة مرة أخرى.'
-          : 'Failed to cancel the appointment. Please try again.'
-      );
-    }
+  const handleCancelAppointment = (appointment) => {
+    setCancellationSucceeded(false);
+    setCancellationTarget(current => current || appointment);
   };
+  const closeCancellation = useCallback(() => setCancellationTarget(null), []);
+  const revalidateCancellation = useCallback(() => {
+    fetchPendingAppointments(); refreshDoctorQueue();
+  }, [fetchPendingAppointments, refreshDoctorQueue]);
+  const cancellationCommitted = useCallback((appointment) => {
+    cancellationFence.current.record(appointment.id);
+    setPendingAppointments(rows => rows.filter(row => row.id !== appointment.id));
+    setDoctorQueue(rows => rows.filter(row => row.id !== appointment.id));
+    setCancellationTarget(null);
+    setCancellationSucceeded(true);
+    revalidateCancellation();
+  }, [setPendingAppointments, setDoctorQueue, revalidateCancellation]);
 
   // Fetch doctors & services on mount
   useEffect(() => {
@@ -1062,6 +1057,8 @@ export default function ReceptionDashboard({ lang, t }) {
 
   return (
     <div className="dashboard-wrapper reception-dashboard" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+      <ReceptionCancellationDialog appointment={cancellationTarget} lang={lang} onClose={closeCancellation}
+        onCommitted={cancellationCommitted} onRevalidate={revalidateCancellation} fallbackFocusRef={cancellationFocusRef} />
       <div className="workspace-panel reception-workspace">
         <RoleHero role="reception" lang={lang} />
 
@@ -1144,6 +1141,7 @@ export default function ReceptionDashboard({ lang, t }) {
                 <button
                   type="button"
                   role="tab"
+                  ref={cancellationFocusRef}
                   aria-selected={queueTab === 'pending'}
                   className={queueTab === 'pending' ? 'active' : ''}
                   onClick={() => setQueueTab('pending')}
@@ -1171,6 +1169,7 @@ export default function ReceptionDashboard({ lang, t }) {
               </div>
             </header>
 
+            {cancellationSucceeded && <p className="reception-cancellation-success" role="status" aria-live="polite">{lang === 'ar' ? 'تم إلغاء الموعد بنجاح.' : 'Appointment cancelled successfully.'}</p>}
             <StaffListPaging list={queueTab === 'pending' ? pendingList : doctorQueueList} lang={lang} label={queueTab === 'pending' ? (lang === 'ar' ? 'الطلبات' : 'Pending appointments') : (lang === 'ar' ? 'الطابور' : 'Doctor queue')} />
             {queueTab === 'pending' ? (
               pendingAppointments.length === 0 ? (
@@ -1183,6 +1182,7 @@ export default function ReceptionDashboard({ lang, t }) {
                   <article
                     key={app.id}
                     className="reception-request-row"
+                    data-appointment-id={app.id}
                   >
                     <div className="reception-request-title">
                       <button type="button" className="reception-patient-link" onClick={() => setViewingProfilePatientId(app.patient.id)}>{lang === 'ar' ? app.patient.fullNameAr : app.patient.fullNameEn}</button>
@@ -1233,8 +1233,8 @@ export default function ReceptionDashboard({ lang, t }) {
                       <button
                         type="button"
                         className="btn btn-danger"
-                        style={{ padding: '4px 8px', fontSize: '0.75rem', minHeight: '34px' }}
-                        onClick={() => handleCancelAppointment(app.id)}
+                        style={{ padding: '4px 8px', fontSize: '0.75rem', minHeight: '44px' }}
+                        onClick={() => handleCancelAppointment(app)}
                       >
                         {lang === 'ar' ? 'رفض الطلب' : 'Reject Request'}
                       </button>
@@ -1270,6 +1270,7 @@ export default function ReceptionDashboard({ lang, t }) {
                   return (
                     <article
                       key={app.id}
+                      data-appointment-id={app.id}
                       className={`reception-queue-row ${isEmergency ? 'emergency-border' : ''}`}
                       style={statusStyles}
                     >

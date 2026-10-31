@@ -215,3 +215,12 @@
 .reception-billing-summary .is-due strong { color: var(--primary); }
 .reception-billing-summary > p { margin: 0; color: var(--text-secondary); font-size: .84rem; }
 .reception-billing-summary .reception-billing-summary-error { color: var(--danger); }
+
+/* Cancellation feedback belongs beside the queue, including on narrow screens. */
+.reception-cancellation-success { padding: .75rem 1rem; color: var(--color-success); background: var(--color-success-soft); border-radius: var(--radius-md); }
+.reception-cancellation { min-width: 0; }
+.reception-cancellation dl { margin-block: .75rem 1rem; }
+.reception-cancellation dt { color: var(--color-text-secondary); font-size: .85rem; }
+.reception-cancellation dd { margin: .25rem 0 .75rem; overflow-wrap: anywhere; }
+.reception-cancellation .dialog-actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-block-start: 1rem; }
+.reception-cancellation .dialog-actions button { min-height: 44px; min-width: 44px; }

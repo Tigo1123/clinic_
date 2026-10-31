@@ -10,6 +10,7 @@ const titles = {
   PATIENT_REGISTERED: ['New patient registered', 'تم تسجيل مريض جديد', 'reception'],
   APPOINTMENT_BOOKED: ['New appointment', 'موعد جديد', 'appointments'],
   APPOINTMENT_CHANGED: ['Appointment updated', 'تم تحديث موعد', 'appointments'],
+  APPOINTMENT_CANCELLED: ['Appointment cancelled', 'تم إلغاء الموعد', 'appointments'],
   PATIENT_READY: ['Patient checked in', 'تم تسجيل وصول مريض', 'appointments'],
   PRESCRIPTION_READY: ['New prescription for pharmacy', 'وصفة جديدة للصيدلية', 'prescriptions'],
   PRESCRIPTION_UPDATED: ['Prescription updated', 'تم تحديث وصفة', 'prescriptions'],
@@ -40,6 +41,7 @@ const titles = {
 };
 
 const messages = {
+  APPOINTMENT_CANCELLED: ['An appointment cancellation was completed. Open Reception to review the updated schedule.', 'تم إلغاء موعد بنجاح. افتح قسم الاستقبال لمراجعة الجدول المحدّث.'],
   MEDICINE_PRICE_UPDATED: ['A medicine price changed. Open the formulary to review it.', 'تم تغيير سعر دواء. افتح دليل الأدوية لمراجعته.'],
   MEDICINE_STATUS_UPDATED: ['A medicine availability setting changed. Open the formulary to review it.', 'تم تغيير حالة توفر دواء. افتح دليل الأدوية لمراجعتها.'],
   MEDICINE_PRICE_AND_STATUS_UPDATED: ['A medicine price and availability setting changed. Open the formulary to review them.', 'تم تغيير سعر دواء وحالة توفره. افتح دليل الأدوية لمراجعتهما.']
@@ -112,7 +114,8 @@ export class NotificationDelivery {
             target.emit(event, {
               id: row.id, type: row.type, title: titles[row.type]?.[0] || 'Operational update',
               message: 'Open the relevant workspace to review this update.',
-              createdAt: row.createdAt, isRead: row.isRead
+              createdAt: row.createdAt, isRead: row.isRead,
+              ...(row.type === 'APPOINTMENT_CANCELLED' ? notificationDto(row) : {})
             });
           } else if (!sent.has(key)) { target.emit(event, { id: row.id }); sent.add(key); }
           const topic = events.get(row.id) === 'created' && titles[row.type]?.[2];
