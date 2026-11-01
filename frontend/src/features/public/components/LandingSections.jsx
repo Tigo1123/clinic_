@@ -1,142 +1,150 @@
-import { Activity, ArrowUpRight, CalendarDays, FileHeart, FlaskConical, HeartPulse, Pill, ReceiptText, ShieldCheck, Stethoscope, UserRound, UserRoundCheck, UsersRound } from 'lucide-react';
-import ShifaLogo from '../../../components/brand/ShifaLogo.jsx';
+import { ArrowRight, ArrowUpRight, CalendarDays, CircleCheck, FileHeart, FlaskConical, HeartPulse, Pill, ReceiptText, ShieldCheck, Stethoscope, UserRoundCheck, UsersRound } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import ShifaLogo from '../../../components/brand/ShifaLogo.jsx';
+import LandingPhoto from './LandingPhoto.jsx';
+import receptionSmallPhoto from '../../../assets/landing/healthcare-reception-640.webp';
+import teamSmallPhoto from '../../../assets/landing/healthcare-team-640.webp';
+import handoffSmallPhoto from '../../../assets/landing/healthcare-handoff-640.webp';
+import laboratorySmallPhoto from '../../../assets/landing/healthcare-laboratory-640.webp';
 import receptionPhoto from '../../../assets/landing/healthcare-reception.webp';
+import teamPhoto from '../../../assets/landing/healthcare-team.webp';
+import handoffPhoto from '../../../assets/landing/healthcare-handoff.webp';
 import laboratoryPhoto from '../../../assets/landing/healthcare-laboratory.webp';
-import consultationPhoto from '../../../assets/landing/healthcare-consultation.webp';
 
-const overviewIcons = [HeartPulse, CalendarDays, FlaskConical, Pill, ReceiptText];
-const featureIcons = [CalendarDays, FileHeart, Stethoscope, FlaskConical, Pill, ReceiptText];
-const journeyIcons = [CalendarDays, UserRoundCheck, Stethoscope, ReceiptText, FlaskConical, Pill];
-const roleIcons = [UserRound, UsersRound, Stethoscope, FlaskConical, Pill, ShieldCheck];
+const moduleIcons = { appointments: CalendarDays, reception: UsersRound, doctor: Stethoscope, laboratory: FlaskConical, pharmacy: Pill, billing: ReceiptText, records: FileHeart };
+const startIcons = [UserRoundCheck, CalendarDays, FileHeart];
+const journeyIcons = [CalendarDays, UsersRound, Stethoscope, ReceiptText, FlaskConical, FileHeart];
+const benefitIcons = [HeartPulse, CalendarDays, ShieldCheck, UsersRound];
 
 function SectionHeading({ kicker, title, intro, id }) {
   return <div className="public-section-heading">
     <span className="public-kicker"><span className="public-kicker__dot" />{kicker}</span>
     <h2 id={id}>{title}</h2>
-    <p>{intro}</p>
+    {intro && <p>{intro}</p>}
   </div>;
 }
 
 export function SystemOverview({ copy }) {
+  const icons = [UsersRound, HeartPulse, FileHeart];
   return <section className="public-overview" aria-label={copy.overviewLabel}>
-    <div className="public-container public-overview__inner">
+    <div className="public-container public-overview__inner" data-scroll-reveal>
       <p>{copy.overviewLabel}</p>
-      <div className="public-overview__items">
-        {copy.overviewItems.map((item, index) => {
-          const Icon = overviewIcons[index];
-          return <span key={item}><Icon aria-hidden="true" />{item}</span>;
-        })}
-      </div>
+      <div className="public-overview__items">{copy.overviewItems.map((item, index) => {
+        const Icon = icons[index];
+        return <span key={item}><Icon aria-hidden="true" />{item}</span>;
+      })}</div>
     </div>
   </section>;
 }
 
-function FeaturePreview({ feature, index }) {
-  const steps = [feature.previewA, feature.previewB, feature.previewC];
-  return <div className={`feature-preview feature-preview--${index + 1}`} aria-hidden="true">
-    <div className="feature-preview__top"><span className="feature-preview__dots"><i /><i /><i /></span><span>{feature.previewTitle}</span><Activity /></div>
-    <div className="feature-preview__body">
-      {steps.map((step, stepIndex) => <div className="feature-preview__step" key={step}>
-        <span className="feature-preview__step-mark">{String(stepIndex + 1).padStart(2, '0')}</span>
-        <strong>{step}</strong>
-      </div>)}
+export function HowItWorksSection({ copy }) {
+  return <section className="public-how public-section" id="how-it-works" tabIndex={-1} aria-labelledby="how-title">
+    <div className="public-container public-how__layout">
+      <div className="public-how__intro" data-scroll-reveal>
+        <SectionHeading kicker={copy.howKicker} title={copy.howTitle} intro={copy.howIntro} id="how-title" />
+        <a href="#features" className="public-text-link">{copy.exploreModules}<ArrowRight aria-hidden="true" /></a>
+      </div>
+      <ol className="public-how__steps">{copy.startSteps.map((step, index) => {
+        const Icon = startIcons[index];
+        return <li key={step.title} data-scroll-reveal>
+          <span className="public-how__number" aria-hidden="true">0{index + 1}</span>
+          <div><h3>{step.title}</h3><p>{step.body}</p></div>
+          <span className="public-icon-tile"><Icon aria-hidden="true" /></span>
+        </li>;
+      })}</ol>
     </div>
-  </div>;
+  </section>;
+}
+
+export function AboutSection({ copy }) {
+  return <section className="public-about public-section" id="about" tabIndex={-1} aria-labelledby="about-title">
+    <div className="public-container public-about__layout">
+      <div className="public-about__copy" data-scroll-reveal>
+        <SectionHeading kicker={copy.storyKicker} title={copy.storyTitle} intro={copy.storyIntro} id="about-title" />
+        <p className="public-about__body">{copy.storyBody}</p>
+        <ul className="public-about__values">{copy.storyValues.map(value => <li key={value}><CircleCheck aria-hidden="true" />{value}</li>)}</ul>
+        <a href="#journey" className="public-text-link">{copy.storyLink}<ArrowRight aria-hidden="true" /></a>
+      </div>
+      <figure className="public-about__visual" data-scroll-reveal>
+        <LandingPhoto className="public-photo--team" fallbackLabel={copy.imageUnavailable} src={teamPhoto} srcSet={`${teamSmallPhoto} 640w, ${teamPhoto} 960w`} sizes="(max-width: 700px) calc(100vw - 32px), (max-width: 1440px) 40vw, 570px" width="960" height="1024" alt={copy.teamAlt} loading="lazy" decoding="async" />
+        <figcaption><span>{copy.storyCaptionLabel}</span><strong>{copy.storyCaption}</strong></figcaption>
+      </figure>
+    </div>
+  </section>;
 }
 
 export function FeatureSection({ copy }) {
-  return <section className="public-features public-section" id="features" aria-labelledby="features-title">
+  return <section className="public-features public-section" id="features" tabIndex={-1} aria-labelledby="features-title">
     <div className="public-container">
-      <SectionHeading kicker={copy.featureKicker} title={copy.featureTitle} intro={copy.featureIntro} id="features-title" />
+      <div className="public-features__heading" data-scroll-reveal><SectionHeading kicker={copy.featureKicker} title={copy.featureTitle} intro={copy.featureIntro} id="features-title" /></div>
       <div className="public-feature-grid">
-        {copy.features.map((feature, index) => {
-          const Icon = featureIcons[index];
-          return <article className={`public-feature public-feature--${index + 1}`} key={feature.tag}>
-            <div className="public-feature__top"><span className="public-feature__icon"><Icon aria-hidden="true" /></span><span className="public-feature__tag">{feature.tag}</span></div>
-            <div className="public-feature__copy"><h3>{feature.title}</h3><p>{feature.body}</p></div>
-            <FeaturePreview feature={feature} index={index} />
-          </article>;
-        })}
-      </div>
+        <figure className="public-feature-photo" data-scroll-reveal>
+          <LandingPhoto className="public-photo--laboratory" fallbackLabel={copy.imageUnavailable} src={laboratoryPhoto} srcSet={`${laboratorySmallPhoto} 640w, ${laboratoryPhoto} 1200w`} sizes="(max-width: 700px) calc(100vw - 32px), (max-width: 1100px) 52vw, 610px" width="1200" height="800" alt={copy.laboratoryAlt} loading="lazy" decoding="async" />
+          <figcaption><span className="public-kicker">{copy.departmentPhotoKicker}</span><strong>{copy.departmentPhotoTitle}</strong></figcaption>
+        </figure>
+        {copy.modules.map((module, index) => {
+        const Icon = moduleIcons[module.id];
+        return <article className={`public-feature${index === 0 ? ' public-feature--lead' : ''}`} key={module.id} data-module={module.id} data-scroll-reveal>
+          <span className="public-icon-tile"><Icon aria-hidden="true" /></span>
+          <div className="public-feature__copy"><h3>{module.title}</h3><p>{module.body}</p></div>
+          {index === 0 && <Link to="/register" className="public-text-link">{copy.getStarted}<ArrowUpRight aria-hidden="true" /></Link>}
+        </article>;
+      })}</div>
     </div>
   </section>;
 }
 
 export function JourneySection({ copy }) {
-  return <section className="public-journey public-section" id="journey" aria-labelledby="journey-title">
+  return <section className="public-journey public-section" id="journey" tabIndex={-1} aria-labelledby="journey-title">
     <div className="public-container">
-      <SectionHeading kicker={copy.journeyKicker} title={copy.journeyTitle} intro={copy.journeyIntro} id="journey-title" />
-      <ol className="public-journey__track">
-        {copy.journey.map((step, index) => {
-          const Icon = journeyIcons[index];
-          return <li key={step.title}>
-            <div className="public-journey__number"><Icon aria-hidden="true" /><span>{String(index + 1).padStart(2, '0')}</span></div>
-            <h3>{step.title}</h3><p>{step.body}</p>
-          </li>;
-        })}
-      </ol>
+      <div className="public-journey__heading" data-scroll-reveal><SectionHeading kicker={copy.journeyKicker} title={copy.journeyTitle} intro={copy.journeyIntro} id="journey-title" /><figure className="public-journey__visual"><LandingPhoto className="public-photo--handoff" fallbackLabel={copy.imageUnavailable} src={handoffPhoto} srcSet={`${handoffSmallPhoto} 640w, ${handoffPhoto} 1120w`} sizes="(max-width: 700px) calc(100vw - 32px), (max-width: 1440px) 41vw, 590px" width="1120" height="746" alt={copy.handoffAlt} loading="lazy" decoding="async" /></figure></div>
+      <ol className="public-journey__track">{copy.journey.map((step, index) => {
+        const Icon = journeyIcons[index];
+        return <li key={step.title} data-scroll-reveal>
+          <div className="public-journey__step-top"><span className="public-journey__number" aria-hidden="true">0{index + 1}</span><Icon aria-hidden="true" /></div>
+          <h3>{step.title}</h3><p>{step.body}</p>
+          {index < copy.journey.length - 1 && <ArrowRight className="public-journey__arrow" aria-hidden="true" />}
+        </li>;
+      })}</ol>
+      <p className="public-journey__note"><CircleCheck aria-hidden="true" />{copy.journeyNote}</p>
     </div>
   </section>;
 }
 
-export function HumanCareSection({ copy }) {
-  return <section className="public-human public-section" aria-labelledby="human-title">
-    <div className="public-container public-human__layout">
-      <div className="public-human__copy"><SectionHeading kicker={copy.humanKicker} title={copy.humanTitle} intro={copy.humanIntro} id="human-title" /><div className="public-human__detail"><HeartPulse aria-hidden="true" /><span>{copy.humanDetail}</span></div></div>
-      <div className="public-human__collage">
-        <figure className="public-human__image public-human__image--main"><img src={receptionPhoto} alt={copy.receptionAlt} loading="lazy" /><figcaption>{copy.receptionCaption}</figcaption></figure>
-        <figure className="public-human__image public-human__image--consult"><img src={consultationPhoto} alt={copy.consultationAlt} loading="lazy" /><figcaption>{copy.consultationCaption}</figcaption></figure>
-        <figure className="public-human__image public-human__image--lab"><img src={laboratoryPhoto} alt={copy.laboratoryAlt} loading="lazy" /><figcaption>{copy.laboratoryCaption}</figcaption></figure>
-      </div>
-    </div>
-  </section>;
-}
-
-export function ProductPreviewSection({ copy, brand }) {
-  return <section className="public-product public-section" aria-labelledby="product-title">
-    <div className="public-container">
-      <SectionHeading kicker={copy.productKicker} title={copy.productTitle} intro={copy.productIntro} id="product-title" />
-      <div className="product-preview" data-asset-slot="product-dashboard-preview">
-        <div className="product-preview__bar"><span className="product-preview__dots"><i /><i /><i /></span><strong>{copy.productWorkspace}</strong><span className="product-preview__secure"><ShieldCheck aria-hidden="true" />{copy.productWorkspaceStatus}</span></div>
-        <div className="product-preview__body">
-          <aside className="product-preview__sidebar"><span className="product-preview__brand"><ShifaLogo compact />{brand}</span><span className="is-active"><CalendarDays />{copy.productAppointments}</span><span><UsersRound />{copy.productPatients}</span><span><ReceiptText />{copy.productBilling}</span><span><FlaskConical />{copy.productLab}</span></aside>
-          <div className="product-preview__main"><div className="product-preview__heading"><div><span>{copy.productEyebrow}</span><h3>{copy.productHeading}</h3></div><button type="button" tabIndex="-1">{copy.productAction}<ArrowUpRight aria-hidden="true" /></button></div><div className="product-preview__metrics"><div><span>{copy.metricOneLabel}</span><strong>{copy.metricOneValue}</strong><small>{copy.metricOneNote}</small></div><div><span>{copy.metricTwoLabel}</span><strong>{copy.metricTwoValue}</strong><small>{copy.metricTwoNote}</small></div><div><span>{copy.metricThreeLabel}</span><strong>{copy.metricThreeValue}</strong><small>{copy.metricThreeNote}</small></div></div><div className="product-preview__grid"><div className="product-preview__queue"><div className="product-preview__subhead"><strong>{copy.queueTitle}</strong><span>{copy.queueToday}</span></div>{[copy.queueOne, copy.queueTwo, copy.queueThree].map((item, index) => <div className="product-preview__queue-item" key={item}><span className={`product-preview__avatar product-preview__avatar--${index + 1}`}>{index + 1}</span><div><strong>{item}</strong><small>{copy.queueMeta[index]}</small></div><span className="product-preview__badge">{copy.queueStatus[index]}</span></div>)}</div><div className="product-preview__chart"><div className="product-preview__subhead"><strong>{copy.chartTitle}</strong><span>{copy.chartRange}</span></div><div className="product-preview__bars" aria-hidden="true"><i /><i /><i /><i /><i /><i /><i /></div><div className="product-preview__axis"><span>08:00</span><span>12:00</span><span>16:00</span></div></div></div></div>
-        </div>
-      </div>
-      <p className="product-preview__note"><ShieldCheck aria-hidden="true" />{copy.productNote}</p>
-    </div>
-  </section>;
-}
-
-export function RoleSection({ copy }) {
-  return <section className="public-roles public-section" id="about" aria-labelledby="roles-title">
-    <div className="public-container public-roles__layout">
-      <div className="public-roles__intro"><SectionHeading kicker={copy.rolesKicker} title={copy.rolesTitle} intro={copy.rolesIntro} id="roles-title" /><div className="public-roles__symbol" aria-hidden="true"><span><HeartPulse /></span><i /><i /><i /></div></div>
-      <div className="public-roles__grid">
-        {copy.roles.map((role, index) => {
-          const Icon = roleIcons[index];
-          return <article className="public-role" key={role.title}><span className="public-role__icon"><Icon aria-hidden="true" /></span><div><h3>{role.title}</h3><p>{role.body}</p></div></article>;
-        })}
+export function BenefitsSection({ copy }) {
+  return <section className="public-benefits public-section" id="why-shifa" tabIndex={-1} aria-labelledby="benefits-title">
+    <div className="public-container public-benefits__layout">
+      <figure className="public-benefits__visual" data-scroll-reveal>
+        <LandingPhoto className="public-photo--reception" fallbackLabel={copy.imageUnavailable} src={receptionPhoto} srcSet={`${receptionSmallPhoto} 640w, ${receptionPhoto} 800w`} sizes="(max-width: 600px) calc(100vw - 32px), (max-width: 850px) 560px, (max-width: 1440px) 40vw, 540px" width="800" height="1000" alt={copy.receptionAlt} loading="lazy" decoding="async" />
+        <figcaption>{copy.receptionCaption}</figcaption>
+      </figure>
+      <div className="public-benefits__copy" data-scroll-reveal>
+        <SectionHeading kicker={copy.benefitsKicker} title={copy.benefitsTitle} intro={copy.benefitsIntro} id="benefits-title" />
+        <div className="public-benefits__list">{copy.benefits.map((benefit, index) => {
+          const Icon = benefitIcons[index];
+          return <div className="public-benefit" key={benefit.title}><span className="public-icon-tile"><Icon aria-hidden="true" /></span><div><h3>{benefit.title}</h3><p>{benefit.body}</p></div></div>;
+        })}</div>
       </div>
     </div>
   </section>;
 }
 
 export function FinalCTA({ copy }) {
-  return <section className="public-cta public-section" aria-labelledby="cta-title">
-    <div className="public-container"><div className="public-cta__panel">
-      <div className="public-cta__decoration" aria-hidden="true"><span /><span /><span /></div>
-      <div className="public-cta__content"><span className="public-kicker"><span className="public-kicker__dot" />{copy.ctaKicker}</span><h2 id="cta-title">{copy.ctaTitle}</h2><p>{copy.ctaBody}</p><div className="public-cta__actions"><Link className="public-button public-button--light" to="/register">{copy.createAccount}<ArrowUpRight aria-hidden="true" /></Link><Link className="public-button public-button--ghost" to="/patient-login">{copy.patientLogin}<ArrowUpRight aria-hidden="true" /></Link></div></div>
-      <span className="public-cta__mark" aria-hidden="true"><HeartPulse /></span>
+  return <section className="public-cta" id="start-care" tabIndex={-1} aria-labelledby="cta-title">
+    <div className="public-container"><div className="public-cta__panel" data-scroll-reveal>
+      <div className="public-cta__content"><span className="public-kicker"><span className="public-kicker__dot" />{copy.ctaKicker}</span><h2 id="cta-title">{copy.ctaTitle}</h2><p>{copy.ctaBody}</p></div>
+      <div className="public-cta__actions"><Link className="public-button public-button--light" to="/register">{copy.createAccount}<ArrowUpRight aria-hidden="true" /></Link><Link className="public-button public-button--ghost" to="/patient-login">{copy.patientLogin}<ArrowUpRight aria-hidden="true" /></Link></div>
     </div></div>
   </section>;
 }
 
 export function LandingFooter({ copy, brand, descriptor, facilityName }) {
-  return <footer className="public-footer"><div className="public-container public-footer__inner">
-      <div className="public-footer__brand"><Link className="public-brand" to="/" aria-label={brand}><ShifaLogo responsive className="public-brand__logo" />{facilityName && <span className="public-brand__facility">{facilityName}</span>}</Link><p>{copy.footerDescription}</p></div>
-    <div className="public-footer__column"><strong>{copy.footerNavigate}</strong><a href="#home">{copy.home}</a><a href="#features">{copy.featuresNav}</a><a href="#journey">{copy.howItWorks}</a><a href="#about">{copy.about}</a></div>
-    <div className="public-footer__column"><strong>{copy.footerAccess}</strong><Link to="/register">{copy.createAccount}</Link><Link to="/patient-login">{copy.patientLogin}</Link><Link to="/staff">{copy.staffLogin}</Link></div>
-  </div><div className="public-container public-footer__bottom"><span>© {new Date().getFullYear()} {brand} · {descriptor}</span><span>{copy.footerDescription}</span></div></footer>;
+  return <footer className="public-footer" id="footer" tabIndex={-1}>
+    <div className="public-container public-footer__inner">
+      <div className="public-footer__brand" data-scroll-reveal><a className="public-brand" href="#home" aria-label={brand}><ShifaLogo className="public-brand__logo" />{facilityName && <span className="public-brand__facility">{facilityName}</span>}</a><p>{copy.footerDescription}</p></div>
+      <nav className="public-footer__column" data-scroll-reveal aria-label={copy.footerNavigate}><strong>{copy.footerNavigate}</strong><a href="#how-it-works">{copy.howItWorks}</a><a href="#features">{copy.featuresNav}</a><a href="#journey">{copy.journeyNav}</a><a href="#about">{copy.about}</a><a href="#why-shifa">{copy.whyShifa}</a></nav>
+      <nav className="public-footer__column" data-scroll-reveal aria-label={copy.footerAccess}><strong>{copy.footerAccess}</strong><Link to="/register">{copy.createAccount}</Link><Link to="/patient-login">{copy.patientLogin}</Link><Link to="/staff">{copy.staffLogin}</Link></nav>
+    </div>
+    <div className="public-container public-footer__bottom" data-scroll-reveal><span>© {new Date().getFullYear()} {brand}</span><span>{descriptor}</span><a href="#home">{copy.backToTop}<ArrowUpRight aria-hidden="true" /></a></div>
+  </footer>;
 }

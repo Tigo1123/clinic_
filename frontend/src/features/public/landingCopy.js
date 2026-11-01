@@ -1,74 +1,114 @@
 export const landingCopy = {
   en: {
-    skip: 'Skip to content', home: 'Home', featuresNav: 'Features', howItWorks: 'How it works', about: 'The system', patientLogin: 'Patient login', staffLogin: 'Staff login', menu: 'Open menu', closeMenu: 'Close menu', navigationMenu: 'Navigation menu', language: 'Switch to Arabic',
-    heroKicker: 'A connected facility experience', heroLineOne: 'Every step of care.', heroLineTwo: 'Better connected.', heroDescription: 'One thoughtful system brings patients, reception, doctors, laboratory, pharmacy, and billing into the same care journey.', getStarted: 'Get started', heroNote: 'From your first appointment to the next step in care',
-    visualCaption: 'THE CARE HUB', visualCenter: 'Your care, connected', visualCenterSub: 'One journey · every team', visualAppointment: 'Appointment', visualAppointmentSub: 'A time that works', visualDoctor: 'Doctor', visualDoctorSub: 'Consultation', visualLab: 'Laboratory', visualLabSub: 'Results ready', visualPharmacy: 'Pharmacy', visualPharmacySub: 'Prescription', visualBilling: 'Billing', visualBillingSub: 'Clear next steps', visualStatus: 'In sync',
-    overviewLabel: 'One system. A continuous journey.', overviewItems: ['Patient care', 'Appointments', 'Laboratory', 'Pharmacy', 'Billing'],
-    featureKicker: 'Built around real care', featureTitle: 'The details stay connected.', featureIntro: 'The information each team needs follows the visit, helping the facility work as one.',
-    features: [
-      { title: 'Appointments that move care forward', body: 'Patients can find a doctor and request a time. Reception manages the day as visits progress.', tag: 'Scheduling', previewTitle: 'Visit journey', previewA: 'Find a doctor', previewB: 'Choose a time', previewC: 'Follow the visit' },
-      { title: 'A clearer patient picture', body: 'Records, prescriptions, and results stay available in the patient portal.', tag: 'Patient records', previewTitle: 'Your care', previewA: 'Visits', previewB: 'Results', previewC: 'Prescriptions' },
-      { title: 'A focused clinical workspace', body: 'Doctors review history, document consultations, and order tests and medication.', tag: 'Consultation', previewTitle: 'Consultation', previewA: 'Review', previewB: 'Document', previewC: 'Next steps' },
-      { title: 'Results with a route back to care', body: 'Laboratory orders move through collection, result entry, and release to the patient.', tag: 'Laboratory', previewTitle: 'Lab order', previewA: 'Ordered', previewB: 'In progress', previewC: 'Released' },
-      { title: 'Prescriptions meet inventory', body: 'Pharmacy reviews prescriptions, manages stock, and records dispensing.', tag: 'Pharmacy', previewTitle: 'Medication', previewA: 'Review', previewB: 'Stock', previewC: 'Dispense' },
-      { title: 'Billing in the same flow', body: 'Reception handles service invoices and payments; pharmacy checks payment before dispensing.', tag: 'Billing', previewTitle: 'Invoice', previewA: 'Services', previewB: 'Payment', previewC: 'Receipt' }
+    imageUnavailable: 'Photo unavailable',
+    skip: 'Skip to content', home: 'Home', featuresNav: 'Care modules', howItWorks: 'How it works', journeyNav: 'Your journey', about: 'About Shifa', whyShifa: 'Why Shifa',
+    patientLogin: 'Patient login', staffLogin: 'Staff login', menu: 'Open menu', closeMenu: 'Close menu', navigationMenu: 'Navigation menu', language: 'Switch to Arabic',
+    heroKicker: 'Healthcare, built around you', heroLineOne: 'Your care.', heroLineTwo: 'All connected.',
+    heroDescription: 'Book a visit, follow your results, and stay connected to the people caring for you.', getStarted: 'Start now',
+    heroNote: 'From the first appointment to your next step in care.',
+    heroImageTitle: 'Space for a better conversation.', heroImageNote: 'People at the heart of every care journey.',
+    consultationAlt: 'A clinician and patient reviewing a tablet together during a consultation',
+    overviewLabel: 'One platform. A continuous care journey.', overviewItems: ['Patients & care teams', 'Coordinated departments', 'Records within reach'],
+    storyKicker: 'Our story', storyTitle: 'Care is a journey. Let’s bring it together.',
+    storyIntro: 'An appointment here. A result there. Healthcare can feel like a series of separate moments.',
+    storyBody: 'Shifa is designed to connect them: patients and appointments, reception and doctors, laboratory and pharmacy, billing and medical records. One coordinated flow, with you at its heart.',
+    storyValues: ['A clearer next step', 'Teams working together', 'Your care in one place'], storyLink: 'Follow the care journey',
+    storyCaptionLabel: 'About Shifa', storyCaption: 'Behind every step, people working together.',
+    teamAlt: 'Two clinicians discussing information on a tablet and laptop together',
+    laboratoryAlt: 'A laboratory professional examining samples in a clinical laboratory',
+    departmentPhotoKicker: 'Connected departments', departmentPhotoTitle: 'The people behind your next step.',
+    handoffAlt: 'Two healthcare professionals reviewing a clinical document together in a bright healthcare setting', handoffCaption: 'From one team to the next, the journey continues.',
+    howKicker: 'A simpler start', howTitle: 'Less to navigate. More care in reach.', howIntro: 'Shifa brings the practical parts of your care together, so you can focus on what comes next.', exploreModules: 'Explore the care modules',
+    startSteps: [
+      { title: 'Make yourself at home', body: 'Create your patient account to start your care journey.' },
+      { title: 'Find your next appointment', body: 'Choose a doctor and request a time that works for you.' },
+      { title: 'Keep your care close', body: 'Return to your visits, available results, and prescriptions in your portal.' }
     ],
-    journeyKicker: 'How it works', journeyTitle: 'One visit, many hands. One clear path.', journeyIntro: 'Each stage connects to the next, while the right people stay focused on their part of the journey.',
+    featureKicker: 'One platform, every department', featureTitle: 'Everything has its place. Everyone stays connected.', featureIntro: 'Purposeful tools for the people and departments behind your care.',
+    modules: [
+      { id: 'appointments', title: 'Appointments', body: 'Choose a doctor. Request your next visit.' },
+      { id: 'reception', title: 'Reception', body: 'Arrivals and queues, clearly organized.' },
+      { id: 'doctor', title: 'Doctor', body: 'Patient history and care plans, together.' },
+      { id: 'laboratory', title: 'Laboratory', body: 'From test orders to available results.' },
+      { id: 'pharmacy', title: 'Pharmacy', body: 'Prescriptions, stock, and dispensing.' },
+      { id: 'billing', title: 'Billing', body: 'Organized invoices and payment records.' },
+      { id: 'records', title: 'Medical records', body: 'Your visits, results, and prescriptions.' }
+    ],
+    journeyKicker: 'Your journey, connected', journeyTitle: 'Different teams. One clear path.', journeyIntro: 'Each handoff has a place, from your first booking to the record of your visit.',
     journey: [
-      { title: 'Book', body: 'The patient requests an appointment.' },
-      { title: 'Check in', body: 'Reception confirms arrival and manages the queue.' },
-      { title: 'Consult', body: 'The doctor reviews history and plans care.' },
-      { title: 'Arrange payment', body: 'Reception handles invoices for the services ahead.' },
-      { title: 'Test', body: 'The lab processes paid orders when needed.' },
-      { title: 'Dispense', body: 'Pharmacy checks payment and dispenses prescribed medicine.' }
+      { title: 'Book a visit', body: 'Choose your doctor and request an appointment.' },
+      { title: 'Check in', body: 'Reception confirms your arrival and place in the queue.' },
+      { title: 'Meet your doctor', body: 'Review your history and agree on the next steps.' },
+      { title: 'Arrange payment', body: 'Reception organizes invoices for the services ahead.' },
+      { title: 'Tests & treatment', body: 'The lab and pharmacy handle paid orders when needed.' },
+      { title: 'Follow your care', body: 'Find your available results and prescriptions in your portal.' }
     ],
-    humanKicker: 'The human side of the system', humanTitle: 'Technology should make care feel closer.', humanIntro: 'A calmer handoff at reception, a clearer consultation, and a lab team with the right context. The platform keeps people connected while the work stays human.', humanDetail: 'Purposeful tools for the moments that matter.', receptionCaption: 'Reception · check in', consultationCaption: 'Consultation · shared context', laboratoryCaption: 'Laboratory · results in motion', receptionAlt: 'Healthcare receptionist helping a patient at a modern reception desk', consultationAlt: 'Patient speaking with a healthcare professional in a consultation room', laboratoryAlt: 'Laboratory technician examining samples beside a workstation',
-    productKicker: 'The product, in context', productTitle: 'A clear view of the day ahead.', productIntro: 'The real system brings appointments, patient records, billing, and laboratory work into one operational workspace. This preview uses fictional demo data to show the product shape without exposing patient information.', productWorkspace: 'Reception workspace', productWorkspaceStatus: 'Sanitized preview', productBrand: 'Shifa', productAppointments: 'Appointments', productPatients: 'Patients', productBilling: 'Billing', productLab: 'Laboratory', productEyebrow: 'Today at the facility', productHeading: 'Care coordination', productAction: 'Open queue', metricOneLabel: 'Scheduled visits', metricOneValue: '18', metricOneNote: 'Across the day', metricTwoLabel: 'Waiting check-in', metricTwoValue: '04', metricTwoNote: 'Needs attention', metricThreeLabel: 'Open invoices', metricThreeValue: '07', metricThreeNote: 'Ready to review', queueTitle: 'Today’s queue', queueToday: 'Fictional demo data', queueOne: 'Morning consultation', queueTwo: 'Lab follow-up', queueThree: 'New patient visit', queueMeta: ['09:30 · Doctor room 2', '11:15 · Laboratory', '14:00 · Reception'], queueStatus: ['Confirmed', 'Lab', 'New'], chartTitle: 'Visit flow', chartRange: 'Today', productNote: 'Preview UI is a sanitized local presentation of verified receptionist capabilities; no live patient data is loaded.',
-    rolesKicker: 'Designed for every perspective', rolesTitle: 'A connected care team, from every side.', rolesIntro: 'Purposeful workspaces keep each person close to the information and actions they need.',
-    roles: [
-      { title: 'Patient', body: 'Book visits and follow appointments, results, and prescriptions.' },
-      { title: 'Receptionist', body: 'Coordinate arrivals, patient records, and billing.' },
-      { title: 'Doctor', body: 'Review the patient story and guide treatment.' },
-      { title: 'Lab technician', body: 'Manage test orders and release results.' },
-      { title: 'Pharmacist', body: 'Review prescriptions, stock, and dispensing.' },
-      { title: 'Administrator', body: 'Oversee clinic setup, staff, and operational reports.' }
+    journeyNote: 'Your care may follow a different path. Tests and medication are included only when needed.',
+    benefitsKicker: 'Care with continuity', benefitsTitle: 'Connected tools. A more human experience.', benefitsIntro: 'Good coordination makes room for the moments that matter: a clear welcome, a better conversation, and a clear next step.',
+    benefits: [
+      { title: 'Care that stays connected', body: 'Each department can follow its part of the visit.' },
+      { title: 'Access when you need it', body: 'Check appointments and available results from your patient portal.' },
+      { title: 'Records with the right access', body: 'Dedicated workspaces keep information within each person’s role.' },
+      { title: 'Less to keep track of', body: 'Your visits, prescriptions, and results have one home.' }
     ],
-    ctaKicker: 'Ready when you are', ctaTitle: 'Better care begins with a better connection.', ctaBody: 'Create your patient account to book a visit and keep your care within reach.', createAccount: 'Create patient account', footerDescription: 'A connected home for the complete care journey.', footerNavigate: 'Explore', footerAccess: 'Access', footerCopyright: 'Shifa · Healthcare Facility Management System'
+    receptionAlt: 'A patient speaking with a receptionist at a bright, modern healthcare reception desk', receptionCaption: 'A clearer welcome. A more coordinated next step.',
+    ctaKicker: 'Your next step starts here', ctaTitle: 'Make room for connected care.', ctaBody: 'Create your patient account and keep your care within reach.', createAccount: 'Create patient account',
+    footerDescription: 'A connected home for patients, care teams, and every step between.', footerNavigate: 'Explore Shifa', footerAccess: 'Your access', backToTop: 'Back to top'
   },
   ar: {
-    skip: 'تخطَّ إلى المحتوى', home: 'الرئيسية', featuresNav: 'المميزات', howItWorks: 'كيف يعمل', about: 'النظام', patientLogin: 'دخول المريض', staffLogin: 'دخول الموظفين', menu: 'فتح القائمة', closeMenu: 'إغلاق القائمة', navigationMenu: 'قائمة التنقل', language: 'Switch to English',
-    heroKicker: 'إدارة مترابطة للمنشآت الصحية', heroLineOne: 'كل خطوة في الرعاية.', heroLineTwo: 'أكثر ترابطاً.', heroDescription: 'نظام واحد يجمع المرضى والاستقبال والأطباء والمختبر والصيدلية والفوترة في رحلة رعاية متصلة.', getStarted: 'ابدأ الآن', heroNote: 'من حجز الموعد إلى الخطوة التالية في رعايتك',
-    visualCaption: 'مركز الرعاية', visualCenter: 'رعايتك مترابطة', visualCenterSub: 'رحلة واحدة · كل الفرق', visualAppointment: 'الموعد', visualAppointmentSub: 'وقت يناسبك', visualDoctor: 'الطبيب', visualDoctorSub: 'الاستشارة', visualLab: 'المختبر', visualLabSub: 'النتائج جاهزة', visualPharmacy: 'الصيدلية', visualPharmacySub: 'الوصفة الطبية', visualBilling: 'الفوترة', visualBillingSub: 'خطوات واضحة', visualStatus: 'متصل',
-    overviewLabel: 'نظام واحد. رحلة رعاية متصلة.', overviewItems: ['رعاية المرضى', 'المواعيد', 'المختبر', 'الصيدلية', 'الفوترة'],
-    featureKicker: 'مصمم للرعاية الفعلية', featureTitle: 'كل التفاصيل مترابطة.', featureIntro: 'تنتقل المعلومات التي يحتاجها كل فريق مع الزيارة، لتعمل المنشأة كوحدة واحدة.',
-    features: [
-      { title: 'مواعيد تدفع الرعاية للأمام', body: 'يختار المريض طبيباً وموعداً، ويتابع الاستقبال سير الزيارات خلال اليوم.', tag: 'المواعيد', previewTitle: 'رحلة الزيارة', previewA: 'ابحث عن طبيب', previewB: 'اختر الوقت', previewC: 'تابع الزيارة' },
-      { title: 'صورة أوضح للمريض', body: 'تبقى السجلات والوصفات والنتائج متاحة في بوابة المريض.', tag: 'السجلات الطبية', previewTitle: 'رعايتك', previewA: 'الزيارات', previewB: 'النتائج', previewC: 'الوصفات' },
-      { title: 'مساحة عمل للطبيب', body: 'يراجع الطبيب التاريخ الطبي ويوثق الاستشارة ويطلب الفحوصات والأدوية.', tag: 'الاستشارة', previewTitle: 'الاستشارة', previewA: 'المراجعة', previewB: 'التوثيق', previewC: 'الخطوة التالية' },
-      { title: 'نتائج تعود إلى مسار الرعاية', body: 'تمر طلبات المختبر بجمع العينات وتسجيل النتائج ثم إتاحتها للمريض.', tag: 'المختبر', previewTitle: 'طلب مختبري', previewA: 'تم الطلب', previewB: 'قيد العمل', previewC: 'صدرت النتائج' },
-      { title: 'الوصفات مرتبطة بالمخزون', body: 'تراجع الصيدلية الوصفات وتدير المخزون وتوثق صرف الأدوية.', tag: 'الصيدلية', previewTitle: 'الدواء', previewA: 'مراجعة', previewB: 'المخزون', previewC: 'الصرف' },
-      { title: 'فوترة ضمن سير العمل', body: 'يدير الاستقبال فواتير الخدمات والمدفوعات، وتتحقق الصيدلية من السداد قبل الصرف.', tag: 'الفوترة', previewTitle: 'الفاتورة', previewA: 'الخدمات', previewB: 'الدفع', previewC: 'الإيصال' }
+    imageUnavailable: 'الصورة غير متاحة',
+    skip: 'تخطَّ إلى المحتوى', home: 'الرئيسية', featuresNav: 'أقسام الرعاية', howItWorks: 'كيف يعمل', journeyNav: 'رحلتك', about: 'عن شفاء', whyShifa: 'لماذا شفاء',
+    patientLogin: 'دخول المريض', staffLogin: 'دخول الموظفين', menu: 'فتح القائمة', closeMenu: 'إغلاق القائمة', navigationMenu: 'قائمة التنقل', language: 'Switch to English',
+    heroKicker: 'رعاية صحية تتمحور حولك', heroLineOne: 'كل رعايتك.', heroLineTwo: 'في مكان واحد.',
+    heroDescription: 'احجز زيارتك، وتابع نتائجك، وابقَ على تواصل مع فريق رعايتك.', getStarted: 'ابدأ الآن',
+    heroNote: 'من الموعد الأول إلى الخطوة التالية في رعايتك.',
+    heroImageTitle: 'مساحة لحوار أوضح.', heroImageNote: 'الإنسان في قلب كل رحلة رعاية.',
+    consultationAlt: 'طبيبة ومريض يراجعان جهازاً لوحياً معاً خلال استشارة طبية',
+    overviewLabel: 'منصة واحدة. رحلة رعاية متصلة.', overviewItems: ['المرضى وفرق الرعاية', 'أقسام تعمل بتنسيق', 'سجلات في متناولك'],
+    storyKicker: 'قصتنا', storyTitle: 'الرعاية رحلة. وشفاء يربط خطواتها.',
+    storyIntro: 'موعد هنا، ونتيجة هناك. قد تبدو الرعاية الصحية لحظات متفرقة يصعب جمعها.',
+    storyBody: 'صُمّم شفاء ليصل بينها: المريض والموعد، والاستقبال والطبيب، والمختبر والصيدلية، والفوترة والسجل الطبي. مسار رعاية منسّق، وأنت في قلبه.',
+    storyValues: ['خطوة تالية أوضح', 'فرق تعمل معاً', 'رعايتك في مكان واحد'], storyLink: 'تعرّف على رحلة الرعاية',
+    storyCaptionLabel: 'عن شفاء', storyCaption: 'وراء كل خطوة، أشخاص يعملون معاً.',
+    teamAlt: 'طبيبان يناقشان المعلومات على جهاز لوحي وحاسوب محمول معاً',
+    laboratoryAlt: 'مختص في المختبر يفحص عينات في مختبر طبي',
+    departmentPhotoKicker: 'أقسام مترابطة', departmentPhotoTitle: 'أشخاص يقفون خلف خطوتك التالية.',
+    handoffAlt: 'اثنان من العاملين في الرعاية الصحية يراجعان وثيقة طبية معاً في بيئة صحية مضيئة', handoffCaption: 'من فريق إلى آخر، تستمر رحلة رعايتك.',
+    howKicker: 'بداية أبسط', howTitle: 'خطوات أوضح. ورعاية أقرب.', howIntro: 'يجمع شفاء التفاصيل العملية لرعايتك، لتبقى الخطوة التالية واضحة أمامك.', exploreModules: 'استكشف أقسام الرعاية',
+    startSteps: [
+      { title: 'ابدأ بحسابك', body: 'أنشئ حساب المريض لتبدأ رحلة رعايتك.' },
+      { title: 'اختر موعدك القادم', body: 'اختر طبيباً واطلب الموعد الذي يناسبك.' },
+      { title: 'ابقَ قريباً من رعايتك', body: 'ارجع إلى زياراتك ونتائجك المتاحة ووصفاتك عبر بوابتك.' }
     ],
-    journeyKicker: 'كيف يعمل', journeyTitle: 'زيارة واحدة، فرق متعددة. مسار واضح.', journeyIntro: 'ترتبط كل مرحلة بما يليها، مع بقاء كل فريق قريباً من دوره في رحلة الرعاية.',
+    featureKicker: 'منصة واحدة لكل الأقسام', featureTitle: 'لكل تفصيل مكانه. وكل الفرق مترابطة.', featureIntro: 'أدوات هادفة للأفراد والأقسام التي تقف خلف رعايتك.',
+    modules: [
+      { id: 'appointments', title: 'المواعيد', body: 'اختر طبيبك وابدأ الخطوة التالية في رعايتك.' },
+      { id: 'reception', title: 'الاستقبال', body: 'استقبال واضح من الوصول إلى قائمة الانتظار.' },
+      { id: 'doctor', title: 'الطبيب', body: 'التاريخ الطبي وخطة الرعاية في مساحة عمل واحدة.' },
+      { id: 'laboratory', title: 'المختبر', body: 'طلبات الفحوصات والنتائج المتاحة ضمن مسار الرعاية.' },
+      { id: 'pharmacy', title: 'الصيدلية', body: 'ترابط الوصفات والمخزون وصرف الأدوية.' },
+      { id: 'billing', title: 'الفوترة', body: 'فواتير الخدمات وسجلات الدفع منظمة معاً.' },
+      { id: 'records', title: 'السجلات الطبية', body: 'وصول أوضح إلى الزيارات والنتائج والوصفات.' }
+    ],
+    journeyKicker: 'رحلتك مترابطة', journeyTitle: 'فرق متعددة. ومسار واضح.', journeyIntro: 'لكل مرحلة مكانها، من حجز الموعد الأول إلى سجل زيارتك.',
     journey: [
-      { title: 'احجز', body: 'يطلب المريض موعداً مع الطبيب.' },
-      { title: 'سجّل الحضور', body: 'يؤكد الاستقبال الوصول وينظم قائمة الانتظار.' },
-      { title: 'استشر', body: 'يراجع الطبيب التاريخ الطبي ويحدد خطة الرعاية.' },
-      { title: 'نظّم الدفع', body: 'يدير الاستقبال فواتير الخدمات المطلوبة.' },
-      { title: 'افحص', body: 'ينفذ المختبر الطلبات المسددة عند الحاجة.' },
-      { title: 'اصرف العلاج', body: 'تتحقق الصيدلية من السداد وتصرف الأدوية الموصوفة.' }
+      { title: 'احجز زيارتك', body: 'اختر طبيبك واطلب موعداً للزيارة.' },
+      { title: 'سجّل الحضور', body: 'يؤكد الاستقبال وصولك وينظم قائمة الانتظار.' },
+      { title: 'قابل طبيبك', body: 'راجع تاريخك الطبي وحدّد الخطوات التالية.' },
+      { title: 'نظّم الدفع', body: 'ينظم الاستقبال فواتير الخدمات المطلوبة.' },
+      { title: 'الفحص والعلاج', body: 'ينفذ المختبر والصيدلية الطلبات المسددة عند الحاجة.' },
+      { title: 'تابع رعايتك', body: 'تجد نتائجك المتاحة ووصفاتك عبر بوابتك.' }
     ],
-    humanKicker: 'الجانب الإنساني للنظام', humanTitle: 'التقنية تجعل الرعاية أقرب.', humanIntro: 'تنسيق أهدأ عند الاستقبال، واستشارة أوضح، وفريق مختبر يملك السياق الصحيح. يحافظ النظام على ترابط الفرق مع بقاء العمل إنسانياً.', humanDetail: 'أدوات هادفة للحظات المهمة.', receptionCaption: 'الاستقبال · تسجيل الحضور', consultationCaption: 'الاستشارة · سياق مشترك', laboratoryCaption: 'المختبر · النتائج في مسارها', receptionAlt: 'موظفة استقبال تساعد مريضاً عند مكتب استقبال حديث', consultationAlt: 'مريض يتحدث مع مختصة رعاية صحية في غرفة استشارة', laboratoryAlt: 'فنية مختبر تفحص عينات بجوار محطة عمل',
-    productKicker: 'المنتج في سياقه', productTitle: 'رؤية واضحة لليوم القادم.', productIntro: 'يجمع النظام الفعلي المواعيد وسجلات المرضى والفوترة وأعمال المختبر في مساحة تشغيل واحدة. تستخدم هذه المعاينة بيانات تجريبية خيالية لإظهار شكل المنتج دون كشف معلومات المرضى.', productWorkspace: 'مساحة عمل الاستقبال', productWorkspaceStatus: 'معاينة منقّحة', productBrand: 'الشفاء', productAppointments: 'المواعيد', productPatients: 'المرضى', productBilling: 'الفوترة', productLab: 'المختبر', productEyebrow: 'اليوم في المنشأة', productHeading: 'تنسيق الرعاية', productAction: 'فتح القائمة', metricOneLabel: 'زيارات مجدولة', metricOneValue: '18', metricOneNote: 'خلال اليوم', metricTwoLabel: 'بانتظار الحضور', metricTwoValue: '04', metricTwoNote: 'تحتاج متابعة', metricThreeLabel: 'فواتير مفتوحة', metricThreeValue: '07', metricThreeNote: 'جاهزة للمراجعة', queueTitle: 'قائمة اليوم', queueToday: 'بيانات تجريبية خيالية', queueOne: 'استشارة صباحية', queueTwo: 'متابعة مختبرية', queueThree: 'زيارة مريض جديد', queueMeta: ['09:30 · غرفة الطبيب 2', '11:15 · المختبر', '14:00 · الاستقبال'], queueStatus: ['مؤكد', 'مختبر', 'جديد'], chartTitle: 'تدفق الزيارات', chartRange: 'اليوم', productNote: 'المعاينة واجهة محلية منقّحة لقدرات الاستقبال المؤكدة، ولا تُحمّل بيانات مرضى حقيقية.' ,
-    rolesKicker: 'لكل فرد تجربة مناسبة', rolesTitle: 'فريق رعاية مترابط من كل جانب.', rolesIntro: 'مساحات عمل مخصصة تقرب كل فرد من المعلومات والإجراءات التي يحتاجها.',
-    roles: [
-      { title: 'المريض', body: 'يحجز الزيارات ويتابع المواعيد والنتائج والوصفات.' },
-      { title: 'موظف الاستقبال', body: 'ينظم الحضور وسجلات المرضى والفوترة.' },
-      { title: 'الطبيب', body: 'يراجع حالة المريض ويوجه العلاج.' },
-      { title: 'فني المختبر', body: 'يدير طلبات الفحوصات ويصدر النتائج.' },
-      { title: 'الصيدلي', body: 'يراجع الوصفات والمخزون وصرف الأدوية.' },
-      { title: 'المسؤول', body: 'يشرف على إعداد العيادة والموظفين والتقارير.' }
+    journeyNote: 'قد يختلف مسار رعايتك. تُضاف الفحوصات والأدوية عند الحاجة فقط.',
+    benefitsKicker: 'رعاية تستمر معك', benefitsTitle: 'أدوات مترابطة. وتجربة أكثر إنسانية.', benefitsIntro: 'يتيح التنسيق الجيد مساحة للحظات المهمة: استقبال واضح، وحوار أفضل، وخطوة تالية مفهومة.',
+    benefits: [
+      { title: 'رعاية تبقى مترابطة', body: 'يتابع كل قسم دوره في الزيارة.' },
+      { title: 'وصول في الوقت المناسب', body: 'تابع المواعيد والنتائج المتاحة من بوابة المريض.' },
+      { title: 'سجلات بصلاحيات مناسبة', body: 'مساحات مخصصة تربط الوصول للمعلومات بدور كل فرد.' },
+      { title: 'تفاصيل أقل لتتبعها', body: 'تجتمع زياراتك ووصفاتك ونتائجك في مكان واحد.' }
     ],
-    ctaKicker: 'ابدأ رحلتك', ctaTitle: 'الرعاية الأفضل تبدأ باتصال أفضل.', ctaBody: 'أنشئ حساب المريض لحجز زيارة ومتابعة رعايتك بسهولة.', createAccount: 'إنشاء حساب مريض', footerDescription: 'مكان واحد يربط رحلة الرعاية في المنشأة.', footerNavigate: 'استكشف', footerAccess: 'الوصول', footerCopyright: 'شفاء · نظام إدارة المنشآت الصحية'
+    receptionAlt: 'مريضة تتحدث مع موظفة استقبال عند مكتب استقبال منشأة صحية حديثة ومضيئة', receptionCaption: 'استقبال أوضح. وخطوة تالية أكثر تنسيقاً.',
+    ctaKicker: 'خطوتك التالية تبدأ هنا', ctaTitle: 'ابدأ رحلة رعاية أكثر ترابطاً.', ctaBody: 'أنشئ حساب المريض لتبقى رعايتك في متناولك.', createAccount: 'إنشاء حساب مريض',
+    footerDescription: 'مكان واحد يربط المرضى وفرق الرعاية وكل خطوة بينهما.', footerNavigate: 'استكشف شفاء', footerAccess: 'الوصول لحسابك', backToTop: 'العودة للأعلى'
   }
 };

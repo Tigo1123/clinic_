@@ -5,10 +5,11 @@ import { ThemeProvider } from '../theme/ThemeContext';
 import { AuthProvider } from '../auth/AuthContext';
 import { FacilityBrandingProvider } from '../branding/FacilityBrandingProvider.jsx';
 import PatientRoute from './PatientRoute';
+import LandingPage from '../../features/public/LandingPage.jsx';
 import '../../styles/medical.css';
 
 const LegacyApp = lazy(() => import('../../App'));
-const LandingPage = lazy(() => import('../../features/public/LandingPage'));
+
 const PatientLayout = lazy(() => import('../../layouts/PatientLayout'));
 const RescheduleAppointment = lazy(() => import('../../features/appointments/RescheduleAppointment'));
 const named = (loader, key) => lazy(() => loader().then((module) => ({ default: module[key] })));

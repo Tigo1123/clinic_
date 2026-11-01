@@ -1,45 +1,12 @@
-import { ArrowUpRight, CalendarDays, CircleCheck, FlaskConical, HeartPulse, Pill, ReceiptText, Stethoscope } from 'lucide-react';
+import { ArrowUpRight, HeartPulse } from 'lucide-react';
 import { Link } from 'react-router-dom';
-
-const modules = [
-  ['appointment', CalendarDays, 'visualAppointment', 'visualAppointmentSub'],
-  ['doctor', Stethoscope, 'visualDoctor', 'visualDoctorSub'],
-  ['lab', FlaskConical, 'visualLab', 'visualLabSub'],
-  ['pharmacy', Pill, 'visualPharmacy', 'visualPharmacySub'],
-  ['billing', ReceiptText, 'visualBilling', 'visualBillingSub']
-];
-
-function HeroVisual({ copy }) {
-  return <div className="care-network" aria-hidden="true">
-    <span className="care-network__grid" />
-    <span className="care-network__halo care-network__halo--one" />
-    <span className="care-network__halo care-network__halo--two" />
-    <span className="care-network__caption">{copy.visualCaption}<span /></span>
-    <svg className="care-network__lines" viewBox="0 0 600 560" preserveAspectRatio="none" fill="none">
-      <path d="M180 148 C230 150 230 240 290 255" />
-      <path d="M445 161 C398 180 400 240 344 255" />
-      <path d="M158 395 C222 385 230 315 286 309" />
-      <path d="M446 389 C404 374 395 319 346 309" />
-      <path d="M310 341 C310 400 310 420 310 456" />
-      <circle cx="290" cy="255" r="5" /><circle cx="344" cy="255" r="5" /><circle cx="286" cy="309" r="5" /><circle cx="346" cy="309" r="5" />
-    </svg>
-    <div className="care-network__center">
-      <span className="care-network__center-icon"><HeartPulse /></span>
-      <strong>{copy.visualCenter}</strong>
-      <small>{copy.visualCenterSub}</small>
-      <span className="care-network__status"><CircleCheck />{copy.visualStatus}</span>
-    </div>
-    {modules.map(([position, Icon, title, subtitle]) => <div className={`care-network__node care-network__node--${position}`} key={position}>
-      <span className="care-network__node-icon"><Icon /></span>
-      <span><strong>{copy[title]}</strong><small>{copy[subtitle]}</small></span>
-    </div>)}
-    <span className="care-network__spark care-network__spark--one" />
-    <span className="care-network__spark care-network__spark--two" />
-  </div>;
-}
+import LandingPhoto from './LandingPhoto.jsx';
+import consultationSmallPhoto from '../../../assets/landing/healthcare-consultation-640.webp';
+import consultationMediumPhoto from '../../../assets/landing/healthcare-consultation-960.webp';
+import consultationPhoto from '../../../assets/landing/healthcare-consultation.webp';
 
 export default function LandingHero({ copy }) {
-  return <section className="public-hero" id="home" aria-labelledby="hero-title">
+  return <section className="public-hero" id="home" tabIndex={-1} aria-labelledby="hero-title">
     <div className="public-container public-hero__inner">
       <div className="public-hero__copy">
         <span className="public-kicker"><span className="public-kicker__dot" />{copy.heroKicker}</span>
@@ -49,9 +16,12 @@ export default function LandingHero({ copy }) {
           <Link className="public-button public-button--primary" to="/register">{copy.getStarted}<ArrowUpRight aria-hidden="true" /></Link>
           <Link className="public-button public-button--outline" to="/patient-login">{copy.patientLogin}<ArrowUpRight aria-hidden="true" /></Link>
         </div>
-        <div className="public-hero__note"><span><HeartPulse aria-hidden="true" /></span>{copy.heroNote}</div>
+        <p className="public-hero__note"><HeartPulse aria-hidden="true" />{copy.heroNote}</p>
       </div>
-      <HeroVisual copy={copy} />
+      <figure className="public-hero__visual">
+        <LandingPhoto className="public-photo--hero" fallbackLabel={copy.imageUnavailable} src={consultationPhoto} srcSet={`${consultationSmallPhoto} 640w, ${consultationMediumPhoto} 960w, ${consultationPhoto} 1280w`} sizes="(max-width: 700px) calc(100vw - 50px), (max-width: 1440px) 46vw, 650px" width="1280" height="853" alt={copy.consultationAlt} loading="eager" fetchPriority="high" decoding="async" />
+        <figcaption><span className="public-icon-tile"><HeartPulse aria-hidden="true" /></span><div><strong>{copy.heroImageTitle}</strong><p>{copy.heroImageNote}</p></div></figcaption>
+      </figure>
     </div>
   </section>;
 }
