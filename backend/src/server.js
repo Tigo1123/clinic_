@@ -31,13 +31,7 @@ import { corsMiddleware, securityHeadersMiddleware } from './utils/edgeSecurity.
 import { productionDatabaseIdentityReady } from './utils/databaseReadiness.js';
 import { getStagingLoadTestTarget } from './utils/stagingLoadTestSafety.js';
 import { isStagingQaEnvironment } from './utils/qaEnvironmentMarkers.js';
-import {
-  consumeQaVerificationCapture,
-  discardQaVerificationCapture,
-  isQaVerificationCaptureEnabled,
-  isValidQaVerificationCaptureToken,
-  peekQaVerificationCapture
-} from './utils/qaVerificationCapture.js';
+import { registerQaVerificationCaptureRoutes } from './routes/qaVerificationCapture.js';
 import { recordHttpRequest, renderMetrics } from './utils/observability.js';
 
 // Load environment configuration
@@ -174,52 +168,8 @@ app.get('/api/health/load-test-target', async (req, res) => {
   return res.status(target.loadTestAllowed ? 200 : 503).json(target);
 });
 
-// One-time, short-lived verification-code retrieval for the trusted QA runner.
-// The endpoint is absent outside explicitly enabled staging QA configuration.
-app.get('/api/qa/verification-capture/:challengeId', async (req, res) => {
-  res.set({ 'Cache-Control': 'no-store', Pragma: 'no-cache', 'X-Robots-Tag': 'noindex' });
-  if (!isQaVerificationCaptureEnabled(process.env)) return res.sendStatus(404);
-  const authorization = req.get('authorization') || '';
-  const match = /^Bearer ([^\s]+)$/i.exec(authorization);
-  if (!match || !isValidQaVerificationCaptureToken(match[1], process.env)) return res.sendStatus(404);
-
-  const target = await getStagingLoadTestTarget(process.env, async () => {
-    const [identity] = await prisma.$queryRaw`
-      SELECT current_database()::text AS database,
-        current_schema()::text AS schema,
-        current_user::text AS role
-    `;
-    return identity;
-  });
-  if (!target.loadTestAllowed) return res.sendStatus(404);
-
-  const challengeId = req.params.challengeId;
-  const capture = peekQaVerificationCapture(challengeId);
-  if (!capture) return res.sendStatus(404);
-  try {
-    const challenge = await prisma.verificationChallenge.findFirst({
-      where: {
-        id: challengeId,
-        type: 'REGISTRATION_EMAIL',
-        targetNormalized: capture.recipient,
-        usedAt: null,
-        expiresAt: { gt: new Date() },
-        user: { is: { email: capture.recipient, username: capture.recipient, role: 'PATIENT', status: 'PENDING_VERIFICATION' } }
-      },
-      select: { id: true }
-    });
-    if (!challenge) {
-      discardQaVerificationCapture(challengeId);
-      return res.sendStatus(404);
-    }
-  } catch {
-    return res.sendStatus(404);
-  }
-
-  const consumed = consumeQaVerificationCapture(challengeId);
-  if (!consumed) return res.sendStatus(404);
-  return res.json({ challengeId, code: consumed.code, expiresAt: new Date(consumed.expiresAt).toISOString() });
-});
+// Staging-only auth diagnostic is registered before one-time code retrieval.
+registerQaVerificationCaptureRoutes(app, { prismaClient: prisma });
 
 app.get('/api/health/metrics', (req, res) => {
   const expected = process.env.METRICS_TOKEN;
