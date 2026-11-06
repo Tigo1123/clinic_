@@ -372,18 +372,79 @@ test('ambiguous registration failures are never replayed and retain cleanup cand
   }
 });
 
-test('registration 429 retries are paced, bounded, and never rotate synthetic identities', async () => {
+test('registration POST 429 stops after one send without retries or identity rotation', async () => {
   const mock = stagingMock({ override: call => call.path === '/api/patient-auth/register' ? json({}, 429, { 'retry-after': '95' }) : null });
   const report = await runPatientQa(mock.options);
   const calls = mock.calls.filter(c => c.path === '/api/patient-auth/register');
-  // Two workers may each be waiting, but the first exhausted budget stops both.
-  assert.ok(calls.length <= 5);
-  assert.ok(new Set(calls.map(c => c.body.email)).size <= 2);
-  for (const email of new Set(calls.map(c => c.body.email))) assert.ok(calls.filter(c => c.body.email === email).length <= 3);
-  for (let n = 1; n < calls.length; n++) assert.ok(calls[n].time - calls[n - 1].time >= SENSITIVE_INTERVAL_MS);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].body.email, `${report.runNamespace}+patient-001@example.invalid`);
+  assert.equal(mock.calls.filter(c => c.method === 'POST').length, 1);
+  assert.equal(report.result, 'FAILED');
+  assert.equal(report.reason, 'http_429');
   assert.equal(report.patientsCreated, 0);
+  assert.equal(report.patientsVerified, 0);
+  assert.equal(report.loginSuccess, 0);
+  assert.equal(report.retryCount, 0);
+  assert.equal(report.workflowRetryCount, 0);
   assert.equal(report.unexpected4xx, 0);
 });
+
+const mutationPaths = ['/api/patient-auth/register', '/api/patient-auth/verify', '/api/auth/login', '/api/patient/appointments'];
+for (const path of mutationPaths) {
+  for (const failure of ['429', '503', 'network']) {
+    test(`${path} POST ${failure} is sent exactly once per invocation and never counted as a retry`, async () => {
+      const mock = stagingMock({ override: call => {
+        if (call.path !== path || call.method !== 'POST') return null;
+        if (failure === 'network') throw new Error(CAPTURE_TOKEN);
+        return json({ error: CAPTURE_TOKEN }, Number(failure), { 'retry-after': '3600' });
+      } });
+      const report = createQaReport(); report.runNamespace = 'qa-20261106-a1b2c3d4';
+      const client = createQaTransport({ ...mock.options, report });
+      const body = path === '/api/patient-auth/register'
+        ? registrationBody(syntheticPatient(report.runNamespace, 1, 1))
+        : { challengeId: uuid(1), username: `${report.runNamespace}+patient-001@example.invalid` };
+      await assert.rejects(client.json(path, { method: 'POST', body }), error => {
+        assert.equal(error.reason, failure === '429' ? 'http_429' : 'mutation_outcome_unknown');
+        assert.equal(error.status, failure === 'network' ? null : Number(failure));
+        return true;
+      });
+      assert.equal(mock.calls.filter(c => c.path === path && c.method === 'POST').length, 1);
+      assert.equal(mock.calls.filter(c => c.method === 'POST').length, 1);
+      assert.equal(report.gateChecks, 1);
+      assert.equal(report.gateRetryCount, 0);
+      assert.equal(report.retries, 0);
+      assert.equal(report.networkFailures, failure === 'network' ? 1 : 0);
+      const result = publicQaReport(report);
+      assert.equal(result.retryCount, 0);
+      assert.equal(result.workflowRetryCount, 0);
+      assert.equal(JSON.stringify(result).includes(CAPTURE_TOKEN), false);
+    });
+  }
+}
+
+for (const status of [429, 503]) {
+  test(`GET ${status} retries at most twice, honors Retry-After and rechecks the full gate`, async () => {
+    const path = '/api/patient-auth/address-states';
+    const mock = stagingMock({ override: call => call.path === path ? json({}, status, { 'retry-after': '100' }) : null });
+    const report = createQaReport();
+    const client = createQaTransport({ ...mock.options, report });
+    await assert.rejects(client.json(path), error => error.reason === 'retry_budget_exhausted' && error.status === status);
+    const calls = mock.calls.filter(c => c.path === path);
+    assert.equal(calls.length, 3);
+    for (let index = 1; index < calls.length; index++) assert.ok(calls[index].time - calls[index - 1].time >= 100_000);
+    for (const call of calls) {
+      const index = mock.calls.indexOf(call);
+      assert.deepEqual(mock.calls.slice(index - 3, index).map(c => c.path),
+        ['/api/health/load-test-target', '/api/health', '/api/health/ready']);
+    }
+    const result = publicQaReport(report);
+    assert.equal(result.retryCount, 2);
+    assert.equal(result.workflowRetryCount, 2);
+    assert.equal(result.gateRetryCount, 0);
+    assert.equal(result.gate, 'PASS');
+    assert.equal(mock.calls.some(c => c.method !== 'GET'), false);
+  });
+}
 
 test('identity collisions are BLOCKED and never log into or overwrite existing accounts', async () => {
   const mock = stagingMock({ override: call => call.path === '/api/patient-auth/register' ? json({}, 409) : null });

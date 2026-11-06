@@ -175,7 +175,7 @@ export function createQaTransport({ env, report, fetchImpl = fetch, now = Date.n
       });
       workflowTail = operation.catch(() => {});
       const response = await operation;
-      const transient = response.status === 429 || (response.status >= 500 && method === 'GET' && !capture);
+      const transient = method === 'GET' && (response.status === 429 || (response.status >= 500 && !capture));
       if (!transient) {
         if (response.status >= 500 && method === 'POST') throw new QaRunError('mutation_outcome_unknown', response.status);
         return response;
