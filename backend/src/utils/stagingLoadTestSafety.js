@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { isQaVerificationCaptureEnabled } from './qaVerificationCapture.js';
+import { isStagingQaEnvironment, normalizeQaMarker } from './qaEnvironmentMarkers.js';
 
 // These fingerprints are pinned in scripts/provision-first-admin.js and identify
 // the reviewed Neon database targets without exposing or comparing credentials.
@@ -43,16 +44,15 @@ function unpool(hostname) {
 
 function hasExternalPaymentConfiguration(env) {
   return EXTERNAL_PAYMENT_CONFIG_KEYS.some(key => {
-    const value = String(env[key] || '').trim();
+    const value = env[key];
     if (!value) return false;
-    return !(key.endsWith('_ENABLED') && value.toLowerCase() === 'false');
+    return !(key.endsWith('_ENABLED') && normalizeQaMarker(value) === 'false');
   });
 }
 
 export function isStagingNotificationSink(env = process.env) {
-  return env.DEPLOYMENT_ENV === 'staging'
-    && env.APP_ENV === 'staging'
-    && env.QA_NOTIFICATION_MODE === 'sink';
+  return isStagingQaEnvironment(env)
+    && normalizeQaMarker(env.QA_NOTIFICATION_MODE) === 'sink';
 }
 
 function identityResult({ environment, databaseEnvironment, targetId, reasons, databaseIdentity = 'unverified', notifications = 'unsafe', payments = 'unsafe', verificationCapture = 'disabled' }) {
@@ -76,20 +76,21 @@ function identityResult({ environment, databaseEnvironment, targetId, reasons, d
 }
 
 export function stagingLoadTestPreflight(env = process.env) {
-  const environment = env.DEPLOYMENT_ENV === 'staging' && env.APP_ENV === 'staging'
+  const environment = isStagingQaEnvironment(env)
     ? 'staging'
-    : env.DEPLOYMENT_ENV === 'production' || env.APP_ENV === 'production'
+    : normalizeQaMarker(env.DEPLOYMENT_ENV) === 'production' || normalizeQaMarker(env.APP_ENV) === 'production'
       ? 'production'
       : 'unknown';
-  const databaseEnvironment = ['staging', 'production'].includes(env.DATABASE_ENVIRONMENT)
-    ? env.DATABASE_ENVIRONMENT
+  const databaseMarker = normalizeQaMarker(env.DATABASE_ENVIRONMENT);
+  const databaseEnvironment = ['staging', 'production'].includes(databaseMarker)
+    ? databaseMarker
     : 'unknown';
   const reasons = [];
 
   // A production declaration always wins, even if an operator mistakenly sets
   // staging's opt-in flag on the production service.
   if (environment !== 'staging') reasons.push('environment_not_staging');
-  if (env.QA_LOAD_TEST_ALLOWED !== 'true') reasons.push('load_test_not_explicitly_allowed');
+  if (normalizeQaMarker(env.QA_LOAD_TEST_ALLOWED) !== 'true') reasons.push('load_test_not_explicitly_allowed');
   if (databaseEnvironment !== 'staging') reasons.push('database_environment_not_staging');
   if (!TARGET_ID_PATTERN.test(env.QA_LOAD_TEST_TARGET_ID || '')) reasons.push('target_id_missing_or_invalid');
   if (!/^[A-Za-z_][A-Za-z0-9_$-]{0,62}$/.test(env.QA_EXPECTED_DATABASE_NAME || '')) reasons.push('expected_database_name_missing_or_invalid');
@@ -111,16 +112,17 @@ export function stagingLoadTestPreflight(env = process.env) {
     if (directUrl.pathname.slice(1) !== expectedDatabase || runtimeUrl.pathname.slice(1) !== expectedDatabase) reasons.push('database_name_mismatch');
     if (directSchema !== expectedSchema || runtimeSchema !== expectedSchema) reasons.push('database_schema_mismatch');
   }
-  if (env.QA_NOTIFICATION_MODE !== 'sink'
-      || env.NOTIFICATIONS_DISABLED !== 'true'
-      || env.SMS_PROVIDER !== 'disabled') reasons.push('external_notifications_not_safely_sunk');
+  if (normalizeQaMarker(env.QA_NOTIFICATION_MODE) !== 'sink'
+      || normalizeQaMarker(env.NOTIFICATIONS_DISABLED) !== 'true'
+      || normalizeQaMarker(env.SMS_PROVIDER) !== 'disabled') reasons.push('external_notifications_not_safely_sunk');
   const notifications = reasons.includes('external_notifications_not_safely_sunk') ? 'unsafe' : 'sink';
 
   const verificationCapture = isQaVerificationCaptureEnabled(env) ? 'enabled' : 'disabled';
   if (verificationCapture !== 'enabled') reasons.push('qa_verification_capture_not_safely_configured');
 
-  if (!['disabled', 'ledger-only'].includes(env.QA_PAYMENT_MODE) || hasExternalPaymentConfiguration(env)) reasons.push('external_payments_not_disabled');
-  const payments = reasons.includes('external_payments_not_disabled') ? 'unsafe' : env.QA_PAYMENT_MODE;
+  const paymentMode = normalizeQaMarker(env.QA_PAYMENT_MODE);
+  if (!['disabled', 'ledger-only'].includes(paymentMode) || hasExternalPaymentConfiguration(env)) reasons.push('external_payments_not_disabled');
+  const payments = reasons.includes('external_payments_not_disabled') ? 'unsafe' : paymentMode;
 
   return {
     environment,

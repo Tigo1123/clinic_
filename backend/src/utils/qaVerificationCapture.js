@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
+import { isStagingQaEnvironment, normalizeQaMarker } from './qaEnvironmentMarkers.js';
 
 const QA_EMAIL = /^qa-\d{8}-[a-f0-9]{8}\+patient-\d{3}@example\.invalid$/i;
 const CHALLENGE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -12,15 +13,14 @@ export function isSyntheticQaEmail(value) {
 }
 
 export function isQaVerificationCaptureEnabled(env = process.env) {
-  return env.APP_ENV === 'staging'
-    && env.DEPLOYMENT_ENV === 'staging'
-    && env.QA_LOAD_TEST_ALLOWED === 'true'
-    && env.QA_VERIFICATION_CAPTURE_ENABLED === 'true'
+  return isStagingQaEnvironment(env)
+    && normalizeQaMarker(env.QA_LOAD_TEST_ALLOWED) === 'true'
+    && normalizeQaMarker(env.QA_VERIFICATION_CAPTURE_ENABLED) === 'true'
     && String(env.QA_VERIFICATION_CAPTURE_TOKEN || '').length >= 32
-    && env.VERIFICATION_PROVIDER === 'email'
-    && env.QA_NOTIFICATION_MODE === 'sink'
-    && env.NOTIFICATIONS_DISABLED === 'true'
-    && env.SMS_PROVIDER === 'disabled';
+    && normalizeQaMarker(env.VERIFICATION_PROVIDER) === 'email'
+    && normalizeQaMarker(env.QA_NOTIFICATION_MODE) === 'sink'
+    && normalizeQaMarker(env.NOTIFICATIONS_DISABLED) === 'true'
+    && normalizeQaMarker(env.SMS_PROVIDER) === 'disabled';
 }
 
 export function isValidQaVerificationCaptureToken(supplied, env = process.env) {

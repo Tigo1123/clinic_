@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { isStagingQaEnvironment } from '../src/utils/qaEnvironmentMarkers.js';
 import {
   getStagingLoadTestTarget,
   isStagingNotificationSink,
@@ -37,6 +38,97 @@ test('staging gate passes only for explicit markers and matching live DB identit
   assert.equal(result.verificationCapture, 'enabled');
   assert.equal(result.payments, 'ledger-only');
   assert.deepEqual(result.reasons, []);
+});
+
+for (const key of ['APP_ENV', 'DEPLOYMENT_ENV', 'DATABASE_ENVIRONMENT']) {
+  for (const value of ['staging', ' staging ', 'STAGING', undefined, 'production', ' PRODUCTION ', 'unknown', ' ']) {
+    test(`${key} accepts only normalized staging: ${JSON.stringify(value) ?? 'missing'}`, async () => {
+      const env = { ...baseEnv, [key]: value };
+      const allowed = ['staging', ' staging ', 'STAGING'].includes(value);
+      let queried = false;
+      const result = await getStagingLoadTestTarget(env, async () => {
+        queried = true;
+        return expectedDbIdentity;
+      });
+      assert.equal(result.loadTestAllowed, allowed);
+      assert.equal(queried, allowed, 'blocked markers must not query the database');
+      if (key !== 'DATABASE_ENVIRONMENT') {
+        // The public endpoint uses this same staging predicate before DB access.
+        assert.equal(isStagingQaEnvironment(env), allowed);
+        assert.equal(isStagingNotificationSink(env), allowed);
+        assert.equal(isQaVerificationCaptureEnabled(env), allowed);
+        if (value === 'production' || value === ' PRODUCTION ') assert.equal(result.environment, 'production');
+      } else {
+        const production = value === 'production' || value === ' PRODUCTION ';
+        assert.equal(result.databaseEnvironment, allowed ? 'staging' : production ? 'production' : 'unknown');
+      }
+    });
+  }
+}
+
+test('boolean and non-secret QA mode markers accept whitespace and case variations consistently', async () => {
+  const markers = {
+    QA_LOAD_TEST_ALLOWED: 'true',
+    QA_VERIFICATION_CAPTURE_ENABLED: 'true',
+    NOTIFICATIONS_DISABLED: 'true',
+    QA_NOTIFICATION_MODE: 'sink',
+    SMS_PROVIDER: 'disabled',
+    VERIFICATION_PROVIDER: 'email',
+    QA_PAYMENT_MODE: 'ledger-only',
+    PAYMENT_GATEWAY_ENABLED: 'false'
+  };
+  for (const [key, marker] of Object.entries(markers)) {
+    for (const value of [marker, ` ${marker} `, marker.toUpperCase()]) {
+      const env = { ...baseEnv, [key]: value };
+      const result = await getStagingLoadTestTarget(env, async () => expectedDbIdentity);
+      assert.equal(result.loadTestAllowed, true, key);
+      assert.equal(result.payments, 'ledger-only');
+      assert.equal(isStagingNotificationSink(env), true, key);
+      assert.equal(isQaVerificationCaptureEnabled(env), true, key);
+    }
+  }
+  const result = await getStagingLoadTestTarget({ ...baseEnv, QA_PAYMENT_MODE: ' DISABLED ' }, async () => expectedDbIdentity);
+  assert.equal(result.loadTestAllowed, true);
+  assert.equal(result.payments, 'disabled');
+});
+
+test('missing, false, and unknown QA markers still fail closed after normalization', async () => {
+  for (const key of ['QA_LOAD_TEST_ALLOWED', 'QA_VERIFICATION_CAPTURE_ENABLED', 'NOTIFICATIONS_DISABLED', 'QA_NOTIFICATION_MODE', 'SMS_PROVIDER', 'VERIFICATION_PROVIDER', 'QA_PAYMENT_MODE']) {
+    for (const value of [undefined, '', ' ', ' FALSE ', 'unknown', '1', 'yes', 'production']) {
+      const env = { ...baseEnv, [key]: value };
+      let queried = false;
+      const result = await getStagingLoadTestTarget(env, async () => {
+        queried = true;
+        return expectedDbIdentity;
+      });
+      assert.equal(result.loadTestAllowed, false, key);
+      assert.equal(queried, false, key);
+    }
+  }
+});
+
+test('normalization preserves exact credential and database identity comparisons', async () => {
+  const token = '  MixedCase-Synthetic-Capture-Token-Only  ';
+  const env = { ...baseEnv, APP_ENV: ' STAGING ', QA_VERIFICATION_CAPTURE_TOKEN: token };
+  const original = JSON.stringify(env);
+  assert.equal(isValidQaVerificationCaptureToken(token, env), true);
+  assert.equal(isValidQaVerificationCaptureToken(token.trim(), env), false);
+  assert.equal(isValidQaVerificationCaptureToken(token.toLowerCase(), env), false);
+  const result = await getStagingLoadTestTarget(env, async () => expectedDbIdentity);
+  assert.equal(result.loadTestAllowed, true);
+  assert.equal(JSON.stringify(env) === original, true, 'environment values must not be mutated');
+  for (const key of ['QA_EXPECTED_DATABASE_NAME', 'QA_EXPECTED_DATABASE_SCHEMA', 'QA_EXPECTED_DATABASE_ROLE', 'QA_LOAD_TEST_TARGET_ID']) {
+    const blocked = await getStagingLoadTestTarget({ ...env, [key]: ` ${env[key]} ` }, async () => expectedDbIdentity);
+    assert.equal(blocked.loadTestAllowed, false, 'identity pins remain exact');
+  }
+  for (const key of ['DATABASE_URL', 'DIRECT_URL']) {
+    const blocked = await getStagingLoadTestTarget({ ...env, [key]: env[key].replace('neondb', 'NEONDB') }, async () => expectedDbIdentity);
+    assert.equal(blocked.loadTestAllowed, false, 'URL identity remains case sensitive');
+  }
+  const blocked = await getStagingLoadTestTarget({ ...env, PAYMENT_GATEWAY_ENABLED: ' TRUE ' }, async () => expectedDbIdentity);
+  assert.equal(blocked.loadTestAllowed, false, 'enabled payment gateways remain blocked');
+  const configuredSecret = await getStagingLoadTestTarget({ ...env, STRIPE_SECRET_KEY: ' ' }, async () => expectedDbIdentity);
+  assert.equal(configuredSecret.loadTestAllowed, false, 'configured payment credentials must not be trimmed away');
 });
 
 test('missing, false, unknown, unsafe notification, or unsafe payment markers fail closed before DB inspection', async () => {

@@ -30,6 +30,7 @@ import { createStockNotificationJob } from './services/stockNotifications.js';
 import { corsMiddleware, securityHeadersMiddleware } from './utils/edgeSecurity.js';
 import { productionDatabaseIdentityReady } from './utils/databaseReadiness.js';
 import { getStagingLoadTestTarget } from './utils/stagingLoadTestSafety.js';
+import { isStagingQaEnvironment } from './utils/qaEnvironmentMarkers.js';
 import {
   consumeQaVerificationCapture,
   discardQaVerificationCapture,
@@ -161,7 +162,7 @@ app.get('/api/health/ready', async (req, res) => {
 // Public, non-secret preflight. Production/local services never expose load-test authorization.
 app.get('/api/health/load-test-target', async (req, res) => {
   res.set('Cache-Control', 'no-store');
-  if (process.env.DEPLOYMENT_ENV !== 'staging' || process.env.APP_ENV !== 'staging') return res.sendStatus(404);
+  if (!isStagingQaEnvironment()) return res.sendStatus(404);
   const target = await getStagingLoadTestTarget(process.env, async () => {
     const [identity] = await prisma.$queryRaw`
       SELECT current_database()::text AS database,
