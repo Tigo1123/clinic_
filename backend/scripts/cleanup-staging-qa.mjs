@@ -232,23 +232,47 @@ export async function cleanupStagingQa({ env = process.env, client } = {}) {
   }
 }
 
-export async function cleanupCli({ env = process.env, args = [], createClient = options => new Client(options), log = line => console.log(line) } = {}) {
+export function cleanupRefusalReason(error) {
+  return error instanceof CleanupRefusal && REFUSALS.has(error.reason) ? error.reason : 'cleanup_failed';
+}
+
+// The HTTP diagnostic has no execution option. Override inherited cleanup
+// settings before validation and freeze this private snapshot for the whole run.
+export function cleanupDryRunEnvironment(env = process.env) {
+  return Object.freeze({ ...env,
+    QA_CLEANUP_NAMESPACE: CLEANUP_NAMESPACE,
+    QA_EXPECTED_CLEANUP_ACCOUNTS: '9',
+    QA_EXPECTED_CLEANUP_APPOINTMENTS: '8',
+    QA_EXECUTE_CLEANUP: 'false'
+  });
+}
+
+async function withCleanupClient(env, createClient) {
   let client;
   try {
-    requireSafe(args.length === 0, 'invalid_execution_flag');
     validateCleanupEnvironment(env); // Reject unsafe markers before connecting.
     client = createClient({ connectionString: env.DATABASE_URL, connectionTimeoutMillis: 10_000 });
     // pg may emit connection errors between awaited queries. Do not let an
     // unhandled event print raw provider/connection error details.
     client.on?.('error', () => {});
     await client.connect();
-    const result = await cleanupStagingQa({ env, client });
-    log(JSON.stringify(result));
+    return await cleanupStagingQa({ env, client });
+  } finally { if (client) await client.end().catch(() => {}); }
+}
+
+export async function cleanupStagingQaDryRun({ env = process.env, createClient = options => new Client(options) } = {}) {
+  return withCleanupClient(cleanupDryRunEnvironment(env), createClient);
+}
+
+export async function cleanupCli({ env = process.env, args = [], createClient = options => new Client(options), log = line => console.log(line) } = {}) {
+  try {
+    requireSafe(args.length === 0, 'invalid_execution_flag');
+    log(JSON.stringify(await withCleanupClient(env, createClient)));
     return 0;
   } catch (error) {
-    log(JSON.stringify({ namespace: CLEANUP_NAMESPACE, result: 'REFUSED', reason: error instanceof CleanupRefusal ? error.reason : 'cleanup_failed' }));
+    log(JSON.stringify({ namespace: CLEANUP_NAMESPACE, result: 'REFUSED', reason: cleanupRefusalReason(error) }));
     return 1;
-  } finally { if (client) await client.end().catch(() => {}); }
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) process.exitCode = await cleanupCli({ args: process.argv.slice(2) });

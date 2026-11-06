@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
+import express from 'express';
+import request from 'supertest';
 import { CLEANUP_NAMESPACE, cleanupCli, cleanupStagingQa, validateCleanupEnvironment } from '../scripts/cleanup-staging-qa.mjs';
+import { registerQaCleanupDryRunRoute } from '../src/routes/qaCleanupDryRun.js';
 import { registrationBody, syntheticPatient } from '../scripts/qaPatientPlan.mjs';
 
 const safeEnv = {
@@ -159,6 +162,47 @@ test('dry-run validates the complete real schema footprint and changes no rows',
   assert.ok(result.counts.notifications > 0, 'real migration triggers generated QA notices');
   assert.deepEqual(await scopedCounts(), before);
   for (const sensitive of [safeEnv.DATABASE_URL, safeEnv.QA_VERIFICATION_CAPTURE_TOKEN, 'unused-test-hash']) assert.equal(JSON.stringify(result).includes(sensitive), false);
+});
+
+test('HTTP diagnostic forces read-only PostgreSQL validation despite inherited execution=true', integration, async () => {
+  const before = await scopedCounts();
+  const auditBefore = (await owner.query('SELECT count(*)::int AS count FROM public."TenantAuditLog"')).rows[0].count;
+  const notificationsBefore = (await owner.query('SELECT count(*)::int AS count FROM public."Notification"')).rows[0].count;
+  const scopedNotifications = (await owner.query('SELECT count(*)::int AS count FROM public."Notification" WHERE "userId"=ANY($1::text[]) OR "entityId"=ANY($2::text[])',
+    [fixture.users, [...fixture.users, ...fixture.patients, ...fixture.appointments]])).rows[0].count;
+  const gateClient = await runtime();
+  const queries = [];
+  const app = express();
+  registerQaCleanupDryRunRoute(app, {
+    env: { ...safeEnv, QA_EXECUTE_CLEANUP: 'true' },
+    prismaClient: { $queryRaw: async () => (await gateClient.query('SELECT current_database()::text AS database, current_schema()::text AS schema, current_user::text AS role')).rows },
+    createClient: () => {
+      // Connect only to the explicitly guarded disposable Unix socket. Never
+      // use the synthetic Neon URL supplied to environment safety validation.
+      const client = new Client({ host: socket, database: 'neondb', user: 'clinic_runtime' });
+      return { on: (...args) => client.on(...args), connect: () => client.connect(), end: () => client.end(),
+        query: async (sql, values) => {
+          queries.push(sql);
+          assert.equal(/\b(INSERT|UPDATE|DELETE|TRUNCATE|COMMIT)\b/i.test(sql), false);
+          const result = await client.query(sql, values);
+          if (sql.startsWith('BEGIN')) {
+            const { rows: [settings] } = await client.query("SELECT current_setting('transaction_read_only') AS readonly, current_setting('transaction_isolation') AS isolation");
+            assert.deepEqual(settings, { readonly: 'on', isolation: 'serializable' });
+          }
+          return result;
+        } };
+    }
+  });
+  const response = await request(app).get('/api/qa/cleanup-dry-run')
+    .set('Authorization', `Bearer ${safeEnv.QA_VERIFICATION_CAPTURE_TOKEN}`).expect(200);
+  assert.deepEqual(response.body, { namespace: CLEANUP_NAMESPACE, dryRun: true, deleted: false,
+    counts: { accounts: 9, patients: 8, appointments: 8, registrations: 9, verificationChallenges: 9,
+      authenticationChallenges: 0, auditRows: 33, notifications: scopedNotifications } });
+  assert.equal(queries[0], 'BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY');
+  assert.equal(queries.at(-1), 'ROLLBACK');
+  assert.deepEqual(await scopedCounts(), before);
+  assert.equal((await owner.query('SELECT count(*)::int AS count FROM public."TenantAuditLog"')).rows[0].count, auditBefore);
+  assert.equal((await owner.query('SELECT count(*)::int AS count FROM public."Notification"')).rows[0].count, notificationsBefore);
 });
 
 test('actual count mismatch refuses deletion and leaves all accounts untouched', integration, async () => {
