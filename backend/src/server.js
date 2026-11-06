@@ -33,6 +33,7 @@ import { getStagingLoadTestTarget } from './utils/stagingLoadTestSafety.js';
 import { isStagingQaEnvironment } from './utils/qaEnvironmentMarkers.js';
 import { registerQaVerificationCaptureRoutes } from './routes/qaVerificationCapture.js';
 import { registerQaCleanupDryRunRoute } from './routes/qaCleanupDryRun.js';
+import { registerQaCleanupExecuteRoute } from './routes/qaCleanupExecute.js';
 import { recordHttpRequest, renderMetrics } from './utils/observability.js';
 
 // Load environment configuration
@@ -107,6 +108,7 @@ app.use(corsMiddleware(allowedOrigins));
 
 // Reject diagnostic payloads before JSON parsing; no request input is accepted.
 registerQaCleanupDryRunRoute(app, { prismaClient: prisma });
+registerQaCleanupExecuteRoute(app, { prismaClient: prisma });
 
 // Parse incoming request payloads
 app.use(express.json());
