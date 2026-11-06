@@ -3,11 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
-import express from 'express';
-import request from 'supertest';
 import { CLEANUP_NAMESPACE, cleanupCli, cleanupStagingQa, validateCleanupEnvironment } from '../scripts/cleanup-staging-qa.mjs';
-import { registerQaCleanupDryRunRoute } from '../src/routes/qaCleanupDryRun.js';
-import { registerQaCleanupExecuteRoute } from '../src/routes/qaCleanupExecute.js';
 import { registrationBody, syntheticPatient } from '../scripts/qaPatientPlan.mjs';
 
 const safeEnv = {
@@ -155,39 +151,6 @@ const scopedCounts = async () => (await owner.query(`SELECT
   (SELECT count(*)::int FROM public."Appointment" WHERE id=ANY($3::text[])) AS appointments`, [fixture.users, fixture.patients, fixture.appointments])).rows[0];
 const execute = async (changes = {}, client) => cleanupStagingQa({ env: { ...safeEnv, QA_EXECUTE_CLEANUP: 'true', ...changes }, client: client || await runtime() });
 
-// These HTTP requests target an in-process fixture app, never the live staging
-// service. Both gate and execution connections use the guarded test socket.
-async function executeHttp(overrides = {}, { lateFailure = false } = {}) {
-  const gateClient = await runtime(), queries = [], settings = [];
-  const app = express();
-  registerQaCleanupExecuteRoute(app, {
-    env: { ...safeEnv, QA_CLEANUP_EXECUTION_ALLOWED: 'true', ...overrides },
-    prismaClient: { $queryRaw: async () => (await gateClient.query('SELECT current_database()::text AS database, current_schema()::text AS schema, current_user::text AS role')).rows },
-    createClient: () => {
-      const client = new Client({ host: socket, database: 'neondb', user: 'clinic_runtime' });
-      return { on: (...args) => client.on(...args), connect: () => client.connect(), end: () => client.end(),
-        query: async (sql, values) => {
-          queries.push({ sql, values });
-          if (lateFailure && sql.startsWith('DELETE FROM public."User"')) {
-            throw new Error('synthetic-private-db-error token-fixture password-fixture');
-          }
-          const result = await client.query(sql, values);
-          if (sql.startsWith('BEGIN')) settings.push((await client.query("SELECT current_setting('transaction_read_only') AS readonly, current_setting('transaction_isolation') AS isolation")).rows[0]);
-          return result;
-        } };
-    }
-  });
-  const response = await request(app).post('/api/qa/cleanup-execute')
-    .set('Authorization', `Bearer ${safeEnv.QA_VERIFICATION_CAPTURE_TOKEN}`);
-  return { response, queries, settings };
-}
-
-async function footprintCounts() {
-  const tables = ['User', 'Patient', 'Appointment', 'PatientRegistration', 'VerificationChallenge', 'MfaChallenge', 'TenantAuditLog', 'Notification'];
-  return Object.fromEntries(await Promise.all(tables.map(async table => [table,
-    (await owner.query(`SELECT count(*)::int AS count FROM public."${table}"`)).rows[0].count])));
-}
-
 test('dry-run validates the complete real schema footprint and changes no rows', integration, async () => {
   const before = await scopedCounts();
   const result = await cleanupStagingQa({ env: safeEnv, client: await runtime() });
@@ -196,135 +159,6 @@ test('dry-run validates the complete real schema footprint and changes no rows',
   assert.ok(result.counts.notifications > 0, 'real migration triggers generated QA notices');
   assert.deepEqual(await scopedCounts(), before);
   for (const sensitive of [safeEnv.DATABASE_URL, safeEnv.QA_VERIFICATION_CAPTURE_TOKEN, 'unused-test-hash']) assert.equal(JSON.stringify(result).includes(sensitive), false);
-});
-
-test('HTTP diagnostic forces read-only PostgreSQL validation despite inherited execution=true', integration, async () => {
-  const before = await scopedCounts();
-  const auditBefore = (await owner.query('SELECT count(*)::int AS count FROM public."TenantAuditLog"')).rows[0].count;
-  const notificationsBefore = (await owner.query('SELECT count(*)::int AS count FROM public."Notification"')).rows[0].count;
-  const scopedNotifications = (await owner.query('SELECT count(*)::int AS count FROM public."Notification" WHERE "userId"=ANY($1::text[]) OR "entityId"=ANY($2::text[])',
-    [fixture.users, [...fixture.users, ...fixture.patients, ...fixture.appointments]])).rows[0].count;
-  const gateClient = await runtime();
-  const queries = [];
-  const app = express();
-  registerQaCleanupDryRunRoute(app, {
-    env: { ...safeEnv, QA_EXECUTE_CLEANUP: 'true' },
-    prismaClient: { $queryRaw: async () => (await gateClient.query('SELECT current_database()::text AS database, current_schema()::text AS schema, current_user::text AS role')).rows },
-    createClient: () => {
-      // Connect only to the explicitly guarded disposable Unix socket. Never
-      // use the synthetic Neon URL supplied to environment safety validation.
-      const client = new Client({ host: socket, database: 'neondb', user: 'clinic_runtime' });
-      return { on: (...args) => client.on(...args), connect: () => client.connect(), end: () => client.end(),
-        query: async (sql, values) => {
-          queries.push(sql);
-          assert.equal(/\b(INSERT|UPDATE|DELETE|TRUNCATE|COMMIT)\b/i.test(sql), false);
-          const result = await client.query(sql, values);
-          if (sql.startsWith('BEGIN')) {
-            const { rows: [settings] } = await client.query("SELECT current_setting('transaction_read_only') AS readonly, current_setting('transaction_isolation') AS isolation");
-            assert.deepEqual(settings, { readonly: 'on', isolation: 'serializable' });
-          }
-          return result;
-        } };
-    }
-  });
-  const response = await request(app).get('/api/qa/cleanup-dry-run')
-    .set('Authorization', `Bearer ${safeEnv.QA_VERIFICATION_CAPTURE_TOKEN}`).expect(200);
-  assert.deepEqual(response.body, { namespace: CLEANUP_NAMESPACE, dryRun: true, deleted: false,
-    counts: { accounts: 9, patients: 8, appointments: 8, registrations: 9, verificationChallenges: 9,
-      authenticationChallenges: 0, auditRows: 33, notifications: scopedNotifications } });
-  assert.equal(queries[0], 'BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY');
-  assert.equal(queries.at(-1), 'ROLLBACK');
-  assert.deepEqual(await scopedCounts(), before);
-  assert.equal((await owner.query('SELECT count(*)::int AS count FROM public."TenantAuditLog"')).rows[0].count, auditBefore);
-  assert.equal((await owner.query('SELECT count(*)::int AS count FROM public."Notification"')).rows[0].count, notificationsBefore);
-});
-
-test('HTTP execution revalidates the full footprint before exact-scope deletion and preserves unrelated rows', integration, async () => {
-  const unrelated = async () => (await owner.query(`SELECT
-    (SELECT row_to_json(u) FROM public."User" u WHERE id=$1) AS account,
-    (SELECT row_to_json(p) FROM public."Patient" p WHERE id=$2) AS patient,
-    (SELECT row_to_json(a) FROM public."Appointment" a WHERE id=$3) AS appointment,
-    (SELECT jsonb_agg(to_jsonb(n) ORDER BY id) FROM public."Notification" n WHERE "entityId"=ANY($4::text[])) AS notifications,
-    (SELECT jsonb_agg(to_jsonb(l) ORDER BY id) FROM public."TenantAuditLog" l WHERE "userId"=$1) AS audits`,
-  [fixture.unrelatedUser, fixture.unrelatedPatient, fixture.unrelatedAppointment,
-    [fixture.unrelatedUser, fixture.unrelatedPatient, fixture.unrelatedAppointment]])).rows[0];
-  const before = await unrelated();
-  const { response, queries, settings } = await executeHttp({ QA_CLEANUP_NAMESPACE: 'qa-20261106-deadbeef',
-    QA_EXPECTED_CLEANUP_ACCOUNTS: '0', QA_EXPECTED_CLEANUP_APPOINTMENTS: '0', QA_EXECUTE_CLEANUP: 'false' });
-  assert.equal(response.status, 200);
-  assert.deepEqual(response.body, { namespace: CLEANUP_NAMESPACE, deleted: true, remaining: { users: 0, patients: 0, appointments: 0 } });
-  assert.deepEqual(settings, [{ readonly: 'off', isolation: 'serializable' }]);
-  assert.equal(queries[0].sql, 'BEGIN ISOLATION LEVEL SERIALIZABLE');
-  const firstDelete = queries.findIndex(q => q.sql.startsWith('DELETE'));
-  const validated = queries.slice(0, firstDelete).map(q => q.sql);
-  assert.ok(firstDelete > 0);
-  assert.ok(validated.some(sql => sql.startsWith('SELECT current_database')));
-  assert.ok(validated.some(sql => sql.includes('SELECT DISTINCT ns.nspname')));
-  for (const table of ['User', 'Patient', 'Appointment', 'PatientRegistration', 'VerificationChallenge', 'MfaChallenge', 'TenantAuditLog', 'Notification']) {
-    assert.ok(validated.some(sql => sql.includes(`FROM public."${table}"`) && sql.endsWith(' FOR UPDATE')));
-  }
-  const deletions = queries.filter(q => q.sql.startsWith('DELETE'));
-  assert.ok(deletions[0].sql.startsWith('DELETE FROM public."Appointment"'));
-  assert.ok(deletions.every(q => / WHERE "(?:id|userId)"=ANY\(\$1::text\[\]\)$/.test(q.sql)));
-  assert.equal(queries.at(-1).sql, 'COMMIT');
-  assert.deepEqual(await scopedCounts(), { users: 0, patients: 0, appointments: 0 });
-  assert.deepEqual(await unrelated(), before);
-  for (const sensitive of [safeEnv.DATABASE_URL, safeEnv.DIRECT_URL, safeEnv.QA_VERIFICATION_CAPTURE_TOKEN,
-    ...fixture.users, ...fixture.patients, ...fixture.appointments, 'example.invalid', 'clinic_runtime', 'neondb']) {
-    assert.equal(response.text.includes(sensitive), false);
-  }
-  const replay = await executeHttp();
-  assert.equal(replay.response.status, 409);
-  assert.deepEqual(replay.response.body, { result: 'REFUSED', reason: 'count_mismatch' });
-  assert.equal(replay.queries.some(q => q.sql.startsWith('DELETE')), false);
-  assert.deepEqual(await unrelated(), before);
-});
-
-for (const table of ['User', 'Patient', 'Appointment', 'PatientRegistration', 'VerificationChallenge']) {
-  test(`HTTP execution refuses changed ${table} counts and rolls back before any DELETE`, integration, async () => {
-    if (table === 'Patient') await owner.query('DELETE FROM public."Appointment" WHERE id=$1', [fixture.appointments[0]]);
-    const id = table === 'User' ? fixture.users[8] : table === 'Patient' ? fixture.patients[0] : table === 'Appointment' ? fixture.appointments[0] : fixture.users[0];
-    const column = ['PatientRegistration', 'VerificationChallenge'].includes(table) ? 'userId' : 'id';
-    await owner.query(`DELETE FROM public."${table}" WHERE "${column}"=$1`, [id]);
-    const before = await footprintCounts();
-    const { response, queries } = await executeHttp();
-    assert.equal(response.status, 409);
-    assert.deepEqual(response.body, { result: 'REFUSED', reason: table === 'VerificationChallenge' ? 'unexpected_challenge' : 'count_mismatch' });
-    assert.equal(queries.at(-1).sql, 'ROLLBACK');
-    assert.equal(queries.some(q => q.sql.startsWith('DELETE')), false);
-    assert.deepEqual(await footprintCounts(), before);
-  });
-}
-
-for (const table of ['MedicalRecord', 'Invoice']) {
-  test(`HTTP execution refuses unexpected ${table} and rolls back without deletion`, integration, async () => {
-    if (table === 'MedicalRecord') {
-      await owner.query('INSERT INTO public."MedicalRecord" (id,"patientId","doctorId","appointmentId","symptomsEncrypted","diagnosisEncrypted","treatmentEncrypted","vitalSignsJson","clinicalNotesEncrypted") VALUES ($1,$2,$3,$4,$5,$5,$5,$6,$5)',
-        [randomUUID(), fixture.patients[0], fixture.doctorId, fixture.appointments[0], 'synthetic', '{}']);
-    } else {
-      await owner.query('INSERT INTO public."Invoice" (id,"patientId","appointmentId","totalAmountSdg","totalAmountUsd","invoiceExchangeRate","createdBy") VALUES ($1,$2,$3,0,0,1,$4)',
-        [randomUUID(), fixture.patients[0], fixture.appointments[0], fixture.unrelatedUser]);
-    }
-    const before = await footprintCounts();
-    const { response, queries } = await executeHttp();
-    assert.equal(response.status, 409);
-    assert.deepEqual(response.body, { result: 'REFUSED', reason: 'unexpected_related_records' });
-    assert.equal(queries.at(-1).sql, 'ROLLBACK');
-    assert.equal(queries.some(q => q.sql.startsWith('DELETE')), false);
-    assert.deepEqual(await footprintCounts(), before);
-    assert.equal((await owner.query(`SELECT count(*)::int AS count FROM public."${table}"`)).rows[0].count, 1);
-  });
-}
-
-test('HTTP execution rolls back every earlier deletion on late failure without exposing raw errors', integration, async () => {
-  const before = await footprintCounts();
-  const { response, queries } = await executeHttp({}, { lateFailure: true });
-  assert.equal(response.status, 409);
-  assert.deepEqual(response.body, { result: 'REFUSED', reason: 'cleanup_failed' });
-  assert.ok(queries.some(q => q.sql.startsWith('DELETE FROM public."Patient"')));
-  assert.equal(queries.at(-1).sql, 'ROLLBACK');
-  assert.equal(queries.some(q => q.sql === 'COMMIT'), false);
-  assert.deepEqual(await footprintCounts(), before);
 });
 
 test('actual count mismatch refuses deletion and leaves all accounts untouched', integration, async () => {

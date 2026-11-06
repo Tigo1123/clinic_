@@ -232,19 +232,8 @@ export async function cleanupStagingQa({ env = process.env, client } = {}) {
   }
 }
 
-export function cleanupRefusalReason(error) {
+function cleanupRefusalReason(error) {
   return error instanceof CleanupRefusal && REFUSALS.has(error.reason) ? error.reason : 'cleanup_failed';
-}
-
-// The HTTP diagnostic has no execution option. Override inherited cleanup
-// settings before validation and freeze this private snapshot for the whole run.
-export function cleanupDryRunEnvironment(env = process.env) {
-  return Object.freeze({ ...env,
-    QA_CLEANUP_NAMESPACE: CLEANUP_NAMESPACE,
-    QA_EXPECTED_CLEANUP_ACCOUNTS: '9',
-    QA_EXPECTED_CLEANUP_APPOINTMENTS: '8',
-    QA_EXECUTE_CLEANUP: 'false'
-  });
 }
 
 async function withCleanupClient(env, createClient) {
@@ -258,10 +247,6 @@ async function withCleanupClient(env, createClient) {
     await client.connect();
     return await cleanupStagingQa({ env, client });
   } finally { if (client) await client.end().catch(() => {}); }
-}
-
-export async function cleanupStagingQaDryRun({ env = process.env, createClient = options => new Client(options) } = {}) {
-  return withCleanupClient(cleanupDryRunEnvironment(env), createClient);
 }
 
 export async function cleanupCli({ env = process.env, args = [], createClient = options => new Client(options), log = line => console.log(line) } = {}) {
