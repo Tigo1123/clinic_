@@ -1,7 +1,7 @@
 import { ID, PATIENT_COUNT, STAGES, STAGING_API, STAGING_TARGET } from './qaPatientPlan.mjs';
 
 export const REASONS = new Set([
-  'not_started', 'completed', 'workflow_prerequisites_blocked', 'execution_disabled', 'gate_invalid', 'run_interrupted', 'invalid_configuration',
+  'not_started', 'completed', 'workflow_prerequisites_blocked', 'execution_disabled', 'gate_invalid', 'gate_transport_retry_exhausted', 'run_interrupted', 'invalid_configuration',
   'request_not_allowed', 'request_failed', 'invalid_response', 'authorization_failure',
   'retry_budget_exhausted', 'retry_after_exceeds_budget', 'mutation_outcome_unknown',
   'address_fixture_unavailable', 'registration_failed', 'capture_failed', 'capture_authentication_failed', 'verification_failed',
@@ -18,7 +18,7 @@ const timestamp = value => typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\
 export function createQaReport() {
   return { gate: 'BLOCKED', result: 'BLOCKED', workflowStarted: false, runNamespace: null,
     startedAt: new Date().toISOString(), finishedAt: null, patients: [], reason: 'not_started',
-    httpStatuses: {}, retries: 0, networkFailures: 0, unexpected4xx: 0, serverErrors: 0,
+    httpStatuses: {}, retries: 0, gateRetryCount: 0, networkFailures: 0, unexpected4xx: 0, serverErrors: 0,
     securityFailures: 0, latencies: [], gateChecks: 0, notificationsSinkConfirmed: false,
     paymentsDisabledConfirmed: false, captureAuthenticationPassed: false, lastGateCheckAt: null, concurrency: 0, maxActiveRequests: 0 };
 }
@@ -56,7 +56,8 @@ export function publicQaReport(report) {
     patientsVerified: stages.verification.success, loginSuccess: stages.login.success, loginFailure: stages.login.failure,
     workflowStarted: report.workflowStarted === true, stages, patients,
     httpStatusBreakdown: Object.fromEntries(Object.entries(report.httpStatuses || {}).filter(([key]) => /^[1-5]\d\d$/.test(key)).map(([key, count]) => [key, number(count)])),
-    retryCount: number(report.retries), networkFailures: number(report.networkFailures),
+    retryCount: number(report.retries) + number(report.gateRetryCount),
+    gateRetryCount: number(report.gateRetryCount), workflowRetryCount: number(report.retries), networkFailures: number(report.networkFailures),
     unexpected4xx: number(report.unexpected4xx), serverErrors5xx: number(report.serverErrors),
     securityAuthorizationFailures: number(report.securityFailures),
     latencyMs: { count: latencies.length, min: latencies[0] || 0, max: latencies.at(-1) || 0,
@@ -79,7 +80,7 @@ export function qaMarkdown(report) {
     + `Requested: ${report.requestedPatients}; created: ${report.patientsCreated}; verified: ${report.patientsVerified}; login success/failure: ${report.loginSuccess}/${report.loginFailure}.\n\n`
     + '| Stage | Success | Failure | Blocked |\n| --- | ---: | ---: | ---: |\n'
     + Object.entries(report.stages).map(([stage, count]) => `| ${stage} | ${count.success} | ${count.failure} | ${count.blocked} |`).join('\n')
-    + `\n\nHTTP statuses: ${JSON.stringify(report.httpStatusBreakdown)}\n\nRetries: ${report.retryCount}; unexpected 4xx: ${report.unexpected4xx}; 5xx: ${report.serverErrors5xx}; security/authorization failures: ${report.securityAuthorizationFailures}.\n\n`
+    + `\n\nHTTP statuses: ${JSON.stringify(report.httpStatusBreakdown)}\n\nRetries: ${report.retryCount} (gate: ${report.gateRetryCount}); unexpected 4xx: ${report.unexpected4xx}; 5xx: ${report.serverErrors5xx}; security/authorization failures: ${report.securityAuthorizationFailures}.\n\n`
     + `Latency (ms): ${JSON.stringify(report.latencyMs)}\n\nNotification sink confirmed: ${report.notificationSinkConfirmed}; payments disabled confirmed: ${report.paymentDisabledConfirmed}; capture authentication passed: ${report.captureAuthenticationPassed}.\n\n`
     + `Cleanup candidates: ${report.cleanupCandidates.length}. No cleanup performed. See the companion JSON for synthetic identities, exact IDs, per-patient outcomes, and blocked reasons.\n`;
 }

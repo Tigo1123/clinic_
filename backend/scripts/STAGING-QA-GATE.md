@@ -122,7 +122,14 @@ hours for a full run. Do not raise server limits or rotate IPs to speed it up.
 
 The gate is checked before every workflow request, at intervals of at most
 30 seconds during pacing/retry waits, and at completion. Request timeout is
-20 seconds. GET 5xx and 429 responses allow at most two retries. Retry-After
+20 seconds. A gate transport failure classified locally as `request_failed`
+allows at most two retries, after 2 and 5 seconds. Each retry starts the entire
+target/liveness/readiness sequence again; no workflow request proceeds until a
+fresh full PASS. Content/target/configuration mismatches, invalid JSON, 401/403,
+explicit non-PASS responses and aborts never qualify. Exhaustion stops with
+`gate_transport_retry_exhausted`. Reports include `gateRetryCount`;
+`retryCount` includes gate plus workflow retries, and `workflowRetryCount`
+retains the workflow-only count. GET 5xx and 429 responses allow at most two retries. Retry-After
 is honored; waits beyond 20 minutes fail instead of retrying early. A shared
 cooldown prevents retry storms. Network failures are not retried. POST 5xx
 responses and one-time capture 5xx responses are not replayed, since their
@@ -191,6 +198,66 @@ node test/full-system-qa-runner.test.js
 node test/staging-load-test-safety.test.js
 node test/qa-run-namespace.test.js
 ```
+
+## Interrupted-run cleanup (one namespace only; never automatic)
+
+`cleanup-staging-qa.mjs` is pinned to `qa-20261106-c16af28a` and target
+`clinic-staging-qa-20261106`. It reuses the full existing staging environment
+preflight, including the pinned staging URL checks, sink/capture markers and
+disabled/ledger-only payment policy. Its connected database must additionally
+be exactly `neondb`, schema `public`, role `clinic_runtime`; configured expected
+identity markers must agree. It uses the normal staging `DATABASE_URL` already
+available in the Render shell, without printing it or loading local `.env` files.
+
+Later dry-run command, **from the Render staging backend shell**:
+
+```sh
+QA_CLEANUP_NAMESPACE=qa-20261106-c16af28a \
+QA_EXPECTED_CLEANUP_ACCOUNTS=9 \
+QA_EXPECTED_CLEANUP_APPOINTMENTS=8 \
+QA_EXECUTE_CLEANUP=false \
+node scripts/cleanup-staging-qa.mjs
+```
+
+This performs a serializable **read-only** transaction and rolls it back. No
+cleanup is performed as part of implementation validation. Actual deletion
+requires a separately authorized invocation with `QA_EXECUTE_CLEANUP=true` and
+the same exact expected counts. The script accepts no CLI switches or arbitrary
+email patterns. Unknown execution values or other namespaces fail closed.
+
+The tool discovers exact generated namespace addresses, validates nine PATIENT
+users (eight ACTIVE, one PENDING_VERIFICATION), eight unchanged synthetic
+patient profiles, nine retained registrations/challenges, and exactly one
+PENDING appointment per verified patient. Audit provenance must agree with the
+runner's registration, patient creation and appointment creation records. It
+also validates any normal LOGIN MFA challenges and the database-generated
+PATIENT_REGISTERED/APPOINTMENT_BOOKED notices for those exact QA entities.
+Unexpected audit actions, changed profiles, progressed appointments, external
+identities/MFA enrollment, claims/consents, clinical/billing data, unknown
+referencing rows, missing privileges, unsupported relations or RLS cause refusal.
+Foreign keys (including cascade descendants) and public identifier columns
+without FKs are inspected; no cascade is trusted as proof that a row is safe.
+
+An approved deletion validates and locks the scope inside one serializable DB
+transaction. It deletes appointments first, then explicitly validated child
+rows, patients, audit rows scoped only by exact matched QA user IDs, and users.
+Only validated QA notice IDs are removed; unrelated staff notices/audits/users
+remain. Before commit it verifies no namespace users or matched patient/appointment
+IDs remain. Any count discrepancy or error rolls back the whole transaction.
+Output contains only namespace, fixed status/reason labels and safe counts.
+
+Offline recovery tests:
+
+```sh
+node test/qa-gate-recovery.test.js
+node test/staging-qa-cleanup.test.js
+```
+
+The cleanup integration cases require `QA_CLEANUP_TEST_SOCKET` pointing to a
+private disposable PostgreSQL cluster at `/tmp/shifa-qa-recovery-*/socket` with
+the test-only `qa_recovery_owner` login. They recreate the isolated `neondb`
+public schema, apply all repository migrations, and exercise deletion using a
+non-superuser `clinic_runtime`. They never use application connection URLs.
 
 Do not add secret values to this document, test output, screenshots, or QA
 reports. The exposed local QA password was rotated in ignored local QA

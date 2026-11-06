@@ -10,6 +10,7 @@ export const SENSITIVE_INTERVAL_MS = 95_000; // Below 10 requests / 15 minutes p
 const REQUEST_INTERVAL_MS = 250;
 const MAX_RETRIES = 2;
 const MAX_RETRY_WAIT_MS = 20 * 60_000;
+const GATE_RETRY_DELAYS_MS = [2000, 5000];
 const HEALTH = new Set(['/api/health/load-test-target', '/api/health', '/api/health/ready']);
 
 export function createQaTransport({ env, report, fetchImpl = fetch, now = Date.now,
@@ -47,13 +48,16 @@ export function createQaTransport({ env, report, fetchImpl = fetch, now = Date.n
       try {
         response = await fetchImpl(url.href, { ...options, method, redirect: 'error', cache: 'no-store',
           signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000) });
+        if ([401, 403].includes(response.status)) { report.securityFailures++; stop('authorization_failure'); }
         // Consume the bounded JSON response inside the timeout and queue. No
         // response bodies are logged or copied into reports.
         const text = await response.text();
-        if (text.length > 2_000_000) throw new Error('response_too_large');
+        if (text.length > 2_000_000) throw new QaRunError('invalid_response');
         response = new Response([204, 205, 304].includes(response.status) ? null : text,
           { status: response.status, headers: response.headers });
-      } catch {
+      } catch (error) {
+        if (error instanceof QaRunError) throw error;
+        if (signal?.aborted) { stop('run_interrupted'); throw new QaRunError('run_interrupted'); }
         report.networkFailures++;
         if (method !== 'GET') throw new QaRunError('mutation_outcome_unknown');
         throw new QaRunError('request_failed');
@@ -65,7 +69,6 @@ export function createQaTransport({ env, report, fetchImpl = fetch, now = Date.n
       if (status >= 500) report.serverErrors++;
       if (status >= 400 && status < 500 && status !== 429
           && !(status === 409 && url.pathname === '/api/patient/appointments')) report.unexpected4xx++;
-      if ([401, 403].includes(status)) { report.securityFailures++; stop('authorization_failure'); }
       if (url.pathname === '/api/health/load-test-target') {
         let target;
         try { target = await response.clone().json(); } catch { throw new QaRunError('gate_invalid'); }
@@ -82,19 +85,43 @@ export function createQaTransport({ env, report, fetchImpl = fetch, now = Date.n
   }
 
   async function checkGate() {
+    if (signal?.aborted) report.gate = 'BLOCKED';
     assertRunning();
     if (!gatePromise) {
       gatePromise = (async () => {
-        report.gateChecks++;
-        try {
-          const result = await verifyStagingQaGate({ env, fetchImpl: rawFetch });
-          report.gate = 'PASS';
-          report.lastGateCheckAt = new Date(now()).toISOString();
-          return result;
-        } catch {
+        // Invalidate any earlier PASS while the current full sequence is
+        // unresolved. All workflow requests await this shared promise.
+        report.gate = 'CHECKING';
+        function fail(reason) {
           report.gate = 'BLOCKED';
-          stop('gate_invalid');
-          throw new QaRunError('gate_invalid');
+          stop(reason);
+          throw new QaRunError(reason);
+        }
+        for (let attempt = 0; attempt <= GATE_RETRY_DELAYS_MS.length; attempt++) {
+          let transportFailed = false;
+          report.gateChecks++;
+          try {
+            const result = await verifyStagingQaGate({ env, fetchImpl: async (...args) => {
+              try { return await rawFetch(...args); }
+              catch (error) {
+                // verifyStagingQaGate intentionally hides fetch exceptions.
+                // Preserve only this local classification, never the exception.
+                transportFailed = error instanceof QaRunError && error.reason === 'request_failed';
+                throw error;
+              }
+            } });
+            assertRunning();
+            report.gate = 'PASS';
+            report.lastGateCheckAt = new Date(now()).toISOString();
+            return result;
+          } catch {
+            if (signal?.aborted || stopped === 'run_interrupted') fail('run_interrupted');
+            if (!transportFailed || stopped) fail('gate_invalid');
+            if (attempt === GATE_RETRY_DELAYS_MS.length) fail('gate_transport_retry_exhausted');
+            report.gateRetryCount = (report.gateRetryCount || 0) + 1;
+            try { await sleep(GATE_RETRY_DELAYS_MS[attempt]); assertRunning(); }
+            catch { fail(signal?.aborted || stopped === 'run_interrupted' ? 'run_interrupted' : 'gate_invalid'); }
+          }
         }
       })().finally(() => { gatePromise = null; });
     }
