@@ -2,6 +2,8 @@ import 'dotenv/config';
 import { DEFAULT_CLINIC_TIME_ZONE, isValidClinicTimeZone } from './utils/clinicTime.js';
 import { readSmtpConfig } from './utils/smtpConfig.js';
 import { getFacilityBranding } from './utils/facilityBranding.js';
+import { isQaVerificationCaptureEnabled } from './utils/qaVerificationCapture.js';
+import { normalizeQaMarker } from './utils/qaEnvironmentMarkers.js';
 
 const INSECURE_SECRETS = new Set([
   'secret', 'changeme', 'development-secret',
@@ -125,13 +127,15 @@ export function validateEnvironment() {
     if (!origins.length) errors.push('CORS_ALLOWED_ORIGINS must list trusted HTTPS origins.');
     if (origins.some((origin) => !isCanonicalProductionOrigin(origin))) errors.push('Production CORS origins must be canonical explicit HTTPS origins and cannot use wildcards.');
     if (process.env.VERIFICATION_PROVIDER === 'development') errors.push('The development verification provider is forbidden in production.');
-    if (process.env.VERIFICATION_PROVIDER === 'email') {
+    // The explicit staging QA capture configuration sinks email before any SMTP
+    // transport is created. Every other production email setup requires SMTP.
+    if (process.env.VERIFICATION_PROVIDER === 'email' && !isQaVerificationCaptureEnabled()) {
       try {
         readSmtpConfig(process.env, { required: true });
       } catch (error) {
         errors.push(error.message);
       }
-      if (process.env.NOTIFICATIONS_DISABLED === 'true') errors.push('NOTIFICATIONS_DISABLED cannot be true when email verification is enabled.');
+      if (normalizeQaMarker(process.env.NOTIFICATIONS_DISABLED) === 'true') errors.push('NOTIFICATIONS_DISABLED cannot be true when email verification is enabled.');
     }
     if (!['email', 'disabled'].includes(process.env.VERIFICATION_PROVIDER || '')) errors.push('VERIFICATION_PROVIDER must be email or disabled in production.');
   }
