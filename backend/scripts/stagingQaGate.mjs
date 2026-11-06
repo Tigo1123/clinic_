@@ -73,6 +73,25 @@ export async function verifyStagingQaGate({ env = process.env, fetchImpl = fetch
   return { apiOrigin: origin, environment: 'staging', targetId: target.targetId, gate: 'PASS' };
 }
 
+export async function verifyQaCaptureAuthentication({ gateResult, env = process.env, fetchImpl = fetch } = {}) {
+  const origin = validateStagingApiOrigin(env);
+  if (gateResult?.gate !== 'PASS' || gateResult.apiOrigin !== origin || gateResult.targetId !== env.QA_EXPECTED_TARGET_ID) {
+    throw new StagingQaGateError('staging_gate_pass_required_for_capture');
+  }
+  const token = env.QA_VERIFICATION_CAPTURE_TOKEN;
+  if (typeof token !== 'string' || token.length < 32) throw new StagingQaGateError('qa_capture_credential_missing');
+  let response;
+  try {
+    response = await fetchImpl(`${origin}/api/qa/verification-capture-auth-check`, {
+      method: 'GET', headers: { Authorization: `Bearer ${token}` }, redirect: 'error', cache: 'no-store'
+    });
+  } catch {
+    throw new StagingQaGateError('qa_capture_authentication_failed');
+  }
+  if (response.status !== 204) throw new StagingQaGateError('qa_capture_authentication_failed');
+  return true;
+}
+
 export async function fetchQaVerificationCode({ gateResult, challengeId, env = process.env, fetchImpl = fetch } = {}) {
   const origin = validateStagingApiOrigin(env);
   if (gateResult?.gate !== 'PASS' || gateResult.apiOrigin !== origin || gateResult.targetId !== env.QA_EXPECTED_TARGET_ID) {

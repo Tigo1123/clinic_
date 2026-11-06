@@ -4,7 +4,7 @@ export const REASONS = new Set([
   'not_started', 'completed', 'workflow_prerequisites_blocked', 'execution_disabled', 'gate_invalid', 'run_interrupted', 'invalid_configuration',
   'request_not_allowed', 'request_failed', 'invalid_response', 'authorization_failure',
   'retry_budget_exhausted', 'retry_after_exceeds_budget', 'mutation_outcome_unknown',
-  'address_fixture_unavailable', 'registration_failed', 'capture_failed', 'verification_failed',
+  'address_fixture_unavailable', 'registration_failed', 'capture_failed', 'capture_authentication_failed', 'verification_failed',
   'login_failed', 'identity_mismatch', 'non_synthetic_identity', 'registration_identity_conflict',
   'no_active_doctors', 'no_available_slots', 'slot_conflict', 'appointment_not_created',
   'clinical_staff_action_required', 'released_lab_fixture_required', 'prescription_fixture_required',
@@ -20,7 +20,7 @@ export function createQaReport() {
     startedAt: new Date().toISOString(), finishedAt: null, patients: [], reason: 'not_started',
     httpStatuses: {}, retries: 0, networkFailures: 0, unexpected4xx: 0, serverErrors: 0,
     securityFailures: 0, latencies: [], gateChecks: 0, notificationsSinkConfirmed: false,
-    paymentsDisabledConfirmed: false, lastGateCheckAt: null, concurrency: 0, maxActiveRequests: 0 };
+    paymentsDisabledConfirmed: false, captureAuthenticationPassed: false, lastGateCheckAt: null, concurrency: 0, maxActiveRequests: 0 };
 }
 
 // Construct output from known fields only. Never serialize response bodies,
@@ -66,6 +66,7 @@ export function publicQaReport(report) {
     gateChecks: number(report.gateChecks), lastGateCheckAt: timestamp(report.lastGateCheckAt),
     notificationSinkConfirmed: report.notificationsSinkConfirmed === true,
     paymentDisabledConfirmed: report.paymentsDisabledConfirmed === true,
+    captureAuthenticationPassed: report.captureAuthenticationPassed === true,
     externalNotificationRequests: 0, externalPaymentRequests: 0,
     cleanupCandidates: patients.filter(p => p.registrationAttempted).map(({ index, email, userId, patientId, appointmentId, ambiguousMutation }) =>
       ({ index, email, userId, patientId, appointmentId, ambiguousMutation })),
@@ -79,6 +80,6 @@ export function qaMarkdown(report) {
     + '| Stage | Success | Failure | Blocked |\n| --- | ---: | ---: | ---: |\n'
     + Object.entries(report.stages).map(([stage, count]) => `| ${stage} | ${count.success} | ${count.failure} | ${count.blocked} |`).join('\n')
     + `\n\nHTTP statuses: ${JSON.stringify(report.httpStatusBreakdown)}\n\nRetries: ${report.retryCount}; unexpected 4xx: ${report.unexpected4xx}; 5xx: ${report.serverErrors5xx}; security/authorization failures: ${report.securityAuthorizationFailures}.\n\n`
-    + `Latency (ms): ${JSON.stringify(report.latencyMs)}\n\nNotification sink confirmed: ${report.notificationSinkConfirmed}; payments disabled confirmed: ${report.paymentDisabledConfirmed}.\n\n`
+    + `Latency (ms): ${JSON.stringify(report.latencyMs)}\n\nNotification sink confirmed: ${report.notificationSinkConfirmed}; payments disabled confirmed: ${report.paymentDisabledConfirmed}; capture authentication passed: ${report.captureAuthenticationPassed}.\n\n`
     + `Cleanup candidates: ${report.cleanupCandidates.length}. No cleanup performed. See the companion JSON for synthetic identities, exact IDs, per-patient outcomes, and blocked reasons.\n`;
 }

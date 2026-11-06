@@ -1,5 +1,5 @@
 import { createQaRunNamespace } from './qaRunNamespace.mjs';
-import { fetchQaVerificationCode } from './stagingQaGate.mjs';
+import { fetchQaVerificationCode, verifyQaCaptureAuthentication } from './stagingQaGate.mjs';
 import { normalizeQaMarker } from '../src/utils/qaEnvironmentMarkers.js';
 import { assertSyntheticPatient, ID, PATIENT_COUNT, registrationBody, safeConcurrency, STAGES, syntheticPatient } from './qaPatientPlan.mjs';
 import { createQaReport, publicQaReport, safeReason } from './qaReport.mjs';
@@ -35,6 +35,15 @@ export async function runPatientQa({ env = process.env, fetchImpl = fetch, now =
     }
     try { report.concurrency = safeConcurrency(env.QA_MAX_CONCURRENCY ?? '2'); }
     catch { throw new QaRunError('invalid_configuration'); }
+    // A public PASS gate proves capture is enabled, not that this runner has
+    // the matching secret. Check authentication before creating any accounts.
+    try {
+      await verifyQaCaptureAuthentication({ gateResult: gate, env, fetchImpl: client.workflowFetch });
+      report.captureAuthenticationPassed = true;
+    } catch {
+      if (!client.stopped) report.securityFailures++;
+      throw new QaRunError(client.stopped || 'capture_authentication_failed');
+    }
     report.patients = Array.from({ length: PATIENT_COUNT }, () => ({ stages: Object.fromEntries(STAGES.map(stage => [stage, blocked('not_started')])) }));
     const addresses = await client.json('/api/patient-auth/address-states');
     const addressStateId = addresses?.states?.find(state => Number.isInteger(state.id) && state.id >= 1 && state.id <= 18)?.id;

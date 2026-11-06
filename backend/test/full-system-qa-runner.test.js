@@ -50,6 +50,8 @@ function stagingMock({ fixtures = false, override } = {}) {
       if (url.pathname === '/api/health/load-test-target') return json(target);
       if (url.pathname === '/api/health') return json({ status: 'alive' });
       if (url.pathname === '/api/health/ready') return json({ status: 'healthy' });
+      if (url.pathname === '/api/qa/verification-capture-auth-check') return options.headers.Authorization === `Bearer ${CAPTURE_TOKEN}`
+        ? new Response(null, { status: 204 }) : json({}, 404);
       if (url.pathname === '/api/patient-auth/address-states') return json({ states: [{ id: 1 }] });
       if (url.pathname === '/api/patient-auth/register') {
         assert.match(body.email, /^qa-\d{8}-[a-f0-9]{8}\+patient-\d{3}@example\.invalid$/);
@@ -127,6 +129,35 @@ test('wrong configured or server targetId blocks with zero patients', async () =
   }
 });
 
+test('wrong capture token blocks before any registration despite a PASS public gate', async () => {
+  const mock = stagingMock();
+  const wrong = 'wrong-synthetic-credential-long-enough-to-pass-length-validation';
+  const report = await runPatientQa({ ...mock.options, env: { ...env, QA_VERIFICATION_CAPTURE_TOKEN: wrong } });
+  assert.equal(report.gate, 'PASS');
+  assert.equal(report.result, 'BLOCKED');
+  assert.equal(report.reason, 'capture_authentication_failed');
+  assert.equal(report.captureAuthenticationPassed, false);
+  assert.equal(report.patientsCreated, 0);
+  assert.equal(report.workflowStarted, false);
+  assert.equal(report.securityAuthorizationFailures, 1);
+  assert.equal(mock.accounts.length, 0);
+  assert.ok(mock.calls.every(c => c.method === 'GET'));
+  assert.equal(JSON.stringify(report).includes(wrong), false);
+  assert.equal(mock.calls[0].path, '/api/health/load-test-target');
+});
+
+test('capture auth-check must return exactly 204 before any patient request', async () => {
+  for (const status of [200, 401, 403, 404, 503]) {
+    const mock = stagingMock({ override: call => call.path === '/api/qa/verification-capture-auth-check' ? json({ error: CAPTURE_TOKEN }, status) : null });
+    const report = await runPatientQa(mock.options);
+    assert.equal(report.patientsCreated, 0);
+    assert.equal(report.workflowStarted, false);
+    assert.ok(mock.calls.every(c => c.method === 'GET'));
+    assert.equal(mock.calls.some(c => c.path === '/api/patient-auth/address-states'), false);
+    assert.equal(JSON.stringify(report).includes(CAPTURE_TOKEN), false);
+  }
+});
+
 test('production, localhost, IP, frontend, HTTP, and unapproved staging origins never reach the network', async () => {
   for (const origin of ['https://clinic-api.onrender.com', 'https://production.example.test', 'https://localhost', 'https://127.0.0.1', 'https://[::1]', 'https://clinic-staging-web.onrender.com', 'http://clinic-staging-api.onrender.com', 'https://other-staging.example.test']) {
     let requested = false;
@@ -176,6 +207,10 @@ test('enabled execution creates exactly 100 accounts through real API contracts 
   assert.equal(report.patientsVerified, 100);
   assert.equal(report.loginSuccess, 100);
   assert.equal(report.loginFailure, 0);
+  assert.equal(report.captureAuthenticationPassed, true);
+  const authCheck = mock.calls.findIndex(c => c.path === '/api/qa/verification-capture-auth-check');
+  const registration = mock.calls.findIndex(c => c.path === '/api/patient-auth/register');
+  assert.ok(authCheck >= 0 && authCheck < registration);
   assert.equal(report.stages.appointmentCreate.success, 100);
   assert.equal(report.stages.appointmentDetail.success, 100);
   assert.equal(report.stages.labWorkflow.blocked, 100);

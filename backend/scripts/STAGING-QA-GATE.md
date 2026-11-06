@@ -3,6 +3,9 @@
 `full-system-qa.mjs` defaults to preflight only: `patientsCreated: 0` and
 `workflowStarted: false`. It runs the controlled 100-patient workflow only with
 `QA_EXECUTE_PATIENT_WORKFLOWS=true`, after `verifyStagingQaGate()` passes.
+Before any registration, the runner also requires HTTP 204 from the protected
+`/api/qa/verification-capture-auth-check` endpoint using the exact local capture
+token. A public gate PASS alone does not prove that the local credential matches.
 The implementation has been tested with mocked HTTP; no live workflow run is
 part of implementing or testing this script.
 

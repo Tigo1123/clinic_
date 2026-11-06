@@ -51,7 +51,8 @@ export function createQaTransport({ env, report, fetchImpl = fetch, now = Date.n
         // response bodies are logged or copied into reports.
         const text = await response.text();
         if (text.length > 2_000_000) throw new Error('response_too_large');
-        response = new Response(text, { status: response.status, headers: response.headers });
+        response = new Response([204, 205, 304].includes(response.status) ? null : text,
+          { status: response.status, headers: response.headers });
       } catch {
         report.networkFailures++;
         if (method !== 'GET') throw new QaRunError('mutation_outcome_unknown');

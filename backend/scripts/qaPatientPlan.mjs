@@ -21,7 +21,7 @@ export function permittedQaRequest(url, method) {
     GET: ['/api/health/load-test-target', '/api/health', '/api/health/ready',
       '/api/patient-auth/address-states', '/api/patient/me', '/api/patient/doctors',
       '/api/patient/specialties', '/api/patient/appointments', '/api/patient/medical-records',
-      '/api/patient/lab-results', '/api/patient/prescriptions'],
+      '/api/patient/lab-results', '/api/patient/prescriptions', '/api/qa/verification-capture-auth-check'],
     POST: ['/api/patient-auth/register', '/api/patient-auth/verify', '/api/auth/login', '/api/patient/appointments']
   };
   if (!url.search && simple[method]?.includes(url.pathname)) return true;
