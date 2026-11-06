@@ -1,9 +1,10 @@
 # Staging QA safety gate
 
-`full-system-qa.mjs` is currently preflight-only. It does not create accounts or
-run clinic workflows. The deployed API must expose a passing
-`/api/health/load-test-target` response before any future workflow runner is
-enabled.
+`full-system-qa.mjs` defaults to preflight only: `patientsCreated: 0` and
+`workflowStarted: false`. It runs the controlled 100-patient workflow only with
+`QA_EXECUTE_PATIENT_WORKFLOWS=true`, after `verifyStagingQaGate()` passes.
+The implementation has been tested with mocked HTTP; no live workflow run is
+part of implementing or testing this script.
 
 ## Backend staging configuration
 
@@ -71,10 +72,13 @@ source files or logs:
 - `QA_VERIFICATION_CAPTURE_TOKEN`: same secret as the staging API capture token;
   keep it in local secret storage and never print it
 
-The runner rejects the known staging frontend origin, known production origins,
-non-HTTPS URLs, paths, credentials, missing pins, HTML responses, mismatched
-identity, and any unsafe/missing safety marker. It requests the identity endpoint
-first, then liveness and readiness. There is no override/bypass option.
+The runner pins `https://clinic-staging-api.onrender.com` and target
+`clinic-staging-qa-20261106`. It rejects all other hosts (including production,
+localhost and the frontend), non-HTTPS URLs, paths, credentials, missing pins,
+HTML responses, mismatched identity, and any unsafe/missing safety marker. It
+requests the identity endpoint first, then liveness and readiness. Execution
+requires payments **disabled**; preflight retains support for ledger-only.
+There is no override/bypass option.
 
 ## Safe rollout sequence
 
@@ -82,11 +86,108 @@ first, then liveness and readiness. There is no override/bypass option.
    integrations are isolated before enabling the load-test flag.
 2. Deploy the backend gate to staging through the normal reviewed deployment
    process. This repository change does not deploy anything.
-3. Run `node scripts/full-system-qa.mjs` with the three runner variables above.
+3. Run `node scripts/full-system-qa.mjs` with the runner variables above.
    It performs preflight only and reports `patientsCreated: 0`.
-4. Review the API identity response and runner PASS before separately authorizing
-   any patient workflow simulation. This implementation does not start that
-   simulation.
+4. Review the API identity response and runner PASS before starting a separately
+   authorized patient workflow run using the execution flag below.
+
+## Controlled 100-patient execution
+
+From the repository root, with `QA_VERIFICATION_CAPTURE_TOKEN` already exported
+from local secret storage (never put its value in the command or a report):
+
+```sh
+QA_API_ORIGIN=https://clinic-staging-api.onrender.com \
+QA_EXPECTED_API_ORIGIN=https://clinic-staging-api.onrender.com \
+QA_EXPECTED_TARGET_ID=clinic-staging-qa-20261106 \
+QA_EXECUTE_PATIENT_WORKFLOWS=true \
+node backend/scripts/full-system-qa.mjs
+```
+
+This command is documented for a later authorized run; do not run it as part of
+implementation validation. Without the execution flag, the same entry point
+only runs preflight. There is no patient-count override: successful execution
+registers and verifies exactly 100 accounts. A safety or prerequisite failure
+can stop with fewer; the report never fabricates completion or creates extras.
+
+`QA_MAX_CONCURRENCY` may be `1` or `2` (default `2`); other values fail before
+registration. A shared HTTP queue permits only one network request at a time,
+including probes/retries. Registration, verification and login each have a
+minimum 95-second interval, preserving the normal default 10-per-15-minute IP
+limits. HTTP requests are also spaced at least 250 ms apart. Expect several
+hours for a full run. Do not raise server limits or rotate IPs to speed it up.
+
+The gate is checked before every workflow request, at intervals of at most
+30 seconds during pacing/retry waits, and at completion. Request timeout is
+20 seconds. GET 5xx and 429 responses allow at most two retries. Retry-After
+is honored; waits beyond 20 minutes fail instead of retrying early. A shared
+cooldown prevents retry storms. Network failures are not retried. POST 5xx
+responses and one-time capture 5xx responses are not replayed, since their
+outcomes may be ambiguous. Authentication failures stop the entire run.
+
+Each run uses one random dated namespace in every account's email and name.
+Emails match the protected capture pattern. Passwords are random, exist only
+in memory, and are never persisted. Login uses the generated email, which the
+registration API assigns as username. Phones come only from the reserved
+[NANPA fictional 555-0100–0199 range](https://nanpa.com/numbering/555-line-numbers).
+The fixture phone pool is finite: any existing identity conflict stops the run;
+it never logs into, modifies, or deletes the conflicting account.
+
+### Reviewed routes and prerequisites
+
+Routes were discovered in `src/server.js` mounts and the existing route files,
+not guessed or probed against live staging during implementation. Execution
+validates the deployed JSON contracts and records unsupported responses.
+
+| Source | Routes used |
+| --- | --- |
+| `routes/patientAuth.js` | GET `/api/patient-auth/address-states`; POST `/api/patient-auth/register`, `/api/patient-auth/verify` |
+| `server.js` | GET `/api/qa/verification-capture/:challengeId` with the protected capture token |
+| `routes/auth.js` | POST `/api/auth/login` |
+| `routes/patient.js` | GET `/api/patient/me`, `/doctors`, `/specialties`, `/appointments`, `/appointments/:id`, `/medical-records`, `/lab-results`, `/prescriptions`; POST `/api/patient/appointments` |
+| `routes/appointments.js` | GET `/api/appointments/slots?doctorId=...&date=...` |
+
+Only existing active doctors and real available slots are used. Slot discovery
+is bounded to three doctors and the next seven clinic days and shared between
+workers. At most one appointment is created per synthetic patient; a slot race
+is reported BLOCKED without repeated booking attempts. Profile and returned
+patient IDs must match the new synthetic account before later workflows run.
+The patient APIs enforce ownership normally; staff credentials are never used.
+
+Lab and prescription lists are read as the synthetic patient. Clinical ordering,
+lab release, dispensing, and billing remain BLOCKED without prerequisite staff
+actions/fixtures and a supported patient API path. No clinical data is invented.
+There are no allowed OTP, email, SMS, WhatsApp, external payment, billing mutation,
+staff mutation, deletion, or unrelated-record requests. The API's verified sink
+is mandatory for the normal registration flow's email capture.
+
+### Reports and cleanup
+
+Every CLI invocation writes `<runNamespace>.json` and `<runNamespace>.md` under
+`docs/full-system-qa/` (a timestamped preflight name if the gate fails before a
+namespace exists). Existing reports are never overwritten. Reports include
+per-patient/stage SUCCESS/FAILURE/BLOCKED, created-account and verified-patient
+counts, login counts, HTTP statuses, retry and error counts, latency summaries,
+safety confirmations, and cleanup candidates containing only synthetic emails
+and validated resource UUIDs. No response bodies, verification codes, passwords,
+tokens, headers or connection URLs are serialized. stdout contains counts only.
+
+SUCCESS counts represent confirmed API responses; ambiguous writes are flagged
+in cleanup candidates and never replayed. PARTIAL means patient registration
+completed with downstream prerequisites blocked; FAILED/BLOCKED exits nonzero.
+SIGINT/SIGTERM stops further requests and writes the partial report. No cleanup
+runs automatically: candidates include attempted registrations even when a
+response was lost. Review only those exact synthetic identities before any
+separately authorized cleanup. Keep generated reports uncommitted.
+
+Offline validation (no staging HTTP or database writes):
+
+```sh
+cd backend
+node test/full-system-qa-runner.test.js
+node test/staging-load-test-safety.test.js
+node test/qa-run-namespace.test.js
+```
 
 Do not add secret values to this document, test output, screenshots, or QA
 reports. The exposed local QA password was rotated in ignored local QA

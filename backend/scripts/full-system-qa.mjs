@@ -1,14 +1,35 @@
-import { verifyStagingQaGate } from './stagingQaGate.mjs';
-import { createQaRunNamespace } from './qaRunNamespace.mjs';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { join } from 'node:path';
+import { runPatientQa } from './qaPatientWorkflows.mjs';
+import { qaMarkdown } from './qaReport.mjs';
 
-// This entry point is deliberately preflight-only. Patient creation/workflows
-// are not enabled in this pass; the safety gate must be reviewed and deployed first.
-try {
-  const result = await verifyStagingQaGate();
-  const runNamespace = createQaRunNamespace();
-  console.log(JSON.stringify({ ...result, runNamespace, patientsCreated: 0, workflowStarted: false }));
-} catch (error) {
-  const code = /^[a-z0-9_]+$/.test(error?.code || '') ? error.code : 'safety_gate_failed';
-  console.error(JSON.stringify({ gate: 'BLOCKED', code, patientsCreated: 0, workflowStarted: false }));
-  process.exitCode = 1;
+export async function runQaCli({ outputDirectory = fileURLToPath(new URL('../../docs/full-system-qa/', import.meta.url)),
+  log = value => console.log(value), ...options } = {}) {
+  const report = await runPatientQa(options);
+  await mkdir(outputDirectory, { recursive: true });
+  const stem = report.runNamespace || `preflight-${Date.now()}`;
+  await writeFile(join(outputDirectory, `${stem}.json`), JSON.stringify(report, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
+  await writeFile(join(outputDirectory, `${stem}.md`), qaMarkdown(report), { flag: 'wx', mode: 0o600 });
+  log(JSON.stringify({ gate: report.gate, result: report.result, runNamespace: report.runNamespace,
+    patientsCreated: report.patientsCreated, patientsVerified: report.patientsVerified, workflowStarted: report.workflowStarted }));
+  return report;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const controller = new AbortController();
+  const stop = () => controller.abort();
+  process.once('SIGINT', stop);
+  process.once('SIGTERM', stop);
+  try {
+    const report = await runQaCli({ signal: controller.signal });
+    process.exitCode = ['FAILED', 'BLOCKED'].includes(report.result) ? 1 : 0;
+  } catch {
+    // Never print arbitrary exception messages, response bodies, or env values.
+    console.error(JSON.stringify({ result: 'FAILED', reason: 'report_write_failed' }));
+    process.exitCode = 1;
+  } finally {
+    process.removeListener('SIGINT', stop);
+    process.removeListener('SIGTERM', stop);
+  }
 }
