@@ -4,6 +4,8 @@ import { logger } from './logger.js';
 import { readSmtpConfig } from './smtpConfig.js';
 import { maskPhone } from './patientIdentity.js';
 import { escapeHtmlText, getFacilityBranding } from './facilityBranding.js';
+import { isStagingNotificationSink } from './stagingLoadTestSafety.js';
+import { captureQaVerificationCode } from './qaVerificationCapture.js';
 
 export function smtpTransport(config = readSmtpConfig()) {
   if (!config) return null;
@@ -19,7 +21,37 @@ export function smtpTransport(config = readSmtpConfig()) {
 /**
  * Sends a real or mock email.
  */
-export async function sendEmail({ to, subject, text, html }) {
+export async function sendEmail({ to, subject, text, html, qaVerificationCapture }) {
+  if (isStagingNotificationSink()) {
+    let captured = false;
+    if (qaVerificationCapture) {
+      captured = await captureQaVerificationCode({
+        challengeId: qaVerificationCapture.challengeId,
+        recipient: to,
+        code: qaVerificationCapture.code,
+        findValidChallenge: async () => prisma.verificationChallenge.findFirst({
+          where: {
+            id: qaVerificationCapture.challengeId,
+            type: 'REGISTRATION_EMAIL',
+            targetNormalized: to,
+            usedAt: null,
+            expiresAt: { gt: new Date() },
+            user: { is: { email: to, username: to, role: 'PATIENT', status: 'PENDING_VERIFICATION' } }
+          },
+          select: {
+            id: true,
+            type: true,
+            targetNormalized: true,
+            usedAt: true,
+            expiresAt: true,
+            user: { select: { email: true, username: true, role: true, status: true } }
+          }
+        })
+      });
+    }
+    logger.info('email.qa_sinked', { delivered: false, captured });
+    return captured ? { accepted: true, qaCaptured: true } : null;
+  }
   if (process.env.NOTIFICATIONS_DISABLED === 'true') {
     logger.info('email.disabled', { delivered: false });
     return null;
@@ -97,6 +129,11 @@ async function recordSmsAttempt(log, { to, language, status }) {
 
 /** Provider-neutral SMS seam. No transport is configured by the application. */
 export async function sendSMS({ to, body, language = 'en' }, { env = process.env, transport = null, simulated = false, log = (args) => prisma.notificationLog.create(args) } = {}) {
+  if (isStagingNotificationSink(env)) {
+    logger.info('sms.qa_sinked', { delivered: false });
+    await recordSmsAttempt(log, { to, language, status: 'SIMULATED' });
+    return false;
+  }
   if (env.NOTIFICATIONS_DISABLED === 'true') return false;
   const provider = env.SMS_PROVIDER || 'disabled';
   const developmentEnvironment = ['development', 'test'].includes(env.NODE_ENV);

@@ -81,7 +81,12 @@ export async function createVerificationChallenge(user, type, targetNormalized, 
     }
     if (['development', 'test'].includes(process.env.NODE_ENV) && process.env.VERIFICATION_PROVIDER === 'development') return { challenge, developmentCode: code };
     const facilityName = getFacilityBranding().displayNameEn;
-    const sent = await sendEmail({ to: type === 'PROFILE_PHONE_CHANGE' ? user.email : targetNormalized, subject: `${facilityName} - Confirm your patient account request`, text: `Your verification code for ${facilityName} is ${code}. It expires in 10 minutes.` });
+    const sent = await sendEmail({
+      to: type === 'PROFILE_PHONE_CHANGE' ? user.email : targetNormalized,
+      subject: `${facilityName} - Confirm your patient account request`,
+      text: `Your verification code for ${facilityName} is ${code}. It expires in 10 minutes.`,
+      ...(type === 'REGISTRATION_EMAIL' ? { qaVerificationCapture: { challengeId: challenge.id, code } } : {})
+    });
     if (sent) return { challenge };
   } catch (error) {
     await prisma.verificationChallenge.update({ where: { id: challenge.id }, data: { usedAt: new Date() } }).catch(() => {});
