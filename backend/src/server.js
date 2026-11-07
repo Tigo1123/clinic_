@@ -33,6 +33,7 @@ import { getStagingLoadTestTarget } from './utils/stagingLoadTestSafety.js';
 import { isStagingQaEnvironment } from './utils/qaEnvironmentMarkers.js';
 import { registerQaVerificationCaptureRoutes } from './routes/qaVerificationCapture.js';
 import { registerQaCleanupDryRunRoute } from './routes/qaCleanupDryRun.js';
+import { registerQaCleanupExecuteRoute } from './routes/qaCleanupExecute.js';
 import { recordHttpRequest, renderMetrics } from './utils/observability.js';
 
 // Load environment configuration
@@ -108,6 +109,7 @@ app.use(corsMiddleware(allowedOrigins));
 // Reject every body/method/query override on the temporary read-only diagnostic
 // before body parsing; malformed bodies must not expose parser diagnostics.
 registerQaCleanupDryRunRoute(app);
+registerQaCleanupExecuteRoute(app);
 
 // Parse incoming request payloads
 app.use(express.json());

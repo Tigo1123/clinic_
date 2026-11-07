@@ -10,8 +10,8 @@ const COUNTS = ['accounts', 'patients', 'appointments', 'registrations', 'verifi
 const OPAQUE = new Set(['invalid_namespace', 'invalid_environment', 'invalid_expected_counts',
   'invalid_execution_flag', 'database_identity_not_allowed']);
 
-// Temporary exact-run diagnostic. There is no execution route, caller options,
-// command invocation, or path from this handler to an execution=true snapshot.
+// Temporary exact-run diagnostic. No caller options, command invocation,
+// or path from this handler to an execution=true snapshot.
 export function registerQaCleanupDryRunRoute(app, { env = process.env, createClient = options => new Client(options) } = {}) {
   app.all(PATH, async (req, res) => {
     res.set({ 'Cache-Control': 'no-store', Pragma: 'no-cache', 'X-Robots-Tag': 'noindex' });

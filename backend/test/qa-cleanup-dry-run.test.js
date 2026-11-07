@@ -71,8 +71,8 @@ test('raw provider errors and secrets never appear in HTTP output or logs', asyn
   assert.deepEqual(events, []);
 });
 
-test('server registers the read-only route before body parsing and has no cleanup execution route', async () => {
+test('server registers the read-only route before body parsing and keeps execution separate', async () => {
   const server = await readFile(new URL('../src/server.js', import.meta.url), 'utf8');
   assert.ok(server.indexOf('registerQaCleanupDryRunRoute(app);') < server.indexOf('app.use(express.json())'));
-  assert.equal(server.includes('cleanup-execute'), false);
+  assert.ok(server.indexOf('registerQaCleanupExecuteRoute(app);') < server.indexOf('app.use(express.json())'));
 });

@@ -6,6 +6,7 @@ import { Client } from 'pg';
 import express from 'express';
 import request from 'supertest';
 import { registerQaCleanupDryRunRoute } from '../src/routes/qaCleanupDryRun.js';
+import { registerQaCleanupExecuteRoute } from '../src/routes/qaCleanupExecute.js';
 import { CLEANUP_NAMESPACE, cleanupCli, cleanupStagingQa, validateCleanupEnvironment } from '../scripts/cleanup-staging-qa.mjs';
 import { registrationBody, syntheticPatient } from '../scripts/qaPatientPlan.mjs';
 
@@ -117,7 +118,7 @@ beforeEach(async () => {
   const staffId = randomUUID(), doctorUserId = randomUUID(), doctorId = randomUUID();
   for (const [id, role] of [[staffId, 'ADMIN'], [doctorUserId, 'DOCTOR']]) await owner.query('INSERT INTO public."User" (id,username,"passwordHash",role) VALUES ($1,$1,$2,$3)', [id, 'unused-test-hash', role]);
   await owner.query('INSERT INTO public."Doctor" (id,"userId","fullNameAr","fullNameEn","specialtyAr","specialtyEn","consultationFee","weeklySchedule","updatedAt") VALUES ($1,$2,$3,$4,$3,$4,0,$5,now())', [doctorId, doctorUserId, 'اختبار', 'Test', '{}']);
-  fixture = { users: [], patients: [], appointments: [], doctorId };
+  fixture = { users: [], patients: [], appointments: [], doctorId, staffId };
   const insert = async (table, row) => owner.query(`INSERT INTO public."${table}" (${Object.keys(row).map(key => `"${key}"`).join(',')}) VALUES (${Object.keys(row).map((_, index) => `$${index + 1}`).join(',')}) RETURNING *`, Object.values(row));
   const audit = async (userId, action, details) => insert('TenantAuditLog', { id: randomUUID(), userId, action, details, ipAddress: 'test' });
   for (let index = 1; index <= 10; index++) {
@@ -450,3 +451,58 @@ for (const change of ['count_mismatch', 'unexpected_related_records']) {
     assert.deepEqual(await snapshot(), before);
   });
 }
+
+// Temporary execution-route integration cases. All writes/deletes use only
+// the explicitly guarded disposable socket; application URLs are never used.
+async function executionFixture() {
+  const receptionist = randomUUID();
+  await owner.query('INSERT INTO public."User" (id,username,"passwordHash",role) VALUES ($1,$1,$2,$3)', [receptionist, 'unused-test-hash', 'RECEPTIONIST']);
+  await owner.query(`INSERT INTO public."Notification" (id,"userId",type,title,message,"entityType","entityId","eventKey")
+    SELECT gen_random_uuid()::text,$1,type,title,message,"entityType","entityId","eventKey"
+    FROM public."Notification" WHERE "userId"=$2 AND "entityId"=ANY($3::text[])`, [receptionist, fixture.staffId, [...fixture.patients, ...fixture.appointments]]);
+  const client = await trackedRuntime(), app = express();
+  const env = { ...safeEnv, QA_CLEANUP_EXECUTION_ALLOWED: 'true', QA_EXECUTE_CLEANUP: 'false',
+    QA_CLEANUP_NAMESPACE: 'caller-cannot-change', QA_EXPECTED_CLEANUP_ACCOUNTS: '999', QA_EXPECTED_CLEANUP_APPOINTMENTS: '999' };
+  registerQaCleanupExecuteRoute(app, { env, createClient: () => ({ connect: async () => {}, query: client.query, end: async () => {} }) });
+  return { client, app, env };
+}
+const postExecution = h => request(h.app).post('/api/qa/cleanup-execute').set('Authorization', 'Bearer ' + safeEnv.QA_VERIFICATION_CAPTURE_TOKEN);
+
+test('temporary HTTP execution repeats the entire reviewed footprint and deletes only exact QA scope', integration, async () => {
+  const h = await executionFixture();
+  const response = await postExecution(h).expect(200);
+  assert.deepEqual(response.body, { namespace: CLEANUP_NAMESPACE, deleted: true, remaining: { users: 0, patients: 0, appointments: 0 } });
+  assert.equal(h.client.queries[0], 'BEGIN ISOLATION LEVEL SERIALIZABLE'); assert.equal(h.client.queries.at(-1), 'COMMIT');
+  assert.ok(h.client.queries.findIndex(sql => sql.includes('pg_catalog.pg_constraint')) < h.client.queries.findIndex(sql => sql.startsWith('DELETE')));
+  assert.deepEqual(await scopedCounts(), { users: 0, patients: 0, appointments: 0 });
+  for (const [table, id] of [['User', fixture.unrelatedUser], ['Patient', fixture.unrelatedPatient], ['Appointment', fixture.unrelatedAppointment]]) {
+    assert.equal((await owner.query(`SELECT count(*)::int AS count FROM public."${table}" WHERE id=$1`, [id])).rows[0].count, 1);
+  }
+  assert.equal(h.env.QA_EXECUTE_CLEANUP, 'false');
+  for (const secret of [...fixture.users, ...fixture.patients, safeEnv.DATABASE_URL, safeEnv.QA_VERIFICATION_CAPTURE_TOKEN]) assert.equal(response.text.includes(secret), false);
+});
+
+for (const changed of ['audit', 'notification', 'authentication', 'medical']) {
+  test('temporary HTTP execution refuses changed ' + changed + ' footprint before DELETE', integration, async () => {
+    const h = await executionFixture();
+    if (changed === 'audit') await owner.query('INSERT INTO public."TenantAuditLog" (id,"userId",action,details,"ipAddress") VALUES ($1,$2,$3,$4,$5)', [randomUUID(), fixture.users[0], 'AUTH_LOGIN', 'Synthetic late login', 'test']);
+    if (changed === 'notification') await owner.query('DELETE FROM public."Notification" WHERE id=(SELECT id FROM public."Notification" WHERE "entityId"=$1 LIMIT 1)', [fixture.appointments[0]]);
+    if (changed === 'authentication') await owner.query('INSERT INTO public."MfaChallenge" (id,"userId",purpose,"authVersion","tokenHash","expiresAt") VALUES ($1,$2,$3,0,$4,now())', [randomUUID(), fixture.users[0], 'LOGIN', 'unused-test-hash']);
+    if (changed === 'medical') await owner.query('INSERT INTO public."MedicalRecord" (id,"patientId","doctorId","appointmentId","symptomsEncrypted","diagnosisEncrypted","treatmentEncrypted","vitalSignsJson","clinicalNotesEncrypted") VALUES ($1,$2,$3,$4,$5,$5,$5,$6,$5)', [randomUUID(), fixture.patients[0], fixture.doctorId, fixture.appointments[0], 'synthetic', '{}']);
+    const before = await snapshot();
+    const response = await postExecution(h).expect(409);
+    assert.deepEqual(response.body, { result: 'REFUSED', reason: changed === 'medical' ? 'unexpected_related_records' : 'count_mismatch' });
+    assert.equal(h.client.queries.at(-1), 'ROLLBACK'); assert.equal(h.client.queries.some(sql => sql.startsWith('DELETE')), false);
+    assert.deepEqual(await snapshot(), before);
+  });
+}
+
+test('temporary HTTP execution rolls back every earlier deletion after a late failure', integration, async () => {
+  const h = await executionFixture(), before = await snapshot();
+  const query = h.client.query;
+  h.client.query = (sql, values) => { if (sql.startsWith('DELETE FROM public."User"')) throw new Error('private-provider-failure'); return query(sql, values); };
+  // The factory resolves the current query property when handling the request.
+  const response = await postExecution(h).expect(409);
+  assert.deepEqual(response.body, { result: 'REFUSED', reason: 'cleanup_failed' });
+  assert.deepEqual(await snapshot(), before); assert.equal(h.client.queries.at(-1), 'ROLLBACK');
+});

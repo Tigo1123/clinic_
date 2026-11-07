@@ -289,8 +289,17 @@ snapshot always forces this namespace, counts 10/8 and `QA_EXECUTE_CLEANUP=false
 even if inherited settings request execution. The existing cleanup validator
 checks live identity and the complete footprint inside a serializable read-only
 transaction and rolls back. HTTP output contains only namespace, dry-run/deleted
-flags and allowlisted counts, or an allowlisted refusal. No HTTP execution route
-is provided. Remove this temporary diagnostic after its separately authorized use.
+flags and allowlisted counts, or an allowlisted refusal.
+
+The separately authorized temporary `POST /api/qa/cleanup-execute` requires the
+additional exact marker `QA_CLEANUP_EXECUTION_ALLOWED=true`, accepts no body or
+query, and pins the same run internally. It repeats all validations and also
+requires the reviewed complete footprint 10/8/8/10/10, zero durable captures,
+zero authentication challenges, 34 audits and 40 notices inside the single
+serializable deletion transaction, before any DELETE. Its response contains
+only namespace, deleted=true and remaining user/patient/appointment counts of
+zero, or an allowlisted refusal. Never retry an execution request. Disable the
+execution marker and remove both temporary endpoints after verification.
 Unexpected audit actions, changed profiles, progressed appointments, external
 identities/MFA enrollment, claims/consents, clinical/billing data, unknown
 referencing rows, missing privileges, unsupported relations or RLS cause refusal.
