@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { qaPatientIdentifiers } from './qaRunNamespace.mjs';
+import { createQaRunNamespace, qaPatientIdentifiers } from './qaRunNamespace.mjs';
 import { isSyntheticQaEmail } from '../src/utils/qaVerificationCapture.js';
 
 export const PATIENT_COUNT = 100;
@@ -45,14 +45,35 @@ export function safeConcurrency(value = '2') {
 // existing account on conflict; report BLOCKED and leave it untouched.
 const AREAS = [202, 212, 213, 214, 215, 216, 303, 305, 310, 312, 313, 404, 415, 424, 469, 503, 505, 512, 617, 646, 702, 703, 704, 713, 718, 720, 801, 818, 858, 901, 917, 919];
 
+export function syntheticQaPhone(runNamespace, index) {
+  if (!/^qa-\d{8}-[a-f0-9]{8}$/.test(runNamespace || '') || !Number.isInteger(index) || index < 1 || index > PATIENT_COUNT) {
+    throw new Error('invalid_synthetic_identity');
+  }
+  const offset = createHash('sha256').update(runNamespace).digest().readUInt32BE(0);
+  const fixture = (offset % (AREAS.length * 100) + index - 1) % (AREAS.length * 100);
+  return `+1${AREAS[Math.floor(fixture / 100)]}55501${String(fixture % 100).padStart(2, '0')}`;
+}
+
+// Select through the regular namespace generator, retrying only if the next
+// batch would reuse a phone belonging to a specifically reviewed prior QA run.
+export function createCollisionFreeQaRunNamespace({ now = new Date(), createNamespace = () => createQaRunNamespace(now),
+  reservedPatients = [], attempts = 32 } = {}) {
+  const reservedPhones = new Set(reservedPatients.map(({ runNamespace, index }) => syntheticQaPhone(runNamespace, index)));
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const candidate = createNamespace();
+    const batchPhones = new Set(Array.from({ length: PATIENT_COUNT }, (_, index) => syntheticQaPhone(candidate, index + 1)));
+    if (batchPhones.size === PATIENT_COUNT && ![...batchPhones].some(phone => reservedPhones.has(phone))) return candidate;
+  }
+  throw new Error('qa_namespace_phone_collision');
+}
+
 export function syntheticPatient(runNamespace, index, addressStateId) {
   const identity = qaPatientIdentifiers(runNamespace, index);
   const offset = createHash('sha256').update(runNamespace).digest().readUInt32BE(0);
-  const fixture = (offset % (AREAS.length * 100) + index - 1) % (AREAS.length * 100);
   const suffix = String(index).padStart(3, '0');
   const patient = {
     ...identity, username: identity.email,
-    phone: `+1${AREAS[Math.floor(fixture / 100)]}55501${String(fixture % 100).padStart(2, '0')}`,
+    phone: syntheticQaPhone(runNamespace, index),
     dateOfBirth: new Date(Date.UTC(1980, 0, 1 + offset % 7300)).toISOString().slice(0, 10),
     firstNameEn: 'QA', fatherNameEn: runNamespace, grandfatherNameEn: 'Synthetic', familyNameEn: `Patient-${suffix}`,
     firstNameAr: 'اختبار', fatherNameAr: runNamespace, grandfatherNameAr: 'اصطناعي', familyNameAr: `مريض-${suffix}`,

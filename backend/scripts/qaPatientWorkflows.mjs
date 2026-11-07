@@ -1,7 +1,6 @@
-import { createQaRunNamespace } from './qaRunNamespace.mjs';
 import { fetchQaVerificationCode, verifyQaCaptureAuthentication } from './stagingQaGate.mjs';
 import { normalizeQaMarker } from '../src/utils/qaEnvironmentMarkers.js';
-import { assertSyntheticPatient, ID, PATIENT_COUNT, registrationBody, safeConcurrency, STAGES, syntheticPatient } from './qaPatientPlan.mjs';
+import { assertSyntheticPatient, createCollisionFreeQaRunNamespace, ID, PATIENT_COUNT, registrationBody, safeConcurrency, STAGES, syntheticPatient } from './qaPatientPlan.mjs';
 import { createQaReport, publicQaReport, safeReason } from './qaReport.mjs';
 import { createQaTransport, QaRunError } from './qaTransport.mjs';
 
@@ -11,6 +10,9 @@ function requireValue(condition, reason = 'invalid_response') {
 function requireList(value) { requireValue(Array.isArray(value)); return value; }
 const success = () => ({ status: 'SUCCESS', reason: null });
 const blocked = reason => ({ status: 'BLOCKED', reason });
+const RESERVED_STAGING_QA_PATIENTS = Object.freeze([
+  Object.freeze({ runNamespace: 'qa-20261107-395a4fb6', index: 1 })
+]);
 
 function futureDates(now) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en', { timeZone: 'Africa/Khartoum', year: 'numeric', month: '2-digit', day: '2-digit' })
@@ -28,7 +30,7 @@ export async function runPatientQa({ env = process.env, fetchImpl = fetch, now =
     // Mandatory first step, including preflight-only invocations. No patient
     // identity, password, address discovery, or workflow request precedes it.
     gate = await client.checkGate();
-    report.runNamespace = createQaRunNamespace(new Date(now()));
+    report.runNamespace = createCollisionFreeQaRunNamespace({ now: new Date(now()), reservedPatients: RESERVED_STAGING_QA_PATIENTS });
     if (normalizeQaMarker(env.QA_EXECUTE_PATIENT_WORKFLOWS) !== 'true') {
       report.result = 'PASS'; report.reason = 'execution_disabled';
       return finish();
