@@ -237,7 +237,7 @@ node test/qa-run-namespace.test.js
 
 ## Interrupted-run cleanup (one namespace only; never automatic)
 
-`cleanup-staging-qa.mjs` is pinned to `qa-20261106-c16af28a` and target
+`cleanup-staging-qa.mjs` is pinned only to `qa-20261106-73412c3e` and target
 `clinic-staging-qa-20261106`. It reuses the full existing staging environment
 preflight, including the pinned staging URL checks, sink/capture markers and
 disabled/ledger-only payment policy. Its connected database must additionally
@@ -245,11 +245,12 @@ be exactly `neondb`, schema `public`, role `clinic_runtime`; configured expected
 identity markers must agree. It uses the normal staging `DATABASE_URL` already
 available in the Render shell, without printing it or loading local `.env` files.
 
-Later dry-run command, **from the Render staging backend shell**:
+Later dry-run command, **only in an authorized staging backend execution
+environment**, when one is available. No HTTP cleanup endpoint is provided:
 
 ```sh
-QA_CLEANUP_NAMESPACE=qa-20261106-c16af28a \
-QA_EXPECTED_CLEANUP_ACCOUNTS=9 \
+QA_CLEANUP_NAMESPACE=qa-20261106-73412c3e \
+QA_EXPECTED_CLEANUP_ACCOUNTS=10 \
 QA_EXPECTED_CLEANUP_APPOINTMENTS=8 \
 QA_EXECUTE_CLEANUP=false \
 node scripts/cleanup-staging-qa.mjs
@@ -261,13 +262,24 @@ requires a separately authorized invocation with `QA_EXECUTE_CLEANUP=true` and
 the same exact expected counts. The script accepts no CLI switches or arbitrary
 email patterns. Unknown execution values or other namespaces fail closed.
 
-The tool discovers exact generated namespace addresses, validates nine PATIENT
-users (eight ACTIVE, one PENDING_VERIFICATION), eight unchanged synthetic
-patient profiles, nine retained registrations/challenges, and exactly one
+The tool discovers exact generated namespace addresses, validates ten PATIENT
+users (indices 001–008 ACTIVE with verified email, indices 009–010
+PENDING_VERIFICATION with null email verification and no Patient), eight unchanged synthetic
+patient profiles, ten retained registrations/challenges, and exactly one
 PENDING appointment per verified patient. Audit provenance must agree with the
 runner's registration, patient creation and appointment creation records. It
 also validates any normal LOGIN MFA challenges and the database-generated
 PATIENT_REGISTERED/APPOINTMENT_BOOKED notices for those exact QA entities.
+User creation dates must be exactly November 6, 2026 UTC for indices 001–009
+and November 7, 2026 UTC for index 010; no date range is accepted. Every account
+must have exactly one registration-email challenge: used with one attempt for
+ACTIVE users, unused with zero attempts for the two pending users.
+This historical run predates durable capture storage. Exactly zero
+`QaVerificationCapture` rows may reference its ten challenges, including expired
+captures. Any such row refuses cleanup before DELETE; captures are never
+automatically deleted or silently trusted to cascade. The table participates
+in schema/RLS and reference inspection, including non-FK challenge references.
+Safe dry-run counts include `verificationCaptures: 0`.
 Unexpected audit actions, changed profiles, progressed appointments, external
 identities/MFA enrollment, claims/consents, clinical/billing data, unknown
 referencing rows, missing privileges, unsupported relations or RLS cause refusal.
@@ -275,8 +287,9 @@ Foreign keys (including cascade descendants) and public identifier columns
 without FKs are inspected; no cascade is trusted as proof that a row is safe.
 
 An approved deletion validates and locks the scope inside one serializable DB
-transaction. It deletes appointments first, then explicitly validated child
-rows, patients, audit rows scoped only by exact matched QA user IDs, and users.
+transaction. It deletes appointments, MFA challenges, verification challenges,
+patient registrations, notifications, patients, audit rows scoped only by exact
+matched QA user IDs, and users, in that order.
 Only validated QA notice IDs are removed; unrelated staff notices/audits/users
 remain. Before commit it verifies no namespace users or matched patient/appointment
 IDs remain. Any count discrepancy or error rolls back the whole transaction.

@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { stagingLoadTestPreflight, getStagingLoadTestTarget } from '../src/utils/stagingLoadTestSafety.js';
 import { normalizeQaMarker } from '../src/utils/qaEnvironmentMarkers.js';
 
-export const CLEANUP_NAMESPACE = 'qa-20261106-c16af28a';
+export const CLEANUP_NAMESPACE = 'qa-20261106-73412c3e';
 const TARGET = 'clinic-staging-qa-20261106';
 const IDENTITY = { database: 'neondb', schema: 'public', role: 'clinic_runtime' };
 const REFUSALS = new Set(['invalid_namespace', 'invalid_environment', 'invalid_expected_counts', 'invalid_execution_flag',
@@ -23,7 +23,7 @@ export function validateCleanupEnvironment(env = process.env) {
   requireSafe(preflight.canInspectDatabase && preflight.environment === 'staging' && preflight.databaseEnvironment === 'staging'
     && preflight.targetId === TARGET && preflight.expectedDatabase === IDENTITY.database
     && preflight.expectedSchema === IDENTITY.schema && preflight.expectedRole === IDENTITY.role, 'invalid_environment');
-  requireSafe(env.QA_EXPECTED_CLEANUP_ACCOUNTS === '9' && env.QA_EXPECTED_CLEANUP_APPOINTMENTS === '8', 'invalid_expected_counts');
+  requireSafe(env.QA_EXPECTED_CLEANUP_ACCOUNTS === '10' && env.QA_EXPECTED_CLEANUP_APPOINTMENTS === '8', 'invalid_expected_counts');
   const flag = normalizeQaMarker(env.QA_EXECUTE_CLEANUP);
   requireSafe(['', 'false', 'true'].includes(flag), 'invalid_execution_flag');
   // Enumerate exact addresses, including unexpected 000/101..999 identities so
@@ -61,6 +61,12 @@ async function assertReferences(client, records) {
     JOIN pg_catalog.pg_attribute a ON a.attrelid=src.oid AND a.attnum>0 AND NOT a.attisdropped
     WHERE ns.nspname='public' AND src.relkind IN ('r','p')
       AND a.attname IN ('userId','patientId','appointmentId','createdBy','createdById','actorUserId','processedBy','authorizedById')
+    UNION
+    SELECT ns.nspname, src.relname, a.attname, targets.name, targets.key, 1, src.relrowsecurity
+    FROM pg_catalog.pg_class src JOIN pg_catalog.pg_namespace ns ON ns.oid=src.relnamespace
+    JOIN pg_catalog.pg_attribute a ON a.attrelid=src.oid AND a.attnum>0 AND NOT a.attisdropped
+    CROSS JOIN (VALUES ('VerificationChallenge','id'),('MfaChallenge','id'),('QaVerificationCapture','challengeId')) targets(name,key)
+    WHERE ns.nspname='public' AND src.relkind IN ('r','p') AND a.attname='challengeId'
     UNION
     SELECT ns.nspname, src.relname, a.attname, targets.name, 'id'::text, 1, src.relrowsecurity
     FROM pg_catalog.pg_class src JOIN pg_catalog.pg_namespace ns ON ns.oid=src.relnamespace
@@ -109,7 +115,7 @@ export async function cleanupStagingQa({ env = process.env, client } = {}) {
     requireSafe(Object.entries(IDENTITY).every(([key, value]) => identity?.[key] === value), 'database_identity_not_allowed');
     const gate = await getStagingLoadTestTarget(env, async () => identity);
     requireSafe(gate.loadTestAllowed === true && gate.targetId === TARGET, 'database_identity_not_allowed');
-    const coreTables = ['User', 'Patient', 'Appointment', 'PatientRegistration', 'VerificationChallenge', 'MfaChallenge', 'TenantAuditLog', 'Notification'];
+    const coreTables = ['User', 'Patient', 'Appointment', 'PatientRegistration', 'VerificationChallenge', 'QaVerificationCapture', 'MfaChallenge', 'TenantAuditLog', 'Notification'];
     const { rows: [catalog] } = await client.query(`SELECT count(*)::int AS count FROM pg_catalog.pg_class c
       JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p')
       AND c.relname=ANY($1::text[]) AND NOT c.relrowsecurity`, [coreTables]);
@@ -117,29 +123,29 @@ export async function cleanupStagingQa({ env = process.env, client } = {}) {
     const lock = config.execute ? ' FOR UPDATE' : '';
     const select = async (table, columns, where, values, order = 'id') => (await client.query(
       `SELECT ${columns} FROM public.${quote(table)} WHERE ${where} ORDER BY ${quote(order)}${lock}`, values)).rows;
-    const users = await select('User', 'id, username, email, role, status, "phoneNormalized", "emailVerifiedAt", "phoneVerifiedAt", "authVersion", "mfaEnabled", "mustChangePassword", "lastPasswordChange", "createdAt", ("mfaSecret" IS NOT NULL) AS "hasMfaSecret"',
+    const users = await select('User', 'id, username, email, role, status, "phoneNormalized", "emailVerifiedAt", "phoneVerifiedAt", "authVersion", "mfaEnabled", "mustChangePassword", "lastPasswordChange", ("createdAt" AT TIME ZONE \'UTC\') AS "createdAt", ("mfaSecret" IS NOT NULL) AS "hasMfaSecret"',
       'email=ANY($1::text[]) OR username=ANY($1::text[])', [config.emails]);
-    requireSafe(users.length === 9, 'count_mismatch');
+    requireSafe(users.length === 10, 'count_mismatch');
     for (const user of users) {
       const index = config.emails.indexOf(user.email);
-      requireSafe(index >= 1 && index <= 100 && user.username === user.email && user.role === 'PATIENT'
-        && ['ACTIVE', 'PENDING_VERIFICATION'].includes(user.status) && /^\+1\d{3}55501\d{2}$/.test(user.phoneNormalized)
+      requireSafe(index >= 1 && index <= 10 && user.username === user.email && user.role === 'PATIENT'
+        && user.status === (index <= 8 ? 'ACTIVE' : 'PENDING_VERIFICATION') && /^\+1\d{3}55501\d{2}$/.test(user.phoneNormalized)
         && user.authVersion === 0 && !user.mfaEnabled && !user.hasMfaSecret && !user.mustChangePassword
         && user.lastPasswordChange === null && user.phoneVerifiedAt === null
-        && user.createdAt instanceof Date && user.createdAt.toISOString().slice(0, 10) === '2026-11-06', 'unexpected_account');
+        && user.createdAt instanceof Date && user.createdAt.toISOString().slice(0, 10) === (index === 10 ? '2026-11-07' : '2026-11-06'), 'unexpected_account');
       user.qaIndex = index;
     }
-    requireSafe(users.filter(u => u.status === 'ACTIVE').length === 8 && users.filter(u => u.status === 'PENDING_VERIFICATION').length === 1, 'unexpected_account');
+    requireSafe(users.filter(u => u.status === 'ACTIVE').length === 8 && users.filter(u => u.status === 'PENDING_VERIFICATION').length === 2, 'unexpected_account');
     const userIds = users.map(u => u.id);
     const byUser = new Map(users.map(u => [u.id, u]));
     const names = ['fullNameEn', 'fullNameAr', ...NAME_FIELDS].map(quote).join(', ');
     const patients = await select('Patient', `id, "userId", "fileNumber", ${names}, gender, "dateOfBirth", "addressStateId", phone, status, "nationalId", "bloodType", "addressDetails", "emergencyContact", "nationalIdAttachmentPath", "insuranceAttachmentPath"`, '"userId"=ANY($1::text[])', [userIds]);
     const registrations = await select('PatientRegistration', `"userId", ${names}, gender, "dateOfBirth", "addressStateId"`, '"userId"=ANY($1::text[])', [userIds], 'userId');
-    requireSafe(patients.length === 8 && registrations.length === 9, 'count_mismatch');
+    requireSafe(patients.length === 8 && registrations.length === 10, 'count_mismatch');
     const patientByUser = new Map(patients.map(p => [p.userId, p]));
     for (const user of users) {
       const patient = patientByUser.get(user.id);
-      requireSafe(user.status === 'ACTIVE' ? Boolean(patient && user.emailVerifiedAt) : !patient && user.emailVerifiedAt === null, 'unexpected_patient');
+      requireSafe(user.status === 'ACTIVE' ? Boolean(patient && user.emailVerifiedAt instanceof Date) : !patient && user.emailVerifiedAt === null, 'unexpected_patient');
     }
     for (const patient of patients) {
       assertNames(patient, byUser.get(patient.userId));
@@ -152,13 +158,17 @@ export async function cleanupStagingQa({ env = process.env, client } = {}) {
       requireSafe(!patient || ['dateOfBirth', 'gender', 'addressStateId', ...NAME_FIELDS].every(key => registration[key] === patient[key]), 'unexpected_registration');
     }
     const challenges = await select('VerificationChallenge', 'id, "userId", type, "targetNormalized", "authVersion", "attemptCount", "maxAttempts", "usedAt"', '"userId"=ANY($1::text[])', [userIds]);
-    requireSafe(challenges.length === 9, 'unexpected_challenge');
+    requireSafe(challenges.length === 10, 'unexpected_challenge');
     for (const user of users) {
       const own = challenges.filter(c => c.userId === user.id);
       requireSafe(own.length === 1 && own[0].type === 'REGISTRATION_EMAIL' && own[0].targetNormalized === user.email
         && own[0].authVersion === user.authVersion && own[0].maxAttempts === 5
         && (user.status === 'ACTIVE' ? Boolean(own[0].usedAt) && own[0].attemptCount === 1 : own[0].usedAt === null && own[0].attemptCount === 0), 'unexpected_challenge');
     }
+    // This historical run predates durable capture storage. Never trust its
+    // cascade: any linked capture, even expired, requires manual investigation.
+    const verificationCaptures = await select('QaVerificationCapture', '"challengeId"', '"challengeId"=ANY($1::text[])', [challenges.map(c => c.id)], 'challengeId');
+    requireSafe(verificationCaptures.length === 0, 'unexpected_related_records');
     const patientIds = patients.map(p => p.id);
     const appointments = await select('Appointment', 'id, "patientId", "doctorId", status, "appointmentDate", "appointmentTime"', '"patientId"=ANY($1::text[])', [patientIds]);
     requireSafe(appointments.length === 8, 'count_mismatch');
@@ -198,10 +208,10 @@ export async function cleanupStagingQa({ env = process.env, client } = {}) {
         && /^\d+$/.test(n.eventKey.slice(`${n.entityType}:${n.entityId}:`.length)), 'unexpected_notification');
     }
     await assertReferences(client, { User: users, Patient: patients, Appointment: appointments,
-      PatientRegistration: registrations, VerificationChallenge: challenges, MfaChallenge: mfaChallenges,
+      PatientRegistration: registrations, VerificationChallenge: challenges, QaVerificationCapture: verificationCaptures, MfaChallenge: mfaChallenges,
       TenantAuditLog: audits, Notification: notifications });
     const counts = { accounts: users.length, patients: patients.length, appointments: appointments.length,
-      registrations: registrations.length, verificationChallenges: challenges.length, authenticationChallenges: mfaChallenges.length,
+      registrations: registrations.length, verificationChallenges: challenges.length, verificationCaptures: verificationCaptures.length, authenticationChallenges: mfaChallenges.length,
       auditRows: audits.length, notifications: notifications.length };
     if (!config.execute) {
       await client.query('ROLLBACK'); inTransaction = false;
@@ -213,12 +223,12 @@ export async function cleanupStagingQa({ env = process.env, client } = {}) {
     };
     await remove('Appointment', 'id', appointmentIds, 8);
     await remove('MfaChallenge', 'id', mfaChallenges.map(c => c.id), mfaChallenges.length);
-    await remove('VerificationChallenge', 'id', challenges.map(c => c.id), 9);
-    await remove('PatientRegistration', 'userId', userIds, 9);
+    await remove('VerificationChallenge', 'id', challenges.map(c => c.id), 10);
+    await remove('PatientRegistration', 'userId', userIds, 10);
     await remove('Notification', 'id', notifications.map(n => n.id), notifications.length);
     await remove('Patient', 'id', patientIds, 8);
     await remove('TenantAuditLog', 'userId', userIds, audits.length);
-    await remove('User', 'id', userIds, 9);
+    await remove('User', 'id', userIds, 10);
     const { rows: [remaining] } = await client.query(`SELECT
       (SELECT count(*)::int FROM public."User" WHERE email=ANY($1::text[]) OR username=ANY($1::text[])) AS users,
       (SELECT count(*)::int FROM public."Patient" WHERE id=ANY($2::text[])) AS patients,
