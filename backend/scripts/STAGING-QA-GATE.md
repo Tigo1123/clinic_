@@ -237,6 +237,13 @@ node test/qa-run-namespace.test.js
 
 ## Interrupted-run cleanup (one namespace only; never automatic)
 
+The separately authorized cleanup of `qa-20261106-73412c3e` completed with zero
+matching users, patients and appointments remaining. The follow-up read-only
+validation refused with `count_mismatch`, as expected after deletion.
+`QA_CLEANUP_EXECUTION_ALLOWED` was restored to false. Both temporary HTTP cleanup
+routes and their endpoint-specific tests/helpers have been removed. Do not run
+cleanup again or restart a patient workflow as part of this verification.
+
 `cleanup-staging-qa.mjs` is pinned only to `qa-20261106-73412c3e` and target
 `clinic-staging-qa-20261106`. It reuses the full existing staging environment
 preflight, including the pinned staging URL checks, sink/capture markers and
@@ -245,18 +252,8 @@ be exactly `neondb`, schema `public`, role `clinic_runtime`; configured expected
 identity markers must agree. It uses the normal staging `DATABASE_URL` already
 available in the Render shell, without printing it or loading local `.env` files.
 
-Later dry-run command, **only in an authorized staging backend execution
-environment**, when one is available:
-
-```sh
-QA_CLEANUP_NAMESPACE=qa-20261106-73412c3e \
-QA_EXPECTED_CLEANUP_ACCOUNTS=10 \
-QA_EXPECTED_CLEANUP_APPOINTMENTS=8 \
-QA_EXECUTE_CLEANUP=false \
-node scripts/cleanup-staging-qa.mjs
-```
-
-This performs a serializable **read-only** transaction and rolls it back. No
+The retained CLI defaults to a serializable **read-only** transaction and rolls
+it back; the cleaned scope now fails its exact expected count checks. No live
 cleanup is performed as part of implementation validation. Actual deletion
 requires a separately authorized invocation with `QA_EXECUTE_CLEANUP=true` and
 the same exact expected counts. The script accepts no CLI switches or arbitrary
@@ -281,25 +278,6 @@ automatically deleted or silently trusted to cascade. The table participates
 in schema/RLS and reference inspection, including non-FK challenge references.
 Safe dry-run counts include `verificationCaptures: 0`.
 
-A temporary `GET /api/qa/cleanup-dry-run` diagnostic allows this same validation
-when the staging plan has no shell. It requires the existing capture Bearer
-credential and all pinned staging markers with payments disabled. It accepts
-no body, query, alternate method, namespace or cleanup options. A frozen private
-snapshot always forces this namespace, counts 10/8 and `QA_EXECUTE_CLEANUP=false`,
-even if inherited settings request execution. The existing cleanup validator
-checks live identity and the complete footprint inside a serializable read-only
-transaction and rolls back. HTTP output contains only namespace, dry-run/deleted
-flags and allowlisted counts, or an allowlisted refusal.
-
-The separately authorized temporary `POST /api/qa/cleanup-execute` requires the
-additional exact marker `QA_CLEANUP_EXECUTION_ALLOWED=true`, accepts no body or
-query, and pins the same run internally. It repeats all validations and also
-requires the reviewed complete footprint 10/8/8/10/10, zero durable captures,
-zero authentication challenges, 34 audits and 40 notices inside the single
-serializable deletion transaction, before any DELETE. Its response contains
-only namespace, deleted=true and remaining user/patient/appointment counts of
-zero, or an allowlisted refusal. Never retry an execution request. Disable the
-execution marker and remove both temporary endpoints after verification.
 Unexpected audit actions, changed profiles, progressed appointments, external
 identities/MFA enrollment, claims/consents, clinical/billing data, unknown
 referencing rows, missing privileges, unsupported relations or RLS cause refusal.

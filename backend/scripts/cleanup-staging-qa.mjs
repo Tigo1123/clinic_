@@ -103,9 +103,8 @@ async function assertReferences(client, records) {
   }
 }
 
-export async function cleanupStagingQa({ env = process.env, client, expectedCounts } = {}) {
+export async function cleanupStagingQa({ env = process.env, client } = {}) {
   const config = validateCleanupEnvironment(env);
-  const pinnedCounts = expectedCounts ? Object.freeze({ ...expectedCounts }) : null;
   let inTransaction = false;
   try {
     await client.query(`BEGIN ISOLATION LEVEL SERIALIZABLE${config.execute ? '' : ' READ ONLY'}`);
@@ -214,10 +213,6 @@ export async function cleanupStagingQa({ env = process.env, client, expectedCoun
     const counts = { accounts: users.length, patients: patients.length, appointments: appointments.length,
       registrations: registrations.length, verificationChallenges: challenges.length, verificationCaptures: verificationCaptures.length, authenticationChallenges: mfaChallenges.length,
       auditRows: audits.length, notifications: notifications.length };
-    // A temporary HTTP execution may additionally pin the entire reviewed
-    // footprint. Compare inside this same transaction, before the first DELETE.
-    if (pinnedCounts) requireSafe(Object.keys(pinnedCounts).length === Object.keys(counts).length
-      && Object.keys(counts).every(key => counts[key] === pinnedCounts[key]), 'count_mismatch');
     if (!config.execute) {
       await client.query('ROLLBACK'); inTransaction = false;
       return { namespace: config.namespace, dryRun: true, deleted: false, counts };
@@ -247,7 +242,7 @@ export async function cleanupStagingQa({ env = process.env, client, expectedCoun
   }
 }
 
-export function cleanupRefusalReason(error) {
+function cleanupRefusalReason(error) {
   return error instanceof CleanupRefusal && REFUSALS.has(error.reason) ? error.reason : 'cleanup_failed';
 }
 
