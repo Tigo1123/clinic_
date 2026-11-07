@@ -1,14 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile, readdir } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { repositoryInventory, inspectDatabase } from '../scripts/audit-clinic-readiness.js';
 
 test('repository inventory includes every Prisma model, relationship and migration', async () => {
   const inventory = await repositoryInventory();
-  assert.equal(inventory.modelCount, 45);
+  const schema = await readFile(new URL('../prisma/schema.prisma', import.meta.url), 'utf8');
+  const models = [...schema.matchAll(/^model (\w+) \{/gm)].map(match => match[1]);
+  assert.equal(inventory.modelCount, models.length);
+  assert.deepEqual(inventory.models.map(model => model.name), models);
   assert.ok(inventory.models.some(model => model.name === 'StockNotificationState'));
   assert.ok(inventory.models.find(model => model.name === 'Patient').relationships.some(relation => relation.field === 'invoices' && relation.target === 'Invoice' && relation.cardinality === 'many'));
   assert.ok(inventory.models.find(model => model.name === 'Payment').relationships.some(relation => relation.field === 'invoice' && relation.target === 'Invoice' && relation.cardinality === 'required'));
-  assert.equal(inventory.migrations.length, 30);
+  const directory = new URL('../prisma/migrations/', import.meta.url);
+  const names = (await readdir(directory, { withFileTypes: true })).filter(entry => entry.isDirectory()).map(entry => entry.name).sort();
+  assert.deepEqual(inventory.migrations.map(migration => migration.name), names);
+  for (const migration of inventory.migrations) {
+    const sql = await readFile(new URL(migration.name + '/migration.sql', directory), 'utf8');
+    assert.ok(sql.trim().length > 0);
+    assert.equal(migration.checksum, createHash('sha256').update(sql).digest('hex'));
+  }
 });
 
 function fixture(readOnly = 'on') {
