@@ -3,8 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
+import express from 'express';
+import request from 'supertest';
 import { CLEANUP_NAMESPACE, cleanupCli, cleanupStagingQa, validateCleanupEnvironment } from '../scripts/cleanup-staging-qa.mjs';
 import { registrationBody, syntheticPatient } from '../scripts/qaPatientPlan.mjs';
+import { registerQaCleanupRoutes } from '../src/routes/qaCleanup.js';
 
 const safeEnv = {
   APP_ENV: 'staging', DEPLOYMENT_ENV: 'staging', NODE_ENV: 'production', DATABASE_ENVIRONMENT: 'staging',
@@ -142,6 +145,11 @@ beforeEach(async () => {
       await audit(userId, 'PATIENT_APPOINTMENT_BOOKED', `Patient booked appointment ${appointmentId}.`);
     }
   }
+  for (let index = 0; index < 8; index++) {
+    for (let notice = 1; notice <= 2; notice++) await insert('Notification', { id: randomUUID(), userId: fixture.users[index],
+      title: 'Synthetic patient notice', message: 'Disposable cleanup fixture.', type: 'PATIENT_REGISTERED',
+      entityType: 'Patient', entityId: fixture.patients[index], eventKey: `Patient:${fixture.patients[index]}:${notice}` });
+  }
   const unrelatedUser = randomUUID(); fixture.unrelatedUser = unrelatedUser;
   await insert('User', { id: unrelatedUser, username: 'other-qa@example.invalid', email: 'other-qa@example.invalid', passwordHash: 'unused-test-hash', role: 'PATIENT' });
   const unrelatedPatient = randomUUID(); fixture.unrelatedPatient = unrelatedPatient;
@@ -176,13 +184,27 @@ const refusesBeforeDelete = async reason => {
 };
 
 test('dry-run validates the complete real schema footprint and changes no rows', integration, async () => {
+  const { rows: [actualCounts] } = await owner.query(`SELECT
+    (SELECT count(*)::int FROM public."User" WHERE id=ANY($1::text[])) AS accounts,
+    (SELECT count(*)::int FROM public."Patient" WHERE "userId"=ANY($1::text[])) AS patients,
+    (SELECT count(*)::int FROM public."Appointment" WHERE "patientId"=ANY($2::text[])) AS appointments,
+    (SELECT count(*)::int FROM public."PatientRegistration" WHERE "userId"=ANY($1::text[])) AS registrations,
+    (SELECT count(*)::int FROM public."VerificationChallenge" WHERE "userId"=ANY($1::text[])) AS challenges,
+    (SELECT count(*)::int FROM public."QaVerificationCapture" WHERE "challengeId" IN
+      (SELECT id FROM public."VerificationChallenge" WHERE "userId"=ANY($1::text[]))) AS captures,
+    (SELECT count(*)::int FROM public."MfaChallenge" WHERE "userId"=ANY($1::text[])) AS auth_challenges,
+    (SELECT count(*)::int FROM public."TenantAuditLog" WHERE "userId"=ANY($1::text[])) AS audits,
+    (SELECT count(*)::int FROM public."Notification" WHERE "userId"=ANY($1::text[]) OR "entityId"=ANY($3::text[])) AS notifications`,
+  [fixture.users, fixture.patients, [...fixture.users, ...fixture.patients, ...fixture.appointments]]);
+  assert.deepEqual(actualCounts, { accounts: 10, patients: 8, appointments: 8, registrations: 10,
+    challenges: 10, captures: 0, auth_challenges: 0, audits: 34, notifications: 40 });
   const before = await snapshot(), client = await trackedRuntime();
   const result = await cleanupStagingQa({ env: safeEnv, client });
   assert.equal(result.dryRun, true); assert.equal(result.deleted, false);
   assert.equal(result.counts.accounts, 10); assert.equal(result.counts.patients, 8); assert.equal(result.counts.appointments, 8);
   assert.equal(result.counts.registrations, 10); assert.equal(result.counts.verificationChallenges, 10);
   assert.equal(result.counts.verificationCaptures, 0);
-  assert.ok(result.counts.notifications > 0, 'real migration triggers generated QA notices');
+  assert.equal(result.counts.notifications, 40);
   assert.deepEqual(await snapshot(), before);
   assert.equal(client.queries[0], 'BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY');
   assert.equal(client.queries.at(-1), 'ROLLBACK');
@@ -202,7 +224,6 @@ test('live database identity is pinned and owner connections cannot delete', int
 });
 
 test('successful deletion removes only the exact synthetic scope and validated child rows', integration, async () => {
-  await owner.query('INSERT INTO public."MfaChallenge" (id,"userId",purpose,"authVersion","tokenHash","expiresAt") VALUES ($1,$2,$3,0,$4,now())', [randomUUID(), fixture.users[0], 'LOGIN', 'unused-test-hash']);
   const unrelatedChallenge = randomUUID();
   await owner.query('INSERT INTO public."VerificationChallenge" (id,"userId",type,"targetNormalized","codeHash","expiresAt") VALUES ($1,$2,$3,$4,$5,now())',
     [unrelatedChallenge, fixture.unrelatedUser, 'REGISTRATION_EMAIL', 'other-qa@example.invalid', 'unused-test-hash']);
@@ -317,6 +338,56 @@ test('exact run contains eight verified ACTIVE users and pending indices 009 and
   // The validator explicitly converts them rather than depending on client TZ.
   const result = await cleanupStagingQa({ env: safeEnv, client: await runtime() });
   assert.equal(result.counts.accounts, 10); assert.equal(result.counts.verificationCaptures, 0);
+});
+
+test('exact execution route deletes only the validated interrupted-run namespace in one serializable transaction', integration, async () => {
+  const env = { ...safeEnv, QA_CLEANUP_EXECUTION_ALLOWED: 'true' };
+  const app = express(), statements = [];
+  registerQaCleanupRoutes(app, { env, createClient: () => {
+    const client = new Client({ host: socket, database: 'neondb', user: 'clinic_runtime' }); clients.add(client);
+    const query = client.query.bind(client);
+    client.query = (sql, ...args) => { statements.push(String(sql)); return query(sql, ...args); };
+    return client;
+  } });
+  const before = await owner.query('SELECT id FROM public."User" WHERE id <> ALL($1::text[]) ORDER BY id', [fixture.users]);
+  const response = await request(app).post('/api/qa/cleanup-execute')
+    .set('Authorization', `Bearer ${safeEnv.QA_VERIFICATION_CAPTURE_TOKEN}`).expect(200);
+  assert.deepEqual(response.body, { namespace: CLEANUP_NAMESPACE, deleted: true,
+    remaining: { users: 0, patients: 0, appointments: 0 } });
+  assert.deepEqual(await scopedCounts(), { users: 0, patients: 0, appointments: 0 });
+  const after = await owner.query('SELECT id FROM public."User" WHERE id <> ALL($1::text[]) ORDER BY id', [fixture.users]);
+  assert.deepEqual(after.rows.map(row => row.id), before.rows.map(row => row.id));
+  statements.length = 0;
+  const replay = await request(app).post('/api/qa/cleanup-execute')
+    .set('Authorization', `Bearer ${safeEnv.QA_VERIFICATION_CAPTURE_TOKEN}`).expect(409);
+  assert.deepEqual(replay.body, { result: 'REFUSED', reason: 'count_mismatch' });
+  assert.equal(statements.some(sql => /^\s*DELETE\b/i.test(sql)), false);
+});
+
+test('exact execution route returns safe count refusal and performs no deletion when footprint changed', integration, async () => {
+  await owner.query('UPDATE public."User" SET email=$1,username=$1 WHERE id=$2', ['unrelated-synthetic@example.invalid', fixture.users[9]]);
+  const app = express();
+  registerQaCleanupRoutes(app, { env: { ...safeEnv, QA_CLEANUP_EXECUTION_ALLOWED: 'true' }, createClient: () => {
+    const client = new Client({ host: socket, database: 'neondb', user: 'clinic_runtime' }); clients.add(client); return client;
+  } });
+  const response = await request(app).post('/api/qa/cleanup-execute')
+    .set('Authorization', `Bearer ${safeEnv.QA_VERIFICATION_CAPTURE_TOKEN}`).expect(409);
+  assert.deepEqual(response.body, { result: 'REFUSED', reason: 'count_mismatch' });
+  assert.deepEqual(await scopedCounts(), { users: 10, patients: 8, appointments: 8 });
+  assert.equal((response.text + JSON.stringify(response.body)).includes(safeEnv.QA_VERIFICATION_CAPTURE_TOKEN), false);
+});
+
+test('exact dry-run endpoint on isolated database rolls back and remains read only', integration, async () => {
+  const app = express();
+  registerQaCleanupRoutes(app, { env: { ...safeEnv, QA_EXECUTE_CLEANUP: 'true', QA_CLEANUP_EXECUTION_ALLOWED: 'true' }, createClient: () => {
+    const client = new Client({ host: socket, database: 'neondb', user: 'clinic_runtime' }); clients.add(client); return client;
+  } });
+  const response = await request(app).get('/api/qa/cleanup-dry-run')
+    .set('Authorization', `Bearer ${safeEnv.QA_VERIFICATION_CAPTURE_TOKEN}`).expect(200);
+  assert.equal(response.body.namespace, CLEANUP_NAMESPACE);
+  assert.equal(response.body.dryRun, true); assert.equal(response.body.deleted, false);
+  assert.equal(response.body.counts.accounts, 10); assert.equal(response.body.counts.verificationCaptures, 0);
+  assert.deepEqual(await scopedCounts(), { users: 10, patients: 8, appointments: 8 });
 });
 
 for (const index of [8, 9]) {

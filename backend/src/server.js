@@ -32,6 +32,7 @@ import { productionDatabaseIdentityReady } from './utils/databaseReadiness.js';
 import { getStagingLoadTestTarget } from './utils/stagingLoadTestSafety.js';
 import { isStagingQaEnvironment } from './utils/qaEnvironmentMarkers.js';
 import { registerQaVerificationCaptureRoutes } from './routes/qaVerificationCapture.js';
+import { registerQaCleanupRoutes } from './routes/qaCleanup.js';
 import { recordHttpRequest, renderMetrics } from './utils/observability.js';
 
 // Load environment configuration
@@ -100,6 +101,10 @@ app.use((req, res, next) => {
   });
   next();
 });
+
+// Temporary exact-run cleanup routes must reject bodies/methods before either
+// CORS preflight handling or a general JSON parser can consume them.
+registerQaCleanupRoutes(app);
 
 // Enable CORS for frontend requests after common security and correlation headers.
 app.use(corsMiddleware(allowedOrigins));

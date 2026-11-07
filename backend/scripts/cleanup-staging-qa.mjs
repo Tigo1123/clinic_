@@ -6,6 +6,8 @@ import { normalizeQaMarker } from '../src/utils/qaEnvironmentMarkers.js';
 export const CLEANUP_NAMESPACE = 'qa-20261106-73412c3e';
 const TARGET = 'clinic-staging-qa-20261106';
 const IDENTITY = { database: 'neondb', schema: 'public', role: 'clinic_runtime' };
+const EXPECTED_FOOTPRINT = Object.freeze({ accounts: 10, patients: 8, appointments: 8, registrations: 10,
+  verificationChallenges: 10, verificationCaptures: 0, authenticationChallenges: 0, auditRows: 34, notifications: 40 });
 const REFUSALS = new Set(['invalid_namespace', 'invalid_environment', 'invalid_expected_counts', 'invalid_execution_flag',
   'database_identity_not_allowed', 'count_mismatch', 'unexpected_account', 'unexpected_patient', 'unexpected_registration',
   'unexpected_challenge', 'unexpected_appointment', 'unexpected_audit', 'unexpected_notification', 'unexpected_auth_record',
@@ -213,6 +215,7 @@ export async function cleanupStagingQa({ env = process.env, client } = {}) {
     const counts = { accounts: users.length, patients: patients.length, appointments: appointments.length,
       registrations: registrations.length, verificationChallenges: challenges.length, verificationCaptures: verificationCaptures.length, authenticationChallenges: mfaChallenges.length,
       auditRows: audits.length, notifications: notifications.length };
+    requireSafe(Object.entries(EXPECTED_FOOTPRINT).every(([key, expected]) => counts[key] === expected), 'count_mismatch');
     if (!config.execute) {
       await client.query('ROLLBACK'); inTransaction = false;
       return { namespace: config.namespace, dryRun: true, deleted: false, counts };
