@@ -31,6 +31,7 @@ Required explicit markers:
 - `VERIFICATION_PROVIDER`: `email`
 - `QA_VERIFICATION_CAPTURE_ENABLED`: boolean string `true`
 - `QA_VERIFICATION_CAPTURE_TOKEN`: secret, at least 32 characters; share only between staging API and the QA runner
+- `QA_VERIFICATION_CAPTURE_STORAGE_KEY`: dedicated server-side secret, exactly 64 hexadecimal characters representing 32 random bytes; never reuse clinical, MFA, JWT, or capture-auth credentials. Do not put it in the runner environment, source, or reports.
 - `QA_PAYMENT_MODE`: `disabled` or `ledger-only`
 
 The staging service must also retain its existing `DATABASE_URL` (pooled) and
@@ -51,17 +52,34 @@ backend.
 For patient registration, the QA email sink can capture verification codes only
 for the exact generated `qa-YYYYMMDD-xxxxxxxx+patient-NNN@example.invalid`
 identity pattern, a pending `PATIENT` registration and its active
-`REGISTRATION_EMAIL` challenge. Captures exist only in backend process memory,
-expire after at most five minutes (or earlier challenge expiry), and are
-single-use. The code is never included in logs or the registration response.
+`REGISTRATION_EMAIL` challenge. Captures are stored in the dedicated
+`QaVerificationCapture` table, linked by foreign key to the real challenge.
+The six-digit code is encrypted with AES-256-GCM, a random 12-byte nonce, a
+16-byte authentication tag, and AAD binding the challenge ID and capture expiry.
+No recipient/email or plaintext code is stored in that table. The original
+five-minute maximum remains; expiry is also bounded by challenge issuance plus
+five minutes and the underlying challenge expiry. A duplicate cannot refresh
+an existing capture. Expired or invalid captures are removed when looked up.
+The code is never included in logs or the registration response.
 The QA runner retrieves it from `/api/qa/verification-capture/:challengeId`
 using `Authorization: Bearer` and the capture token. The endpoint verifies the
 challenge/account again, checks the full staging safety gate, and returns
 `Cache-Control: no-store`. Outside explicitly enabled staging QA mode it returns
 404. SMS verification remains disabled; use email verification for synthetic
-registration. If the API runs multiple instances, capture and retrieval must be
-routed to the same instance; otherwise retrieval safely fails and registration
-must be retried.
+registration. Shared encrypted database storage permits retrieval from a fresh
+instance after restart, within the original expiry. Consumption locks the real
+user and challenge in normal verification lock order, validates current account,
+challenge generation/attempt budget and expiry, and atomically deletes the
+capture inside one transaction. Concurrent consumers have one winner.
+
+The additive migration is `20261107090000_durable_qa_verification_capture`.
+Apply it through the normal reviewed migration process before using capture,
+and ensure the staging runtime role has SELECT/INSERT/DELETE privileges on the
+new table through the existing role provisioning process. Configure the new
+dedicated storage key on staging before deploying this change. Missing,
+malformed, or reused keys fail closed when staging capture is enabled;
+production/capture-disabled startup does not require this key. This document
+does not authorize migration, deployment, key provisioning, or a live run.
 
 ## QA runner configuration
 
@@ -100,11 +118,13 @@ From the repository root, with `QA_VERIFICATION_CAPTURE_TOKEN` already exported
 from local secret storage (never put its value in the command or a report):
 
 ```sh
-QA_API_ORIGIN=https://clinic-staging-api.onrender.com \
-QA_EXPECTED_API_ORIGIN=https://clinic-staging-api.onrender.com \
-QA_EXPECTED_TARGET_ID=clinic-staging-qa-20261106 \
-QA_EXECUTE_PATIENT_WORKFLOWS=true \
-node backend/scripts/full-system-qa.mjs
+systemd-inhibit --what=sleep:idle:handle-lid-switch --mode=block \
+  --who="Shifa staging QA" --why="Keep the authorized foreground QA run uninterrupted" \
+  env QA_API_ORIGIN=https://clinic-staging-api.onrender.com \
+  QA_EXPECTED_API_ORIGIN=https://clinic-staging-api.onrender.com \
+  QA_EXPECTED_TARGET_ID=clinic-staging-qa-20261106 \
+  QA_EXECUTE_PATIENT_WORKFLOWS=true QA_MAX_CONCURRENCY=2 \
+  node backend/scripts/full-system-qa.mjs
 ```
 
 This command is documented for a later authorized run; do not run it as part of
@@ -119,6 +139,22 @@ including probes/retries. Registration, verification and login each have a
 minimum 95-second interval, preserving the normal default 10-per-15-minute IP
 limits. HTTP requests are also spaced at least 250 ms apart. Expect several
 hours for a full run. Do not raise server limits or rotate IPs to speed it up.
+
+On Fedora/Linux, the foreground `systemd-inhibit` command above takes its
+sleep/idle/lid-switch block before starting Node and holds it for that process's lifetime.
+It does not provide restart or resume behavior. The capture credential must
+already be securely exported. Do not use shell tracing or put credential values
+in the command. See the [systemd-inhibit manual](https://www.freedesktop.org/software/systemd/man/latest/systemd-inhibit.html).
+
+The transport independently guards wall-clock continuity. Every scheduled
+wait records its expected wake time; an overrun exceeding 60 seconds stops the
+run with `run_long_pause_detected`. Ordinary 95-second pacing, Retry-After and
+gate-retry waits are allowed for their scheduled duration. Continuity checkpoints
+before/after network operations and between stages also detect unscheduled
+pauses, even outside a sleep call. No subsequent workflow request is sent after
+detection. A POST interrupted before its result is confirmed remains an ambiguous
+mutation in the report. Sleep inhibition never disables or relaxes this guard.
+Do not restart or automatically clean up an interrupted run.
 
 The gate is checked before every workflow request, at intervals of at most
 30 seconds during pacing/retry waits, and at completion. Request timeout is

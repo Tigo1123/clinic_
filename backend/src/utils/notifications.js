@@ -26,27 +26,10 @@ export async function sendEmail({ to, subject, text, html, qaVerificationCapture
     let captured = false;
     if (qaVerificationCapture) {
       captured = await captureQaVerificationCode({
+        prismaClient: prisma,
         challengeId: qaVerificationCapture.challengeId,
         recipient: to,
-        code: qaVerificationCapture.code,
-        findValidChallenge: async () => prisma.verificationChallenge.findFirst({
-          where: {
-            id: qaVerificationCapture.challengeId,
-            type: 'REGISTRATION_EMAIL',
-            targetNormalized: to,
-            usedAt: null,
-            expiresAt: { gt: new Date() },
-            user: { is: { email: to, username: to, role: 'PATIENT', status: 'PENDING_VERIFICATION' } }
-          },
-          select: {
-            id: true,
-            type: true,
-            targetNormalized: true,
-            usedAt: true,
-            expiresAt: true,
-            user: { select: { email: true, username: true, role: true, status: true } }
-          }
-        })
+        code: qaVerificationCapture.code
       });
     }
     logger.info('email.qa_sinked', { delivered: false, captured });

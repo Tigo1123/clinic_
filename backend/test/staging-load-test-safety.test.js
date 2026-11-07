@@ -7,7 +7,7 @@ import {
   safeQaEnvironmentSummary,
   stagingLoadTestPreflight
 } from '../src/utils/stagingLoadTestSafety.js';
-import { clearQaVerificationCapturesForTests, captureQaVerificationCode, consumeQaVerificationCapture, isQaVerificationCaptureEnabled, isValidQaVerificationCaptureToken, peekQaVerificationCapture } from '../src/utils/qaVerificationCapture.js';
+import { isQaVerificationCaptureEnabled, isValidQaVerificationCaptureToken } from '../src/utils/qaVerificationCapture.js';
 import { fetchQaVerificationCode, StagingQaGateError, validateStagingApiOrigin, verifyStagingQaGate } from '../scripts/stagingQaGate.mjs';
 
 const directUrl = 'postgresql://synthetic:fixture@ep-muddy-unit-b4hvj7be.c-6.us-east-2.aws.neon.tech/neondb?schema=public&sslmode=verify-full';
@@ -20,7 +20,8 @@ const baseEnv = {
   DATABASE_URL: runtimeUrl, DIRECT_URL: directUrl,
   QA_NOTIFICATION_MODE: 'sink', NOTIFICATIONS_DISABLED: 'true', SMS_PROVIDER: 'disabled',
   QA_PAYMENT_MODE: 'ledger-only', VERIFICATION_PROVIDER: 'email',
-  QA_VERIFICATION_CAPTURE_ENABLED: 'true', QA_VERIFICATION_CAPTURE_TOKEN: 'test-capture-token-that-is-not-a-real-secret'
+  QA_VERIFICATION_CAPTURE_ENABLED: 'true', QA_VERIFICATION_CAPTURE_TOKEN: 'test-capture-token-that-is-not-a-real-secret',
+  QA_VERIFICATION_CAPTURE_STORAGE_KEY: 'a1'.repeat(32)
 };
 const expectedDbIdentity = { database: 'neondb', schema: 'public', role: 'shifa_staging_runtime' };
 
@@ -192,7 +193,6 @@ test('notification sink is explicitly staging-only', () => {
 });
 
 test('verification capture requires explicit staging QA, email verification, a safe sink, and synthetic registration identity', async () => {
-  clearQaVerificationCapturesForTests();
   assert.equal(isQaVerificationCaptureEnabled(baseEnv), true);
   assert.equal(isValidQaVerificationCaptureToken(baseEnv.QA_VERIFICATION_CAPTURE_TOKEN, baseEnv), true);
   assert.equal(isValidQaVerificationCaptureToken('wrong-token-value-that-is-long-enough', baseEnv), false);
@@ -200,34 +200,7 @@ test('verification capture requires explicit staging QA, email verification, a s
   assert.equal(isQaVerificationCaptureEnabled({ ...baseEnv, QA_LOAD_TEST_ALLOWED: 'false' }), false);
   assert.equal(isQaVerificationCaptureEnabled({ ...baseEnv, VERIFICATION_PROVIDER: 'development' }), false);
 
-  const challengeId = '123e4567-e89b-42d3-a456-426614174000';
-  const recipient = 'qa-20261101-a1b2c3d4+patient-001@example.invalid';
-  const expiresAt = new Date(Date.now() + 60_000);
-  const findValidChallenge = async () => ({
-    id: challengeId, type: 'REGISTRATION_EMAIL', targetNormalized: recipient,
-    usedAt: null, expiresAt,
-    user: { email: recipient, username: recipient, role: 'PATIENT', status: 'PENDING_VERIFICATION' }
-  });
-  assert.equal(await captureQaVerificationCode({ env: baseEnv, challengeId, recipient, code: '123456', findValidChallenge }), true);
-  assert.equal(peekQaVerificationCapture(challengeId).recipient, recipient);
-  assert.equal(consumeQaVerificationCapture(challengeId).code, '123456');
-  assert.equal(consumeQaVerificationCapture(challengeId), null, 'capture is one-time');
 
-  assert.equal(await captureQaVerificationCode({ env: baseEnv, challengeId, recipient: 'person@example.com', code: '123456', findValidChallenge }), false);
-  const activeUserChallenge = await findValidChallenge();
-  assert.equal(await captureQaVerificationCode({
-    env: baseEnv, challengeId, recipient, code: '123456',
-    findValidChallenge: async () => ({ ...activeUserChallenge, user: { ...activeUserChallenge.user, status: 'ACTIVE' } })
-  }), false);
-
-  const expiryNow = Date.now();
-  const expiringChallenge = { ...(await findValidChallenge()), expiresAt: new Date(expiryNow + 1000) };
-  assert.equal(await captureQaVerificationCode({
-    env: baseEnv, challengeId, recipient, code: '123456', now: expiryNow,
-    findValidChallenge: async () => expiringChallenge
-  }), true);
-  assert.equal(peekQaVerificationCapture(challengeId, expiryNow + 1001), null, 'capture expires before challenge can outlive it');
-  clearQaVerificationCapturesForTests();
 });
 
 test('runner rejects frontend, production, missing and mismatched API origin pins', () => {

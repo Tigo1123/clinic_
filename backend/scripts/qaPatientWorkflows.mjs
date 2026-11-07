@@ -192,7 +192,7 @@ export async function runPatientQa({ env = process.env, fetchImpl = fetch, now =
         const identityConflict = stage === 'registration' && error.status === 409;
         const reason = identityConflict ? 'registration_identity_conflict' : client.stopped || error.reason || (stage === 'capture' ? 'capture_failed' : 'unexpected_failure');
         entry.stages[stage] = { status: identityConflict || (client.stopped && error.status == null) ? 'BLOCKED' : 'FAILURE', reason: safeReason(reason) };
-        entry.ambiguousMutation = error.reason === 'mutation_outcome_unknown';
+        entry.ambiguousMutation = error.reason === 'mutation_outcome_unknown' || error.mutationOutcomeUnknown === true;
         if (['registration', 'capture', 'verification', 'login', 'profile'].includes(stage) || entry.ambiguousMutation) client.stop(reason);
         for (const name of STAGES) if (entry.stages[name].reason === 'not_started') entry.stages[name] = blocked('prerequisite_failed');
       } finally {

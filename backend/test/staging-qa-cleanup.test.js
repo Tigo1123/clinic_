@@ -13,6 +13,7 @@ const safeEnv = {
   QA_NOTIFICATION_MODE: 'sink', NOTIFICATIONS_DISABLED: 'true', SMS_PROVIDER: 'disabled', QA_PAYMENT_MODE: 'disabled',
   VERIFICATION_PROVIDER: 'email', QA_VERIFICATION_CAPTURE_ENABLED: 'true',
   QA_VERIFICATION_CAPTURE_TOKEN: 'synthetic-cleanup-credential-not-a-real-secret',
+  QA_VERIFICATION_CAPTURE_STORAGE_KEY: 'a1'.repeat(32),
   DATABASE_URL: 'postgresql://synthetic:fixture@ep-muddy-unit-b4hvj7be-pooler.c-6.us-east-2.aws.neon.tech/neondb?schema=public&sslmode=verify-full',
   DIRECT_URL: 'postgresql://synthetic:fixture@ep-muddy-unit-b4hvj7be.c-6.us-east-2.aws.neon.tech/neondb?schema=public&sslmode=verify-full',
   QA_EXPECTED_CLEANUP_ACCOUNTS: '9', QA_EXPECTED_CLEANUP_APPOINTMENTS: '8'

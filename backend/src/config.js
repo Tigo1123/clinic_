@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { DEFAULT_CLINIC_TIME_ZONE, isValidClinicTimeZone } from './utils/clinicTime.js';
 import { readSmtpConfig } from './utils/smtpConfig.js';
 import { getFacilityBranding } from './utils/facilityBranding.js';
-import { isQaVerificationCaptureEnabled } from './utils/qaVerificationCapture.js';
+import { isQaVerificationCaptureEnabled, validateQaVerificationCaptureStorage } from './utils/qaVerificationCaptureConfig.js';
 import { normalizeQaMarker } from './utils/qaEnvironmentMarkers.js';
 
 const INSECURE_SECRETS = new Set([
@@ -92,6 +92,8 @@ export function validateEnvironment() {
       && !['development', 'test'].includes(process.env.NODE_ENV)) {
     errors.push('VERIFICATION_PROVIDER=development requires NODE_ENV=development or test. Set NODE_ENV explicitly, or configure VERIFICATION_PROVIDER=email with SMTP.');
   }
+
+  try { validateQaVerificationCaptureStorage(); } catch (error) { errors.push(error.message); }
 
   if (production) {
     try {

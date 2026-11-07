@@ -6,7 +6,8 @@ import { validateEnvironment } from '../src/config.js';
 import { registrationPurpose } from '../src/services/verification.js';
 import { readSmtpConfig } from '../src/utils/smtpConfig.js';
 import { sendEmail, sendSMS, smtpTransport } from '../src/utils/notifications.js';
-import { clearQaVerificationCapturesForTests, consumeQaVerificationCapture } from '../src/utils/qaVerificationCapture.js';
+import { consumeQaVerificationCapture } from '../src/utils/qaVerificationCapture.js';
+import { QA_CAPTURE_TEST_ENV, qaCaptureFixture } from './helpers/qaCaptureFixture.js';
 
 const baseline = {
   DATABASE_URL: 'postgresql://test:never-connect@ep-test-pooler.us-east-1.aws.neon.tech/neondb?sslmode=verify-full&connection_limit=5&pool_timeout=10',
@@ -49,7 +50,8 @@ const stagingQa = {
   QA_NOTIFICATION_MODE: 'sink', NOTIFICATIONS_DISABLED: 'true',
   VERIFICATION_PROVIDER: 'email', QA_VERIFICATION_CAPTURE_ENABLED: 'true',
   QA_LOAD_TEST_ALLOWED: 'true', SMS_PROVIDER: 'disabled',
-  QA_VERIFICATION_CAPTURE_TOKEN: 'synthetic-staging-capture-token-not-a-real-secret'
+  QA_VERIFICATION_CAPTURE_TOKEN: 'synthetic-staging-capture-token-not-a-real-secret',
+  QA_VERIFICATION_CAPTURE_STORAGE_KEY: 'a1'.repeat(32)
 };
 
 test('development verification fails at startup for missing or invalid NODE_ENV', () => {
@@ -153,31 +155,33 @@ test('production environment declarations cannot use QA flags to bypass email va
   }
 });
 
+test('dedicated capture storage key is required only for enabled staging QA capture', () => {
+  withEnvironment({ ...stagingQa, QA_VERIFICATION_CAPTURE_STORAGE_KEY: undefined }, () => {
+    assert.throws(() => validateEnvironment(), /QA_VERIFICATION_CAPTURE_STORAGE_KEY/);
+  });
+  for (const overrides of [{ APP_ENV: 'production', DEPLOYMENT_ENV: 'production' }, { QA_VERIFICATION_CAPTURE_ENABLED: 'false' }]) {
+    withEnvironment({ ...stagingQa, ...overrides, QA_VERIFICATION_CAPTURE_STORAGE_KEY: undefined,
+      NOTIFICATIONS_DISABLED: 'false' }, () => assert.equal(validateEnvironment().production, true));
+  }
+});
+
 test('staging QA captures only synthetic registration codes and never calls email or SMS transports', async (t) => {
-  clearQaVerificationCapturesForTests();
-  t.after(clearQaVerificationCapturesForTests);
   const smtp = t.mock.method(nodemailer, 'createTransport', () => assert.fail('QA must never create an SMTP transport'));
   const recipient = 'qa-20261106-a1b2c3d4+patient-001@example.invalid';
   const challengeId = '123e4567-e89b-42d3-a456-426614174000';
-  // Prisma delegates use a proxy, so replace the method directly for this test.
-  const findFirst = prisma.verificationChallenge.findFirst;
-  t.after(() => { prisma.verificationChallenge.findFirst = findFirst; });
-  const challenge = t.mock.fn(async () => ({
-    id: challengeId, type: 'REGISTRATION_EMAIL', targetNormalized: recipient,
-    usedAt: null, expiresAt: new Date(Date.now() + 60_000),
-    user: { email: recipient, username: recipient, role: 'PATIENT', status: 'PENDING_VERIFICATION' }
-  }));
-  prisma.verificationChallenge.findFirst = challenge;
+  const fixture = qaCaptureFixture();
+  t.mock.method(prisma, '$transaction', fixture.prismaClient.$transaction);
 
-  await withEnvironment(stagingQa, async () => {
+  await withEnvironment({ ...stagingQa, ...QA_CAPTURE_TEST_ENV }, async () => {
     assert.equal(validateEnvironment().production, true);
     const capture = { challengeId, code: '123456' };
     assert.deepEqual(await sendEmail({ to: recipient, subject: 'QA', text: 'Synthetic code', qaVerificationCapture: capture }), { accepted: true, qaCaptured: true });
-    assert.equal(consumeQaVerificationCapture(challengeId)?.code, capture.code);
-    assert.equal(consumeQaVerificationCapture(challengeId), null);
+    assert.equal((await consumeQaVerificationCapture({ prismaClient: prisma, challengeId })).capture?.code, capture.code);
+    assert.equal((await consumeQaVerificationCapture({ prismaClient: prisma, challengeId })).capture, null);
+    const lookupCount = fixture.challengeQueries.length;
     assert.equal(await sendEmail({ to: 'real-recipient@example.test', subject: 'QA', text: 'Sink this', qaVerificationCapture: capture }), null);
     assert.equal(await sendEmail({ to: recipient, subject: 'QA', text: 'No capture metadata' }), null);
-    assert.equal(challenge.mock.callCount(), 1, 'real recipients never enter capture lookup');
+    assert.equal(fixture.challengeQueries.length, lookupCount, 'real recipients never enter capture lookup');
 
     const logs = [];
     const sms = t.mock.fn(async () => ({ accepted: true }));

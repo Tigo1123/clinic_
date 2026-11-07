@@ -1,9 +1,7 @@
 import {
   consumeQaVerificationCapture,
-  discardQaVerificationCapture,
   isQaVerificationCaptureEnabled,
-  isValidQaVerificationCaptureToken,
-  peekQaVerificationCapture
+  isValidQaVerificationCaptureToken
 } from '../utils/qaVerificationCapture.js';
 import { isStagingQaEnvironment, normalizeQaMarker } from '../utils/qaEnvironmentMarkers.js';
 import { getStagingLoadTestTarget } from '../utils/stagingLoadTestSafety.js';
@@ -60,30 +58,8 @@ export function registerQaVerificationCaptureRoutes(app, { prismaClient, env = p
     if (!(await targetAllowed())) return deny(res, 'gate_not_allowed');
 
     const challengeId = req.params.challengeId;
-    const capture = peekQaVerificationCapture(challengeId);
-    if (!capture) return deny(res, 'capture_missing');
-    try {
-      const challenge = await prismaClient.verificationChallenge.findFirst({
-        where: {
-          id: challengeId,
-          type: 'REGISTRATION_EMAIL',
-          targetNormalized: capture.recipient,
-          usedAt: null,
-          expiresAt: { gt: new Date() },
-          user: { is: { email: capture.recipient, username: capture.recipient, role: 'PATIENT', status: 'PENDING_VERIFICATION' } }
-        },
-        select: { id: true }
-      });
-      if (!challenge) {
-        discardQaVerificationCapture(challengeId);
-        return deny(res, 'challenge_not_valid');
-      }
-    } catch {
-      return deny(res, 'challenge_not_valid');
-    }
-
-    const consumed = consumeQaVerificationCapture(challengeId);
-    if (!consumed) return deny(res, 'capture_consumption_failed');
+    const { capture: consumed, reason } = await consumeQaVerificationCapture({ env, prismaClient, challengeId });
+    if (!consumed) return deny(res, reason);
     log.info('qa.verification_capture_served');
     return res.json({ challengeId, code: consumed.code, expiresAt: new Date(consumed.expiresAt).toISOString() });
   });

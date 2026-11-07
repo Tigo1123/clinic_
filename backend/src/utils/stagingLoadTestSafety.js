@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { isQaVerificationCaptureEnabled } from './qaVerificationCapture.js';
+import { isQaVerificationCaptureEnabled } from './qaVerificationCaptureConfig.js';
 import { isStagingQaEnvironment, normalizeQaMarker } from './qaEnvironmentMarkers.js';
 
 // These fingerprints are pinned in scripts/provision-first-admin.js and identify

@@ -443,6 +443,7 @@ model PendingExternalAuth {
 }
 
 model VerificationChallenge {
+  qaCapture        QaVerificationCapture?
   authVersion      Int?
   id               String    @id @default(uuid())
   userId           String
@@ -457,6 +458,16 @@ model VerificationChallenge {
   createdAt        DateTime  @default(now())
 
   @@index([userId, type, createdAt])
+}
+
+model QaVerificationCapture {
+  challengeId   String                @id
+  challenge     VerificationChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  codeEncrypted String
+  expiresAt     DateTime
+  createdAt     DateTime              @default(now())
+
+  @@index([expiresAt])
 }
 
 model MfaConfiguration {

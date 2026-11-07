@@ -7,6 +7,7 @@ export class QaRunError extends Error {
 }
 
 export const SENSITIVE_INTERVAL_MS = 95_000; // Below 10 requests / 15 minutes per IP.
+export const LONG_PAUSE_TOLERANCE_MS = 60_000;
 const REQUEST_INTERVAL_MS = 250;
 const MAX_RETRIES = 2;
 const MAX_RETRY_WAIT_MS = 20 * 60_000;
@@ -22,11 +23,43 @@ export function createQaTransport({ env, report, fetchImpl = fetch, now = Date.n
   let cooldownUntil = 0;
   let gatePromise;
   const lanes = new Map();
+  let checkpoint = now();
+  const scheduledWakes = new Map();
 
   function stop(reason) { stopped ||= reason; }
+  function longPause() {
+    report.gate = 'BLOCKED';
+    report.reason = 'run_long_pause_detected';
+    stop('run_long_pause_detected');
+    throw new QaRunError(stopped);
+  }
   function assertRunning() {
     if (signal?.aborted) stop('run_interrupted');
     if (stopped) throw new QaRunError(stopped);
+    const current = now();
+    const expected = scheduledWakes.size ? Math.min(...scheduledWakes.values()) : Infinity;
+    if (current > checkpoint + LONG_PAUSE_TOLERANCE_MS || current > expected + LONG_PAUSE_TOLERANCE_MS
+        || current < checkpoint - LONG_PAUSE_TOLERANCE_MS) longPause();
+    checkpoint = current;
+    return current;
+  }
+  async function scheduledSleep(ms) {
+    const started = assertRunning();
+    const ticket = Symbol();
+    const expected = started + ms;
+    scheduledWakes.set(ticket, expected);
+    try {
+      await sleep(ms);
+      const current = now();
+      if (current > Math.min(...scheduledWakes.values()) + LONG_PAUSE_TOLERANCE_MS
+          || current < checkpoint - LONG_PAUSE_TOLERANCE_MS) longPause();
+      // Only a validated scheduled wake may advance continuity past an idle
+      // interval. Another worker's pending sleep cannot exempt a stage/request.
+      checkpoint = current;
+      assertRunning();
+    } finally {
+      scheduledWakes.delete(ticket);
+    }
   }
 
   // Single network queue bounds total in-flight HTTP requests, including gate
@@ -39,29 +72,41 @@ export function createQaTransport({ env, report, fetchImpl = fetch, now = Date.n
       const method = options.method || 'GET';
       if (env.QA_EXPECTED_TARGET_ID !== STAGING_TARGET || !permittedQaRequest(url, method)) throw new QaRunError('request_not_allowed');
       const delay = REQUEST_INTERVAL_MS - (now() - lastRequest);
-      if (delay > 0) await sleep(delay);
-      assertRunning();
-      lastRequest = now();
-      const started = now();
+      if (delay > 0) await scheduledSleep(delay);
+      const started = assertRunning();
+      lastRequest = started;
+      const networkWake = Symbol();
+      scheduledWakes.set(networkWake, started + 20_000);
       report.maxActiveRequests = Math.max(report.maxActiveRequests, 1);
       let response;
       try {
         response = await fetchImpl(url.href, { ...options, method, redirect: 'error', cache: 'no-store',
           signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000) });
-        if ([401, 403].includes(response.status)) { report.securityFailures++; stop('authorization_failure'); }
+        assertRunning();
         // Consume the bounded JSON response inside the timeout and queue. No
         // response bodies are logged or copied into reports.
         const text = await response.text();
+        assertRunning();
+        if ([401, 403].includes(response.status)) { report.securityFailures++; stop('authorization_failure'); }
         if (text.length > 2_000_000) throw new QaRunError('invalid_response');
         response = new Response([204, 205, 304].includes(response.status) ? null : text,
           { status: response.status, headers: response.headers });
       } catch (error) {
-        if (error instanceof QaRunError) throw error;
+        if (error instanceof QaRunError) {
+          if (error.reason === 'run_long_pause_detected' && method !== 'GET') error.mutationOutcomeUnknown = true;
+          throw error;
+        }
+        try { assertRunning(); }
+        catch (pause) {
+          if (pause.reason === 'run_long_pause_detected' && method !== 'GET') pause.mutationOutcomeUnknown = true;
+          throw pause;
+        }
         if (signal?.aborted) { stop('run_interrupted'); throw new QaRunError('run_interrupted'); }
         report.networkFailures++;
         if (method !== 'GET') throw new QaRunError('mutation_outcome_unknown');
         throw new QaRunError('request_failed');
       } finally {
+        scheduledWakes.delete(networkWake);
         report.latencies.push(Math.max(0, now() - started));
       }
       const status = response.status;
@@ -116,11 +161,12 @@ export function createQaTransport({ env, report, fetchImpl = fetch, now = Date.n
             return result;
           } catch {
             if (signal?.aborted || stopped === 'run_interrupted') fail('run_interrupted');
+            if (stopped === 'run_long_pause_detected') fail(stopped);
             if (!transportFailed || stopped) fail('gate_invalid');
             if (attempt === GATE_RETRY_DELAYS_MS.length) fail('gate_transport_retry_exhausted');
             report.gateRetryCount = (report.gateRetryCount || 0) + 1;
-            try { await sleep(GATE_RETRY_DELAYS_MS[attempt]); assertRunning(); }
-            catch { fail(signal?.aborted || stopped === 'run_interrupted' ? 'run_interrupted' : 'gate_invalid'); }
+            try { await scheduledSleep(GATE_RETRY_DELAYS_MS[attempt]); assertRunning(); }
+            catch { fail(signal?.aborted || stopped === 'run_interrupted' ? 'run_interrupted' : stopped === 'run_long_pause_detected' ? stopped : 'gate_invalid'); }
           }
         }
       })().finally(() => { gatePromise = null; });
@@ -131,7 +177,7 @@ export function createQaTransport({ env, report, fetchImpl = fetch, now = Date.n
   async function waitUntil(due) {
     while (due > now()) {
       assertRunning();
-      await sleep(Math.min(30_000, due - now()));
+      await scheduledSleep(Math.min(30_000, due - now()));
       // Keep watching the safety gate during long rate-limit/pacing waits.
       await checkGate();
     }
@@ -147,6 +193,7 @@ export function createQaTransport({ env, report, fetchImpl = fetch, now = Date.n
   }
 
   async function workflowFetch(input, options = {}) {
+    assertRunning();
     const url = new URL(input);
     if (HEALTH.has(url.pathname)) throw new QaRunError('request_not_allowed');
     const method = options.method || 'GET';

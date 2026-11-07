@@ -1,7 +1,7 @@
 import { ID, PATIENT_COUNT, STAGES, STAGING_API, STAGING_TARGET } from './qaPatientPlan.mjs';
 
 export const REASONS = new Set([
-  'not_started', 'completed', 'workflow_prerequisites_blocked', 'execution_disabled', 'gate_invalid', 'gate_transport_retry_exhausted', 'run_interrupted', 'invalid_configuration',
+  'not_started', 'completed', 'workflow_prerequisites_blocked', 'execution_disabled', 'gate_invalid', 'gate_transport_retry_exhausted', 'run_interrupted', 'run_long_pause_detected', 'invalid_configuration',
   'request_not_allowed', 'request_failed', 'invalid_response', 'authorization_failure',
   'retry_budget_exhausted', 'retry_after_exceeds_budget', 'mutation_outcome_unknown',
   'address_fixture_unavailable', 'registration_failed', 'capture_failed', 'capture_authentication_failed', 'verification_failed',
