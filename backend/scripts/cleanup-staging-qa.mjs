@@ -242,7 +242,7 @@ export async function cleanupStagingQa({ env = process.env, client } = {}) {
   }
 }
 
-function cleanupRefusalReason(error) {
+export function cleanupRefusalReason(error) {
   return error instanceof CleanupRefusal && REFUSALS.has(error.reason) ? error.reason : 'cleanup_failed';
 }
 

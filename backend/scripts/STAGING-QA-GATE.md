@@ -246,7 +246,7 @@ identity markers must agree. It uses the normal staging `DATABASE_URL` already
 available in the Render shell, without printing it or loading local `.env` files.
 
 Later dry-run command, **only in an authorized staging backend execution
-environment**, when one is available. No HTTP cleanup endpoint is provided:
+environment**, when one is available:
 
 ```sh
 QA_CLEANUP_NAMESPACE=qa-20261106-73412c3e \
@@ -280,6 +280,17 @@ captures. Any such row refuses cleanup before DELETE; captures are never
 automatically deleted or silently trusted to cascade. The table participates
 in schema/RLS and reference inspection, including non-FK challenge references.
 Safe dry-run counts include `verificationCaptures: 0`.
+
+A temporary `GET /api/qa/cleanup-dry-run` diagnostic allows this same validation
+when the staging plan has no shell. It requires the existing capture Bearer
+credential and all pinned staging markers with payments disabled. It accepts
+no body, query, alternate method, namespace or cleanup options. A frozen private
+snapshot always forces this namespace, counts 10/8 and `QA_EXECUTE_CLEANUP=false`,
+even if inherited settings request execution. The existing cleanup validator
+checks live identity and the complete footprint inside a serializable read-only
+transaction and rolls back. HTTP output contains only namespace, dry-run/deleted
+flags and allowlisted counts, or an allowlisted refusal. No HTTP execution route
+is provided. Remove this temporary diagnostic after its separately authorized use.
 Unexpected audit actions, changed profiles, progressed appointments, external
 identities/MFA enrollment, claims/consents, clinical/billing data, unknown
 referencing rows, missing privileges, unsupported relations or RLS cause refusal.

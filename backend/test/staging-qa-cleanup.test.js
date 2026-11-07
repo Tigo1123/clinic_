@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
+import express from 'express';
+import request from 'supertest';
+import { registerQaCleanupDryRunRoute } from '../src/routes/qaCleanupDryRun.js';
 import { CLEANUP_NAMESPACE, cleanupCli, cleanupStagingQa, validateCleanupEnvironment } from '../scripts/cleanup-staging-qa.mjs';
 import { registrationBody, syntheticPatient } from '../scripts/qaPatientPlan.mjs';
 
@@ -402,3 +405,48 @@ test('exact names remain mandatory for this namespace', integration, async () =>
   await owner.query('UPDATE public."PatientRegistration" SET "fatherNameEn"=$1 WHERE "userId"=$2', ['qa-20261106-c16af28a', fixture.users[9]]);
   await refusesBeforeDelete('unexpected_patient');
 });
+
+test('temporary HTTP dry-run forces read-only despite inherited execution=true and conflicting cleanup options', integration, async () => {
+  const before = await snapshot(), client = await trackedRuntime();
+  const expectedNotifications = (await owner.query('SELECT count(*)::int AS count FROM public."Notification" WHERE "entityId"=ANY($1::text[])', [[...fixture.patients, ...fixture.appointments]])).rows[0].count;
+  const env = { ...safeEnv, QA_EXECUTE_CLEANUP: 'true', QA_CLEANUP_EXECUTION_ALLOWED: 'true', QA_CLEANUP_NAMESPACE: 'other',
+    QA_EXPECTED_CLEANUP_ACCOUNTS: '999', QA_EXPECTED_CLEANUP_APPOINTMENTS: '999' };
+  const app = express();
+  registerQaCleanupDryRunRoute(app, { env, createClient: () => {
+    env.QA_LOAD_TEST_TARGET_ID = 'changed-after-snapshot';
+    return { connect: async () => {}, query: client.query, end: async () => {} };
+  } });
+  const response = await request(app).get('/api/qa/cleanup-dry-run').set('Authorization', 'Bearer ' + safeEnv.QA_VERIFICATION_CAPTURE_TOKEN).expect(200);
+  assert.deepEqual(Object.keys(response.body).sort(), ['counts', 'deleted', 'dryRun', 'namespace']);
+  assert.equal(response.body.namespace, CLEANUP_NAMESPACE); assert.equal(response.body.dryRun, true); assert.equal(response.body.deleted, false);
+  assert.deepEqual(response.body.counts, { accounts: 10, patients: 8, appointments: 8, registrations: 10,
+    verificationChallenges: 10, verificationCaptures: 0, authenticationChallenges: 0, auditRows: 34, notifications: expectedNotifications });
+  assert.equal(client.queries[0], 'BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY');
+  assert.equal(client.queries.at(-1), 'ROLLBACK');
+  assert.equal(client.queries.some(sql => /\b(DELETE|INSERT|UPDATE|COMMIT)\b/i.test(sql)), false);
+  assert.deepEqual(await snapshot(), before);
+  assert.equal(env.QA_EXECUTE_CLEANUP, 'true'); // No process/inherited setting was changed.
+  for (const secret of [...fixture.users, safeEnv.DATABASE_URL, safeEnv.QA_VERIFICATION_CAPTURE_TOKEN, safeEnv.QA_VERIFICATION_CAPTURE_STORAGE_KEY]) assert.equal(response.text.includes(secret), false);
+});
+
+test('temporary HTTP dry-run repeats live DB identity checks and returns opaque 404 for the wrong role', integration, async () => {
+  const before = await snapshot(), app = express();
+  registerQaCleanupDryRunRoute(app, { env: safeEnv, createClient: () => ({ connect: async () => {}, query: (...args) => owner.query(...args), end: async () => {} }) });
+  await request(app).get('/api/qa/cleanup-dry-run').set('Authorization', 'Bearer ' + safeEnv.QA_VERIFICATION_CAPTURE_TOKEN).expect(404);
+  assert.deepEqual(await snapshot(), before);
+});
+
+for (const change of ['count_mismatch', 'unexpected_related_records']) {
+  test('temporary HTTP dry-run safely returns ' + change + ' and never deletes', integration, async () => {
+    if (change === 'count_mismatch') await owner.query('DELETE FROM public."User" WHERE id=$1', [fixture.users[9]]);
+    else await owner.query('INSERT INTO public."QaVerificationCapture" ("challengeId","codeEncrypted","expiresAt") SELECT id,$1,now()+interval \'1 minute\' FROM public."VerificationChallenge" WHERE "userId"=$2', ['private-ciphertext-sentinel', fixture.users[9]]);
+    const before = await snapshot(), client = await trackedRuntime(), app = express();
+    registerQaCleanupDryRunRoute(app, { env: safeEnv, createClient: () => ({ connect: async () => {}, query: client.query, end: async () => {} }) });
+    const response = await request(app).get('/api/qa/cleanup-dry-run').set('Authorization', 'Bearer ' + safeEnv.QA_VERIFICATION_CAPTURE_TOKEN).expect(409);
+    assert.deepEqual(response.body, { result: 'REFUSED', reason: change });
+    assert.equal(client.queries[0], 'BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY');
+    assert.equal(client.queries.at(-1), 'ROLLBACK');
+    assert.equal(client.queries.some(sql => /\b(DELETE|INSERT|UPDATE|COMMIT)\b/i.test(sql)), false);
+    assert.deepEqual(await snapshot(), before);
+  });
+}
