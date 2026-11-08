@@ -1,5 +1,6 @@
 import { PrismaClient } from '../src/generated/prisma/index.js';
 import bcrypt from 'bcryptjs';
+import { LOCAL_SEED_STAFF } from '../scripts/localSeedStaffCredentials.mjs';
 import { buildMedicineIdentityKey, normalizeBatchNumber } from '../src/utils/medicineManagement.js';
 import { assertDemoSeedAllowed } from '../scripts/demo-seed-policy.js';
 
@@ -55,10 +56,10 @@ async function main() {
 
   // 2. Hash default passwords
   const adminPasswordHash = await bcrypt.hash('Admin@123', 10);
-  const recepPasswordHash = await bcrypt.hash('Receptionist@123', 10);
-  const docPasswordHash = await bcrypt.hash('Doctor@123', 10);
-  const pharmaPasswordHash = await bcrypt.hash('Pharmacist@123', 10);
-  const labPasswordHash = await bcrypt.hash('Labtech@123', 10);
+  const recepPasswordHash = await bcrypt.hash(LOCAL_SEED_STAFF.receptionist.password, 10);
+  const docPasswordHash = await bcrypt.hash(LOCAL_SEED_STAFF.doctor.password, 10);
+  const pharmaPasswordHash = await bcrypt.hash(LOCAL_SEED_STAFF.pharmacist.password, 10);
+  const labPasswordHash = await bcrypt.hash(LOCAL_SEED_STAFF.lab.password, 10);
 
   // 3. Seed Default Admin User
   console.log('Seeding default Admin...');

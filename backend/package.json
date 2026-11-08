@@ -16,6 +16,7 @@
     "seed:staging": "node scripts/seed-staging.js",
     "qa:reset": "node scripts/reset-qa-db.js",
     "qa:workflow": "node scripts/qa-workflow.js",
+    "qa:local:clinical-fixtures": "node scripts/prepare-local-clinical-qa-fixtures.mjs",
     "qa:visual-fixtures": "node scripts/seed-qa-visual-states.js",
     "test": "node test/run-tests.js",
     "backup:postgres": "sh scripts/backup-postgres.sh",
