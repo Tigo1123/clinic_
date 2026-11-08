@@ -22,6 +22,7 @@ export function createQaTransport({ env, report, fetchImpl = fetch, now = Date.n
   let lastRequest = -Infinity;
   let cooldownUntil = 0;
   let gatePromise;
+  let localPreflightPassed = false;
   const lanes = new Map();
   let checkpoint = now();
   const scheduledWakes = new Map();
@@ -150,7 +151,9 @@ export function createQaTransport({ env, report, fetchImpl = fetch, now = Date.n
           report.gateChecks++;
           try {
             const gateCheck = mode === 'local' ? verifyLocalQaGate : verifyStagingQaGate;
-            const result = await gateCheck({ env, databaseProbe, fetchImpl: async (...args) => {
+            const result = await gateCheck({ env, databaseProbe,
+              ...(mode === 'local' ? { initialPreflight: !localPreflightPassed } : {}),
+              fetchImpl: async (...args) => {
               try { return await rawFetch(...args); }
               catch (error) {
                 // Gate helpers intentionally hide fetch exceptions.
@@ -161,6 +164,7 @@ export function createQaTransport({ env, report, fetchImpl = fetch, now = Date.n
             } });
             assertRunning();
             report.gate = 'PASS';
+            if (mode === 'local') localPreflightPassed = true;
             report.lastGateCheckAt = new Date(now()).toISOString();
             return result;
           } catch (error) {

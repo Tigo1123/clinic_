@@ -47,11 +47,35 @@ test('local gate rejects staging/production, non-loopback origins, unsafe provid
   }
   await assert.rejects(verifyLocalQaGate({ env, databaseProbe: async () => ({ ...identity, database: 'neondb' }),
     fetchImpl: async () => json({ status: 'alive' }) }));
+  let workflowRequests = 0;
+  const nonEmptyPreflight = await runPatientQa({ env, mode: 'local',
+    databaseProbe: async () => ({ ...identity, patientCount: 1 }),
+    fetchImpl: async () => { workflowRequests++; return json({ status: 'alive' }); } });
+  assert.equal(nonEmptyPreflight.gate, 'BLOCKED');
+  assert.equal(nonEmptyPreflight.patientsCreated, 0);
+  assert.equal(workflowRequests, 0);
   for (const mismatch of [{ patientCount: 1 }, { role: 'other_role' }, { schema: 'private' }]) {
     let requests = 0;
     await assert.rejects(verifyLocalQaGate({ env, databaseProbe: async () => ({ ...identity, ...mismatch }),
       fetchImpl: async () => { requests++; return json({ status: 'alive' }); } }));
     assert.equal(requests, 0);
+  }
+  for (const patientCount of [1, 2, 50, 100]) {
+    const continuity = await verifyLocalQaGate({ env, initialPreflight: false,
+      databaseProbe: async () => ({ ...identity, patientCount }),
+      fetchImpl: async input => json(new URL(input).pathname === '/api/health' ? { status: 'alive' } : { status: 'healthy' }) });
+    assert.equal(continuity.gate, 'PASS');
+  }
+  for (const mismatch of [{ database: 'different_db' }, { role: 'different_role' }, { schema: 'private' }]) {
+    await assert.rejects(verifyLocalQaGate({ env, initialPreflight: false,
+      databaseProbe: async () => ({ ...identity, patientCount: 1, ...mismatch }),
+      fetchImpl: async () => json({ status: 'alive' }) }));
+  }
+  for (const unsafe of [{ NOTIFICATIONS_DISABLED: 'false' }, { SMS_PROVIDER: 'twilio' },
+    { QA_PAYMENT_MODE: 'enabled' }, { STRIPE_SECRET_KEY: 'configured' }]) {
+    await assert.rejects(verifyLocalQaGate({ env: { ...env, ...unsafe }, initialPreflight: false,
+      databaseProbe: async () => ({ ...identity, patientCount: 1 }),
+      fetchImpl: async () => json({ status: 'alive' }) }));
   }
   for (const change of [{ QA_MAX_CONCURRENCY: '3' }, { QA_REQUESTED_PATIENTS: '99' }]) {
     let requests = 0;
@@ -60,6 +84,45 @@ test('local gate rejects staging/production, non-loopback origins, unsafe provid
     assert.equal(report.patientsCreated, 0);
     assert.equal(requests, 0);
   }
+});
+
+test('local workflow continues through login after registration changes the patient count', async () => {
+  let time = Date.now();
+  let patientCount = 0;
+  let registration;
+  const controller = new AbortController();
+  const calls = [];
+  const fetchImpl = async (input, options = {}) => {
+    const url = new URL(input);
+    const method = options.method || 'GET';
+    const body = options.body ? JSON.parse(options.body) : null;
+    calls.push(`${method} ${url.pathname}`);
+    if (url.pathname === '/api/health') return json({ status: 'alive' });
+    if (url.pathname === '/api/health/ready') return json({ status: 'healthy' });
+    if (url.pathname === '/api/patient-auth/address-states') return json({ states: [{ id: 1 }] });
+    if (url.pathname === '/api/patient-auth/register') {
+      registration = body;
+      patientCount = 1;
+      return json({ state: 'VERIFICATION_REQUIRED', challengeId: '00000000-0000-4000-8000-000000000001', developmentCode: '493821' }, 201);
+    }
+    if (url.pathname === '/api/patient-auth/verify') return json({ state: 'CLAIMED', patient: {
+      id: '10000000-0000-4000-8000-000000000001', phone: registration.phone,
+      fullNameEn: `${registration.firstNameEn} ${registration.fatherNameEn} ${registration.grandfatherNameEn} ${registration.familyNameEn}`
+    } });
+    if (url.pathname === '/api/auth/login') {
+      controller.abort();
+      return json({ token: 'local-only-token', user: { id: '20000000-0000-4000-8000-000000000001',
+        username: registration.email, role: 'PATIENT', patientLinked: true, patientId: '10000000-0000-4000-8000-000000000001' } });
+    }
+    assert.fail(`unexpected request ${method} ${url.pathname}`);
+  };
+  const report = await runPatientQa({ env: { ...env, QA_MAX_CONCURRENCY: '1' }, mode: 'local', signal: controller.signal,
+    fetchImpl, now: () => time, sleep: async ms => { time += ms; },
+    databaseProbe: async () => ({ ...identity, patientCount }) });
+  assert.ok(calls.includes('POST /api/patient-auth/register'));
+  assert.ok(calls.includes('POST /api/patient-auth/verify'));
+  assert.ok(calls.includes('POST /api/auth/login'), 'login should continue after a successful post-registration continuity check');
+  assert.notEqual(report.reason, 'local_database_identity_mismatch');
 });
 
 test('local allowlist permits only existing patient workflow routes on loopback, never staging or external hosts', () => {

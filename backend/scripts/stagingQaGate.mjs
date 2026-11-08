@@ -77,7 +77,8 @@ export async function verifyStagingQaGate({ env = process.env, fetchImpl = fetch
 // remote origin and independently verifies the local PostgreSQL identity.
 export async function verifyLocalQaGate({ env = process.env, fetchImpl = fetch, databaseProbe,
   expectedDatabaseName = env.QA_LOCAL_DATABASE_NAME,
-  expectedDatabaseRole = env.QA_LOCAL_DATABASE_ROLE } = {}) {
+  expectedDatabaseRole = env.QA_LOCAL_DATABASE_ROLE,
+  initialPreflight = true } = {}) {
   const apiPort = Number(env.QA_LOCAL_API_PORT);
   const dbPort = Number(env.QA_LOCAL_DB_PORT);
   const expectedOrigin = `http://127.0.0.1:${apiPort}`;
@@ -119,7 +120,7 @@ export async function verifyLocalQaGate({ env = process.env, fetchImpl = fetch, 
   let identity;
   try { identity = await databaseProbe(); } catch { throw new StagingQaGateError('local_database_unavailable'); }
   if (identity?.database !== expectedDatabaseName || identity?.schema !== 'public' || identity?.role !== expectedDatabaseRole
-      || identity?.patientCount !== 0) {
+      || (initialPreflight && identity?.patientCount !== 0)) {
     throw new StagingQaGateError('local_database_identity_mismatch');
   }
   const live = await getJson(fetchImpl, expectedOrigin, '/api/health');
