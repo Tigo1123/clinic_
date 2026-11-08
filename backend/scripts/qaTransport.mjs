@@ -1,4 +1,4 @@
-import { verifyStagingQaGate } from './stagingQaGate.mjs';
+import { StagingQaGateError, verifyLocalQaGate, verifyStagingQaGate } from './stagingQaGate.mjs';
 import { assertSyntheticPatient, permittedQaRequest, STAGING_API, STAGING_TARGET } from './qaPatientPlan.mjs';
 import { normalizeQaMarker } from '../src/utils/qaEnvironmentMarkers.js';
 
@@ -15,7 +15,7 @@ const GATE_RETRY_DELAYS_MS = [2000, 5000];
 const HEALTH = new Set(['/api/health/load-test-target', '/api/health', '/api/health/ready']);
 
 export function createQaTransport({ env, report, fetchImpl = fetch, now = Date.now,
-  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), signal }) {
+  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), signal, mode = 'staging', databaseProbe }) {
   let stopped = null;
   let tail = Promise.resolve();
   let workflowTail = Promise.resolve();
@@ -70,7 +70,10 @@ export function createQaTransport({ env, report, fetchImpl = fetch, now = Date.n
       let url;
       try { url = new URL(input); } catch { throw new QaRunError('request_not_allowed'); }
       const method = options.method || 'GET';
-      if (env.QA_EXPECTED_TARGET_ID !== STAGING_TARGET || !permittedQaRequest(url, method)) throw new QaRunError('request_not_allowed');
+      const allowedOrigin = mode === 'local' ? env.QA_API_ORIGIN : STAGING_API;
+      const expectedTarget = mode === 'local' ? 'clinic-local-disposable' : STAGING_TARGET;
+      if ((env.QA_EXPECTED_TARGET_ID !== STAGING_TARGET && !(mode === 'local' && env.QA_EXPECTED_TARGET_ID === expectedTarget))
+          || !permittedQaRequest(url, method, allowedOrigin)) throw new QaRunError('request_not_allowed');
       const delay = REQUEST_INTERVAL_MS - (now() - lastRequest);
       if (delay > 0) await scheduledSleep(delay);
       const started = assertRunning();
@@ -146,10 +149,11 @@ export function createQaTransport({ env, report, fetchImpl = fetch, now = Date.n
           let transportFailed = false;
           report.gateChecks++;
           try {
-            const result = await verifyStagingQaGate({ env, fetchImpl: async (...args) => {
+            const gateCheck = mode === 'local' ? verifyLocalQaGate : verifyStagingQaGate;
+            const result = await gateCheck({ env, databaseProbe, fetchImpl: async (...args) => {
               try { return await rawFetch(...args); }
               catch (error) {
-                // verifyStagingQaGate intentionally hides fetch exceptions.
+                // Gate helpers intentionally hide fetch exceptions.
                 // Preserve only this local classification, never the exception.
                 transportFailed = error instanceof QaRunError && error.reason === 'request_failed';
                 throw error;
@@ -159,10 +163,10 @@ export function createQaTransport({ env, report, fetchImpl = fetch, now = Date.n
             report.gate = 'PASS';
             report.lastGateCheckAt = new Date(now()).toISOString();
             return result;
-          } catch {
+          } catch (error) {
             if (signal?.aborted || stopped === 'run_interrupted') fail('run_interrupted');
             if (stopped === 'run_long_pause_detected') fail(stopped);
-            if (!transportFailed || stopped) fail('gate_invalid');
+            if (!transportFailed || stopped) fail(mode === 'local' && error instanceof StagingQaGateError ? error.code : 'gate_invalid');
             if (attempt === GATE_RETRY_DELAYS_MS.length) fail('gate_transport_retry_exhausted');
             report.gateRetryCount = (report.gateRetryCount || 0) + 1;
             try { await scheduledSleep(GATE_RETRY_DELAYS_MS[attempt]); assertRunning(); }
@@ -197,7 +201,8 @@ export function createQaTransport({ env, report, fetchImpl = fetch, now = Date.n
     const url = new URL(input);
     if (HEALTH.has(url.pathname)) throw new QaRunError('request_not_allowed');
     const method = options.method || 'GET';
-    if (!permittedQaRequest(url, method)) throw new QaRunError('request_not_allowed');
+    const allowedOrigin = mode === 'local' ? env.QA_API_ORIGIN : STAGING_API;
+    if (!permittedQaRequest(url, method, allowedOrigin)) throw new QaRunError('request_not_allowed');
     if (url.pathname === '/api/patient-auth/register') {
       let body;
       try { body = JSON.parse(options.body); } catch { throw new QaRunError('non_synthetic_identity'); }
@@ -242,7 +247,8 @@ export function createQaTransport({ env, report, fetchImpl = fetch, now = Date.n
   }
 
   async function json(path, { method = 'GET', body, token, expectedStatus = 200 } = {}) {
-    const response = await workflowFetch(`${STAGING_API}${path}`, {
+    const apiOrigin = mode === 'local' ? env.QA_API_ORIGIN : STAGING_API;
+    const response = await workflowFetch(`${apiOrigin}${path}`, {
       method, headers: { Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {})

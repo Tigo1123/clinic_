@@ -4,6 +4,7 @@ import { verifyLocalQaGate } from './stagingQaGate.mjs';
 
 export const LOCAL_API_ORIGIN = 'http://127.0.0.1:5200';
 export const LOCAL_QA_TARGET = 'clinic-local-disposable';
+export const LOCAL_CLINICAL_QA_DATABASE = 'clinic_local_clinical_qa';
 const REASONS = new Set([
   'unsafe_local_configuration', 'database_identity_mismatch', 'staff_authentication_failed',
   'registration_conflict', 'local_patient_verification_unavailable', 'no_seeded_doctor',
@@ -43,7 +44,7 @@ export function validateLocalClinicalEnvironment(env) {
       || origin !== LOCAL_API_ORIGIN || env.QA_EXPECTED_API_ORIGIN !== LOCAL_API_ORIGIN
       || env.QA_EXPECTED_TARGET_ID !== LOCAL_QA_TARGET
       || database.protocol !== 'postgresql:' || database.hostname !== '127.0.0.1'
-      || database.port !== '55491' || decodeURIComponent(database.pathname.slice(1)) !== 'clinic_local_qa'
+      || database.port !== '55491' || decodeURIComponent(database.pathname.slice(1)) !== LOCAL_CLINICAL_QA_DATABASE
       || decodeURIComponent(database.username) !== 'shifa_local_qa'
       || env.DIRECT_URL !== env.DATABASE_URL || env.SOCKET_REVOCATION_DATABASE_URL !== env.DATABASE_URL
       || env.NOTIFICATIONS_DISABLED !== 'true' || env.SMS_PROVIDER !== 'disabled'
@@ -51,7 +52,7 @@ export function validateLocalClinicalEnvironment(env) {
       || env.QA_PAYMENT_MODE !== 'disabled' || !allowedProviders) {
     fail('unsafe_local_configuration');
   }
-  return Object.freeze({ origin: LOCAL_API_ORIGIN, databaseName: 'clinic_local_qa', databaseRole: 'shifa_local_qa' });
+  return Object.freeze({ origin: LOCAL_API_ORIGIN, databaseName: LOCAL_CLINICAL_QA_DATABASE, databaseRole: 'shifa_local_qa' });
 }
 
 export function safeClinicalFixtureReport(namespace, values = {}) {
@@ -75,13 +76,13 @@ export function safeClinicalFixtureReport(namespace, values = {}) {
 const ROUTES = [
   ['POST', /^\/api\/auth\/login$/], ['GET', /^\/api\/patient-auth\/address-states$/],
   ['POST', /^\/api\/patient-auth\/register$/], ['POST', /^\/api\/patient-auth\/verify$/],
-  ['GET', /^\/api\/patient\/me$/], ['GET', /^\/api\/patient\/doctors$/],
+  ['GET', /^\/api\/patient\/me$/], ['GET', /^\/api\/appointments\/doctors$/],
   ['GET', /^\/api\/patient\/lab-results$/], ['GET', /^\/api\/patient\/prescriptions$/],
   ['GET', /^\/api\/appointments\/slots$/], ['POST', /^\/api\/patient\/appointments$/],
   ['PUT', /^\/api\/appointments\/[0-9a-f-]+\/status$/],
   ['GET', /^\/api\/billing\/payment-methods$/], ['POST', /^\/api\/billing\/invoice$/],
   ['POST', /^\/api\/billing\/invoice\/[0-9a-f-]+\/payments$/], ['GET', /^\/api\/billing\/services$/],
-  ['GET', /^\/api\/records\/drugs$/], ['POST', /^\/api\/records$/],
+  ['GET', /^\/api\/records\/medication-reviews\/pending$/], ['POST', /^\/api\/records$/],
   ['GET', /^\/api\/records\/lab-orders\/pending$/],
   ['PUT', /^\/api\/records\/lab-orders\/[0-9a-f-]+\/collect-sample$/],
   ['PUT', /^\/api\/records\/lab-orders\/items\/[0-9a-f-]+\/results$/],
@@ -112,7 +113,7 @@ async function run({ env, fetchImpl = fetch, databaseProbe, staffCredentials, no
   }
 
   try {
-    const gate = await verifyLocalQaGate({ env, fetchImpl, databaseProbe });
+    const gate = await verifyLocalQaGate({ env, fetchImpl, databaseProbe, expectedDatabaseName: LOCAL_CLINICAL_QA_DATABASE });
     valid(gate?.gate === 'PASS' && gate.apiOrigin === safe.origin && gate.targetId === LOCAL_QA_TARGET,
       'unsafe_local_configuration');
     namespace = createQaRunNamespace(now());
@@ -128,8 +129,13 @@ async function run({ env, fetchImpl = fetch, databaseProbe, staffCredentials, no
     const addressResponse = await request('GET', '/api/patient-auth/address-states');
     const addressStateId = addressResponse?.states?.find(state => Number.isInteger(state.id))?.id;
     valid(addressStateId, 'workflow_api_failed');
-    const doctors = await request('GET', '/api/patient/doctors');
-    const doctor = doctors?.find(item => item.id === staff.doctor.user.doctorId && item.status === 'ACTIVE');
+    // Patient discovery is authenticated and unavailable until registration.
+    // Use the application's public appointment discovery route for this
+    // pre-registration prerequisite, then verify patient-facing reads later.
+    const doctors = await request('GET', '/api/appointments/doctors');
+    // This public DTO intentionally omits internal status; the API itself only
+    // returns active, bookable doctors. Match the authenticated seeded doctor.
+    const doctor = doctors?.find(item => item.id === staff.doctor.user.doctorId);
     valid(doctor, 'no_seeded_doctor');
     const dateCandidates = Array.from({ length: 14 }, (_, index) => {
       const date = new Date(now().getTime() + (index + 1) * 86_400_000);
@@ -147,9 +153,7 @@ async function run({ env, fetchImpl = fetch, databaseProbe, staffCredentials, no
     const services = await request('GET', '/api/billing/services');
     const labService = services?.find(service => service.category === 'LABORATORY'
       && Number.isSafeInteger(Number(service.baseFeeSdg)) && Number(service.baseFeeSdg) > 0);
-    const drugs = await request('GET', '/api/records/drugs', { token: staff.doctor.token });
-    const drug = drugs?.find(item => item.status === 'ACTIVE' && ID.test(item.id || ''));
-    valid(labService && drug, 'lab_fixture_unavailable');
+    valid(labService, 'lab_fixture_unavailable');
     const patient = syntheticPatient(namespace, 1, addressStateId);
     assertSyntheticPatient(patient, namespace, 1);
     let registered;
@@ -197,10 +201,13 @@ async function run({ env, fetchImpl = fetch, databaseProbe, staffCredentials, no
 
     const consultation = await request('POST', '/api/records', { token: staff.doctor.token, expected: [201], body: {
       patientId: verified.patient.id, appointmentId: appointment.id, diagnosis: 'Synthetic local QA fixture',
-      orderedServices: [labService.id], prescribedDrugs: [{ drugId: drug.id, dosage: 'One tablet', duration: '3 days', qtyPrescribed: 3 }]
+      orderedServices: [labService.id], prescribedDrugs: [{ customDrugName: 'Synthetic local QA medication',
+        dosage: 'One tablet', duration: '3 days', qtyPrescribed: 3 }]
     } });
-    const labOrder = consultation?.labOrder;
-    const prescription = consultation?.prescription;
+    // The real consultation endpoint nests created records under `data`.
+    // Accept this public response shape and the flatter unit-fixture shape.
+    const labOrder = consultation?.data?.labOrder || consultation?.labOrder;
+    const prescription = consultation?.data?.prescription || consultation?.prescription;
     valid(ID.test(labOrder?.id || '') && labOrder.patientId === verified.patient.id
       && ID.test(prescription?.id || '') && prescription.patientId === verified.patient.id, 'workflow_api_failed');
     report.labOrderCreated = true;
@@ -228,9 +235,9 @@ async function run({ env, fetchImpl = fetch, databaseProbe, staffCredentials, no
       && order.tests?.some(test => test.resultValue === '12.4'));
     valid(report.patientLabReadConfirmed, 'lab_fixture_unavailable');
 
-    const pharmacyQueue = await request('GET', '/api/records/prescriptions/pending', { token: staff.pharmacist.token });
-    report.pharmacistWorkflowConfirmed = Array.isArray(pharmacyQueue) && pharmacyQueue.some(item => item.id === prescription.id
-      && item.patientId === verified.patient.id);
+    const pharmacyQueue = await request('GET', '/api/records/medication-reviews/pending', { token: staff.pharmacist.token });
+    report.pharmacistWorkflowConfirmed = Array.isArray(pharmacyQueue) && pharmacyQueue.some(item => item.prescriptionId === prescription.id
+      && item.pharmacyReviewStatus === 'PENDING_REVIEW');
     const patientPrescriptions = await request('GET', '/api/patient/prescriptions', { token: patientToken });
     report.patientPrescriptionReadConfirmed = Array.isArray(patientPrescriptions) && patientPrescriptions.some(item => item.id === prescription.id);
     valid(report.pharmacistWorkflowConfirmed && report.patientPrescriptionReadConfirmed, 'pharmacy_fixture_unavailable');

@@ -20,31 +20,53 @@ function futureDates(now) {
   return Array.from({ length: 7 }, (_, index) => new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day) + index + 1)).toISOString().slice(0, 10));
 }
 
-export async function runPatientQa({ env = process.env, fetchImpl = fetch, now = Date.now, sleep, signal } = {}) {
+export async function runPatientQa({ env = process.env, fetchImpl = fetch, now = Date.now, sleep, signal,
+  mode = 'staging', databaseProbe } = {}) {
   // Snapshot runner pins and credentials. Never write this object to a report.
   env = Object.freeze({ ...env });
   const report = createQaReport();
-  const client = createQaTransport({ env, report, fetchImpl, now, sleep, signal });
+  if (mode === 'local') { report.apiOrigin = env.QA_API_ORIGIN; report.targetId = env.QA_EXPECTED_TARGET_ID; }
+  const client = createQaTransport({ env, report, fetchImpl, now, sleep, signal, mode, databaseProbe });
   let gate;
   try {
+    if (mode === 'local') {
+      // Reject invalid execution parameters before any HTTP request. The full
+      // local DB/API preflight still runs before patient discovery/registration.
+      try {
+        if (PATIENT_COUNT !== 100 || (env.QA_REQUESTED_PATIENTS !== undefined && env.QA_REQUESTED_PATIENTS !== '100')) {
+          throw new Error('requested_count_invalid');
+        }
+        report.concurrency = safeConcurrency(env.QA_MAX_CONCURRENCY ?? '2');
+      } catch { throw new QaRunError('invalid_configuration'); }
+    }
     // Mandatory first step, including preflight-only invocations. No patient
     // identity, password, address discovery, or workflow request precedes it.
     gate = await client.checkGate();
+    report.apiOrigin = gate.apiOrigin;
+    report.targetId = gate.targetId;
     report.runNamespace = createCollisionFreeQaRunNamespace({ now: new Date(now()), reservedPatients: RESERVED_STAGING_QA_PATIENTS });
     if (normalizeQaMarker(env.QA_EXECUTE_PATIENT_WORKFLOWS) !== 'true') {
       report.result = 'PASS'; report.reason = 'execution_disabled';
       return finish();
     }
-    try { report.concurrency = safeConcurrency(env.QA_MAX_CONCURRENCY ?? '2'); }
-    catch { throw new QaRunError('invalid_configuration'); }
+    if (mode !== 'local') {
+      try { report.concurrency = safeConcurrency(env.QA_MAX_CONCURRENCY ?? '2'); }
+      catch { throw new QaRunError('invalid_configuration'); }
+    }
     // A public PASS gate proves capture is enabled, not that this runner has
     // the matching secret. Check authentication before creating any accounts.
-    try {
-      await verifyQaCaptureAuthentication({ gateResult: gate, env, fetchImpl: client.workflowFetch });
-      report.captureAuthenticationPassed = true;
-    } catch {
-      if (!client.stopped) report.securityFailures++;
-      throw new QaRunError(client.stopped || 'capture_authentication_failed');
+    if (mode === 'local') {
+      report.localVerificationProviderConfirmed = true;
+      report.notificationsSinkConfirmed = true;
+      report.paymentsDisabledConfirmed = true;
+    } else {
+      try {
+        await verifyQaCaptureAuthentication({ gateResult: gate, env, fetchImpl: client.workflowFetch });
+        report.captureAuthenticationPassed = true;
+      } catch {
+        if (!client.stopped) report.securityFailures++;
+        throw new QaRunError(client.stopped || 'capture_authentication_failed');
+      }
     }
     report.patients = Array.from({ length: PATIENT_COUNT }, () => ({ stages: Object.fromEntries(STAGES.map(stage => [stage, blocked('not_started')])) }));
     const addresses = await client.json('/api/patient-auth/address-states');
@@ -103,8 +125,13 @@ export async function runPatientQa({ env = process.env, fetchImpl = fetch, now =
           requireValue(response?.state === 'VERIFICATION_REQUIRED' && ID.test(response.challengeId || ''));
           return response;
         });
-        const code = await perform('capture', () => fetchQaVerificationCode({ gateResult: gate, challengeId: registered.challengeId,
-          env, fetchImpl: client.workflowFetch }));
+        const code = await perform('capture', async () => {
+          if (mode === 'local') {
+            requireValue(env.VERIFICATION_PROVIDER === 'development' && /^\d{6}$/.test(registered.developmentCode || ''), 'capture_failed');
+            return registered.developmentCode;
+          }
+          return fetchQaVerificationCode({ gateResult: gate, challengeId: registered.challengeId, env, fetchImpl: client.workflowFetch });
+        });
         const verified = await perform('verification', async () => {
           const response = await client.json('/api/patient-auth/verify', { method: 'POST', body: { challengeId: registered.challengeId, code } });
           requireValue(['CLAIMED', 'VERIFIED'].includes(response?.state) && ID.test(response.patient?.id || ''), 'identity_mismatch');

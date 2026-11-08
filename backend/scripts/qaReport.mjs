@@ -9,6 +9,9 @@ export const REASONS = new Set([
   'no_active_doctors', 'no_available_slots', 'slot_conflict', 'appointment_not_created',
   'clinical_staff_action_required', 'released_lab_fixture_required', 'prescription_fixture_required',
   'patient_billing_route_unavailable_payments_disabled', 'prerequisite_failed', 'unexpected_failure'
+  , 'local_configuration_unsafe', 'local_database_unavailable', 'local_database_unsafe',
+  'local_external_delivery_unsafe', 'local_database_identity_mismatch', 'local_notifications_configuration_unsafe',
+  'local_payment_configuration_unsafe', 'local_smtp_configuration_unsafe', 'api_liveness_check_failed', 'api_readiness_check_failed'
 ]);
 export const safeReason = value => REASONS.has(value) ? value : /^http_[45]\d\d$/.test(value || '') ? value : 'unexpected_failure';
 const uuid = value => ID.test(value || '') ? value : null;
@@ -17,6 +20,7 @@ const timestamp = value => typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\
 
 export function createQaReport() {
   return { gate: 'BLOCKED', result: 'BLOCKED', workflowStarted: false, runNamespace: null,
+    apiOrigin: STAGING_API, targetId: STAGING_TARGET, localVerificationProviderConfirmed: false,
     startedAt: new Date().toISOString(), finishedAt: null, patients: [], reason: 'not_started',
     httpStatuses: {}, retries: 0, gateRetryCount: 0, networkFailures: 0, unexpected4xx: 0, serverErrors: 0,
     securityFailures: 0, latencies: [], gateChecks: 0, notificationsSinkConfirmed: false,
@@ -47,7 +51,8 @@ export function publicQaReport(report) {
   const latencies = (report.latencies || []).filter(n => Number.isFinite(n) && n >= 0).sort((a, b) => a - b);
   const percentile = p => latencies.length ? latencies[Math.ceil(latencies.length * p) - 1] : 0;
   return {
-    schemaVersion: 1, apiOrigin: STAGING_API, targetId: STAGING_TARGET, runNamespace,
+    schemaVersion: 1, apiOrigin: /^http:\/\/127\.0\.0\.1:\d{1,5}$/.test(report.apiOrigin || '') ? report.apiOrigin : STAGING_API,
+    targetId: report.targetId === 'clinic-local-disposable' ? report.targetId : STAGING_TARGET, runNamespace,
     mode: report.workflowStarted === true ? 'EXECUTION' : 'PREFLIGHT',
     gate: report.gate === 'PASS' ? 'PASS' : 'BLOCKED',
     result: ['PASS', 'PARTIAL', 'BLOCKED', 'FAILED'].includes(report.result) ? report.result : 'BLOCKED',
@@ -68,6 +73,7 @@ export function publicQaReport(report) {
     notificationSinkConfirmed: report.notificationsSinkConfirmed === true,
     paymentDisabledConfirmed: report.paymentsDisabledConfirmed === true,
     captureAuthenticationPassed: report.captureAuthenticationPassed === true,
+    localVerificationProviderConfirmed: report.localVerificationProviderConfirmed === true,
     externalNotificationRequests: 0, externalPaymentRequests: 0,
     cleanupCandidates: patients.filter(p => p.registrationAttempted).map(({ index, email, userId, patientId, appointmentId, ambiguousMutation }) =>
       ({ index, email, userId, patientId, appointmentId, ambiguousMutation })),

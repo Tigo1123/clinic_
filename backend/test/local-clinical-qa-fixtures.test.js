@@ -21,13 +21,15 @@ const env = Object.freeze({
   QA_LOCAL_EXECUTION: 'true', QA_API_ORIGIN: LOCAL_API_ORIGIN, QA_EXPECTED_API_ORIGIN: LOCAL_API_ORIGIN,
   QA_PREPARE_LOCAL_CLINICAL_FIXTURES: 'true',
   QA_EXPECTED_TARGET_ID: 'clinic-local-disposable',
-  DATABASE_URL: 'postgresql://shifa_local_qa@127.0.0.1:55491/clinic_local_qa?schema=public',
-  DIRECT_URL: 'postgresql://shifa_local_qa@127.0.0.1:55491/clinic_local_qa?schema=public',
-  SOCKET_REVOCATION_DATABASE_URL: 'postgresql://shifa_local_qa@127.0.0.1:55491/clinic_local_qa?schema=public',
+  QA_LOCAL_API_PORT: '5200', QA_LOCAL_DB_PORT: '55491',
+  QA_LOCAL_DATABASE_NAME: 'clinic_local_clinical_qa', QA_LOCAL_DATABASE_ROLE: 'shifa_local_qa',
+  DATABASE_URL: 'postgresql://shifa_local_qa@127.0.0.1:55491/clinic_local_clinical_qa?schema=public',
+  DIRECT_URL: 'postgresql://shifa_local_qa@127.0.0.1:55491/clinic_local_clinical_qa?schema=public',
+  SOCKET_REVOCATION_DATABASE_URL: 'postgresql://shifa_local_qa@127.0.0.1:55491/clinic_local_clinical_qa?schema=public',
   NOTIFICATIONS_DISABLED: 'true', SMS_PROVIDER: 'disabled', VERIFICATION_PROVIDER: 'development',
   PHONE_VERIFICATION_PROVIDER: 'development', QA_PAYMENT_MODE: 'disabled'
 });
-const identity = { database: 'clinic_local_qa', schema: 'public', role: 'shifa_local_qa' };
+const identity = { database: 'clinic_local_clinical_qa', schema: 'public', role: 'shifa_local_qa', patientCount: 0 };
 
 function json(value, status = 200) { return new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } }); }
 function apiFixture({ cashEnabled = true, wrongRole = false, registrationConflict = false } = {}) {
@@ -60,7 +62,7 @@ function apiFixture({ cashEnabled = true, wrongRole = false, registrationConflic
     }
     if (url.pathname === '/api/patient-auth/verify') return json({ state: 'CLAIMED', patient: { id: patientId, phone: patientPhone, fullNameEn: patientName } });
     if (url.pathname === '/api/patient/me') return json({ id: patientId, phone: patientPhone });
-    if (url.pathname === '/api/patient/doctors') return json([{ id: DOCTOR_ID, status: 'ACTIVE' }]);
+    if (url.pathname === '/api/appointments/doctors') return json([{ id: DOCTOR_ID, status: 'ACTIVE' }]);
     if (url.pathname === '/api/appointments/slots') return json(['09:00']);
     if (url.pathname === '/api/patient/appointments') return json({ id: APPOINTMENT_ID, status: 'PENDING', doctorId: DOCTOR_ID }, 201);
     if (url.pathname === '/api/billing/payment-methods') return json(cashEnabled ? [{ code: 'CASH' }] : []);
@@ -68,13 +70,12 @@ function apiFixture({ cashEnabled = true, wrongRole = false, registrationConflic
     if (url.pathname === '/api/billing/invoice' && JSON.parse(options.body).invoiceType === 'LABORATORY') return json({ invoice: { id: LAB_INVOICE_ID, patientId, labOrderId: LAB_ORDER_ID, totalAmountSdg: 25 } }, 201);
     if (url.pathname.endsWith('/payments')) return json({ paymentStatus: 'PAID' }, 200);
     if (url.pathname === '/api/billing/services') return json([{ id: APPOINTMENT_ID, category: 'LABORATORY', baseFeeSdg: 25 }]);
-    if (url.pathname === '/api/records/drugs') return json([{ id: LAB_ORDER_ID, status: 'ACTIVE' }]);
-    if (url.pathname === '/api/records') return json({
+    if (url.pathname === '/api/records') return json({ data: {
       labOrder: { id: LAB_ORDER_ID, patientId }, prescription: { id: PRESCRIPTION_ID, patientId }
-    }, 201);
+    } }, 201);
     if (url.pathname === '/api/records/lab-orders/pending') return json([{ id: LAB_ORDER_ID, patientId, items: [{ id: LAB_ITEM_ID }] }]);
     if (url.pathname === '/api/patient/lab-results') return json([{ id: LAB_ORDER_ID, tests: [{ resultValue: '12.4' }] }]);
-    if (url.pathname === '/api/records/prescriptions/pending') return json([{ id: PRESCRIPTION_ID, patientId }]);
+    if (url.pathname === '/api/records/medication-reviews/pending') return json([{ prescriptionId: PRESCRIPTION_ID, pharmacyReviewStatus: 'PENDING_REVIEW' }]);
     if (url.pathname === '/api/patient/prescriptions') return json([{ id: PRESCRIPTION_ID }]);
     if (url.pathname === `/api/patients/${patientId}/profile`) return json({ id: patientId, portalLinked: true,
       invoices: [{ id: LAB_INVOICE_ID, invoiceType: 'LABORATORY' }] });
@@ -88,6 +89,7 @@ test('local fixture environment rejects staging, production, non-loopback and an
     { QA_API_ORIGIN: 'https://clinic-staging-api.onrender.com' },
     { QA_API_ORIGIN: 'https://clinic-api.example.com' },
     { DATABASE_URL: 'postgresql://user@staging.example/neondb' },
+    { DATABASE_URL: 'postgresql://shifa_local_qa@127.0.0.1:55491/clinic_local_qa?schema=public' },
     { NODE_ENV: 'production' }, { DATABASE_ENVIRONMENT: 'staging' }, { PAYMENT_API_KEY: 'present' },
     { QA_PREPARE_LOCAL_CLINICAL_FIXTURES: 'false' },
     { NOTIFICATIONS_DISABLED: 'false' }, { SMS_PROVIDER: 'twilio' },
@@ -148,10 +150,15 @@ test('normal staff and patient APIs create, release, and read exact synthetic la
   assert.equal(report.invoiceCreated, true);
   assert.equal(report.localPaymentSimulationStatus, 'ledger_cash_recorded');
   assert.ok(fixture.calls.every(call => call.origin === LOCAL_API_ORIGIN));
+  assert.ok(fixture.calls.some(call => call.path === '/api/health'));
+  assert.ok(fixture.calls.some(call => call.path === '/api/health/ready'));
+  assert.equal(fixture.calls.some(call => call.path.startsWith('/api/qa/verification-capture')), false);
+  assert.ok(fixture.calls.some(call => call.method === 'GET' && call.path === '/api/appointments/doctors'));
+  assert.equal(fixture.calls.some(call => call.path === '/api/patient/doctors'), false);
   assert.ok(fixture.calls.some(call => call.method === 'POST' && call.path === '/api/records'));
   assert.ok(fixture.calls.some(call => call.method === 'PUT' && call.path.endsWith('/release')));
   assert.ok(fixture.calls.some(call => call.method === 'GET' && call.path === '/api/patient/lab-results'));
-  assert.ok(fixture.calls.some(call => call.method === 'GET' && call.path === '/api/records/prescriptions/pending'));
+  assert.ok(fixture.calls.some(call => call.method === 'GET' && call.path === '/api/records/medication-reviews/pending'));
   assert.ok(fixture.calls.some(call => call.method === 'GET' && call.path === '/api/patient/prescriptions'));
   assert.ok(fixture.calls.some(call => call.method === 'GET' && call.path === `/api/patients/${UUID}/profile`));
   assert.ok(fixture.calls.filter(call => call.path.endsWith('/payments')).every(call => call.body.payments.every(payment => payment.paymentMethod === 'CASH')));

@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { join } from 'node:path';
+import pg from 'pg';
 import { runPatientQa } from './qaPatientWorkflows.mjs';
 import { qaMarkdown } from './qaReport.mjs';
 
@@ -22,7 +23,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   process.once('SIGINT', stop);
   process.once('SIGTERM', stop);
   try {
-    const report = await runQaCli({ signal: controller.signal });
+    const mode = process.env.QA_LOCAL_EXECUTION === 'true' ? 'local' : 'staging';
+    const databaseProbe = mode === 'local' ? async () => {
+      const client = new pg.Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 2_000, statement_timeout: 2_000 });
+      try {
+        await client.connect();
+        return (await client.query(`SELECT current_database() AS database, current_schema() AS schema,
+          current_user AS role, (SELECT count(*)::int FROM public."Patient") AS "patientCount"`)).rows[0];
+      } finally { await client.end().catch(() => {}); }
+    } : undefined;
+    const report = await runQaCli({ signal: controller.signal, mode, databaseProbe });
     process.exitCode = ['FAILED', 'BLOCKED'].includes(report.result) ? 1 : 0;
   } catch {
     // Never print arbitrary exception messages, response bodies, or env values.
