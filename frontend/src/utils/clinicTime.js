@@ -9,7 +9,12 @@ export function getPublicConfig() { return publicConfig; }
 
 export async function loadClinicTimeZone() {
   try {
-    const response = await fetch('/api/public-config', { headers: { Accept: 'application/json' } });
+    // Keep the same-origin default for Nginx/LAN, but support a separately hosted API.
+    const apiBase = (import.meta.env?.VITE_API_BASE_URL || '').replace(/\/$/, '');
+    const response = await fetch(`${apiBase}/api/public-config`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(5000)
+    });
     const config = await response.json();
     if (response.ok && config && typeof config === 'object') {
       publicConfig = { ...DEFAULT_BRANDING, ...config };

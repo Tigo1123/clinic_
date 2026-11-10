@@ -33,14 +33,21 @@ export async function apiFetch(path, options = {}, auth = null, baseUrl = API_BA
   const targetUrl = /^https?:\/\//.test(path)
     ? path
     : `${baseUrl.replace(/\/$/, '')}${path.startsWith('/') ? path : `/${path}`}`;
-  const response = await fetch(targetUrl, {
-    ...options,
-    headers: {
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers
-    }
-  });
+  let response;
+  try {
+    response = await fetch(targetUrl, {
+      ...options,
+      headers: {
+        ...(options.body && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers
+      }
+    });
+  } catch (error) {
+    // Do not misclassify an intentional abort as an unavailable network.
+    if (error?.name === 'AbortError') throw error;
+    throw new ApiClientError(0, 'NETWORK_ERROR', 'Cannot connect to the server.');
+  }
 
   if (auth && await endsSession(response)) {
     if (auth === 'staff') clearStaffSession();
