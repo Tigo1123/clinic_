@@ -9,6 +9,11 @@ Object.assign(globalThis, { window: dom.window, document: dom.window.document, I
 const { createElement, act } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { MemoryRouter, Routes, Route } = await import('react-router-dom');
+const hookFile = new URL('.portal-hooks-' + process.pid + '.mjs', import.meta.url);
+let hookSource = await readFile(new URL('../src/features/patient-dashboard/hooks/usePatientRequests.js', import.meta.url), 'utf8');
+  .replace(/import \{ patientApiRequest as apiRequest, localizedApiErrorMessage \}[^;]+;/, "const localizedApiErrorMessage = (_error, fallback) => fallback || \"Request failed\"; const apiRequest = (...args) => globalThis.portalTestApi(...args); const apiFetch = async (...args) => { const data = await globalThis.portalTestApi(...args); return {ok:true,headers:{get:()=>globalThis.portalTestHasMore?.(args[0]) || \"false\"},json:async()=>data}; };")
+  .replace("from './hooks/usePatientRequests.js'", "from './.portal-hooks-" + process.pid + ".mjs'")
+await writeFile(hookFile, hookSource);
 let source = await readFile(new URL('../src/features/patient-dashboard/PatientPages.jsx', import.meta.url), 'utf8');
 source = source
   .replace(/import \{ useTheme \}[^;]+;/, "const useTheme = () => ({ theme: 'light' });")
@@ -25,7 +30,7 @@ const compiled = await transformWithOxc(source, 'PatientPages.jsx', { jsx: { run
 const file = new URL(`.portal-interactions-${process.pid}.mjs`, import.meta.url);
 await writeFile(file, compiled.code);
 let pages;
-try { pages = await import(file.href); } finally { await unlink(file); }
+try { pages = await import(file.href); } finally { await unlink(file); await unlink(hookFile); }
 let rescheduleSource = await readFile(new URL('../src/features/appointments/RescheduleAppointment.jsx', import.meta.url), 'utf8');
 rescheduleSource = rescheduleSource
   .replace(/import AppDatePicker[^;]+;/, 'const AppDatePicker = props => <label>{props.label}<input type="date" value={props.value || ""} onChange={event => props.onChange(event.target.value)} /></label>;')

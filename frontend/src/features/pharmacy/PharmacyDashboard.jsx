@@ -1,6 +1,7 @@
 import { usePharmacyRead } from './usePharmacyRead.js';
 import { usePharmacyHistory } from './usePharmacyHistory.js';
 import PharmacyReadFeedback from './PharmacyReadFeedback.jsx';
+import PharmacyLoadMore from './PharmacyLoadMore.jsx';
 import { pharmacyReadErrorMessage, readPharmacyJson } from '../../services/pharmacyReads.js';
 import { useWorkflowRefresh } from '../../hooks/useWorkflowRefresh.js';
 import { useEffect, useRef, useState } from 'react';
@@ -1316,6 +1317,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
               })}
             </div>
           )}
+          <PharmacyLoadMore resource={reviewList} lang={lang} />
         </div></div>}
 
         {(activeSection === 'dispensing' || activeSection === 'alerts') && <div
@@ -1475,6 +1477,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                 </div>
               ))
             )}
+            {queueView === 'active' && <PharmacyLoadMore resource={prescriptionList} lang={lang} />}
           </div>
 
           {/* COLUMN 2: PRESCRIPTION DISPENSER */}

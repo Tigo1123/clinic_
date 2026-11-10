@@ -8,7 +8,7 @@ import { clearPatientSession } from '../../services/authStorage.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { patientApiRequest as apiRequest, localizedApiErrorMessage } from '../../services/apiClient';
+import { patientApiRequest as apiRequest } from '../../services/apiClient';
 import { useApi, usePagedList } from './hooks/usePatientRequests.js';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { GoogleIdentityButton } from '../patient-auth/GoogleIdentityButton.jsx';

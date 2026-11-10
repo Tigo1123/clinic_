@@ -41,9 +41,10 @@ test('patient appointment statuses are understandable in Arabic and English', ()
 
 test('bounded polling runs only while pending and is cancelled on unmount', () => {
   const page = source('src/features/patient-dashboard/PatientPages.jsx');
-  assert.match(page, /pollInterval=45000/);
-  assert.match(page, /if\(pollWhen\?\.\(data\)\)pollTimer=setTimeout/);
-  assert.match(page, /clearTimeout\(pollTimer\)/);
+  const hooks = source('src/features/patient-dashboard/hooks/usePatientRequests.js');
+  assert.match(hooks, /pollInterval=45000/);
+  assert.match(hooks, /if\(pollWhen\?\.\(data\)\)pollTimer=setTimeout/);
+  assert.match(hooks, /clearTimeout\(pollTimer\)/);
   assert.match(page, /pollWhen:\s*hasPendingAppointments/);
 });
 
