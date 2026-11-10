@@ -17,6 +17,7 @@ const common=source=>source.replace(/import '\.\/pharmacy\.css';/,'')
  .replace("'../../services/pharmacyReads.js'",abs('../src/services/pharmacyReads.js')).replace("'../../utils/pharmacyManagement'",abs('../src/utils/pharmacyManagement.js'))
  .replace(/'..\/..\/utils\/clinicTime(?:\.js)?'/,abs('../src/utils/clinicTime.js'))
  .replace(/import Dialog[^;]+;/,'const Dialog=({open,children,title})=>open?<section role="dialog"><h2>{title}</h2>{children}</section>:null;')
+ .replace(/import PharmacyLoadMore[^;]+;/,'const PharmacyLoadMore=()=>null;')
  .replace(/import AppDatePicker[^;]+;/,'const AppDatePicker=()=>null;')
  .replace(/import \{[^}]+\} from 'lucide-react';/,'const PackagePlus=()=>null,RefreshCw=PackagePlus,Search=PackagePlus,AlertTriangle=PackagePlus,FileText=PackagePlus,HelpCircle=PackagePlus,Sliders=PackagePlus,Stethoscope=PackagePlus;')
  .replace(/import \{(?: apiErrorMessage,)? fetchWithAuth \}[^;]+;/,'const fetchWithAuth=(...args)=>globalThis.historyRuntimeFetch(...args);const apiErrorMessage=()=>"Localized error";');

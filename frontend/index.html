@@ -9,18 +9,7 @@
     <meta name="theme-color" content="#0F766E" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>شفاء — نظام إدارة المنشآت الصحية</title>
-    <script>
-      (function() {
-        try {
-          var t = localStorage.getItem('alshifa_theme') || localStorage.getItem('cms_theme');
-          if (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) t = 'dark';
-          if (t) {
-            document.documentElement.setAttribute('data-theme', t);
-            document.documentElement.style.colorScheme = t;
-          }
-        } catch (e) {}
-      })();
-    </script>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>

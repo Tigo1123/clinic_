@@ -15,8 +15,14 @@ export const STAGES = Object.freeze([
 
 // Reviewed against server.js mounts and routes/{patientAuth,auth,patient,appointments}.js.
 // No notification, OTP, payment, staff mutation, or unrelated-record route is allowed.
-export function permittedQaRequest(url, method) {
-  if (url.origin !== STAGING_API || url.username || url.password || url.hash) return false;
+export function permittedQaRequest(url, method, allowedOrigin = STAGING_API) {
+  // Only the fixed staging target or an explicitly pinned IPv4 loopback origin
+  // may be supplied. The local QA preflight separately verifies that the port
+  // and database are disposable and that external providers are disabled.
+  const isStaging = allowedOrigin === STAGING_API;
+  const localPort = /^http:\/\/127\.0\.0\.1:(\d{1,5})$/.exec(allowedOrigin)?.[1];
+  const isLocal = localPort !== undefined && Number(localPort) >= 1 && Number(localPort) <= 65535;
+  if (!(isStaging || isLocal) || url.origin !== allowedOrigin || url.username || url.password || url.hash) return false;
   const simple = {
     GET: ['/api/health/load-test-target', '/api/health', '/api/health/ready',
       '/api/patient-auth/address-states', '/api/patient/me', '/api/patient/doctors',

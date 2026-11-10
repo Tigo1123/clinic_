@@ -8,8 +8,19 @@ const uiCss = readFileSync(new URL('../src/components/ui/ui.css', import.meta.ur
 const medicalCss = readFileSync(new URL('../src/styles/medical.css', import.meta.url), 'utf8');
 
 function declarations(block) {
-  return Object.fromEntries([...block.matchAll(/--([\w-]+):\s*(#[\da-f]{3,8})\s*;/gi)]
+  return Object.fromEntries([...block.matchAll(/--([\w-]+):\s*(#[\da-f]{3,8}|var\(--[\w-]+\))\s*;/gi)]
     .map(([, name, value]) => [name, value]));
+}
+
+function resolveColorTokens(tokens) {
+  const resolve = (key, seen = new Set()) => {
+    if (seen.has(key)) throw new Error('Cyclic CSS color token');
+    const value = tokens[key];
+    if (typeof value !== 'string') return value;
+    const reference = /^var\(--([\w-]+)\)$/.exec(value);
+    return reference ? resolve(reference[1], new Set([...seen, key])) : value;
+  };
+  return Object.fromEntries(Object.keys(tokens).map(key => [key, resolve(key)]));
 }
 
 function luminance(hex) {
@@ -34,8 +45,8 @@ const darkBlock = tokens.match(/\[data-theme=['"]dark['"]\]\s*\{([^}]+)\}/)?.[1]
 assert.ok(lightBlock && darkBlock, 'light and dark semantic token sets exist');
 assert.match(lightBlock, /--gradient-primary:/);
 assert.doesNotMatch(darkBlock, /--gradient-(?:primary|sky):/);
-const light = declarations(lightBlock);
-const dark = { ...light, ...declarations(darkBlock) };
+const light = resolveColorTokens(declarations(lightBlock));
+const dark = resolveColorTokens({ ...declarations(lightBlock), ...declarations(darkBlock) });
 
 test('patient theme semantic text and control tokens meet contrast thresholds', () => {
   assert.ok(contrast(dark['color-text'], dark['color-surface']) >= 4.5);

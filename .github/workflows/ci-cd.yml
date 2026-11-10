@@ -2,9 +2,9 @@ name: Clinic Management System CI/CD
 
 on:
   push:
-    branches: [ main, redesign, fix/audit-issues ]
+    branches: [ main, redesign, fix/audit-issues, 'maintenance/**' ]
   pull_request:
-    branches: [ main, redesign ]
+    branches: [ main, redesign, feat/next-improvements ]
 
 jobs:
   test-and-lint:
@@ -53,14 +53,6 @@ jobs:
           npx prisma generate
           npm test
 
-      - name: Test, Lint and Build Frontend
-        run: |
-          cd frontend
-          npm ci
-          npm test
-          npm run lint
-          npm run build
-
       - name: Upload Backend Test Manifest and Results
         if: always()
         uses: actions/upload-artifact@v4
@@ -69,8 +61,29 @@ jobs:
           path: ${{ runner.temp }}/backend-test-results.json
           if-no-files-found: warn
 
+  frontend-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Test, Lint and Build Frontend
+        run: |
+          cd frontend
+          npm ci
+          npm test
+          npm run lint
+          npm run build
+
   build-docker-images:
-    needs: test-and-lint
+    needs: [test-and-lint, frontend-checks]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code

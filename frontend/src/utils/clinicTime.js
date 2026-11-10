@@ -7,11 +7,20 @@ let publicConfig = { ...DEFAULT_BRANDING };
 
 export function getPublicConfig() { return publicConfig; }
 
+export function resolvePublicConfigUrl(baseUrl = '') {
+  const base = String(baseUrl || '').trim().replace(/\/+$/, '');
+  return `${base}/api/public-config`;
+}
+
 export async function loadClinicTimeZone() {
   try {
-    const response = await fetch('/api/public-config', { headers: { Accept: 'application/json' } });
+    const response = await fetch(resolvePublicConfigUrl(import.meta.env?.VITE_API_BASE_URL), {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(5000)
+    });
+    if (!response.ok) return CLINIC_TIME_ZONE;
     const config = await response.json();
-    if (response.ok && config && typeof config === 'object') {
+    if (config && typeof config === 'object') {
       publicConfig = { ...DEFAULT_BRANDING, ...config };
       if (typeof config.clinicTimeZone === 'string' && config.clinicTimeZone) {
         backendClinicTimeZone = config.clinicTimeZone;

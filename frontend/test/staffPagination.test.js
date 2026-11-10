@@ -17,8 +17,18 @@ const cases = [
 ];
 for (const [screen, path, binding] of cases) test(`${screen}: records 51 and 101 are reachable with bounded requests`, async () => {
   const source = await readFile(new URL(`../src/features/${screen}`, import.meta.url), 'utf8');
-  assert.match(source, new RegExp(`const ${binding} = useStaffPagedList`));
-  assert.ok(source.includes(`<StaffListPaging list={${binding}}`) || source.includes(': doctorQueueList}') || source.includes('onClick={list.loadMore}'));
+  if (screen.startsWith('pharmacy/')) {
+    assert.match(source, new RegExp('const ' + binding + ' = usePharmacyRead'));
+    assert.match(source, new RegExp('<PharmacyLoadMore resource=\\{' + binding + '\\}'));
+    const hook = await readFile(new URL('../src/features/pharmacy/usePharmacyRead.js', import.meta.url), 'utf8');
+    assert.match(hook, /pageSize=50/);
+    const pager = await readFile(new URL('../src/features/pharmacy/PharmacyLoadMore.jsx', import.meta.url), 'utf8');
+    assert.match(pager, /onClick=\{resource\.loadMore\}/);
+    assert.match(pager, /disabled=\{resource\.loading\}/);
+  } else {
+    assert.match(source, new RegExp('const ' + binding + ' = useStaffPagedList'));
+    assert.ok(source.includes('<StaffListPaging list={' + binding) || source.includes(': doctorQueueList}') || source.includes('onClick={list.loadMore}'));
+  }
   const requested = [];
   const list = createPagedList(path, async (url) => {
     const query = new URL(url, 'https://example.invalid').searchParams;

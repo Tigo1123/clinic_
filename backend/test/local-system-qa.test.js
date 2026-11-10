@@ -127,7 +127,11 @@ test('local workflow continues through login after registration changes the pati
 
 test('local allowlist permits only existing patient workflow routes on loopback, never staging or external hosts', () => {
   assert.equal(permittedQaRequest(new URL(`${origin}/api/patient-auth/register`), 'POST', origin), true);
+  assert.equal(permittedQaRequest(new URL(`${STAGING_API}/api/patient-auth/register`), 'POST'), true);
   assert.equal(permittedQaRequest(new URL(`${STAGING_API}/api/patient-auth/register`), 'POST', origin), false);
+  assert.equal(permittedQaRequest(new URL(`${origin}/api/patient-auth/register`), 'POST', 'http://127.0.0.1:99999'), false);
+  assert.equal(permittedQaRequest(new URL(`${origin}/api/patient-auth/register`), 'POST', 'http://0.0.0.0:5201'), false);
+  assert.equal(permittedQaRequest(new URL('http://localhost:5201/api/patient-auth/register'), 'POST', origin), false);
   assert.equal(permittedQaRequest(new URL('https://example.invalid/api/patient-auth/register'), 'POST', origin), false);
   assert.equal(permittedQaRequest(new URL(`${origin}/api/billing/invoice/x/payments`), 'POST', origin), false);
 });
