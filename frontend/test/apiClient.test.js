@@ -199,3 +199,37 @@ test('401 without a recognizable code still ends the session', async () => {
   const { session } = await sessionAfter(401, {});
   assert.equal(session, null);
 });
+
+test('network failure returns a stable API error without ending a staff session', async () => {
+  writeStaffSession({ role: 'ADMIN', id: 'u1' }, 'token-abc');
+  globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
+  await assert.rejects(
+    () => apiFetch('/api/admin/x', {}, 'staff'),
+    (error) => {
+      assert.ok(error instanceof ApiClientError);
+      assert.equal(error.status, 0);
+      assert.equal(error.code, 'NETWORK_ERROR');
+      return true;
+    }
+  );
+  assert.ok(readStaffSession(), 'network errors must not revoke the local session');
+});
+
+test('multipart uploads do not force JSON content type', async () => {
+  const form = new FormData();
+  form.set('file', new Blob(['example']), 'example.txt');
+  let receivedHeaders;
+  globalThis.fetch = async (_, options) => {
+    receivedHeaders = options.headers;
+    return { status: 200, ok: true, json: async () => ({}) };
+  };
+  await apiFetch('/api/upload', { method: 'POST', body: form });
+  assert.equal(receivedHeaders['Content-Type'], undefined);
+});
+
+test('intentional request abort preserves AbortError', async () => {
+  const abort = new Error('Request cancelled');
+  abort.name = 'AbortError';
+  globalThis.fetch = async () => { throw abort; };
+  await assert.rejects(() => apiFetch('/api/patient/me'), (error) => error === abort);
+});
