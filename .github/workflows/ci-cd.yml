@@ -2,9 +2,9 @@ name: Clinic Management System CI/CD
 
 on:
   push:
-    branches: [ main, redesign, fix/audit-issues ]
+    branches: [ main, redesign, fix/audit-issues, 'maintenance/**' ]
   pull_request:
-    branches: [ main, redesign ]
+    branches: [ main, redesign, feat/next-improvements ]
 
 jobs:
   test-and-lint:
