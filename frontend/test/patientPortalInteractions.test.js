@@ -19,7 +19,7 @@ source = source
   .replace(/import PasswordField[^;]+;/, 'const PasswordField = ({label,value,onChange,name,autoComplete}) => <label>{label}<input name={name} aria-label={label} value={value} onChange={onChange} type="password" autoComplete={autoComplete}/></label>;')
   .replace(/import \{ clearPatientSession \}[^;]+;/, 'const clearPatientSession = () => {};')
   .replace(/import \{ useTranslation \}[^;]+;/, "const useTranslation = () => ({ t: key => key, i18n: { language: globalThis.portalTestLanguage || 'en' } });")
-  .replace(/import \{ patientApiRequest as apiRequest, localizedApiErrorMessage \}[^;]+;/, "const localizedApiErrorMessage = (_error, fallback) => fallback || \"Request failed\"; const apiRequest = (...args) => globalThis.portalTestApi(...args); const apiFetch = async (...args) => { const data = await globalThis.portalTestApi(...args); return {ok:true,headers:{get:()=>globalThis.portalTestHasMore?.(args[0]) || \"false\"},json:async()=>data}; };")
+  .replace(/import \{ patientApiRequest as apiRequest \}[^;]+;/, "const localizedApiErrorMessage = (_error, fallback) => fallback || \"Request failed\"; const apiRequest = (...args) => globalThis.portalTestApi(...args); const apiFetch = async (...args) => { const data = await globalThis.portalTestApi(...args); return {ok:true,headers:{get:()=>globalThis.portalTestHasMore?.(args[0]) || \"false\"},json:async()=>data}; };")
   .replace("from './hooks/usePatientRequests.js'", "from './.portal-hooks-" + process.pid + ".mjs'")
   .replace(/import StatusBadge[^;]+;/, 'const StatusBadge = ({status}) => <span>{status}</span>;')
   .replace(/import \{ GoogleIdentityButton \}[^;]+;/, 'const GoogleIdentityButton = () => null;')
