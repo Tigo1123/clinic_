@@ -20,8 +20,8 @@ export function permittedQaRequest(url, method, allowedOrigin = STAGING_API) {
   // may be supplied. The local QA preflight separately verifies that the port
   // and database are disposable and that external providers are disabled.
   const isStaging = allowedOrigin === STAGING_API;
-  const isLocal = /^http:\/\/127\.0\.0\.1:\d{1,5}$/.test(allowedOrigin)
-    && Number(new URL(allowedOrigin).port) >= 1 && Number(new URL(allowedOrigin).port) <= 65535;
+  const localPort = /^http:\/\/127\.0\.0\.1:(\d{1,5})$/.exec(allowedOrigin)?.[1];
+  const isLocal = localPort !== undefined && Number(localPort) >= 1 && Number(localPort) <= 65535;
   if (!(isStaging || isLocal) || url.origin !== allowedOrigin || url.username || url.password || url.hash) return false;
   const simple = {
     GET: ['/api/health/load-test-target', '/api/health', '/api/health/ready',
