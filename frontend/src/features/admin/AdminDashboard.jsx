@@ -1,6 +1,6 @@
 import './clinicSetup.css';
 import ClinicSetupPanel from './ClinicSetupPanel';
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Activity, Building, CalendarDays, DollarSign, Sliders, Users } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../services/staffApi';
 import RoleHero from '../../components/healthcare/RoleHero';
@@ -8,11 +8,13 @@ import { getStaffPasswordChecks, isStaffPasswordValid, STAFF_PASSWORD_MAX_LENGTH
 import { buildStaffCreationPayload } from '../../utils/staffCreationPayload';
 import { filterStaffUsers, isStaffRole } from '../../utils/staffRoles';
 import AuditLogPanel from './AuditLogPanel';
-import AnalyticsPanel from './AnalyticsPanel';
 import ClinicProfilePanel from './ClinicProfilePanel';
 import SpecialtyRow from './SpecialtyRow';
 import AdminSchedulePanel from './AdminSchedulePanel';
 import PasswordField from '../../components/PasswordField.jsx';
+
+// recharts (via AnalyticsPanel) is large; load it only when the analytics tab is opened.
+const AnalyticsPanel = lazy(() => import('./AnalyticsPanel'));
 
 export default function AdminDashboard({ user, lang, t }) {
   const [activeTab, setActiveTab] = useState('profile');
@@ -631,25 +633,27 @@ export default function AdminDashboard({ user, lang, t }) {
         {activeTab === 'scheduling' && user?.role === 'ADMIN' && <AdminSchedulePanel lang={lang} t={t} />}
 
         {activeTab === 'analytics' && (
-          <AnalyticsPanel
-            data={analyticsData}
-            loading={loadingAnalytics}
-            error={analyticsError}
-            lang={lang}
-            t={t}
-            onRefresh={() => {
-              setLoadingAnalytics(true);
-              setAnalyticsError('');
-              fetchWithAuth('/api/admin/analytics')
-                .then((response) => {
-                  if (!response.ok) throw new Error('ANALYTICS_LOAD_FAILED');
-                  return response.json();
-                })
-                .then(setAnalyticsData)
-                .catch(() => setAnalyticsError(t('analyticsLoadError')))
-                .finally(() => setLoadingAnalytics(false));
-            }}
-          />
+          <Suspense fallback={<div role="status" aria-live="polite" style={{ padding: '2rem 1rem', textAlign: 'center', opacity: 0.75 }}>{t('analyticsLoading')}</div>}>
+            <AnalyticsPanel
+              data={analyticsData}
+              loading={loadingAnalytics}
+              error={analyticsError}
+              lang={lang}
+              t={t}
+              onRefresh={() => {
+                setLoadingAnalytics(true);
+                setAnalyticsError('');
+                fetchWithAuth('/api/admin/analytics')
+                  .then((response) => {
+                    if (!response.ok) throw new Error('ANALYTICS_LOAD_FAILED');
+                    return response.json();
+                  })
+                  .then(setAnalyticsData)
+                  .catch(() => setAnalyticsError(t('analyticsLoadError')))
+                  .finally(() => setLoadingAnalytics(false));
+              }}
+            />
+          </Suspense>
         )}
 
         {activeTab === 'logs' && (
