@@ -17,35 +17,52 @@ globalThis.clinicalIcon = () => null;
 globalThis.modalUser = null;
 globalThis.staffSocketMock = { on() {}, off() {} };
 
-async function compileComponent(relativePath, replacements) {
+async function compileModule(relativePath, replacements, siblings = {}) {
   let source = await readFile(new URL(relativePath, import.meta.url), 'utf8');
   for (const [pattern, replacement] of replacements) source = source.replace(pattern, replacement);
+  for (const [specifier, href] of Object.entries(siblings)) source = source.split(`from '${specifier}';`).join(`from '${href}';`);
   source = source.replace(/import\s+\{([^}]+)\}\s+from 'lucide-react';/, (_match, names) => names.split(',').map((name) => `const ${name.trim()} = globalThis.clinicalIcon;`).join('\n'));
   source = source.replace(/import\s+['"][^'"]+\.css['"];?/g, '');
   const compiled = await transformWithOxc(source, relativePath.split('/').at(-1), { jsx: { runtime: 'automatic' } });
   const modulePath = new URL(`.clinical-runtime-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url);
   await writeFile(modulePath, compiled.code);
+  return modulePath;
+}
+
+async function compileComponent(relativePath, replacements, siblings = {}) {
+  const modulePath = await compileModule(relativePath, replacements, siblings);
   try { return await import(modulePath.href); } finally { await unlink(modulePath); }
 }
 
-const modalModules = await compileComponent('../src/features/clinical/ClinicalModals.jsx', [
-  [/import \{ fetchWithAuth \} from '\.\.\/\.\.\/services\/staffApi';/, 'const fetchWithAuth = (...args) => globalThis.modalFetch(...args);'],
-  [/import \{ useAuth \} from '\.\.\/\.\.\/app\/auth\/auth-context';/, 'const useAuth = () => ({ user: globalThis.modalUser });'],
-  [/import \{ useFacilityBranding \} from '\.\.\/\.\.\/app\/branding\/FacilityBrandingContext\.js';/, "const useFacilityBranding = () => ({ displayNameAr: 'شفاء', displayNameEn: 'Shifa', facilityNameAr: null, facilityNameEn: null, productNameAr: 'شفاء', productNameEn: 'Shifa', productDescriptorAr: 'نظام إدارة المنشآت الصحية', productDescriptorEn: 'Healthcare Facility Management System' });"],
-  [/import FacilityIdentityLine from '\.\.\/\.\.\/components\/FacilityIdentityLine';/, 'const FacilityIdentityLine = () => null;']
-]);
-const doctorModule = await compileComponent('../src/features/doctor/DoctorDashboard.jsx', [
+const clinicalModalReplacements = [
+  [/import \{ fetchWithAuth \} from '\.\.\/\.\.\/\.\.\/services\/staff\/staffApi';/, 'const fetchWithAuth = (...args) => globalThis.modalFetch(...args);'],
+  [/import \{ useAuth \} from '\.\.\/\.\.\/\.\.\/app\/auth\/auth-context';/, 'const useAuth = () => ({ user: globalThis.modalUser });'],
+  [/import \{ useFacilityBranding \} from '\.\.\/\.\.\/\.\.\/app\/branding\/FacilityBrandingContext\.js';/, "const useFacilityBranding = () => ({ displayNameAr: 'شفاء', displayNameEn: 'Shifa', facilityNameAr: null, facilityNameEn: null, productNameAr: 'شفاء', productNameEn: 'Shifa', productDescriptorAr: 'نظام إدارة المنشآت الصحية', productDescriptorEn: 'Healthcare Facility Management System' });"],
+  [/import FacilityIdentityLine from '\.\.\/components\/FacilityIdentityLine';/, 'const FacilityIdentityLine = () => null;']
+];
+const clinicalSharedPath = await compileModule('../src/features/staff/clinical/clinicalShared.js', []);
+const clinicalSiblings = { './clinicalShared.js': clinicalSharedPath.href };
+let modalModules;
+try {
+  modalModules = {
+    ...(await compileComponent('../src/features/staff/clinical/PatientProfileModal.jsx', clinicalModalReplacements, clinicalSiblings)),
+    ...(await compileComponent('../src/features/staff/clinical/PostVisitSummaryModal.jsx', clinicalModalReplacements, clinicalSiblings))
+  };
+} finally {
+  await unlink(clinicalSharedPath);
+}
+const doctorModule = await compileComponent('../src/features/staff/doctor/DoctorDashboard.jsx', [
   [/import \{ PatientProfileModal, PostVisitSummaryModal \} from '\.\.\/clinical\/ClinicalModals';/, 'const PatientProfileModal = () => null; const PostVisitSummaryModal = () => null;'],
-  [/import \{ getWhatsAppLink \} from '\.\.\/reception\/clinicData';/, 'const getWhatsAppLink = () => "#";'],
-  [/import \{ apiErrorMessage, fetchWithAuth \} from '\.\.\/\.\.\/services\/staffApi';/, 'const fetchWithAuth = (...args) => globalThis.doctorFetch(...args); const apiErrorMessage = (data, fallback) => data?.error?.message || data?.error || fallback;'],
-  [/import \{ staffSocket as socket \} from '\.\.\/\.\.\/services\/staffSocket';/, 'const socket = globalThis.staffSocketMock;'],
-  [/import RoleHero from '\.\.\/\.\.\/components\/healthcare\/RoleHero';/, 'const RoleHero = () => null;'],
-  [/import \{ clinicDateString \} from '\.\.\/\.\.\/utils\/clinicTime';/, 'const clinicDateString = () => "2099-01-01";'],
-  [/import \{ staffApiRequest as apiRequest \} from '\.\.\/\.\.\/services\/apiClient';/, 'const apiRequest = (...args) => globalThis.doctorApiRequest(...args);'],
+  [/import \{ getWhatsAppLink \} from '\.\.\/\.\.\/\.\.\/utils\/clinicData';/, 'const getWhatsAppLink = () => "#";'],
+  [/import \{ apiErrorMessage, fetchWithAuth \} from '\.\.\/\.\.\/\.\.\/services\/staff\/staffApi';/, 'const fetchWithAuth = (...args) => globalThis.doctorFetch(...args); const apiErrorMessage = (data, fallback) => data?.error?.message || data?.error || fallback;'],
+  [/import \{ staffSocket as socket \} from '\.\.\/\.\.\/\.\.\/services\/staff\/staffSocket';/, 'const socket = globalThis.staffSocketMock;'],
+  [/import RoleHero from '\.\.\/components\/RoleHero';/, 'const RoleHero = () => null;'],
+  [/import \{ clinicDateString \} from '\.\.\/\.\.\/\.\.\/utils\/clinicTime';/, 'const clinicDateString = () => "2099-01-01";'],
+  [/import \{ staffApiRequest as apiRequest \} from '\.\.\/\.\.\/\.\.\/services\/apiClient';/, 'const apiRequest = (...args) => globalThis.doctorApiRequest(...args);'],
   [/import MedicineCombobox from '\.\/MedicineCombobox';/, 'const MedicineCombobox = () => null;'],
-  [/import \{ doctorPrescriptionItem, duplicatePrescriptionItem, validateDoctorPrescriptionEntry \} from '\.\.\/\.\.\/utils\/doctorPrescription';/, 'const doctorPrescriptionItem = () => ({}); const duplicatePrescriptionItem = () => false; const validateDoctorPrescriptionEntry = () => null;'],
-  [/import \{ useFacilityBranding \} from '\.\.\/\.\.\/app\/branding\/FacilityBrandingContext\.js';/, "const useFacilityBranding = () => ({ displayNameAr: 'شفاء', displayNameEn: 'Shifa', facilityNameAr: null, facilityNameEn: null, productNameAr: 'شفاء', productNameEn: 'Shifa', productDescriptorAr: 'نظام إدارة المنشآت الصحية', productDescriptorEn: 'Healthcare Facility Management System' });"],
-  [/import FacilityIdentityLine from '\.\.\/\.\.\/components\/FacilityIdentityLine';/, 'const FacilityIdentityLine = () => null;']
+  [/import \{ doctorPrescriptionItem, duplicatePrescriptionItem, validateDoctorPrescriptionEntry \} from '\.\/doctorPrescription';/, 'const doctorPrescriptionItem = () => ({}); const duplicatePrescriptionItem = () => false; const validateDoctorPrescriptionEntry = () => null;'],
+  [/import \{ useFacilityBranding \} from '\.\.\/\.\.\/\.\.\/app\/branding\/FacilityBrandingContext\.js';/, "const useFacilityBranding = () => ({ displayNameAr: 'شفاء', displayNameEn: 'Shifa', facilityNameAr: null, facilityNameEn: null, productNameAr: 'شفاء', productNameEn: 'Shifa', productDescriptorAr: 'نظام إدارة المنشآت الصحية', productDescriptorEn: 'Healthcare Facility Management System' });"],
+  [/import FacilityIdentityLine from '\.\.\/components\/FacilityIdentityLine';/, 'const FacilityIdentityLine = () => null;']
 ]);
 
 let root;

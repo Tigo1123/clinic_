@@ -6,9 +6,10 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (relative) => readFileSync(path.join(root, relative), 'utf8');
+const clinicalSource = () => ['ClinicalModals.jsx', 'PatientProfileModal.jsx', 'PostVisitSummaryModal.jsx', 'clinicalShared.js'].map((file) => source(`src/features/staff/clinical/${file}`)).join('\n');
 
 test('visit summary hides absent patient instructions and never supplies default clinical advice', () => {
-  const modal = source('src/features/clinical/ClinicalModals.jsx');
+  const modal = clinicalSource();
   const recordsRoute = source('../backend/src/routes/records.js');
   assert.match(modal, /Array\.isArray\(summary\.instructions\) && summary\.instructions\.length > 0/);
   assert.match(recordsRoute, /instructions: \[\]/);
@@ -26,7 +27,7 @@ test('visit summary hides absent patient instructions and never supplies default
 });
 
 test('screen, print, WhatsApp, and email retain stored medication instructions only', () => {
-  const modal = source('src/features/clinical/ClinicalModals.jsx');
+  const modal = clinicalSource();
   const recordsRoute = source('../backend/src/routes/records.js');
   assert.match(modal, /rx\.instructionsAr \|\| rx\.instructionsEn/);
   assert.match(modal, /rx\.instructionsEn \|\| rx\.instructionsAr/);
@@ -40,7 +41,7 @@ test('screen, print, WhatsApp, and email retain stored medication instructions o
 });
 
 test('prescription rows are rendered once per API item without client-side duplication', () => {
-  const modal = source('src/features/clinical/ClinicalModals.jsx');
+  const modal = clinicalSource();
   const recordsRoute = source('../backend/src/routes/records.js');
   assert.match(modal, /summary\.prescriptions\.map\(\(rx, idx\) =>/);
   assert.match(recordsRoute, /record\.prescriptions \|\| \[\]\)\.flatMap\(p => \(p\.prescribedDrugs \|\| \[\]\)\.map/);
@@ -48,7 +49,7 @@ test('prescription rows are rendered once per API item without client-side dupli
 });
 
 test('visit-history summary action remains enabled for a completed read-only visit', () => {
-  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
+  const dashboard = source('src/features/staff/doctor/DoctorDashboard.jsx');
   const historyStart = dashboard.indexOf('className="doctor-clinical-section doctor-history-panel"');
   const historyAction = dashboard.indexOf('setActiveSummaryId(targetId)', historyStart);
   const editableFieldset = dashboard.indexOf('className="doctor-consultation-form" disabled={isReadOnlyVisit}', historyStart);
@@ -63,7 +64,7 @@ test('visit-history summary action remains enabled for a completed read-only vis
 });
 
 test('empty instructions do not gate summary content or modal actions', () => {
-  const modal = source('src/features/clinical/ClinicalModals.jsx');
+  const modal = clinicalSource();
   assert.match(modal, /if \(!summary\)/);
   assert.doesNotMatch(modal, /if \(!summary\.instructions|if \(summary\.instructions\.length === 0\)/);
   assert.match(modal, /summary\.diagnosis/);
@@ -79,9 +80,9 @@ test('empty instructions do not gate summary content or modal actions', () => {
 });
 
 test('patient-file visit summary uses a named nested portal layer and preserves its parent modal', () => {
-  const modal = source('src/features/clinical/ClinicalModals.jsx');
-  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
-  const styles = source('src/features/clinical/patientFile.css');
+  const modal = clinicalSource();
+  const dashboard = source('src/features/staff/doctor/DoctorDashboard.jsx');
+  const styles = source('src/features/staff/clinical/patientFile.css');
   assert.match(modal, /createPortal\(content, document\.body\)/);
   assert.match(modal, /modalLayer === 'nested' \? 'nested' : 'base'/);
   assert.match(styles, /modal-layer--base[^}]*1000/);
@@ -93,8 +94,8 @@ test('patient-file visit summary uses a named nested portal layer and preserves 
 });
 
 test('top summary modal owns escape, backdrop, and focus before returning focus to its launcher', () => {
-  const modal = source('src/features/clinical/ClinicalModals.jsx');
-  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
+  const modal = clinicalSource();
+  const dashboard = source('src/features/staff/doctor/DoctorDashboard.jsx');
   assert.match(modal, /document\.addEventListener\('keydown', handleKeyDown, true\)/);
   assert.match(modal, /event\.stopImmediatePropagation\(\)/);
   assert.match(modal, /if \(nestedModalOpenRef\.current\) return/);

@@ -1,14 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (relative) => readFileSync(path.join(root, relative), 'utf8');
+const clinicalSource = () => ['ClinicalModals.jsx', 'PatientProfileModal.jsx', 'PostVisitSummaryModal.jsx', 'clinicalShared.js'].map((file) => source(`src/features/staff/clinical/${file}`)).join('\n');
+const patientPagesSource = () => readdirSync(path.join(root, 'src/features/patient/portal/pages')).filter((file) => file.endsWith('.jsx')).sort().map((file) => source(`src/features/patient/portal/pages/${file}`)).join('\n');
 
 test('doctor reads existing clinical data before changing appointment state or filling editable fields', () => {
-  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
+  const dashboard = source('src/features/staff/doctor/DoctorDashboard.jsx');
   const start = dashboard.indexOf('const handlePatientSelect = async (appt) =>');
   const end = dashboard.indexOf('const focusClinicalField =', start);
   const handler = dashboard.slice(start, end);
@@ -21,8 +23,8 @@ test('doctor reads existing clinical data before changing appointment state or f
 });
 
 test('clinical views show an unavailable state and keep printable or editable content gated on a successful read', () => {
-  const modal = source('src/features/clinical/ClinicalModals.jsx');
-  const patientPage = source('src/features/patient-dashboard/PatientPages.jsx');
+  const modal = clinicalSource();
+  const patientPage = patientPagesSource();
   assert.match(modal, /setLoadedProfile\(null\)/);
   assert.match(modal, /Clinical information is unavailable\./);
   assert.match(modal, /if \(!summary\)/);
@@ -32,7 +34,7 @@ test('clinical views show an unavailable state and keep printable or editable co
 });
 
 test('email summary UI surfaces the sanitized read failure and explicitly confirms no email was sent', () => {
-  const modal = source('src/features/clinical/ClinicalModals.jsx');
+  const modal = clinicalSource();
   assert.match(modal, /apiError\?\.code === 'CLINICAL_DATA_UNREADABLE'/);
   assert.match(modal, /Clinical information is unavailable\. No email was sent\./);
   assert.match(modal, /apiError\?\.message \|\| errData\.error/);

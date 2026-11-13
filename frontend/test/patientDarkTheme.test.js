@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const tokens = readFileSync(new URL('../src/styles/tokens.css', import.meta.url), 'utf8');
-const patientCss = readFileSync(new URL('../src/layouts/patient.css', import.meta.url), 'utf8');
+const patientCss = readFileSync(new URL('../src/features/patient/portal/patient.css', import.meta.url), 'utf8');
 const uiCss = readFileSync(new URL('../src/components/ui/ui.css', import.meta.url), 'utf8');
 const medicalCss = readFileSync(new URL('../src/styles/medical.css', import.meta.url), 'utf8');
 

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createLatestGuard } from '../src/features/admin/latestRequest.js';
+import { createLatestGuard } from '../src/features/staff/admin/latestRequest.js';
 
 
 test('a slow response for a superseded doctor is ignored', async () => {

@@ -1,0 +1,10 @@
+export { Dashboard } from './pages/Dashboard.jsx';
+export { Doctors } from './pages/Doctors.jsx';
+export { DoctorDetails } from './pages/DoctorDetails.jsx';
+export { BookAppointment } from './pages/BookAppointment.jsx';
+export { Appointments } from './pages/Appointments.jsx';
+export { AppointmentDetails } from './pages/AppointmentDetails.jsx';
+export { LabResults } from './pages/LabResults.jsx';
+export { Prescriptions } from './pages/Prescriptions.jsx';
+export { MedicalRecords } from './pages/MedicalRecords.jsx';
+export { Profile } from './pages/Profile.jsx';

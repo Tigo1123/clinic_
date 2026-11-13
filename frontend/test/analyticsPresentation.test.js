@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   authoritativeKpis, clinicWeekdayLabel, normalizeAppointmentTrend, operationalInsights,
   sortedDoctorVisits, statusDistribution, weeklyAppointmentSummary
-} from '../src/utils/analyticsPresentation.js';
+} from '../src/features/staff/admin/analyticsPresentation.js';
 
 test('authoritative KPI values remain exact and unsupported comparisons are absent', () => {
   const kpis = authoritativeKpis({ totalPatients: 24, monthlyVisits: 9, completionRate: 75, financials: { totalRevenueSdg: 123456 } });

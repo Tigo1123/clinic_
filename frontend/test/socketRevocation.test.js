@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import i18n from '../src/i18n.js';
-import { createStaffSocketLifecycle } from '../src/services/staffSocket.js';
+import { createStaffSocketLifecycle } from '../src/services/staff/staffSocket.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (relative) => readFileSync(path.join(root, relative), 'utf8');
@@ -124,8 +124,8 @@ test('forced server disconnect is terminal while transport failures retain nativ
 });
 
 test('staff realtime notifications use one shared authenticated socket', () => {
-  const service = source('src/services/staffSocket.js');
-  const notifications = source('src/components/NotificationDropdown.jsx');
+  const service = source('src/services/staff/staffSocket.js');
+  const notifications = source('src/features/staff/components/NotificationDropdown.jsx');
   assert.equal((service.match(/\bio\s*\(/g) || []).length, 1);
   assert.doesNotMatch(notifications, /from ['"]socket\.io-client['"]/);
   assert.match(notifications, /staffSocket as socket/);
@@ -134,8 +134,8 @@ test('staff realtime notifications use one shared authenticated socket', () => {
 });
 
 test('terminal socket security errors stop reconnection and invoke central session handling', () => {
-  const service = source('src/services/staffSocket.js');
-  const app = source('src/App.jsx');
+  const service = source('src/services/staff/staffSocket.js');
+  const app = source('src/features/staff/StaffPortal.jsx');
   assert.match(service, /sessionRevoked/);
   assert.match(service, /SESSION_REVOKED/);
   assert.match(service, /INVALID_TOKEN/);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { doctorPrescriptionItem, duplicatePrescriptionItem, searchDoctorMedicines, validateDoctorPrescriptionEntry } from '../src/utils/doctorPrescription.js';
+import { doctorPrescriptionItem, duplicatePrescriptionItem, searchDoctorMedicines, validateDoctorPrescriptionEntry } from '../src/features/staff/doctor/doctorPrescription.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (relative) => readFileSync(path.join(root, relative), 'utf8');
@@ -56,7 +56,7 @@ test('medicine-entry validation is isolated and identifies the exact missing pre
 });
 
 test('lab-return finalization and prescription controls have separate validation boundaries', () => {
-  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
+  const dashboard = source('src/features/staff/doctor/DoctorDashboard.jsx');
   assert.match(dashboard, /const handleAddDrugToRx = \(event\) => \{\s*event\?\.preventDefault\(\)/);
   assert.match(dashboard, /type="button" className="btn btn-secondary doctor-add-prescription" onClick=\{handleAddDrugToRx\}/);
   assert.match(dashboard, /const handleSaveConsultation = async \(event\) => \{\s*event\?\.preventDefault\(\)/);
@@ -68,8 +68,8 @@ test('lab-return finalization and prescription controls have separate validation
 });
 
 test('doctor prescription UI uses accessible combobox without formulary chip cloud', () => {
-  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
-  const combobox = source('src/features/doctor/MedicineCombobox.jsx');
+  const dashboard = source('src/features/staff/doctor/DoctorDashboard.jsx');
+  const combobox = source('src/features/staff/doctor/MedicineCombobox.jsx');
   assert.match(dashboard, /<MedicineCombobox medicines=\{drugs\}/);
   assert.doesNotMatch(dashboard, /drugs\.slice\(0, 10\)\.map/);
   assert.doesNotMatch(dashboard, /<select[\s\S]{0,300}drugs\.map/);
@@ -84,7 +84,7 @@ test('doctor prescription UI uses accessible combobox without formulary chip clo
 });
 
 test('selected medicines support display, edit, remove, and pharmacist-reviewed custom path', () => {
-  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
+  const dashboard = source('src/features/staff/doctor/DoctorDashboard.jsx');
   assert.match(dashboard, /doctor-prescribed-card/);
   assert.match(dashboard, /handleEditPrescriptionItem\(item, index\)/);
   assert.match(dashboard, /handleRemovePrescriptionItem\(index\)/);
@@ -95,8 +95,8 @@ test('selected medicines support display, edit, remove, and pharmacist-reviewed 
 });
 
 test('prescription styles preserve RTL, responsive layout, focus, and readable technical values', () => {
-  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
-  const css = source('src/App.css');
+  const dashboard = source('src/features/staff/doctor/DoctorDashboard.jsx');
+  const css = source('src/features/staff/staffPortal.css');
   assert.match(dashboard, /doctor-rx-instructions-ar[\s\S]{0,180}dir="rtl"/);
   assert.match(dashboard, /doctor-rx-instructions-en[\s\S]{0,180}dir="ltr"/);
   assert.match(css, /doctor-prescription-fields/);
@@ -105,15 +105,15 @@ test('prescription styles preserve RTL, responsive layout, focus, and readable t
 });
 
 test('doctor UI exposes no price, status, or stock mutation authority', () => {
-  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
-  const combobox = source('src/features/doctor/MedicineCombobox.jsx');
+  const dashboard = source('src/features/staff/doctor/DoctorDashboard.jsx');
+  const combobox = source('src/features/staff/doctor/MedicineCombobox.jsx');
   assert.doesNotMatch(`${dashboard}\n${combobox}`, /name="(unitPriceSdg|status|qtyOnHand)"/);
   assert.doesNotMatch(combobox, /unitPriceSdg|price|method: ['"](POST|PATCH|PUT|DELETE)/);
   assert.match(dashboard, /fetchWithAuth\('\/api\/records\/drugs'\)/);
 });
 
 test('completed doctor visits render an explicit read-only consultation state', () => {
-  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
+  const dashboard = source('src/features/staff/doctor/DoctorDashboard.jsx');
   assert.match(dashboard, /Completed visit — read only/);
   assert.match(dashboard, /زيارة مكتملة — للعرض فقط/);
   assert.match(dashboard, /<fieldset[^>]*disabled=\{isReadOnlyVisit\}/);

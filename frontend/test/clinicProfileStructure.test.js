@@ -2,10 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-const panel = fs.readFileSync(new URL('../src/features/admin/ClinicProfilePanel.jsx', import.meta.url), 'utf8');
-const dashboard = fs.readFileSync(new URL('../src/features/admin/AdminDashboard.jsx', import.meta.url), 'utf8');
-const styles = fs.readFileSync(new URL('../src/features/admin/clinicProfile.css', import.meta.url), 'utf8');
-const translations = fs.readFileSync(new URL('../src/i18n.js', import.meta.url), 'utf8');
+const panel = fs.readFileSync(new URL('../src/features/staff/admin/ClinicProfilePanel.jsx', import.meta.url), 'utf8');
+const dashboard = fs.readFileSync(new URL('../src/features/staff/admin/AdminDashboard.jsx', import.meta.url), 'utf8');
+const styles = fs.readFileSync(new URL('../src/features/staff/admin/clinicProfile.css', import.meta.url), 'utf8');
+const translations = ['../src/i18n.js', '../src/locales/ar.js', '../src/locales/en.js']
+  .map((file) => fs.readFileSync(new URL(file, import.meta.url), 'utf8'))
+  .join('\n');
 
 test('clinic profile removes decorative financial configuration and all edit affordances', () => {
   assert.doesNotMatch(dashboard, /vatPercent|stampDutySdg|exchangeRate|Clinic Global Settings/);

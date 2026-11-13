@@ -7,12 +7,12 @@ import {
   getStaffPasswordChecks,
   isStaffPasswordValid,
   STAFF_PASSWORD_MAX_LENGTH
-} from '../src/utils/staffPasswordPolicy.js';
-import { buildStaffCreationPayload } from '../src/utils/staffCreationPayload.js';
+} from '../src/features/staff/admin/staffPasswordPolicy.js';
+import { buildStaffCreationPayload } from '../src/features/staff/admin/staffCreationPayload.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const adminSource = readFileSync(path.join(root, 'src/features/admin/AdminDashboard.jsx'), 'utf8');
-const appSource = readFileSync(path.join(root, 'src/App.jsx'), 'utf8');
+const adminSource = readFileSync(path.join(root, 'src/features/staff/admin/AdminDashboard.jsx'), 'utf8');
+const appSource = readFileSync(path.join(root, 'src/features/staff/StaffPortal.jsx'), 'utf8');
 
 test('staff password guidance enforces the centralized backend policy shape', () => {
   assert.equal(isStaffPasswordValid('ValidStaff1'), true);

@@ -69,8 +69,8 @@ Backend:
 - `test/admin-configuration.test.js`, `admin-configuration-migration.test.js`, `money.test.js` (new); lifecycle cleanup in `admin-doctor-management.test.js`; schema/migration-baseline assertions in `clinic-readiness.test.js` and `clinic-readiness-migration.test.js`; `scripts/test-clinic-readiness.js` focused suite.
 
 Frontend:
-- `src/features/admin/ClinicSetupPanel.jsx`, `clinicSetup.js`, `clinicSetup.css` (new), `AdminDashboard.jsx`, `AdminSchedulePanel.jsx`.
-- `src/features/reception/ReceptionDashboard.jsx`, `src/features/pharmacy/PharmacyPayment.jsx`.
+- `src/features/staff/admin/ClinicSetupPanel.jsx`, `clinicSetup.js`, `clinicSetup.css` (new), `AdminDashboard.jsx`, `AdminSchedulePanel.jsx`.
+- `src/features/staff/reception/ReceptionDashboard.jsx`, `src/features/staff/pharmacy/PharmacyPayment.jsx`.
 - `test/clinicSetup.test.js` (new), `adminScheduleComponent.test.js`, `adminSchedulePanel.test.js`, `pharmacyManagement.test.js`.
 - `scripts/verify-clinic-setup.mjs` (new).
 

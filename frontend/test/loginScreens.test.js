@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { withLoginSubmissionLock } from '../src/features/patient-auth/loginSubmission.js';
+import { withLoginSubmissionLock } from '../src/utils/loginSubmission.js';
 
-const patientPage = await readFile(new URL('../src/features/patient-auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
-const staffPage = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
-const authStyles = await readFile(new URL('../src/features/patient-auth/patientAuth.css', import.meta.url), 'utf8');
-const translations = await readFile(new URL('../src/i18n.js', import.meta.url), 'utf8');
+const patientPage = await readFile(new URL('../src/features/patient/auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
+const staffPage = await readFile(new URL('../src/features/staff/StaffPortal.jsx', import.meta.url), 'utf8');
+const authStyles = await readFile(new URL('../src/features/patient/auth/patientAuth.css', import.meta.url), 'utf8');
+const translations = (await Promise.all(
+  ['../src/i18n.js', '../src/locales/ar.js', '../src/locales/en.js'].map((file) => readFile(new URL(file, import.meta.url), 'utf8'))
+)).join('\n');
 const passwordField = await readFile(new URL('../src/components/PasswordField.jsx', import.meta.url), 'utf8');
 
 test('login submission lock keeps a delayed request single-flight and releases after server errors', async () => {

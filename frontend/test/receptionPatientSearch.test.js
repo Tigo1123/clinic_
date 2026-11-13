@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { createLatestSearchScheduler, visiblePatientDirectory } from '../src/features/reception/debouncedSearch.js';
+import { readFileSync, readdirSync } from 'node:fs';
+import { createLatestSearchScheduler, visiblePatientDirectory } from '../src/features/staff/reception/debouncedSearch.js';
 
-const source = readFileSync(new URL('../src/features/reception/ReceptionDashboard.jsx', import.meta.url), 'utf8');
+const receptionFiles = ['ReceptionDashboard.jsx', 'receptionHelpers.js', ...readdirSync(new URL('../src/features/staff/reception/components/', import.meta.url)).filter((file) => file.endsWith('.jsx')).sort().map((file) => `components/${file}`)];
+const source = receptionFiles.map((file) => readFileSync(new URL(`../src/features/staff/reception/${file}`, import.meta.url), 'utf8')).join('\n');
 
 function fakeTimers() {
   const timers = [];

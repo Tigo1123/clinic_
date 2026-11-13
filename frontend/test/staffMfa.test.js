@@ -5,7 +5,7 @@ import {
   disableMfa,
   regenerateMfaRecoveryCodes,
   startMfaEnrollment
-} from '../src/services/staffMfa.js';
+} from '../src/services/staff/staffMfa.js';
 
 function capture(response = {}) {
   const calls = [];

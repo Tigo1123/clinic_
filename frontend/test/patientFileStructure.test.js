@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-const panel = fs.readFileSync(new URL('../src/features/clinical/ClinicalModals.jsx', import.meta.url), 'utf8');
-const styles = fs.readFileSync(new URL('../src/features/clinical/patientFile.css', import.meta.url), 'utf8');
+const panel = ['ClinicalModals.jsx', 'PatientProfileModal.jsx', 'PostVisitSummaryModal.jsx', 'clinicalShared.js'].map((file) => fs.readFileSync(new URL(`../src/features/staff/clinical/${file}`, import.meta.url), 'utf8')).join('\n');
+const styles = fs.readFileSync(new URL('../src/features/staff/clinical/patientFile.css', import.meta.url), 'utf8');
 
 test('patient file presents immutable MRN and role-aware sections', () => {
   assert.match(panel, /profile\.fileNumber/);

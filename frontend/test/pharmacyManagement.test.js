@@ -25,7 +25,7 @@ import {
   newPaymentAttempt,
   paymentAttemptIsReflected,
   samePaymentAttempt
-} from '../src/utils/pharmacyManagement.js';
+} from '../src/features/staff/pharmacy/pharmacyHelpers.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (relative) => readFileSync(path.join(root, relative), 'utf8');
@@ -33,6 +33,12 @@ const sourceTree = (relative) => readdirSync(path.join(root, relative), { recurs
   .filter((entry) => entry.isFile() && /\.[jt]sx?$/.test(entry.name))
   .map((entry) => readFileSync(path.join(entry.parentPath, entry.name), 'utf8'))
   .join('\n');
+// The dashboard body is split across PharmacyDashboard.jsx, pharmacyHelpers.js and components/*.jsx.
+const pharmacyDashboardSource = () => [
+  source('src/features/staff/pharmacy/PharmacyDashboard.jsx'),
+  source('src/features/staff/pharmacy/pharmacyHelpers.js'),
+  sourceTree('src/features/staff/pharmacy/components')
+].join('\n');
 
 test('pharmacist medicine payload is allow-listed and supports optional opening stock', () => {
   const payload = buildMedicinePayload({
@@ -76,10 +82,10 @@ test('payment payload is minimal and exact-attempt retries reuse one idempotency
 });
 
 test('dashboard integrates bounded APIs, server payment state, and read-only movement history', () => {
-  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
-  const managementUtils = source('src/utils/pharmacyManagement.js');
-  const payment = source('src/features/pharmacy/PharmacyPayment.jsx');
-  const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
+  const management = source('src/features/staff/pharmacy/PharmacyManagement.jsx');
+  const managementUtils = source('src/features/staff/pharmacy/pharmacyHelpers.js');
+  const payment = source('src/features/staff/pharmacy/PharmacyPayment.jsx');
+  const dashboard = pharmacyDashboardSource();
   assert.match(management, /Medicine & Inventory Management/);
   assert.match(management, /pageSize: '20'/);
   assert.match(managementUtils, /FORMULARY_MEDICINE_ALREADY_EXISTS/);
@@ -105,7 +111,7 @@ test('dashboard integrates bounded APIs, server payment state, and read-only mov
 });
 
 test('pharmacy pilot workspace defaults to dispensing and exposes accessible focused sections', () => {
-  const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
+  const dashboard = pharmacyDashboardSource();
   assert.match(dashboard, /useState\('dispensing'\)/);
   assert.match(dashboard, /role="tablist"/);
   assert.match(dashboard, /role="tab"/);
@@ -119,8 +125,8 @@ test('pharmacy pilot workspace defaults to dispensing and exposes accessible foc
 });
 
 test('medicine inventory uses a compact responsive table and one keyboard-safe action menu', () => {
-  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
-  const css = source('src/App.css');
+  const management = source('src/features/staff/pharmacy/PharmacyManagement.jsx');
+  const css = source('src/features/staff/staffPortal.css');
   assert.match(management, /pharmacy-inventory-table/);
   assert.match(management, /aria-haspopup="menu"/);
   assert.match(management, /role="menu"/);
@@ -134,8 +140,8 @@ test('medicine inventory uses a compact responsive table and one keyboard-safe a
 });
 
 test('pilot redesign preserves management actions, search, filters, alerts, and review decisions', () => {
-  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
-  const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
+  const management = source('src/features/staff/pharmacy/PharmacyManagement.jsx');
+  const dashboard = pharmacyDashboardSource();
   assert.match(management, /pharmacy-formulary-search/);
   assert.match(management, /pharmacy-formulary-status/);
   assert.match(management, /setDialog\('create'\)/);
@@ -150,7 +156,7 @@ test('pilot redesign preserves management actions, search, filters, alerts, and 
 });
 
 test('pharmacist sees official price read-only without price or status mutation controls', () => {
-  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
+  const management = source('src/features/staff/pharmacy/PharmacyManagement.jsx');
   assert.match(management, /Official price/);
   assert.match(management, /unitPriceSdg == null/);
   assert.doesNotMatch(management, /name="unitPriceSdg"|name="status"/);
@@ -167,7 +173,7 @@ test('authoritative pharmacy summaries and stock states use final Phase 2 fields
   assert.equal(stockPresentation({ totalOnHand: 0, usableStock: 0 }), 'OUT_OF_STOCK');
   assert.equal(stockPresentation({ totalOnHand: 8, usableStock: 8, nearExpiry: true }), 'NEAR_EXPIRY');
   assert.equal(stockPresentation({ totalOnHand: 8, usableStock: 8 }), 'HEALTHY');
-  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
+  const management = source('src/features/staff/pharmacy/PharmacyManagement.jsx');
   assert.match(management, /stock\.totalOnHand/);
   assert.match(management, /stock\.nearestUnexpiredExpiry/);
   assert.doesNotMatch(management, /stock\.totalStock|stock\.nearestExpiry/);
@@ -216,7 +222,7 @@ test('expired-batch alerts coexist with authoritative usable and healthy or low 
   assert.equal(low.usableStock, 6);
   assert.equal(low.hasExpiredBatches, true);
   assert.equal(low.state, 'LOW_STOCK');
-  const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
+  const dashboard = pharmacyDashboardSource();
   assert.match(dashboard, /alertModel\.expiredAlerts/);
   assert.match(dashboard, /\$\{alert\.count\} expired batch\(es\)/);
   assert.doesNotMatch(dashboard, /expiredBatches.*reduce|expiredBatchCount.*qtyOnHand/);
@@ -243,15 +249,15 @@ test('alert model refresh derives a new count without stale mutable counters', (
   const refreshed = pharmacyAlertModel([{ id: 'a', stock: { usableStock: 12, lowStockBatchCount: 0 } }]);
   assert.equal(initial.stockAlertCount, 1);
   assert.equal(refreshed.stockAlertCount, 0);
-  const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
-  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
+  const dashboard = pharmacyDashboardSource();
+  const management = source('src/features/staff/pharmacy/PharmacyManagement.jsx');
   assert.match(dashboard, /loadAlertInventory\(\)/);
   assert.match(dashboard, /managementRefresh/);
   assert.match(management, /onInventoryChanged\(\)/);
 });
 
 test('alerts tab and grouped section use the canonical model and guard the empty state', () => {
-  const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
+  const dashboard = pharmacyDashboardSource();
   assert.match(dashboard, /alertModel\.totalAlertCount/);
   assert.match(dashboard, /alertModel\.totalAlertCount === 0/);
   assert.match(dashboard, /alertModel\.stockAlerts\.filter/);
@@ -262,8 +268,8 @@ test('alerts tab and grouped section use the canonical model and guard the empty
 });
 
 test('management provides paging, retry, lifecycle copy, and no operational threshold', () => {
-  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
-  const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
+  const management = source('src/features/staff/pharmacy/PharmacyManagement.jsx');
+  const dashboard = pharmacyDashboardSource();
   assert.match(management, /batchPagination\.page - 1/);
   assert.match(management, /movementPagination\.page \+ 1/);
   assert.match(management, /Loading batches/);
@@ -279,7 +285,9 @@ test('management provides paging, retry, lifecycle copy, and no operational thre
 });
 
 test('reception has no pharmacy billing or payment mutation while non-pharmacy billing remains', () => {
-  const reception = source('src/features/reception/ReceptionDashboard.jsx');
+  const reception = ['ReceptionDashboard.jsx', 'receptionHelpers.js', ...readdirSync(path.join(root, 'src/features/staff/reception/components')).filter((file) => file.endsWith('.jsx')).sort().map((file) => `components/${file}`)]
+    .map((file) => source(`src/features/staff/reception/${file}`))
+    .join('\n');
   assert.doesNotMatch(reception, /PHARMACY/);
   assert.doesNotMatch(reception, /Pharmacy Billing Queue|Pharmacy Bills|Issue Pharmacy Invoice/);
   assert.doesNotMatch(reception, /pharmacyBilling|selectedPharmacy|prescriptions\/pending/);
@@ -316,7 +324,7 @@ test('no frontend path submits a PHARMACY invoice through generic billing', () =
 });
 
 test('unresolved custom medicine exposes the review dialog and exactly three supported decisions', () => {
-  const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
+  const dashboard = pharmacyDashboardSource();
   assert.equal(customMedicineRequiresReview({ customDrugName: 'rest', drug: null, drugId: null, pharmacyReviewStatus: 'PENDING_REVIEW' }), true);
   assert.equal(customMedicineRequiresReview({ customDrugName: 'rest', drugId: 'drug-1', pharmacyReviewStatus: 'APPROVED' }), false);
   assert.equal(customMedicineRequiresReview({ customDrugName: 'rest', drug: null, drugId: null, pharmacyReviewStatus: 'EXTERNAL' }), false);
@@ -352,7 +360,7 @@ test('custom medicine review payloads are allow-listed and contain no financial 
 });
 
 test('successful custom review refreshes review, prescription, management when needed, and payment state', () => {
-  const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
+  const dashboard = pharmacyDashboardSource();
   const successPath = dashboard.slice(dashboard.indexOf('setMedicationReviews((current)'), dashboard.indexOf('} catch (error)', dashboard.indexOf('setMedicationReviews((current)')));
   assert.match(successPath, /fetchMedicationReviews\(\)/);
   assert.match(successPath, /fetchPendingRx\(\)/);
@@ -363,7 +371,7 @@ test('successful custom review refreshes review, prescription, management when n
 });
 
 test('pharmacy unavailable resolution is explicit, auditable, and separated from dispensing', () => {
-  const dashboard = source('src/features/pharmacy/PharmacyDashboard.jsx');
+  const dashboard = pharmacyDashboardSource();
   assert.match(dashboard, /بانتظار الصرف/);
   assert.match(dashboard, /History/);
   assert.match(dashboard, /prescriptions\/history/);
@@ -377,7 +385,7 @@ test('pharmacy unavailable resolution is explicit, auditable, and separated from
 });
 
 test('pharmacist price and status remain display-only', () => {
-  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
+  const management = source('src/features/staff/pharmacy/PharmacyManagement.jsx');
   assert.match(management, /Official price/);
   assert.doesNotMatch(management, /unitPriceSdg[^\n]*(onChange|setForm)/);
   assert.doesNotMatch(management, /name="(unitPriceSdg|status)"/);
@@ -398,7 +406,7 @@ test('each Add Medicine text field updates only its own immutable state property
 });
 
 test('Add Medicine controls have stable unique IDs, matching names and explicit labels', () => {
-  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
+  const management = source('src/features/staff/pharmacy/PharmacyManagement.jsx');
   assert.match(management, /htmlFor=\{id\}/);
   assert.match(management, /<input id=\{id\}/);
   assert.match(management, /key=\{name\} id=\{`medicine-\$\{name\}`\} name=\{name\}/);
@@ -411,7 +419,7 @@ test('Add Medicine controls have stable unique IDs, matching names and explicit 
 });
 
 test('formulary search is submit-driven and opening or typing in the dialog cannot request it', () => {
-  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
+  const management = source('src/features/staff/pharmacy/PharmacyManagement.jsx');
   assert.match(management, /onChange=\{\(event\) => setSearchInput\(event\.target\.value\)\}/);
   assert.doesNotMatch(management, /setSearchInput\([^\n]*loadFormulary/);
   assert.match(management, /onSubmit=\{\(event\) => \{ event\.preventDefault\(\); setSearch\(searchInput\.trim\(\)\); setSearchSubmission/);
@@ -420,7 +428,7 @@ test('formulary search is submit-driven and opening or typing in the dialog cann
 });
 
 test('one search submission has one effect-owned request and keeps latest-response protection', () => {
-  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
+  const management = source('src/features/staff/pharmacy/PharmacyManagement.jsx');
   const submit = management.match(/<form className="pharmacy-toolbar" onSubmit=\{([\s\S]*?)\}>/)?.[1] || '';
   assert.equal((submit.match(/setSearchSubmission/g) || []).length, 1);
   assert.equal((submit.match(/loadFormulary/g) || []).length, 0);
@@ -430,7 +438,7 @@ test('one search submission has one effect-owned request and keeps latest-respon
 });
 
 test('dialog close identity stays stable so ordinary field rerenders preserve focus', () => {
-  const management = source('src/features/pharmacy/PharmacyManagement.jsx');
+  const management = source('src/features/staff/pharmacy/PharmacyManagement.jsx');
   assert.match(management, /const closeDialog = useCallback\([\s\S]*?\}, \[\]\);/);
   assert.match(management, /<Dialog open=\{dialog === 'create'\}[\s\S]*?onClose=\{closeDialog\}/);
 });

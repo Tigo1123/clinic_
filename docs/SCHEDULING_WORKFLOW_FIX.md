@@ -18,11 +18,11 @@ The undecided policy for activating schedules that conflict with future appointm
 
 ## Changed files
 
-- `frontend/src/features/admin/AdminSchedulePanel.jsx`: weekday editing, operation state, strict load handling, race protection, bounded payloads, pending-version editing.
-- `frontend/src/features/admin/latestRequest.js`: unique tokens; extends existing uncommitted helper.
-- `frontend/src/features/admin/scheduleVersion.js`: opt-in future-version preference.
-- `frontend/src/features/admin/adminSchedule.css`: neutral wrapper fieldsets and readable effective-date notice in dark/light themes.
-- `frontend/src/i18n.js`: Arabic/English labels for day, loading, retry.
+- `frontend/src/features/staff/admin/AdminSchedulePanel.jsx`: weekday editing, operation state, strict load handling, race protection, bounded payloads, pending-version editing.
+- `frontend/src/features/staff/admin/latestRequest.js`: unique tokens; extends existing uncommitted helper.
+- `frontend/src/features/staff/admin/scheduleVersion.js`: opt-in future-version preference.
+- `frontend/src/features/staff/admin/adminSchedule.css`: neutral wrapper fieldsets and readable effective-date notice in dark/light themes.
+- `frontend/src/locales/{ar,en}.js`: Arabic/English labels for day, loading, retry.
 - `frontend/test/adminScheduleComponent.test.js`: executable React DOM tests with controlled API responses, using Vite's JSX transformer and jsdom.
 - `frontend/test/adminSchedulePanelRace.test.js`: preserves executable guard tests, replaces source-only race checks with component coverage above.
 - `frontend/test/adminSchedulePanel.test.js`: updates the existing disabled-state structural assertion.

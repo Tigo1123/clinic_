@@ -10,9 +10,9 @@ Object.assign(globalThis, { window: dom.window, document: dom.window.document, I
 Object.defineProperty(dom.window.HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 318 });
 const { createElement, act } = await import('react');
 const { createRoot } = await import('react-dom/client');
-let source = await readFile(new URL('../src/features/patient-auth/GoogleIdentityButton.jsx', import.meta.url), 'utf8');
+let source = await readFile(new URL('../src/features/patient/auth/GoogleIdentityButton.jsx', import.meta.url), 'utf8');
 source = source.replace("import { useTranslation } from 'react-i18next';", "const useTranslation = () => ({ t: key => key, i18n: { language: globalThis.testLanguage || 'en' } });")
-  .replace("import { useTheme } from '../../app/theme/ThemeContext';", "const useTheme = () => ({ theme: globalThis.testTheme || 'light' });")
+  .replace("import { useTheme } from '../../../app/theme/ThemeContext';","const useTheme = () => ({ theme: globalThis.testTheme || 'light' });")
   .replace('import.meta.env?.VITE_GOOGLE_CLIENT_ID', 'globalThis.testGoogleClientId');
 const compiled = await transformWithOxc(source, 'GoogleIdentityButton.jsx', { jsx: { runtime: 'automatic' } });
 let root;

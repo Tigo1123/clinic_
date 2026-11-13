@@ -8,7 +8,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (relative) => readFileSync(path.join(root, relative), 'utf8');
 
 test('doctor workspace preserves the role hero and renders authoritative daily metrics', () => {
-  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
+  const dashboard = source('src/features/staff/doctor/DoctorDashboard.jsx');
   assert.match(dashboard, /<RoleHero role="doctor" lang=\{lang\}\/>/);
   assert.match(dashboard, /doctor-daily-summary/);
   assert.match(dashboard, /item\.status === 'CHECKED_IN' && item\.consultationReady/);
@@ -18,7 +18,7 @@ test('doctor workspace preserves the role hero and renders authoritative daily m
 });
 
 test('doctor queue has date controls, accessible patient cards, selection, and compact empty state', () => {
-  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
+  const dashboard = source('src/features/staff/doctor/DoctorDashboard.jsx');
   assert.match(dashboard, /className="doctor-queue-panel"/);
   assert.match(dashboard, /type="date" value=\{filterDate\}/);
   assert.match(dashboard, /onClick=\{\(\) => handlePatientSelect\(appt\)\}/);
@@ -28,7 +28,7 @@ test('doctor queue has date controls, accessible patient cards, selection, and c
 });
 
 test('selected patient context keeps MRN isolation and Patient File integration', () => {
-  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
+  const dashboard = source('src/features/staff/doctor/DoctorDashboard.jsx');
   assert.match(dashboard, /className="doctor-patient-context"/);
   assert.match(dashboard, /className="doctor-mrn" dir="ltr"/);
   assert.match(dashboard, /setViewingProfilePatientId\(selectedPatient\.id\)/);
@@ -38,7 +38,7 @@ test('selected patient context keeps MRN isolation and Patient File integration'
 });
 
 test('clinical workflow retains vitals, assessment, prescription, lab, and completion controls', () => {
-  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
+  const dashboard = source('src/features/staff/doctor/DoctorDashboard.jsx');
   for (const id of ['doctor-vital-bp', 'doctor-vital-heart-rate', 'doctor-vital-temperature', 'doctor-vital-weight', 'doctor-symptoms', 'doctor-diagnosis', 'doctor-treatment', 'doctor-clinical-notes']) {
     assert.match(dashboard, new RegExp(`id="${id}"`));
   }
@@ -51,8 +51,8 @@ test('clinical workflow retains vitals, assessment, prescription, lab, and compl
 });
 
 test('doctor layout is RTL-aware, responsive, and avoids fixed-width page overflow', () => {
-  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
-  const css = source('src/features/doctor/doctorDashboard.css');
+  const dashboard = source('src/features/staff/doctor/DoctorDashboard.jsx');
+  const css = source('src/features/staff/doctor/doctorDashboard.css');
   assert.match(dashboard, /dir=\{lang === 'ar' \? 'rtl' : 'ltr'\}/);
   assert.match(css, /grid-template-columns: minmax\(250px, \.36fr\) minmax\(0, 1fr\)/);
   assert.match(css, /@media \(max-width: 860px\)[\s\S]*flex-direction: column/);
@@ -63,8 +63,8 @@ test('doctor layout is RTL-aware, responsive, and avoids fixed-width page overfl
 });
 
 test('doctor workspace uses readable theme tokens and distinct textual workflow states', () => {
-  const dashboard = source('src/features/doctor/DoctorDashboard.jsx');
-  const css = source('src/features/doctor/doctorDashboard.css');
+  const dashboard = source('src/features/staff/doctor/DoctorDashboard.jsx');
+  const css = source('src/features/staff/doctor/doctorDashboard.css');
   assert.match(css, /--doctor-ink:\s*var\(--mui-palette-text-primary/);
   assert.match(css, /--doctor-muted:\s*var\(--mui-palette-text-secondary/);
   assert.match(css, /--doctor-border:\s*var\(--mui-palette-divider/);

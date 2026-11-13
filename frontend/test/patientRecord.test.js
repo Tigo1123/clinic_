@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatPatientDateTime } from '../src/utils/patientRecord.js';
+import { formatPatientDateTime } from '../src/features/patient/portal/patientRecord.js';
 
 test('released-result dates are formatted outside the lab-results component', () => {
   const formatted = formatPatientDateTime('2031-01-05T13:30:00.000Z', 'en');

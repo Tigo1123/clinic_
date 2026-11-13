@@ -2,13 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const component = readFileSync(new URL('../src/features/patient-auth/GoogleIdentityButton.jsx', import.meta.url), 'utf8');
-const page = readFileSync(new URL('../src/features/patient-auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
+const component = readFileSync(new URL('../src/features/patient/auth/GoogleIdentityButton.jsx', import.meta.url), 'utf8');
+const page = readFileSync(new URL('../src/features/patient/auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
 const env = readFileSync(new URL('../.env.example', import.meta.url), 'utf8');
-const storage = readFileSync(new URL('../src/features/patient-auth/googleOnboardingStorage.js', import.meta.url), 'utf8');
-const flow = readFileSync(new URL('../src/features/patient-auth/useGooglePatientAuth.js', import.meta.url), 'utf8');
-const onboarding = readFileSync(new URL('../src/features/patient-auth/onboarding.js', import.meta.url), 'utf8');
-const i18n = readFileSync(new URL('../src/i18n.js', import.meta.url), 'utf8');
+const storage = readFileSync(new URL('../src/features/patient/auth/googleOnboardingStorage.js', import.meta.url), 'utf8');
+const flow = readFileSync(new URL('../src/features/patient/auth/useGooglePatientAuth.js', import.meta.url), 'utf8');
+const onboarding = readFileSync(new URL('../src/features/patient/auth/onboarding.js', import.meta.url), 'utf8');
+const i18n = ['../src/i18n.js', '../src/locales/ar.js', '../src/locales/en.js']
+  .map((file) => readFileSync(new URL(file, import.meta.url), 'utf8'))
+  .join('\n');
 
 test('GIS foundation uses one direct, reusable script loader and official button', () => {
   assert.match(component, /accounts\.google\.com\/gsi\/client/);

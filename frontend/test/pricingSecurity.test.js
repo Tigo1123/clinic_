@@ -1,14 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (relative) => readFileSync(path.join(root, relative), 'utf8');
+// The dashboard body is split across PharmacyDashboard.jsx, pharmacyHelpers.js and components/*.jsx.
+const pharmacyDashboardSource = () => [
+  source('src/features/staff/pharmacy/PharmacyDashboard.jsx'),
+  source('src/features/staff/pharmacy/pharmacyHelpers.js'),
+  ...readdirSync(path.join(root, 'src/features/staff/pharmacy/components'))
+    .filter((name) => /\.[jt]sx?$/.test(name))
+    .sort()
+    .map((name) => source(`src/features/staff/pharmacy/components/${name}`))
+].join('\n');
 
 test('GENERAL invoice requests send catalog identity and quantity without browser pricing', () => {
-  const reception = source('src/features/reception/ReceptionDashboard.jsx');
+  const reception = source('src/features/staff/reception/ReceptionDashboard.jsx');
   assert.match(reception, /invoiceType === 'GENERAL'/);
   assert.match(reception, /serviceId: service\.id/);
   assert.match(reception, /quantity: service\.qty/);
@@ -20,7 +29,7 @@ test('GENERAL invoice requests send catalog identity and quantity without browse
 });
 
 test('admin pricing management covers consultations, services, laboratory, and pharmacy catalogues', () => {
-  const admin = source('src/features/admin/AdminDashboard.jsx');
+  const admin = source('src/features/staff/admin/AdminDashboard.jsx');
   assert.match(admin, /Pricing Management/);
   assert.match(admin, /\/api\/admin\/pricing/);
   assert.match(admin, /Consultation Fees/);
@@ -30,10 +39,10 @@ test('admin pricing management covers consultations, services, laboratory, and p
 });
 
 test('laboratory and pharmacy workflows cannot submit official selling prices', () => {
-  const laboratory = source('src/features/laboratory/LaboratoryDashboard.jsx');
-  const pharmacy = source('src/features/pharmacy/PharmacyDashboard.jsx');
-  const pharmacyManagement = source('src/features/pharmacy/PharmacyManagement.jsx');
-  const pharmacyUtils = source('src/utils/pharmacyManagement.js');
+  const laboratory = source('src/features/staff/laboratory/LaboratoryDashboard.jsx');
+  const pharmacy = pharmacyDashboardSource();
+  const pharmacyManagement = source('src/features/staff/pharmacy/PharmacyManagement.jsx');
+  const pharmacyUtils = source('src/features/staff/pharmacy/pharmacyHelpers.js');
   const labCreatePayload = laboratory.slice(
     laboratory.indexOf("if (decision === 'CREATE_SERVICE')"),
     laboratory.indexOf('setReviewingId(request.id)')
@@ -50,9 +59,9 @@ test('laboratory and pharmacy workflows cannot submit official selling prices', 
 });
 
 test('nullable official prices remain visibly unconfigured instead of displaying zero', () => {
-  const admin = source('src/features/admin/AdminDashboard.jsx');
-  const reception = source('src/features/reception/ReceptionDashboard.jsx');
-  const pharmacy = source('src/features/pharmacy/PharmacyManagement.jsx');
+  const admin = source('src/features/staff/admin/AdminDashboard.jsx');
+  const reception = source('src/features/staff/reception/ReceptionDashboard.jsx');
+  const pharmacy = source('src/features/staff/pharmacy/PharmacyManagement.jsx');
 
   assert.match(admin, /currentPrice == null \? ''/);
   assert.match(admin, /Not configured/);
@@ -62,7 +71,7 @@ test('nullable official prices remain visibly unconfigured instead of displaying
 });
 
 test('admin pricing uses dedicated confirmations for service status changes', () => {
-  const admin = source('src/features/admin/AdminDashboard.jsx');
+  const admin = source('src/features/staff/admin/AdminDashboard.jsx');
 
   assert.match(admin, /const statusChanged = draft\.status && draft\.status !== item\.status/);
   assert.match(admin, /هل أنت متأكد من تعطيل هذه الخدمة؟ لن تظهر للأطباء كخدمة متاحة جديدة/);

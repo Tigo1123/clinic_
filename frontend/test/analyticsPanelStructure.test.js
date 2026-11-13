@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-const component = fs.readFileSync(new URL('../src/features/admin/AnalyticsPanel.jsx', import.meta.url), 'utf8');
-const styles = fs.readFileSync(new URL('../src/features/admin/analytics.css', import.meta.url), 'utf8');
-const translations = fs.readFileSync(new URL('../src/i18n.js', import.meta.url), 'utf8');
+const component = fs.readFileSync(new URL('../src/features/staff/admin/AnalyticsPanel.jsx', import.meta.url), 'utf8');
+const styles = fs.readFileSync(new URL('../src/features/staff/admin/analytics.css', import.meta.url), 'utf8');
+const translations = ['../src/i18n.js', '../src/locales/ar.js', '../src/locales/en.js']
+  .map((file) => fs.readFileSync(new URL(file, import.meta.url), 'utf8'))
+  .join('\n');
 
 test('analytics panel has explicit loading, error, empty, textual chart, and refresh contracts', () => {
   for (const contract of ['analyticsLoading', 'analyticsLoadError', 'analyticsNoData', 'analyticsNoPeriodData', 'analytics-chart-summary', 'onRefresh']) {

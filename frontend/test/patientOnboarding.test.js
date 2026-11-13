@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import i18n from '../src/i18n.js';
 import { readFileSync } from 'node:fs';
-import { INITIAL_ONBOARDING_FORM, NAME_FIELDS, normaliseOnboardingForm, ONBOARDING_STEPS, onboardingErrorMessage, registrationPayload, RESEND_COOLDOWN_SECONDS, resendSecondsRemaining, validateOnboardingStep } from '../src/features/patient-auth/onboarding.js';
-import { DEFAULT_PHONE_COUNTRY, normalisePatientPhone, PATIENT_PHONE_COUNTRIES, splitInternationalPhone } from '../src/features/patient-auth/phoneCountries.js';
+import { INITIAL_ONBOARDING_FORM, NAME_FIELDS, normaliseOnboardingForm, ONBOARDING_STEPS, onboardingErrorMessage, registrationPayload, RESEND_COOLDOWN_SECONDS, resendSecondsRemaining, validateOnboardingStep } from '../src/features/patient/auth/onboarding.js';
+import { DEFAULT_PHONE_COUNTRY, normalisePatientPhone, PATIENT_PHONE_COUNTRIES, splitInternationalPhone } from '../src/features/patient/auth/phoneCountries.js';
 const passwordField = readFileSync(new URL('../src/components/PasswordField.jsx', import.meta.url), 'utf8');
 
 const messages = { required:'required', nameInvalid:'name', dateInvalid:'dob', phoneInvalid:'phone', emailInvalid:'email', passwordInvalid:'password', passwordMismatch:'mismatch', rateLimited:'rate', addressStateInvalid:'state invalid', emailDuplicate:'email duplicate', phoneDuplicate:'phone duplicate', manualReview:'review', verificationFailed:'verify', requestFailed:'failed' };
@@ -35,12 +35,12 @@ test('country-aware phone validation accepts supported African and Arab numbers 
 });
 
 test('phone country selector keeps a readable gap without changing its value contract', () => {
-  const styles = readFileSync(new URL('../src/features/patient-auth/patientAuth.css', import.meta.url), 'utf8');
+  const styles = readFileSync(new URL('../src/features/patient/auth/patientAuth.css', import.meta.url), 'utf8');
   assert.match(styles, /\.patient-phone-control \{[^}]*gap: 10px/);
   assert.match(styles, /\.patient-auth \.patient-phone-control input/);
   assert.match(styles, /\.onboarding-contact-grid \{ grid-template-columns: 1fr; \}/);
   assert.match(styles, /\.onboarding-contact-phone \{ min-width: 0; \}/);
-  const page = readFileSync(new URL('../src/features/patient-auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
+  const page = readFileSync(new URL('../src/features/patient/auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
   assert.match(page, /onboarding-contact-phone/);
   assert.equal(registrationPayload({ ...complete, phoneCountry:'SD', phone:'912345678' }).phone, '+249912345678');
 });
@@ -90,7 +90,7 @@ test('OTP resend cooldown is deterministic and localized in both languages', asy
 });
 
 test('registration page renders the stepper, keeps RTL/LTR inputs explicit, and continues verified patients safely', () => {
-  const page = readFileSync(new URL('../src/features/patient-auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
+  const page = readFileSync(new URL('../src/features/patient/auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
   assert.match(page, /onboarding-progress/);
   assert.match(page, /autoComplete="name" dir=\{step === 0 \? 'rtl' : 'ltr'\}/);
   assert.match(page, /patient-phone-control/);
@@ -117,8 +117,8 @@ test('registration page renders the stepper, keeps RTL/LTR inputs explicit, and 
 });
 
 test('registration and recovery share an artwork-free auth shell with a centered single-column form', () => {
-  const page = readFileSync(new URL('../src/features/patient-auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
-  const styles = readFileSync(new URL('../src/features/patient-auth/patientAuth.css', import.meta.url), 'utf8');
+  const page = readFileSync(new URL('../src/features/patient/auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
+  const styles = readFileSync(new URL('../src/features/patient/auth/patientAuth.css', import.meta.url), 'utf8');
   const router = readFileSync(new URL('../src/app/router/AppRouter.jsx', import.meta.url), 'utf8');
   const shell = page.slice(page.indexOf('function AuthShell('));
 
@@ -132,7 +132,7 @@ test('registration and recovery share an artwork-free auth shell with a centered
 });
 
 test('patient login groups its medical mark with the introduction and keeps registration access clear', async () => {
-  const page = readFileSync(new URL('../src/features/patient-auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
+  const page = readFileSync(new URL('../src/features/patient/auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
   const loginStart = page.indexOf('export function PatientLogin');
   const loginEnd = page.indexOf('export function PatientForgotPassword');
   const login = page.slice(loginStart, loginEnd);
@@ -157,8 +157,8 @@ test('patient login groups its medical mark with the introduction and keeps regi
 });
 
 test('patient login identifier uses explicit visible LTR text styling without changing password styling', () => {
-  const page = readFileSync(new URL('../src/features/patient-auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
-  const styles = readFileSync(new URL('../src/features/patient-auth/patientAuth.css', import.meta.url), 'utf8');
+  const page = readFileSync(new URL('../src/features/patient/auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
+  const styles = readFileSync(new URL('../src/features/patient/auth/patientAuth.css', import.meta.url), 'utf8');
   assert.match(page, /autoComplete="username"[\s\S]*className="patient-auth-identifier"[\s\S]*dir="ltr"/);
   assert.match(styles, /\.patient-auth \.patient-auth-identifier \{[^}]*-webkit-text-fill-color: #142b37;[^}]*caret-color: #142b37/);
   assert.match(styles, /\.patient-auth \.patient-auth-identifier::placeholder/);

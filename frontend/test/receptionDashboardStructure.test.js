@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 
-const source = readFileSync(new URL('../src/features/reception/ReceptionDashboard.jsx', import.meta.url), 'utf8');
-const styles = readFileSync(new URL('../src/features/reception/receptionDashboard.css', import.meta.url), 'utf8');
+const receptionFiles = ['ReceptionDashboard.jsx', 'receptionHelpers.js', ...readdirSync(new URL('../src/features/staff/reception/components/', import.meta.url)).filter((file) => file.endsWith('.jsx')).sort().map((file) => `components/${file}`)];
+const source = receptionFiles.map((file) => readFileSync(new URL(`../src/features/staff/reception/${file}`, import.meta.url), 'utf8')).join('\n');
+const styles = readFileSync(new URL('../src/features/staff/reception/receptionDashboard.css', import.meta.url), 'utf8');
 
 test('reception workspace keeps patient access and operational actions in the compact layout', () => {
   assert.match(source, /reception-global-search/);

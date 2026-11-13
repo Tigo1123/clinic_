@@ -82,12 +82,12 @@ for (const [language, mode] of [['ar', 'light'], ['ar', 'dark'], ['en', 'light']
 
 test('password entry routes use the shared field and no app route renders a raw password input', async () => {
   const files = [
-    ['../src/App.jsx', ['RequiredPasswordChange', 'staff-password']],
-    ['../src/components/StaffSecurityDialog.jsx', ['mfa-current-password', 'mfa-enroll-password']],
-    ['../src/features/admin/AdminDashboard.jsx', ['staff-reset-new-password', 'staff-reset-admin-password']],
-    ['../src/features/admin/ClinicSetupPanel.jsx', ["type: 'password'"]],
-    ['../src/features/patient-auth/PatientAuthPages.jsx', ['PatientLogin', 'PatientForgotPassword', 'PatientRegister', 'offlineActivation', 'PasswordField']],
-    ['../src/features/patient-dashboard/PatientPages.jsx', ['changePassword', 'enterPasswordToLink', 'enterPasswordToUnlink', 'currentPassword']],
+    ['../src/features/staff/StaffPortal.jsx', ['RequiredPasswordChange', 'staff-password']],
+    ['../src/features/staff/components/StaffSecurityDialog.jsx', ['mfa-current-password', 'mfa-enroll-password']],
+    ['../src/features/staff/admin/AdminDashboard.jsx', ['staff-reset-new-password', 'staff-reset-admin-password']],
+    ['../src/features/staff/admin/ClinicSetupPanel.jsx', ["type: 'password'"]],
+    ['../src/features/patient/auth/PatientAuthPages.jsx', ['PatientLogin', 'PatientForgotPassword', 'PatientRegister', 'offlineActivation', 'PasswordField']],
+    ['../src/features/patient/portal/pages/Profile.jsx', ['changePassword', 'enterPasswordToLink', 'enterPasswordToUnlink', 'currentPassword']],
   ];
   for (const [file, markers] of files) {
     const text = await readFile(new URL(file, import.meta.url), 'utf8');

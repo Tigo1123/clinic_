@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { filterStaffUsers, isStaffRole, STAFF_ROLES } from '../src/utils/staffRoles.js';
+import { filterStaffUsers, isStaffRole, STAFF_ROLES } from '../src/features/staff/admin/staffRoles.js';
 
 test('Staff Directory keeps every staff role and excludes PATIENT rows and actions', () => {
   const users = [

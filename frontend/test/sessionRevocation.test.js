@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const adminSource = readFileSync(path.join(root, 'src/features/admin/AdminDashboard.jsx'), 'utf8');
+const adminSource = readFileSync(path.join(root, 'src/features/staff/admin/AdminDashboard.jsx'), 'utf8');
 
 test('admin session revocation is a distinct, confirmed security action', () => {
   assert.match(adminSource, /users\/\$\{revokeTarget\.id\}\/revoke-sessions/);

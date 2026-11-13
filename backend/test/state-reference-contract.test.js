@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { REFERENCE_BOOTSTRAP_STATES, runReferenceBootstrap } from '../src/services/referenceBootstrap.js';
-import { SUDANESE_STATES } from '../../frontend/src/features/reception/clinicData.js';
+import { SUDANESE_STATES } from '../../frontend/src/utils/clinicData.js';
 
 const manifest = JSON.parse(fs.readFileSync(new URL('../reference-data/sudan-states.json', import.meta.url), 'utf8'));
-const onboardingSource = fs.readFileSync(new URL('../../frontend/src/features/patient-auth/onboarding.js', import.meta.url), 'utf8');
+const onboardingSource = fs.readFileSync(new URL('../../frontend/src/features/patient/auth/onboarding.js', import.meta.url), 'utf8');
 const defaultStateIdMatch = onboardingSource.match(/addressStateId:\s*'(\d+)'/);
 const DEFAULT_STATE_ID = Number(defaultStateIdMatch?.[1]);
 const environment = {

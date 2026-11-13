@@ -24,10 +24,10 @@ Examples: `مساء الخير، تاج` and `Good evening, Tag`. Missing names 
 ## Files changed in this task
 
 - `frontend/package.json`, `frontend/package-lock.json`: MUI, Emotion, Stylis, and RTL support.
-- `frontend/src/features/patient-dashboard/PatientPages.jsx`: dashboard components, existing-data activity, booking availability, nearest appointment.
-- `frontend/src/layouts/patient.css`: scoped dashboard styling and responsive refinements.
+- `frontend/src/features/patient/portal/pages/*.jsx`: dashboard components, existing-data activity, booking availability, nearest appointment.
+- `frontend/src/features/patient/portal/patient.css`: scoped dashboard styling and responsive refinements.
 - `frontend/src/i18n.js`: Arabic and English dashboard labels and guidance.
-- `frontend/src/utils/patientGreeting.js`: safe first-name selection and localized greetings.
+- `frontend/src/features/patient/portal/patientGreeting.js`: safe first-name selection and localized greetings.
 - `frontend/src/utils/patientMuiTheme.js`: MUI adapter to existing tokens and direction-aware style caches.
 - `frontend/test/patientGreeting.test.js`: focused greeting regressions.
 - `frontend/test/patientPortalInteractions.test.js`: mounted dashboard regressions and existing test-loader integration.
