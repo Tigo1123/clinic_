@@ -24,9 +24,9 @@ export async function requireOwnedPatient(req, res, next) {
   } catch (error) { next(error); }
 }
 
-export async function doctorHasPatientAccess(user, patientId) {
+export async function doctorHasPatientAccess(user, patientId, client = prisma) {
   if (user.role !== ROLES.DOCTOR || !user.doctorId) return false;
-  const appointment = await prisma.appointment.findFirst({
+  const appointment = await client.appointment.findFirst({
     where: { doctorId: user.doctorId, patientId, status: { not: 'CANCELLED' } },
     select: { id: true }
   });
@@ -43,13 +43,13 @@ const BREAK_GLASS_VALIDITY_MS = 2 * 60 * 60 * 1000;
  * doctor's profile. A verified, recent EMR consent or a doctor/user-specific
  * break-glass grant permits the existing patient-wide cross-doctor access.
  */
-export async function getDoctorMedicalRecordAccess(user, patientId, now = new Date()) {
+export async function getDoctorMedicalRecordAccess(user, patientId, now = new Date(), client = prisma) {
   if (user.role !== ROLES.DOCTOR || !user.doctorId) {
     return { hasCrossDoctorAccess: false, where: { id: { in: [] } } };
   }
 
   const [verifiedConsent, activeBreakGlass] = await Promise.all([
-    prisma.consent.findFirst({
+    client.consent.findFirst({
       where: {
         patientId,
         consentType: 'EMR_ACCESS',
@@ -58,7 +58,7 @@ export async function getDoctorMedicalRecordAccess(user, patientId, now = new Da
       },
       select: { id: true }
     }),
-    prisma.tenantAuditLog.findFirst({
+    client.tenantAuditLog.findFirst({
       where: {
         userId: user.id,
         action: `EMR_BREAK_THE_GLASS_BYPASS:${patientId}`,

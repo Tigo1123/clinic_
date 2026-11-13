@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2022",
+    "declaration": false,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "paths": {
+      "@common/*": ["src/common/*"],
+      "@common/*.js": ["src/common/*.ts", "src/common/*.js"],
+      "@modules/*": ["src/modules/*"],
+      "@modules/*.js": ["src/modules/*.ts", "src/modules/*.js"],
+      "@database/*": ["src/database/*"],
+      "@database/*.js": ["src/database/*.ts", "src/database/*.js"],
+      "@generated/prisma": ["src/generated/prisma/index.js", "src/generated/prisma/index.d.ts"],
+      "@generated/prisma/*": ["src/generated/prisma/*"]
+    },
+    "incremental": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "allowJs": true,
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "test"]
+}
