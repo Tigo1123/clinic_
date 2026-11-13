@@ -15,6 +15,7 @@ import { LaboratoryService } from './laboratory.service.js';
 import { PolicyRoles } from '../../common/decorators/roles.decorator.js';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
+import { labReviewSchema, type LabReviewInput } from './lab-review.schema.js';
 
 const labResultSchema = z
   .object({
@@ -42,7 +43,7 @@ export class LaboratoryController {
   @HttpCode(HttpStatus.OK)
   async reviewItem(
     @Param('id') id: string,
-    @Body() body: any,
+    @Body(new ZodValidationPipe(labReviewSchema)) body: LabReviewInput,
     @CurrentUser() user: any,
     @Req() req: Request,
   ) {
