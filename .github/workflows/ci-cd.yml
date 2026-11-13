@@ -36,6 +36,19 @@ jobs:
             backend/package-lock.json
             frontend/package-lock.json
 
+      - name: Install and Generate Backend
+        env:
+          NODE_ENV: test
+        run: |
+          cd backend
+          npm ci
+          npx prisma generate
+
+      - name: Build NestJS Backend
+        run: |
+          cd backend
+          npm run build:nest
+
       - name: Test Backend
         env:
           NODE_ENV: test
@@ -49,8 +62,6 @@ jobs:
           PHONE_DEFAULT_COUNTRY: RW
         run: |
           cd backend
-          npm ci
-          npx prisma generate
           npm test
 
       - name: Test, Lint and Build Frontend

@@ -84,10 +84,10 @@ export async function getConfiguredSlots(doctor, date, now = DateTime.now().setZ
   return effective ? generatePeriods(effective.periods, date, now) : [];
 }
 
-export async function getAvailableSlots(doctor, date, now) {
-  const slots = await getConfiguredSlots(doctor, date, now);
+export async function getAvailableSlots(doctor, date, now, client = prisma) {
+  const slots = await getConfiguredSlots(doctor, date, now, client);
   if (!slots.length) return [];
-  const bookings = await prisma.appointment.findMany({ where: { doctorId: doctor.id, appointmentDate: date, status: { in: OCCUPYING_APPOINTMENT_STATUSES } }, select: { appointmentTime: true } });
+  const bookings = await client.appointment.findMany({ where: { doctorId: doctor.id, appointmentDate: date, status: { in: OCCUPYING_APPOINTMENT_STATUSES } }, select: { appointmentTime: true } });
   const occupied = new Set(bookings.map(({ appointmentTime }) => appointmentTime));
   return slots.filter((slot) => !occupied.has(slot));
 }
