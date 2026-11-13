@@ -5,7 +5,7 @@ import {
   completeStaffMfaRecovery,
   isTerminalMfaError,
   startStaffLogin
-} from '../src/services/staffLogin.js';
+} from '../src/services/staff/staffLogin.js';
 import i18n from '../src/i18n.js';
 
 class MemoryStorage {

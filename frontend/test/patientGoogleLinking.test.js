@@ -1,10 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 
-const pages = readFileSync(new URL('../src/features/patient-dashboard/PatientPages.jsx', import.meta.url), 'utf8');
-const authPages = readFileSync(new URL('../src/features/patient-auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
-const i18n = readFileSync(new URL('../src/i18n.js', import.meta.url), 'utf8');
+const pagesDir = new URL('../src/features/patient/portal/pages/', import.meta.url);
+const pages = readdirSync(pagesDir).filter((file) => file.endsWith('.jsx')).sort().map((file) => readFileSync(new URL(file, pagesDir), 'utf8')).join('\n');
+const authPages = readFileSync(new URL('../src/features/patient/auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
+const i18n = ['../src/i18n.js', '../src/locales/ar.js', '../src/locales/en.js']
+  .map((file) => readFileSync(new URL(file, import.meta.url), 'utf8'))
+  .join('\n');
 
 test('Profile component renders Linked Accounts section with status badge and localized labels', () => {
   assert.match(pages, /id="linked-accounts-section"/);

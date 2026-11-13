@@ -3,22 +3,22 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile, unlink } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 import { transformWithOxc } from 'vite';
-import { clinicCopy, setupPayload } from '../src/features/admin/clinicSetup.js';
+import { clinicCopy, setupPayload } from '../src/features/staff/admin/clinicSetup.js';
 
 const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost/' });
 Object.assign(globalThis, { window: dom.window, document: dom.window.document, Node: dom.window.Node, ShadowRoot: dom.window.ShadowRoot, HTMLElement: dom.window.HTMLElement, Element: dom.window.Element, DocumentFragment: dom.window.DocumentFragment, getComputedStyle: dom.window.getComputedStyle, IS_REACT_ACT_ENVIRONMENT: true });
 const { createPatientMuiTheme } = await import('../src/utils/patientMuiTheme.js');
 const { createElement, act } = await import('react');
 const { createRoot } = await import('react-dom/client');
-let source = await readFile(new URL('../src/features/admin/ClinicSetupPanel.jsx', import.meta.url), 'utf8');
+let source = await readFile(new URL('../src/features/staff/admin/ClinicSetupPanel.jsx', import.meta.url), 'utf8');
 source = source
   .replace(/import \{ useTheme \}[^;]+;/, "const useTheme = () => ({ theme: globalThis.setupTestMode || 'light' });")
   .replace(/import \{ fetchWithAuth \}[^;]+;/, 'const fetchWithAuth = (...args) => globalThis.setupTestRequest(...args);')
   .replace(/import PasswordField[^;]+;/, 'const PasswordField = ({label,value,onChange,name,autoComplete}) => <label>{label}<input name={name} aria-label={label} value={value} onChange={onChange} type="password" autoComplete={autoComplete}/></label>;')
   .replace(/import AdminSchedulePanel[^;]+;/, 'const AdminSchedulePanel = ({initialDoctorId}) => <div data-schedule-doctor={initialDoctorId}/>;')
-  .replace("'../../utils/patientMuiTheme.js'", JSON.stringify(new URL('../src/utils/patientMuiTheme.js', import.meta.url).href))
-  .replace("'../../utils/staffPasswordPolicy'", JSON.stringify(new URL('../src/utils/staffPasswordPolicy.js', import.meta.url).href))
-  .replace("'./clinicSetup.js'", JSON.stringify(new URL('../src/features/admin/clinicSetup.js', import.meta.url).href));
+  .replace("'../../../utils/patientMuiTheme.js'", JSON.stringify(new URL('../src/utils/patientMuiTheme.js', import.meta.url).href))
+  .replace("'./staffPasswordPolicy'", JSON.stringify(new URL('../src/features/staff/admin/staffPasswordPolicy.js', import.meta.url).href))
+  .replace("'./clinicSetup.js'", JSON.stringify(new URL('../src/features/staff/admin/clinicSetup.js', import.meta.url).href));
 const file = new URL(`.clinic-setup-${process.pid}.mjs`, import.meta.url);
 await writeFile(file, (await transformWithOxc(source, 'ClinicSetupPanel.jsx', { jsx: { runtime: 'automatic' } })).code);
 let Panel;

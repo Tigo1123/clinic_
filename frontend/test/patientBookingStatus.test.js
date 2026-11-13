@@ -1,16 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hasPendingAppointments, localizedAppointmentStatus } from '../src/utils/appointmentStatus.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (relative) => readFileSync(path.join(root, relative), 'utf8');
+const patientPagesSource = () => readdirSync(path.join(root, 'src/features/patient/portal/pages')).filter((file) => file.endsWith('.jsx')).sort().map((file) => source(`src/features/patient/portal/pages/${file}`)).join('\n');
 
 test('booking success clearly describes pending receptionist review', () => {
-  const page = source('src/features/patient-dashboard/PatientPages.jsx');
-  const i18n = source('src/i18n.js');
+  const page = patientPagesSource();
+  const i18n = ['src/i18n.js', 'src/locales/ar.js', 'src/locales/en.js'].map(source).join('\n');
   assert.match(page, /bookingRequestSent/);
   assert.match(page, /bookingPendingReview/);
   assert.match(page, /bookingFollowStatus/);
@@ -25,7 +26,7 @@ test('pending reminder derives only from existing appointment data', () => {
   assert.equal(hasPendingAppointments([{ status: 'PENDING' }]), true);
   assert.equal(hasPendingAppointments([{ status: 'CONFIRMED' }, { status: 'COMPLETED' }]), false);
   assert.equal(hasPendingAppointments([]), false);
-  const page = source('src/features/patient-dashboard/PatientPages.jsx');
+  const page = patientPagesSource();
   assert.match(page, /hasPendingAppointments\(appointments\.data\)\s*&&\s*<aside/);
   assert.match(page, /appointmentPendingReminder/);
 });
@@ -40,7 +41,7 @@ test('patient appointment statuses are understandable in Arabic and English', ()
 });
 
 test('bounded polling runs only while pending and is cancelled on unmount', () => {
-  const page = source('src/features/patient-dashboard/PatientPages.jsx');
+  const page = patientPagesSource();
   assert.match(page, /pollInterval=45000/);
   assert.match(page, /if\(pollWhen\?\.\(data\)\)pollTimer=setTimeout/);
   assert.match(page, /clearTimeout\(pollTimer\)/);

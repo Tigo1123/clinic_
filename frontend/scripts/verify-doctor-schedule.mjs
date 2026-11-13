@@ -10,8 +10,8 @@ async function wait(fn, name) { for (let i = 0; i < 100; i++) { const v = await 
 let server, chrome, socket;
 try {
  await writeFile(page, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module">
- import '../src/index.css'; import '../src/App.css'; import '../src/components/ui/ui.css';
- import React from 'react'; import { createRoot } from 'react-dom/client'; import Panel from '../src/features/admin/AdminSchedulePanel.jsx';
+ import '../src/styles/global.css'; import '../src/features/staff/staffPortal.css'; import '../src/components/ui/ui.css';
+ import React from 'react'; import { createRoot } from 'react-dom/client'; import Panel from '../src/features/staff/admin/AdminSchedulePanel.jsx';
  const original = window.fetch; window.saved = {}; window.mutations = [];
  window.fetch = async (url, options = {}) => {
   const reply = (data, status = 200) => new Response(JSON.stringify(data), { status });

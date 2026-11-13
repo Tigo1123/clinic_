@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   actorDisplayName, auditDetailSummary, auditEventFallback, auditEventPresentation, formatAuditDateTime, shortTechnicalId
-} from '../src/utils/auditLogPresentation.js';
+} from '../src/features/staff/admin/auditLogPresentation.js';
 
 test('audit presentation keeps actor identity separate from structured target identity', () => {
   const actor = { displayNameAr: 'د. سارة التجريبية', displayNameEn: 'Dr Demo Sara', username: 'doctor@example.test' };

@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createLatestRequestGate, mergeLabOrdersMonotonically } from '../src/utils/labOrderVersions.js';
+import { createLatestRequestGate, mergeLabOrdersMonotonically } from '../src/features/staff/laboratory/labOrderVersions.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const laboratory = readFileSync(path.join(root, 'src/features/laboratory/LaboratoryDashboard.jsx'), 'utf8');
+const laboratory = readFileSync(path.join(root, 'src/features/staff/laboratory/LaboratoryDashboard.jsx'), 'utf8');
 
 test('laboratory result save carries and adopts the authoritative result version', () => {
   assert.match(laboratory, /expectedVersion:\s*item\.resultVersion/);

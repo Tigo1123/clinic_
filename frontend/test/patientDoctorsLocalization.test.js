@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -8,10 +8,11 @@ import {
   doctorSpecialtyKey,
   doctorSpecialtyOptions,
   localizeDoctorSpecialty
-} from '../src/utils/doctorSpecialty.js';
+} from '../src/features/patient/portal/doctorSpecialty.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (relative) => readFileSync(path.join(root, relative), 'utf8');
+const patientPagesSource = () => readdirSync(path.join(root, 'src/features/patient/portal/pages')).filter((file) => file.endsWith('.jsx')).sort().map((file) => source(`src/features/patient/portal/pages/${file}`)).join('\n');
 const doctors = [
   { id: 'cardio', fullNameAr: 'د. أحمد', fullNameEn: 'Dr Ahmed', specialtyAr: 'Cardiology', specialtyEn: 'Cardiology', consultationFee: 1500 },
   { id: 'peds', fullNameAr: 'د. سارة', fullNameEn: 'Dr Sara', specialtyAr: '', specialtyEn: 'Pediatrics', consultationFee: 1200 },
@@ -49,8 +50,8 @@ test('unknown specialties safely retain stored labels', () => {
 });
 
 test('Doctors page uses localized UI while preserving names, fees, details, and booking routes', () => {
-  const page = source('src/features/patient-dashboard/PatientPages.jsx');
-  const i18n = source('src/i18n.js');
+  const page = patientPagesSource();
+  const i18n = ['src/i18n.js', 'src/locales/ar.js', 'src/locales/en.js'].map(source).join('\n');
   assert.match(i18n, /searchDoctors: 'ابحث عن طبيب'/);
   assert.match(i18n, /searchDoctors: 'Search doctors'/);
   assert.match(page, /placeholder=\{t\('searchDoctors'\)\}/);

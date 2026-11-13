@@ -23,11 +23,11 @@ test('facility names containing markup characters render as text, never executab
 });
 
 test('shared UI, billing, prescription, report, and print identity consumer uses central names', () => {
-  const identity = fs.readFileSync(new URL('../src/components/FacilityIdentityLine.jsx', import.meta.url), 'utf8');
-  const clinicalPrint = fs.readFileSync(new URL('../src/features/clinical/ClinicalModals.jsx', import.meta.url), 'utf8');
-  const reception = fs.readFileSync(new URL('../src/features/reception/ReceptionDashboard.jsx', import.meta.url), 'utf8');
-  const doctor = fs.readFileSync(new URL('../src/features/doctor/DoctorDashboard.jsx', import.meta.url), 'utf8');
-  const reports = fs.readFileSync(new URL('../src/features/admin/AnalyticsPanel.jsx', import.meta.url), 'utf8');
+  const identity = fs.readFileSync(new URL('../src/features/staff/components/FacilityIdentityLine.jsx', import.meta.url), 'utf8');
+  const clinicalPrint = ['ClinicalModals.jsx', 'PatientProfileModal.jsx', 'PostVisitSummaryModal.jsx', 'clinicalShared.js'].map((file) => fs.readFileSync(new URL(`../src/features/staff/clinical/${file}`, import.meta.url), 'utf8')).join('\n');
+  const reception = fs.readFileSync(new URL('../src/features/staff/reception/ReceptionDashboard.jsx', import.meta.url), 'utf8');
+  const doctor = fs.readFileSync(new URL('../src/features/staff/doctor/DoctorDashboard.jsx', import.meta.url), 'utf8');
+  const reports = fs.readFileSync(new URL('../src/features/staff/admin/AnalyticsPanel.jsx', import.meta.url), 'utf8');
   assert.match(identity, /branding\.displayNameAr/);
   assert.match(identity, /branding\.displayNameEn/);
   assert.match(identity, /brandingSubline/);

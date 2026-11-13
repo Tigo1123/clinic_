@@ -1,6 +1,6 @@
 import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, writeFile, unlink } from 'node:fs/promises';
+import { readFile, readdir, writeFile, unlink } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 import { transformWithOxc } from 'vite';
 
@@ -9,8 +9,14 @@ Object.assign(globalThis, { window: dom.window, document: dom.window.document, I
 const { createElement, act } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { MemoryRouter, Routes, Route } = await import('react-router-dom');
-let source = await readFile(new URL('../src/features/patient-dashboard/PatientPages.jsx', import.meta.url), 'utf8');
-source = source
+const pagesDir = new URL('../src/features/patient/portal/pages/', import.meta.url);
+const tempPrefix = `.portal-interactions-${process.pid}`;
+const stateMocks = {
+  Skeleton: 'const Skeleton = () => <div role="status">Loading</div>;',
+  ErrorState: 'const ErrorState = ({message}) => <div role="alert">{message}</div>;',
+  EmptyState: 'const EmptyState = ({title}) => <div>{title}</div>;',
+};
+const mockPageSource = (source) => source
   .replace(/import \{ useTheme \}[^;]+;/, "const useTheme = () => ({ theme: 'light' });")
   .replace(/import PasswordField[^;]+;/, 'const PasswordField = ({label,value,onChange,name,autoComplete}) => <label>{label}<input name={name} aria-label={label} value={value} onChange={onChange} type="password" autoComplete={autoComplete}/></label>;')
   .replace(/import \{ clearPatientSession \}[^;]+;/, 'const clearPatientSession = () => {};')
@@ -19,19 +25,36 @@ source = source
   .replace(/import StatusBadge[^;]+;/, 'const StatusBadge = ({status}) => <span>{status}</span>;')
   .replace(/import \{ GoogleIdentityButton \}[^;]+;/, 'const GoogleIdentityButton = () => null;')
   .replace(/import Dialog[^;]+;/, 'const Dialog = ({open, children, onClose}) => open ? <section role="dialog">{children}<button onClick={onClose}>Close dialog</button></section> : null;')
-  .replace(/import \{ EmptyState, ErrorState, Skeleton \}[^;]+;/, 'const Skeleton = () => <div role="status">Loading</div>; const ErrorState = ({message}) => <div role="alert">{message}</div>; const EmptyState = ({title}) => <div>{title}</div>;')
-  .replace(/from '\.\.\/\.\.\/utils\/([^']+)'/g, "from '../src/utils/$1.js'");
-const compiled = await transformWithOxc(source, 'PatientPages.jsx', { jsx: { runtime: 'automatic' } });
-const file = new URL(`.portal-interactions-${process.pid}.mjs`, import.meta.url);
-await writeFile(file, compiled.code);
+  .replace(/import \{ ([^}]+) \} from '[^']*components\/feedback\/States';/, (_, names) => names.split(',').map(name => stateMocks[name.trim()]).join(' '))
+  .replace(/from '(?:\.\.\/)+utils\/([^']+)'/g, "from '../src/utils/$1.js'")
+  .replace(/from '\.\.\/(patientGreeting|patientRecord|doctorSpecialty)'/g, "from '../src/features/patient/portal/$1.js'")
+  .replace("from './shared.jsx'", `from './${tempPrefix}-shared.mjs'`);
+const pageModules = {};
+const tempFiles = [];
 let pages;
-try { pages = await import(file.href); } finally { await unlink(file); }
-let rescheduleSource = await readFile(new URL('../src/features/appointments/RescheduleAppointment.jsx', import.meta.url), 'utf8');
+try {
+  for (const name of (await readdir(pagesDir)).filter((entry) => entry.endsWith('.jsx')).sort()) {
+    const base = name.replace(/\.jsx$/, '');
+    const compiled = await transformWithOxc(mockPageSource(await readFile(new URL(name, pagesDir), 'utf8')), name, { jsx: { runtime: 'automatic' } });
+    const file = new URL(`${tempPrefix}-${base}.mjs`, import.meta.url);
+    await writeFile(file, compiled.code);
+    tempFiles.push(file);
+    pageModules[base] = file.href;
+  }
+  pages = {};
+  for (const [base, href] of Object.entries(pageModules)) {
+    const loaded = await import(href);
+    if (base !== 'shared') Object.assign(pages, loaded);
+  }
+} finally {
+  for (const file of tempFiles) await unlink(file);
+}
+let rescheduleSource = await readFile(new URL('../src/features/patient/portal/RescheduleAppointment.jsx', import.meta.url), 'utf8');
 rescheduleSource = rescheduleSource
   .replace(/import \{ useTranslation \}[^;]+;/, "const useTranslation = () => ({ t: key => key });")
   .replace(/import \{ patientApiRequest as apiRequest \}[^;]+;/, 'const apiRequest = (...args) => globalThis.portalTestApi(...args);')
   .replace(/import \{ ErrorState, Skeleton \}[^;]+;/, 'const Skeleton = () => <div role="status">Loading</div>; const ErrorState = ({message}) => <div role="alert">{message}</div>;')
-  .replace("from '../../utils/clinicTime'", "from '../src/utils/clinicTime.js'");
+  .replace("from '../../../utils/clinicTime'", "from '../src/utils/clinicTime.js'");
 const rescheduleFile = new URL(`.portal-reschedule-${process.pid}.mjs`, import.meta.url);
 await writeFile(rescheduleFile, (await transformWithOxc(rescheduleSource, 'RescheduleAppointment.jsx', { jsx: { runtime: 'automatic' } })).code);
 let RescheduleAppointment;

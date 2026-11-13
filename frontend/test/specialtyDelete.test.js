@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 import { createElement as h, act, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import SpecialtyDeleteButton from '../src/features/admin/SpecialtyDeleteButton.js';
+import SpecialtyDeleteButton from '../src/features/staff/admin/SpecialtyDeleteButton.js';
 
 const dom = new JSDOM('<div id="root"></div>');
 globalThis.window = dom.window;
@@ -36,8 +36,8 @@ const render = async (lang = 'en') => act(async () => root.render(h(Harness, { l
 const click = async () => act(async () => document.querySelector('button').click());
 
 test('Admin dashboard wires deletion to local row removal and renders the control only for Admin', () => {
-  const row = readFileSync(new URL('../src/features/admin/SpecialtyRow.jsx', import.meta.url), 'utf8');
-  const dashboard = readFileSync(new URL('../src/features/admin/AdminDashboard.jsx', import.meta.url), 'utf8');
+  const row = readFileSync(new URL('../src/features/staff/admin/SpecialtyRow.jsx', import.meta.url), 'utf8');
+  const dashboard = readFileSync(new URL('../src/features/staff/admin/AdminDashboard.jsx', import.meta.url), 'utf8');
   assert.match(row, /isAdmin && <SpecialtyDeleteButton/);
   assert.match(dashboard, /isAdmin=\{user\?\.role === 'ADMIN'\}/);
   assert.match(dashboard, /setSpecialties\(\(current\) => current.filter\(\(item\) => item.id !== id\)\)/);

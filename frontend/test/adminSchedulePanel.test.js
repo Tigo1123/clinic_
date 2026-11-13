@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { selectScheduleVersion } from '../src/features/admin/scheduleVersion.js';
+import { selectScheduleVersion } from '../src/features/staff/admin/scheduleVersion.js';
 
-const panel = readFileSync(new URL('../src/features/admin/AdminSchedulePanel.jsx', import.meta.url), 'utf8');
-const dashboard = readFileSync(new URL('../src/features/admin/AdminDashboard.jsx', import.meta.url), 'utf8');
-const styles = readFileSync(new URL('../src/features/admin/adminSchedule.css', import.meta.url), 'utf8');
-const translations = readFileSync(new URL('../src/i18n.js', import.meta.url), 'utf8');
+const panel = readFileSync(new URL('../src/features/staff/admin/AdminSchedulePanel.jsx', import.meta.url), 'utf8');
+const dashboard = readFileSync(new URL('../src/features/staff/admin/AdminDashboard.jsx', import.meta.url), 'utf8');
+const styles = readFileSync(new URL('../src/features/staff/admin/adminSchedule.css', import.meta.url), 'utf8');
+const translations = ['../src/i18n.js', '../src/locales/ar.js', '../src/locales/en.js']
+  .map((file) => readFileSync(new URL(file, import.meta.url), 'utf8'))
+  .join('\n');
 
 test('admin scheduling is mounted behind the existing ADMIN dashboard and uses admin APIs', () => {
   assert.match(dashboard, /activeTab === 'scheduling'/);

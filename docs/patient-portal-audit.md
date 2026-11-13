@@ -64,13 +64,13 @@ resets, live accounts, commits, or pushes were performed.
 
 | File | Purpose |
 | --- | --- |
-| `frontend/src/layouts/PatientLayout.jsx` | Navigation, updates, theme/language, skip/back links, logout state |
-| `frontend/src/layouts/patient.css` | Consolidated responsive patient workspace styles |
-| `frontend/src/features/patient-dashboard/PatientPages.jsx` | Compact dashboard, safer availability/record loading, zero/custom medicine handling, profile labels and bidi behavior |
-| `frontend/src/features/appointments/RescheduleAppointment.jsx` | Availability lifecycle and loading/disabled behavior |
-| `frontend/src/features/patient-auth/PatientAuthPages.jsx` | Step focus, input/error association, numeric verification controls |
-| `frontend/src/features/patient-auth/patientAuth.css` | Semantic auth palette, patient-only contrast and touch targets |
-| `frontend/src/features/patient-auth/GoogleIdentityButton.jsx` | SDK/button locale lifecycle and loading behavior |
+| `frontend/src/features/patient/portal/PatientLayout.jsx` | Navigation, updates, theme/language, skip/back links, logout state |
+| `frontend/src/features/patient/portal/patient.css` | Consolidated responsive patient workspace styles |
+| `frontend/src/features/patient/portal/pages/*.jsx` | Compact dashboard, safer availability/record loading, zero/custom medicine handling, profile labels and bidi behavior |
+| `frontend/src/features/patient/portal/RescheduleAppointment.jsx` | Availability lifecycle and loading/disabled behavior |
+| `frontend/src/features/patient/auth/PatientAuthPages.jsx` | Step focus, input/error association, numeric verification controls |
+| `frontend/src/features/patient/auth/patientAuth.css` | Semantic auth palette, patient-only contrast and touch targets |
+| `frontend/src/features/patient/auth/GoogleIdentityButton.jsx` | SDK/button locale lifecycle and loading behavior |
 | `frontend/src/components/feedback/States.jsx` | Localized loading/error/retry semantics |
 | `frontend/src/i18n.js` | New patient translations and persisted language preference |
 | `frontend/test/patientPortalInteractions.test.js` | Five mounted React regressions for races, custom medicines and zero values |

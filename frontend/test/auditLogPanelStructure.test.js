@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-const component = fs.readFileSync(new URL('../src/features/admin/AuditLogPanel.jsx', import.meta.url), 'utf8');
-const styles = fs.readFileSync(new URL('../src/features/admin/auditLog.css', import.meta.url), 'utf8');
+const component = fs.readFileSync(new URL('../src/features/staff/admin/AuditLogPanel.jsx', import.meta.url), 'utf8');
+const styles = fs.readFileSync(new URL('../src/features/staff/admin/auditLog.css', import.meta.url), 'utf8');
 
 test('audit panel retains explicit loading, empty, error, desktop, and responsive layouts', () => {
   for (const contract of ['auditLoading', 'auditEmpty', 'auditLoadError', 'audit-table-wrap', 'audit-cards']) {

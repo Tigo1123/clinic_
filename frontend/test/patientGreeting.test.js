@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { patientFirstName, patientGreeting } from '../src/utils/patientGreeting.js';
+import { patientFirstName, patientGreeting } from '../src/features/patient/portal/patientGreeting.js';
 
 for (const [language, profile, expected] of [
   ['ar', { firstNameAr: 'تاج', firstNameEn: 'Tag', fullNameAr: 'تاج محمد أحمد' }, 'مساء الخير، تاج'],

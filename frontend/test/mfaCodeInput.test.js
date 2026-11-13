@@ -11,7 +11,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const React = await import('react');
 const { act, createElement, StrictMode, useRef, useState } = React;
 const { createRoot } = await import('react-dom/client');
-const { default: MfaCodeInput } = await import('../src/components/MfaCodeInput.js');
+const { default: MfaCodeInput } = await import('../src/features/staff/components/MfaCodeInput.js');
 
 let root;
 let inputRefs;

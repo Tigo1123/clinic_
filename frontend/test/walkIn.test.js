@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(path.join(root, 'src/features/reception/ReceptionDashboard.jsx'), 'utf8');
+const source = readFileSync(path.join(root, 'src/features/staff/reception/ReceptionDashboard.jsx'), 'utf8');
 
 test('receptionist walk-in UI uses the dedicated endpoint and allow-listed payload', () => {
   assert.match(source, /activeTab === 'walkin'/);

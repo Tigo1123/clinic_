@@ -12,7 +12,7 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const read = (relativePath) => readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
 const frontendRuntime = [
   read('frontend/index.html'),
-  ...['frontend/src/index.css', 'frontend/src/App.css', 'frontend/src/styles/medical.css', 'frontend/src/styles/tokens.css'].map(read)
+  ...['frontend/src/styles/global.css', 'frontend/src/features/staff/staffPortal.css', 'frontend/src/styles/medical.css', 'frontend/src/styles/tokens.css'].map(read)
 ].join('\n');
 const lanFiles = [
   read('compose.lan.yml'), read('deploy/lan/env.example'),
@@ -22,7 +22,7 @@ const lanFiles = [
 test('normal frontend page assets have no automatic public font dependency', () => {
   assert.doesNotMatch(frontendRuntime, /fonts\.googleapis\.com|fonts\.gstatic\.com/i);
   assert.doesNotMatch(frontendRuntime, /@import\s+url\(\s*['"]?https?:\/\//i);
-  const indexCss = read('frontend/src/index.css');
+  const indexCss = read('frontend/src/styles/global.css');
   assert.match(indexCss, /--font-ar:\s*Tahoma, Arial, system-ui, sans-serif;/);
   assert.match(indexCss, /--font-en:\s*system-ui, -apple-system, BlinkMacSystemFont/);
 });
@@ -84,5 +84,5 @@ test('LAN files remain Render-independent and document WhatsApp as optional WAN-
   assert.doesNotMatch(lanFiles, /(?:^|[./-])render\.com\b|onrender\.com\b/i);
   assert.match(read('deploy/lan/README.md'), /optional WhatsApp `wa\.me` actions/);
   assert.match(read('deploy/lan/README.md'), /user clicks them/);
-  assert.match(read('frontend/src/features/reception/clinicData.js'), /return `https:\/\/wa\.me\//);
+  assert.match(read('frontend/src/utils/clinicData.js'), /return `https:\/\/wa\.me\//);
 });
