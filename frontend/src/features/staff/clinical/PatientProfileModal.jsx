@@ -306,7 +306,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
             <div className="patient-file-identity-copy">
               <div className="patient-file-name-row">
                 <h2 id="patient-file-title">{displayName}</h2>
-                {profile?.status && <span className="patient-file-status">{localizedStatus(profile.status, lang)}</span>}
+                {profile?.status && <span className="ui-status patient-file-status">{localizedStatus(profile.status, lang)}</span>}
               </div>
               <p id="patient-file-subtitle">
                 {lang === 'ar' ? 'ملف المريض' : 'Patient File'}
@@ -321,13 +321,13 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
         <div className="modal-body patient-file-body">
           {profileLoading ? (
             <div className="patient-file-state" role="status">
-              <div className="spinner" style={{ margin: '0 auto 1rem' }}></div>
+              <div className="spinner patient-file-spinner"></div>
               <p>{lang === 'ar' ? 'جاري تحميل ملف المريض...' : 'Loading patient profile...'}</p>
             </div>
           ) : error ? (
             <div className="alert alert-error patient-file-state" role="alert">
               <AlertCircle size={32} />
-              <p style={{ margin: 0 }}>{error}</p>
+              <p className="patient-file-error-text">{error}</p>
               <button type="button" className="btn btn-secondary" onClick={loadProfile}>
                 {lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}
               </button>
@@ -400,33 +400,15 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
                 {/* Patient Portal Link Management */}
                 {canManagePortalLink && (
                   <div className={`patient-file-portal ${profile.portalLinked ? 'is-linked' : ''}`}>
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: '1rem',
-                        flexWrap: 'wrap'
-                      }}
-                    >
+                    <div className="patient-file-portal__header">
                       <div>
-                        <strong
-                          style={{
-                            display: 'block',
-                            marginBottom: '.25rem'
-                          }}
-                        >
+                        <strong className="patient-file-portal__title">
                           {lang === 'ar'
                             ? 'ربط حساب بوابة المريض'
                             : 'Patient Portal Account Link'}
                         </strong>
 
-                        <span
-                          style={{
-                            fontSize: '.85rem',
-                            opacity: .8
-                          }}
-                        >
+                        <span className="patient-file-portal__desc">
                           {profile.portalLinked
                             ? (
                               lang === 'ar'
@@ -442,12 +424,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
                       </div>
 
                       {profile.portalLinked ? (
-                        <span
-                          className="badge badge-success"
-                          style={{
-                            padding: '6px 10px'
-                          }}
-                        >
+                        <span className="ui-status ui-status--ok patient-file-status">
                           {lang === 'ar'
                             ? 'مرتبط'
                             : 'Linked'}
@@ -475,71 +452,30 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
                     </div>
 
                     {claimError && (
-                      <div
-                        className="alert alert-error"
-                        style={{
-                          marginTop: '.75rem'
-                        }}
-                      >
+                      <div className="alert alert-error patient-file-claim-error">
                         {claimError}
                       </div>
                     )}
 
                     {!profile.portalLinked && claimCode && (
-                      <div
-                        style={{
-                          marginTop: '1rem',
-                          padding: '1rem',
-                          borderRadius: '10px',
-                          background: 'rgba(255,255,255,0.06)',
-                          border: '1px dashed var(--border-color)'
-                        }}
-                      >
-                        <span
-                          style={{
-                            display: 'block',
-                            fontSize: '.8rem',
-                            opacity: .75,
-                            marginBottom: '.35rem'
-                          }}
-                        >
+                      <div className="patient-file-claim-box">
+                        <span className="patient-file-claim-label">
                           {lang === 'ar'
                             ? 'رمز ربط المريض'
                             : 'Patient Claim Code'}
                         </span>
 
-                        <div
-                          dir="ltr"
-                          style={{
-                            fontSize: '1.5rem',
-                            fontWeight: 800,
-                            letterSpacing: '.15em',
-                            wordBreak: 'break-all'
-                          }}
-                        >
+                        <div dir="ltr" className="patient-file-claim-code">
                           {claimCode}
                         </div>
 
-                        <p
-                          style={{
-                            margin: '.6rem 0 0',
-                            fontSize: '.85rem',
-                            opacity: .8
-                          }}
-                        >
+                        <p className="patient-file-claim-desc">
                           {lang === 'ar'
                             ? `الرمز صالح لمدة ${claimExpiresIn || 30} دقيقة ويُستخدم لربط هذا السجل بحساب المريض.`
                             : `This code is valid for ${claimExpiresIn || 30} minutes and can be used to link this record to the patient's account.`}
                         </p>
 
-                        <div
-                          style={{
-                            display: 'flex',
-                            gap: '.5rem',
-                            marginTop: '.75rem',
-                            flexWrap: 'wrap'
-                          }}
-                        >
+                        <div className="patient-file-claim-actions">
                           <button
                             type="button"
                             className="btn btn-secondary"
@@ -570,13 +506,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
                           </button>
                         </div>
 
-                        <p
-                          style={{
-                            margin: '.75rem 0 0',
-                            fontSize: '.78rem',
-                            opacity: .7
-                          }}
-                        >
+                        <p className="patient-file-claim-hint">
                           {lang === 'ar'
                             ? 'أعطِ الرمز للمريض فقط بعد التأكد من هويته. سيحتاج أيضًا إلى إدخال تاريخ ميلاده عند الربط.'
                             : 'Only provide this code after verifying the patient’s identity. The patient must also enter their date of birth when linking the record.'}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Mail, MessageCircle, Printer } from 'lucide-react';
+import { Mail, MessageCircle, Printer, X } from 'lucide-react';
 import { fetchWithAuth } from '../../../services/staff/staffApi';
 import './patientFile.css';
 import { useFacilityBranding } from '../../../app/branding/FacilityBrandingContext.js';
@@ -169,7 +169,7 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = '
   if (summaryLoading) {
     return renderModal(
       <div className={`${overlayClassName} no-print-section`} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-        <div ref={dialogRef} tabIndex={-1} className="modal-content-panel glass-panel" role="dialog" aria-modal="true" aria-label={lang === 'ar' ? 'ملخص الزيارة' : 'Visit Summary'} style={{ textAlign: 'center', padding: '2rem' }}>
+        <div ref={dialogRef} tabIndex={-1} className="modal-content-panel visit-summary-dialog visit-summary-dialog--state" role="dialog" aria-modal="true" aria-label={lang === 'ar' ? 'ملخص الزيارة' : 'Visit Summary'}>
           <p>{lang === 'ar' ? 'جاري تحميل ملخص الزيارة...' : 'Loading Visit Summary...'}</p>
         </div>
       </div>
@@ -179,12 +179,12 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = '
   if (!summary) {
     return renderModal(
       <div className={`${overlayClassName} no-print-section`} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-        <div ref={dialogRef} tabIndex={-1} className="modal-content-panel glass-panel" role="dialog" aria-modal="true" aria-label={lang === 'ar' ? 'ملخص الزيارة' : 'Visit Summary'} style={{ textAlign: 'center', padding: '2rem' }}>
-          <p style={{ color: 'var(--danger)', fontWeight: 'bold' }}>
+        <div ref={dialogRef} tabIndex={-1} className="modal-content-panel visit-summary-dialog visit-summary-dialog--state" role="dialog" aria-modal="true" aria-label={lang === 'ar' ? 'ملخص الزيارة' : 'Visit Summary'}>
+          <p className="visit-summary-error-title">
             {lang === 'ar' ? 'تعذر تحميل ملخص الزيارة. حاول مرة أخرى.' : 'Unable to load the visit summary. Please try again.'}
           </p>
-          {errorDetails && <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>{errorDetails}</p>}
-          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginTop: '1.25rem' }}>
+          {errorDetails && <p className="visit-summary-error-details">{errorDetails}</p>}
+          <div className="visit-summary-error-actions">
             <button ref={closeButtonRef} type="button" className="btn btn-secondary" onClick={onClose}>{lang === 'ar' ? 'إغلاق' : 'Close'}</button>
             <button type="button" className="btn btn-primary" onClick={loadSummary}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button>
           </div>
@@ -195,25 +195,25 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = '
 
   return renderModal(
     <div className={overlayClassName} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div ref={dialogRef} tabIndex={-1} className="modal-content-panel glass-panel" role="dialog" aria-modal="true" aria-labelledby="visit-summary-title" style={{ maxWidth: '650px', maxHeight: '90vh', overflowY: 'auto' }}>
+      <div ref={dialogRef} tabIndex={-1} className="modal-content-panel visit-summary-dialog" role="dialog" aria-modal="true" aria-labelledby="visit-summary-title">
         {/* Actions bar (hidden during print) */}
-        <div className="no-print-section" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
-          <h3 id="visit-summary-title" style={{ margin: 0, color: 'var(--primary)' }}>
+        <div className="no-print-section visit-summary-header">
+          <h3 id="visit-summary-title" className="visit-summary-title">
             {lang === 'ar' ? 'ملخص الزيارة' : 'Post-Visit Summary'}
           </h3>
-          <button ref={closeButtonRef} type="button" className="btn btn-secondary" aria-label={lang === 'ar' ? 'إغلاق ملخص الزيارة' : 'Close visit summary'} style={{ padding: '4px 8px' }} onClick={onClose}>✕</button>
+          <button ref={closeButtonRef} type="button" className="patient-file-close" aria-label={lang === 'ar' ? 'إغلاق ملخص الزيارة' : 'Close visit summary'} onClick={onClose}><X size={20} /></button>
         </div>
 
         {/* Printable Area */}
-        <div className="printable-visit-summary" style={{ padding: '1rem', background: 'rgba(0,0,0,0.15)', borderRadius: 'var(--radius-md)' }}>
-          <div style={{ textAlign: 'center', borderBottom: '2px solid var(--primary)', paddingBottom: '0.75rem', marginBottom: '1rem' }}>
+        <div className="printable-visit-summary">
+          <div className="printable-visit-summary__header">
             <FacilityIdentityLine language={lang} />
-            <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+            <p className="visit-summary-subtitle">
               {lang === 'ar' ? 'ملخص زيارة المريض' : 'Patient Visit Summary'}
             </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', fontSize: '0.85rem', marginBottom: '1rem' }}>
+          <div className="printable-visit-summary__grid">
             <div><strong>{lang === 'ar' ? 'اسم المريض:' : 'Patient Name:'}</strong> {lang === 'ar' ? summary.patient.fullNameAr : summary.patient.fullNameEn}</div>
             <div><strong>{lang === 'ar' ? 'تاريخ الزيارة:' : 'Visit Date:'}</strong> {new Date(summary.visitDate).toLocaleDateString(
       lang === 'ar' ? 'ar' : 'en'
@@ -223,38 +223,32 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = '
           </div>
 
           {/* Vitals */}
-          <div style={{ background: 'rgba(20, 184, 166, 0.08)', border: '1px solid var(--border-color)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', marginBottom: '1rem', fontSize: '0.85rem' }}>
-            <strong style={{ color: 'var(--primary)' }}>{lang === 'ar' ? 'العلامات الحيوية (Vitals):' : 'Vital Signs:'}</strong>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem', marginTop: '0.4rem', textAlign: 'center' }}>
-              <div>BP: <strong>{summary.vitals?.blood_pressure || 'N/A'}</strong></div>
-              <div>HR: <strong>{summary.vitals?.heart_rate || 'N/A'} bpm</strong></div>
-              <div>Temp: <strong>{summary.vitals?.temperature || 'N/A'} °C</strong></div>
-              <div>Wt: <strong>{summary.vitals?.weight || 'N/A'} kg</strong></div>
+          <div className="printable-visit-summary__vitals">
+            <strong className="visit-summary-section-heading">{lang === 'ar' ? 'العلامات الحيوية (Vitals):' : 'Vital Signs:'}</strong>
+            <div className="printable-visit-summary__vitals-grid">
+              <div>BP: <strong className="ui-mono">{summary.vitals?.blood_pressure || 'N/A'}</strong></div>
+              <div>HR: <strong className="ui-mono">{summary.vitals?.heart_rate || 'N/A'} bpm</strong></div>
+              <div>Temp: <strong className="ui-mono">{summary.vitals?.temperature || 'N/A'} °C</strong></div>
+              <div>Wt: <strong className="ui-mono">{summary.vitals?.weight || 'N/A'} kg</strong></div>
             </div>
           </div>
 
           {/* Clinical Details */}
-          <div style={{ fontSize: '0.85rem', marginBottom: '1rem' }}>
-            <p style={{ margin: '0 0 0.4rem 0' }}><strong>{lang === 'ar' ? 'التشخيص الطبي:' : 'Diagnosis:'}</strong> {summary.diagnosis}</p>
-            <p style={{ margin: 0 }}><strong>{lang === 'ar' ? 'العلاج والخطة:' : 'Treatment Plan:'}</strong> {summary.treatment}</p>
+          <div className="printable-visit-summary__clinical">
+            <p className="visit-summary-text-row"><strong>{lang === 'ar' ? 'التشخيص الطبي:' : 'Diagnosis:'}</strong> {summary.diagnosis}</p>
+            <p className="visit-summary-text-row"><strong>{lang === 'ar' ? 'العلاج والخطة:' : 'Treatment Plan:'}</strong> {summary.treatment}</p>
           </div>
 
           {/* Laboratory Results */}
           {summary.labOrders && summary.labOrders.length > 0 && (
-            <div style={{ marginBottom: '1rem' }}>
-              <h4
-                style={{
-                  fontSize: '0.9rem',
-                  color: 'var(--primary)',
-                  marginBottom: '0.4rem'
-                }}
-              >
+            <div className="visit-summary-section-block">
+              <h4 className="visit-summary-subsection-title">
                 {lang === 'ar'
                   ? 'نتائج الفحوصات المخبرية'
                   : 'Laboratory Results'}
               </h4>
 
-              <table className="staff-table" style={{ fontSize: '0.8rem' }}>
+              <table className="staff-table visit-summary-table">
                 <thead>
                   <tr>
                     <th>{lang === 'ar' ? 'الفحص' : 'Test'}</th>
@@ -287,17 +281,17 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = '
                             : lab.serviceNameEn}
                         </td>
 
-                        <td>{lab.resultValue || '—'}</td>
+                        <td className="ui-mono">{lab.resultValue || '—'}</td>
 
-                        <td>{referenceRange}</td>
+                        <td className="ui-mono">{referenceRange}</td>
 
                         <td>
                           {lab.isOutOfRange ? (
-                            <span className="badge badge-danger">
+                            <span className="ui-status ui-status--danger">
                               {lang === 'ar' ? 'غير طبيعي' : 'Abnormal'}
                             </span>
                           ) : (
-                            <span className="badge badge-success">
+                            <span className="ui-status ui-status--ok">
                               {lang === 'ar' ? 'طبيعي / غير محدد' : 'Normal / Not flagged'}
                             </span>
                           )}
@@ -312,9 +306,9 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = '
 
           {/* Prescriptions */}
           {summary.prescriptions && summary.prescriptions.length > 0 && (
-            <div style={{ marginBottom: '1rem' }}>
-              <h4 style={{ fontSize: '0.9rem', color: 'var(--primary)', marginBottom: '0.4rem' }}>{lang === 'ar' ? 'الأدوية الموصوفة' : 'Prescribed Medications'}</h4>
-              <table className="staff-table" style={{ fontSize: '0.8rem' }}>
+            <div className="visit-summary-section-block">
+              <h4 className="visit-summary-subsection-title">{lang === 'ar' ? 'الأدوية الموصوفة' : 'Prescribed Medications'}</h4>
+              <table className="staff-table visit-summary-table">
                 <thead>
                   <tr>
                     <th>{lang === 'ar' ? 'الدواء' : 'Medication'}</th>
@@ -339,47 +333,47 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = '
 
           {/* Clinician-authored patient instructions only. The current schema has
               no dedicated field, so an absent/empty value is intentionally hidden. */}
-          {Array.isArray(summary.instructions) && summary.instructions.length > 0 && <div style={{ fontSize: '0.85rem', borderTop: '1px dashed var(--border-color)', paddingTop: '0.75rem' }}>
-            <strong style={{ color: 'var(--primary)' }}>{lang === 'ar' ? 'توجيهات وإرشادات المريض:' : 'Post-Visit Care Instructions:'}</strong>
-            <ul style={{ margin: '0.4rem 0 0 1.2rem', padding: 0 }}>
-              {summary.instructions.map((inst, i) => <li key={`${inst}-${i}`} style={{ marginBottom: '0.2rem' }}>{inst}</li>)}
+          {Array.isArray(summary.instructions) && summary.instructions.length > 0 && <div className="visit-summary-instructions">
+            <strong className="visit-summary-section-heading">{lang === 'ar' ? 'توجيهات وإرشادات المريض:' : 'Post-Visit Care Instructions:'}</strong>
+            <ul className="visit-summary-instructions-list">
+              {summary.instructions.map((inst, i) => <li key={`${inst}-${i}`} className="visit-summary-instruction-item">{inst}</li>)}
             </ul>
           </div>}
         </div>
 
         {/* Email Controls & Print Buttons (Hidden on print) */}
-        <div className="no-print-section" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem' }}>
-          {emailMsg && <div className="badge badge-success" style={{ padding: '0.5rem' }}>{emailMsg}</div>}
+        <div className="no-print-section visit-summary-footer">
+          {emailMsg && <div className="badge badge-success visit-summary-alert">{emailMsg}</div>}
 
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button className="btn btn-primary" onClick={handleEmailSummary} disabled={emailing}>
+          <div className="visit-summary-footer-row">
+            <button className="btn btn-secondary" onClick={handleEmailSummary} disabled={emailing}>
               <Mail size={16} />
               {emailing ? (lang === 'ar' ? 'جاري الإرسال...' : 'Sending...') : (lang === 'ar' ? 'إرسال بالبريد' : 'Email Summary')}
             </button>
-          </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', flexWrap: 'wrap' }}>
-            <button className="btn btn-secondary" onClick={onClose}>{lang === 'ar' ? 'إغلاق' : 'Close'}</button>
-            {summary.patient?.phone && (
-              <a
-                href={getWhatsAppLink(
-                  summary.patient.phone,
-                  lang === 'ar'
-                    ? `${branding.displayNameAr}: ملخص زيارة المريض (${summary.patient.fullNameAr}).\nالتشخيص: ${summary.diagnosis}.\nالعلاج: ${summary.treatment}.\nالوصفة: ${(summary.prescriptions || []).map(p => `${p.drugNameAr} (${p.dosage}، ${p.duration}${p.instructionsAr || p.instructionsEn ? `، ${p.instructionsAr || p.instructionsEn}` : ''})`).join(', ')}.`
-                    : `${branding.displayNameEn}: Post-visit summary for ${summary.patient.fullNameEn}.\nDiagnosis: ${summary.diagnosis}.\nTreatment: ${summary.treatment}.\nPrescriptions: ${(summary.prescriptions || []).map(p => `${p.drugNameEn} (${p.dosage}, ${p.duration}${p.instructionsEn || p.instructionsAr ? `, ${p.instructionsEn || p.instructionsAr}` : ''})`).join(', ')}.`
-                )}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn btn-whatsapp"
-              >
-                <MessageCircle size={16} />
-                {lang === 'ar' ? 'إرسال الملخص بالواتساب' : 'Send via WhatsApp'}
-              </a>
-            )}
-            <button className="btn btn-primary" onClick={() => window.print()}>
-              <Printer size={16} />
-              {lang === 'ar' ? 'طباعة / تصدير PDF' : 'Print / Export PDF'}
-            </button>
+            <div className="visit-summary-footer-actions">
+              <button className="btn btn-secondary" onClick={onClose}>{lang === 'ar' ? 'إغلاق' : 'Close'}</button>
+              {summary.patient?.phone && (
+                <a
+                  href={getWhatsAppLink(
+                    summary.patient.phone,
+                    lang === 'ar'
+                      ? `${branding.displayNameAr}: ملخص زيارة المريض (${summary.patient.fullNameAr}).\nالتشخيص: ${summary.diagnosis}.\nالعلاج: ${summary.treatment}.\nالوصفة: ${(summary.prescriptions || []).map(p => `${p.drugNameAr} (${p.dosage}، ${p.duration}${p.instructionsAr || p.instructionsEn ? `، ${p.instructionsAr || p.instructionsEn}` : ''})`).join(', ')}.`
+                      : `${branding.displayNameEn}: Post-visit summary for ${summary.patient.fullNameEn}.\nDiagnosis: ${summary.diagnosis}.\nTreatment: ${summary.treatment}.\nPrescriptions: ${(summary.prescriptions || []).map(p => `${p.drugNameEn} (${p.dosage}, ${p.duration}${p.instructionsEn || p.instructionsAr ? `, ${p.instructionsEn || p.instructionsAr}` : ''})`).join(', ')}.`
+                  )}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-whatsapp"
+                >
+                  <MessageCircle size={16} />
+                  {lang === 'ar' ? 'إرسال الملخص بالواتساب' : 'Send via WhatsApp'}
+                </a>
+              )}
+              <button className="btn btn-primary" onClick={() => window.print()}>
+                <Printer size={16} />
+                {lang === 'ar' ? 'طباعة / تصدير PDF' : 'Print / Export PDF'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
