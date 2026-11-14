@@ -9,21 +9,16 @@
   --primary-glow: rgba(14, 90, 74, .18);
   --secondary: var(--color-secondary);
   --danger: var(--color-danger);
-  --danger-hover: var(--danger-hover, #7A1B14);
   --danger-glow: rgba(168, 38, 28, .16);
   --warning: var(--color-warning);
   --text-primary: var(--color-text);
   --text-secondary: var(--color-text-secondary);
   --text-muted: var(--color-text-muted);
   --text-inverse: #fff;
-  --nav-bg: var(--nav-bg, rgba(255, 255, 255, .97));
-  --sidebar-bg: var(--sidebar-bg, #FFFFFF);
-  --slot-bg: var(--slot-bg, #E6EAE7);
-  --dropdown-bg: var(--dropdown-bg, #FFFFFF);
-  --lock-bg: var(--lock-bg, #F3F5F2);
-  --currency-bg: var(--currency-bg, #E6EAE7);
-  --modal-bg: var(--modal-bg, rgba(21, 32, 28, .56));
-  --layout-gradient: var(--layout-gradient, linear-gradient(145deg, #F3F5F2 0%, #F3F5F2 100%));
+
+  /* System font fallbacks; tokens.css replaces these with the bundled faces. */
+  --font-ar: Tahoma, Arial, system-ui, sans-serif;
+  --font-en: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
   --blur-amount: 0px;
   --transition-smooth: all 0.2s ease;
   --radius-lg: 12px;
