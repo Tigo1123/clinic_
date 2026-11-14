@@ -12,6 +12,7 @@ import {
 import MfaCodeInput from './MfaCodeInput';
 import { fetchWithAuth, apiErrorMessage } from '../../../services/staff/staffApi.js';
 import PasswordField from '../../../components/PasswordField.jsx';
+import './staffSecurityDialog.css';
 
 function ProofFields({ currentPassword, setCurrentPassword, proofType, setProofType, proof, setProof, proofRef, t }) {
   return <>
@@ -160,12 +161,14 @@ export default function StaffSecurityDialog({ user, onClose, t }) {
       {mode === 'overview' && <div className="security-overview">
         <div className="security-status-card">
           <div><strong>{t('twoFactorAuthentication')}</strong><p>{user.mfaEnabled ? t('mfaEnabledDescription') : t('mfaDisabledDescription')}</p></div>
-          <span className={`security-status ${user.mfaEnabled ? 'enabled' : 'disabled'}`}>{user.mfaEnabled ? t('enabled') : t('disabled')}</span>
+          <span className={`security-status ui-status ui-status--${user.mfaEnabled ? 'ok' : 'muted'} ${user.mfaEnabled ? 'enabled' : 'disabled'}`}>{user.mfaEnabled ? t('enabled') : t('disabled')}</span>
         </div>
-        <button className="btn btn-secondary" type="button" onClick={() => setMode('password')}>{t('changePassword')}</button>
-        {!user.mfaEnabled
-          ? <button className="btn btn-primary" type="button" onClick={() => setMode('enroll')}>{t('enableMfa')}</button>
-          : <div className="security-actions"><button className="btn btn-secondary" type="button" onClick={() => setMode('regenerate')}>{t('regenerateRecoveryCodes')}</button><button className="btn btn-danger" type="button" onClick={() => setMode('disable')}>{t('disableMfa')}</button></div>}
+        <div className="security-overview-buttons">
+          <button className="btn btn-secondary" type="button" onClick={() => setMode('password')}>{t('changePassword')}</button>
+          {!user.mfaEnabled
+            ? <button className="btn btn-primary" type="button" onClick={() => setMode('enroll')}>{t('enableMfa')}</button>
+            : <div className="security-actions"><button className="btn btn-secondary" type="button" onClick={() => setMode('regenerate')}>{t('regenerateRecoveryCodes')}</button><button className="btn btn-secondary security-btn--danger" type="button" onClick={() => setMode('disable')}>{t('disableMfa')}</button></div>}
+        </div>
       </div>}
 
       {mode === 'password' && <form className="staff-login-form" onSubmit={async (event) => { event.preventDefault(); setError(''); if (newPassword !== confirmPassword) return setError(t('passwordsDoNotMatch')); setPending(true); try { const response = await fetchWithAuth('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }); const body = await response.json(); if (!response.ok) throw new Error(apiErrorMessage(body, t('passwordChangeFailed'))); clearStaffSession(); disconnectStaffSocket(); window.location.reload(); } catch (requestError) { setError(requestError.message); } finally { setPending(false); } }}>

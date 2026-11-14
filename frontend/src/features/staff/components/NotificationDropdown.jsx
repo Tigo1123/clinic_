@@ -1,17 +1,22 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { Bell, CheckCheck } from 'lucide-react';
 import { staffApiRequest as apiRequest } from '../../../services/apiClient';
 import { readStaffSession } from '../../../services/authStorage';
 import { staffSocket as socket } from '../../../services/staff/staffSocket';
+import './notificationDropdown.css';
+
+const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
 export default function NotificationDropdown({ userId, lang = 'ar' }) {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
+  const [panelStyle, setPanelStyle] = useState({});
   const dropdownRef = useRef(null);
+  const triggerRef = useRef(null);
 
   // Fetch initial notifications
-  const fetchNotifications = async () => {
+  const fetchNotifications = useCallback(async () => {
     try {
       if (!readStaffSession()) return;
       const data = await apiRequest('/api/notifications');
@@ -20,7 +25,7 @@ export default function NotificationDropdown({ userId, lang = 'ar' }) {
     } catch (err) {
       console.error('Failed to fetch notifications:', err);
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (!userId) return;
@@ -37,7 +42,56 @@ export default function NotificationDropdown({ userId, lang = 'ar' }) {
     return () => {
       socket.off('notification', handleNotification);
     };
-  }, [userId]);
+  }, [userId, fetchNotifications]);
+
+  // Position panel dynamically to open within viewport in LTR, RTL, and narrow screens
+  const updatePosition = useCallback(() => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const isRtl = (lang || '').startsWith('ar') ||
+      (typeof document !== 'undefined' && (document.dir === 'rtl' || document.documentElement?.dir === 'rtl'));
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const panelWidth = Math.min(340, viewportWidth - 24);
+    const panelHeight = Math.min(440, viewportHeight - 80);
+
+    const spaceBelow = viewportHeight - rect.bottom;
+    const spaceAbove = rect.top;
+
+    const nextStyle = {};
+
+    // Vertical positioning: prefer upward if near bottom of viewport (as in rail footer)
+    if (spaceBelow < 340 && spaceAbove > spaceBelow) {
+      const bottom = viewportHeight - rect.top + 8;
+      nextStyle.bottom = `${Math.max(12, Math.min(bottom, viewportHeight - panelHeight - 12))}px`;
+    } else {
+      const top = rect.bottom + 8;
+      nextStyle.top = `${Math.max(12, Math.min(top, viewportHeight - panelHeight - 12))}px`;
+    }
+
+    // Horizontal positioning: stay inside the viewport in both directions
+    const maxOffset = Math.max(12, viewportWidth - panelWidth - 12);
+    if (isRtl) {
+      const right = viewportWidth - rect.right;
+      nextStyle.right = `${Math.max(12, Math.min(right, maxOffset))}px`;
+    } else {
+      const left = rect.left;
+      nextStyle.left = `${Math.max(12, Math.min(left, maxOffset))}px`;
+    }
+
+    setPanelStyle(nextStyle);
+  }, [lang]);
+
+  useIsomorphicLayoutEffect(() => {
+    if (!isOpen) return undefined;
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [isOpen, updatePosition]);
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -75,43 +129,19 @@ export default function NotificationDropdown({ userId, lang = 'ar' }) {
   };
 
   return (
-    <div className="relative inline-block text-left" ref={dropdownRef} style={{ position: 'relative' }}>
+    <div className="notification-dropdown" ref={dropdownRef}>
       {/* Bell Button with Badge Counter */}
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2 rounded-full hover:bg-gray-700/50 transition-colors focus:outline-none"
-        style={{
-          position: 'relative',
-          background: 'transparent',
-          border: 'none',
-          cursor: 'pointer',
-          padding: '0.5rem',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: 'var(--text-primary)'
-        }}
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="staff-shell__footer-btn notification-dropdown__trigger"
         aria-label="Notifications"
+        aria-expanded={isOpen}
       >
-        <Bell size={22} />
+        <Bell size={16} aria-hidden="true" />
         {unreadCount > 0 && (
-          <span
-            style={{
-              position: 'absolute',
-              top: '2px',
-              right: '2px',
-              backgroundColor: '#ef4444',
-              color: '#ffffff',
-              fontSize: '0.7rem',
-              fontWeight: 'bold',
-              borderRadius: '9999px',
-              padding: '0.1rem 0.35rem',
-              lineHeight: 1,
-              minWidth: '16px',
-              textAlign: 'center'
-            }}
-          >
+          <span className="notification-dropdown__badge ui-mono" aria-label={`${unreadCount} unread`}>
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
@@ -119,62 +149,28 @@ export default function NotificationDropdown({ userId, lang = 'ar' }) {
 
       {/* Notifications Dropdown Panel */}
       {isOpen && (
-        <div
-          style={{
-            position: 'absolute',
-            [lang === 'ar' ? 'left' : 'right']: 0,
-            top: 'calc(100% + 0.5rem)',
-            width: '320px',
-            maxHeight: '400px',
-            backgroundColor: 'var(--bg-card, #1e293b)',
-            border: '1px solid var(--border-color, #334155)',
-            borderRadius: '0.75rem',
-            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5)',
-            zIndex: 1000,
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden'
-          }}
-        >
+        <div className="notification-dropdown__panel" style={panelStyle} role="region" aria-label={lang === 'ar' ? 'الإشعارات' : 'Notifications'}>
           {/* Header */}
-          <div
-            style={{
-              padding: '0.75rem 1rem',
-              borderBottom: '1px solid var(--border-color, #334155)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              backgroundColor: 'rgba(255, 255, 255, 0.03)'
-            }}
-          >
-            <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600 }}>
+          <div className="notification-dropdown__header">
+            <h4 className="notification-dropdown__title">
               {lang === 'ar' ? 'الإشعارات' : 'Notifications'}
             </h4>
             {unreadCount > 0 && (
               <button
                 type="button"
                 onClick={markAllAsRead}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--primary, #0d9488)',
-                  fontSize: '0.75rem',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }}
+                className="notification-dropdown__mark-all"
               >
-                <CheckCheck size={14} />
+                <CheckCheck size={14} aria-hidden="true" />
                 {lang === 'ar' ? 'تحديد الكل كمقروء' : 'Mark all read'}
               </button>
             )}
           </div>
 
           {/* List */}
-          <div style={{ overflowY: 'auto', flex: 1, padding: '0.5rem 0' }}>
+          <div className="notification-dropdown__list">
             {notifications.length === 0 ? (
-              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary, #94a3b8)', fontSize: '0.85rem' }}>
+              <div className="notification-dropdown__empty">
                 {lang === 'ar' ? 'لا توجد إشعارات حالياً' : 'No notifications yet'}
               </div>
             ) : (
@@ -182,24 +178,26 @@ export default function NotificationDropdown({ userId, lang = 'ar' }) {
                 <div
                   key={item.id}
                   onClick={() => !item.isRead && markAsRead(item.id)}
-                  style={{
-                    padding: '0.75rem 1rem',
-                    borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
-                    backgroundColor: item.isRead ? 'transparent' : 'rgba(13, 148, 136, 0.08)',
-                    cursor: item.isRead ? 'default' : 'pointer',
-                    transition: 'background-color 0.2s',
-                    position: 'relative'
+                  className={`notification-dropdown__item${item.isRead ? '' : ' notification-dropdown__item--unread'}`}
+                  role={item.isRead ? undefined : 'button'}
+                  tabIndex={item.isRead ? undefined : 0}
+                  onKeyDown={(e) => {
+                    if (!item.isRead && (e.key === 'Enter' || e.key === ' ')) {
+                      e.preventDefault();
+                      markAsRead(item.id);
+                    }
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <span style={{ fontWeight: item.isRead ? 500 : 700, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
+                  <div className="notification-dropdown__item-header">
+                    <span className="notification-dropdown__item-title">
+                      {!item.isRead && <span className="notification-dropdown__unread-dot" aria-hidden="true" />}
                       {item.title}
                     </span>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary, #94a3b8)' }}>
+                    <span className="notification-dropdown__item-time ui-mono">
                       {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
-                  <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: 'var(--text-secondary, #cbd5e1)', lineHeight: 1.4 }}>
+                  <p className="notification-dropdown__item-message">
                     {item.message}
                   </p>
                 </div>

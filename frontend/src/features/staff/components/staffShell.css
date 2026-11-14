@@ -1,0 +1,391 @@
+/* StaffShell – dark left rail + main content area
+   ================================================
+   Rail:   232px wide, dark (#15201C), flex column
+   Mobile: < 900px → becomes a horizontal top bar
+   Print:  hidden via .no-print-section
+   RTL:    rail switches to right side via CSS logical properties
+*/
+
+/* ── Shell wrapper ───────────────────────────────────── */
+.staff-shell {
+  display: flex;
+  min-height: 100dvh;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* ── Rail (left nav) ─────────────────────────────────── */
+.staff-shell__rail {
+  flex: 0 0 232px;
+  box-sizing: border-box;
+  background: var(--color-rail, #15201C);
+  color: var(--color-rail-text, #C9D3CE);
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding: 24px 16px;
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  overflow-y: auto;
+  z-index: 10;
+  scrollbar-width: none;
+}
+.staff-shell__rail::-webkit-scrollbar { display: none; }
+
+/* ── Rail brand area ─────────────────────────────────── */
+.staff-shell__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px;
+}
+
+.staff-shell__brand-mark {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--color-secondary, #7FD1B9);
+  color: var(--color-rail, #15201C);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.staff-shell__brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.staff-shell__brand-name {
+  color: #FFFFFF;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.staff-shell__brand-role {
+  font-size: 12px;
+  color: var(--color-rail-text, #C9D3CE);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Rail nav list ───────────────────────────────────── */
+.staff-shell__nav {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-height: 0;
+}
+
+.staff-shell__nav-item-wrapper {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.staff-shell__nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--color-rail-text, #C9D3CE);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: start;
+  width: 100%;
+  transition: background 120ms ease, color 120ms ease;
+  box-sizing: border-box;
+}
+
+.staff-shell__nav-item:hover {
+  background: var(--color-rail-active, #2C3A35);
+  color: #FFFFFF;
+}
+
+.staff-shell__nav-item:focus-visible {
+  outline: 2px solid var(--color-secondary, #7FD1B9);
+  outline-offset: -2px;
+}
+
+.staff-shell__nav-item[aria-current="page"] {
+  background: var(--color-rail-active, #2C3A35);
+  color: #FFFFFF;
+  font-weight: 600;
+}
+
+.staff-shell__nav-item-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.staff-shell__nav-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.staff-shell__nav-count {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--color-rail-text, #C9D3CE);
+  flex-shrink: 0;
+}
+
+.staff-shell__nav-item[aria-current="page"] .staff-shell__nav-count {
+  color: rgba(255,255,255,.7);
+}
+
+/* ── Rail footer ─────────────────────────────────────── */
+.staff-shell__footer {
+  margin-top: auto;
+  padding: 16px 8px 0;
+  border-top: 1px solid var(--color-rail-divider, #2C3A35);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.staff-shell__user {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.staff-shell__user-name {
+  color: #FFFFFF;
+  font-weight: 500;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.staff-shell__user-role {
+  font-size: 12px;
+  color: var(--color-rail-text, #C9D3CE);
+}
+
+/* Footer action buttons row */
+.staff-shell__footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.staff-shell__footer-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid #3A4A44;
+  background: transparent;
+  color: var(--color-rail-text, #C9D3CE);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  gap: 5px;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+
+.staff-shell__footer-btn:hover {
+  background: var(--color-rail-active, #2C3A35);
+  color: #FFFFFF;
+}
+
+.staff-shell__footer-btn:focus-visible {
+  outline: 2px solid var(--color-secondary, #7FD1B9);
+  outline-offset: 2px;
+}
+
+.staff-shell__footer-btn--lang {
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.staff-shell__footer-btn--danger {
+  color: #FF9C92;
+  border-color: rgba(255,80,60,.3);
+}
+.staff-shell__footer-btn--danger:hover {
+  background: rgba(168,38,28,.25);
+  color: #FF9C92;
+}
+
+/* Ensure every footer control (including dropdown triggers) is at least 44px with visible focus ring */
+.staff-shell__footer-actions button {
+  min-height: 44px;
+  box-sizing: border-box;
+}
+
+.staff-shell__footer-actions button:focus-visible {
+  outline: 2px solid var(--color-secondary, #7FD1B9) !important;
+  outline-offset: 2px;
+}
+
+.staff-shell__footer-actions button[aria-label="Notifications"] {
+  min-height: 44px !important;
+  min-width: 44px !important;
+  padding: 0 8px !important;
+  border: 1px solid #3A4A44 !important;
+  border-radius: 8px !important;
+  color: var(--color-rail-text, #C9D3CE) !important;
+  box-sizing: border-box;
+}
+
+.staff-shell__footer-actions button[aria-label="Notifications"]:hover {
+  background: var(--color-rail-active, #2C3A35) !important;
+  color: #FFFFFF !important;
+}
+
+/* ── Main content area ───────────────────────────────── */
+.staff-shell__main {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+}
+
+/* ── Notices (recovery / session revoked) ────────────── */
+.staff-shell__notice {
+  display: block;
+  width: 100%;
+  padding: .6rem 1.25rem;
+  font-size: .875rem;
+  font-weight: 500;
+  text-align: center;
+}
+
+.staff-shell__notice--warning {
+  background: var(--color-warning-soft, #FBEFD9);
+  color: var(--color-warning-text-on-soft, #6B3A05);
+}
+
+.staff-shell__notice--danger {
+  background: var(--color-danger-soft, #FBE6E3);
+  color: var(--color-danger-text-on-soft, #7A1B14);
+}
+
+/* ── Mobile / narrow: horizontal top bar ──────────────
+   Under 900px the rail becomes a sticky top bar.
+   The nav scrolls horizontally. Brand and footer
+   utilities stay visible. ─────────────────────────── */
+@media (max-width: 900px) {
+  .staff-shell {
+    flex-direction: column;
+  }
+
+  .staff-shell__rail {
+    flex: none;
+    width: 100%;
+    height: auto;
+    position: sticky;
+    top: 0;
+    flex-direction: row;
+    align-items: center;
+    gap: 0;
+    padding: 0 12px;
+    min-height: 56px;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .staff-shell__brand {
+    flex-shrink: 0;
+    padding: 0;
+    margin-inline-end: 12px;
+  }
+
+  .staff-shell__brand-role { display: none; }
+
+  .staff-shell__nav {
+    flex-direction: row;
+    align-items: center;
+    flex: 1;
+    min-height: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    gap: 2px;
+    padding: 8px 0;
+  }
+  .staff-shell__nav::-webkit-scrollbar { display: none; }
+
+  .staff-shell__nav-item-wrapper {
+    flex-shrink: 0;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+  }
+
+  .staff-shell__nav-item {
+    flex-shrink: 0;
+    border-radius: 8px;
+    white-space: nowrap;
+  }
+
+  .staff-shell__footer {
+    margin-top: 0;
+    padding: 0;
+    border-top: none;
+    border-inline-start: 1px solid var(--color-rail-divider, #2C3A35);
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    padding-inline-start: 12px;
+    margin-inline-start: 8px;
+    flex-shrink: 0;
+  }
+
+  .staff-shell__user { display: none; }
+  .staff-shell__footer-actions { flex-wrap: nowrap; }
+}
+
+/* ── RTL: rail moves to inline-end ──────────────────── */
+[dir="rtl"] .staff-shell {
+  flex-direction: row-reverse;
+}
+[dir="rtl"] .staff-shell__footer {
+  border-inline-start: none;
+  border-inline-end: 1px solid var(--color-rail-divider, #2C3A35);
+}
+
+/* ── Print: hide the rail ────────────────────────────── */
+@media print {
+  .staff-shell__rail {
+    display: none !important;
+  }
+  .staff-shell__main {
+    flex: none;
+    width: 100%;
+  }
+}

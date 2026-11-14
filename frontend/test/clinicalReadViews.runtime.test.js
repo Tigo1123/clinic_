@@ -62,7 +62,8 @@ const doctorModule = await compileComponent('../src/features/staff/doctor/Doctor
   [/import MedicineCombobox from '\.\/MedicineCombobox';/, 'const MedicineCombobox = () => null;'],
   [/import \{ doctorPrescriptionItem, duplicatePrescriptionItem, validateDoctorPrescriptionEntry \} from '\.\/doctorPrescription';/, 'const doctorPrescriptionItem = () => ({}); const duplicatePrescriptionItem = () => false; const validateDoctorPrescriptionEntry = () => null;'],
   [/import \{ useFacilityBranding \} from '\.\.\/\.\.\/\.\.\/app\/branding\/FacilityBrandingContext\.js';/, "const useFacilityBranding = () => ({ displayNameAr: 'شفاء', displayNameEn: 'Shifa', facilityNameAr: null, facilityNameEn: null, productNameAr: 'شفاء', productNameEn: 'Shifa', productDescriptorAr: 'نظام إدارة المنشآت الصحية', productDescriptorEn: 'Healthcare Facility Management System' });"],
-  [/import FacilityIdentityLine from '\.\.\/components\/FacilityIdentityLine';/, 'const FacilityIdentityLine = () => null;']
+  [/import FacilityIdentityLine from '\.\.\/components\/FacilityIdentityLine';/, 'const FacilityIdentityLine = () => null;'],
+  [/import \{ useStaffNav \} from '\.\.\/staffShellContext';/, 'const useStaffNav = () => {};']
 ]);
 
 let root;

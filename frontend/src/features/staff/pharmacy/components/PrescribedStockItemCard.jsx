@@ -5,61 +5,60 @@ export default function PrescribedStockItemCard({ item, lang, authoritativeMedic
   const stock = authoritativeStockSummary(authoritativeMedicine || {});
   const stockState = authoritativeMedicine ? stockPresentation(stock) : null;
   const isInsufficient = authoritativeMedicine && stock.usableStock < item.qtyPrescribed;
-  const badgeTone = !authoritativeMedicine || isInsufficient || ['OUT_OF_STOCK', 'EXPIRED'].includes(stockState) ? 'danger' : ['LOW_STOCK', 'NEAR_EXPIRY'].includes(stockState) ? 'warning' : 'success';
+
+  const statusToneClass = !authoritativeMedicine
+    ? 'ui-status--wait'
+    : (isInsufficient || ['OUT_OF_STOCK', 'EXPIRED'].includes(stockState))
+      ? 'ui-status--danger'
+      : ['LOW_STOCK', 'NEAR_EXPIRY'].includes(stockState)
+        ? 'ui-status--warn'
+        : 'ui-status--ok';
+
+  const statusText = !authoritativeMedicine
+    ? (lang === 'ar' ? 'جارٍ التحقق' : 'Checking')
+    : isInsufficient
+      ? (lang === 'ar' ? `غير كافٍ (${stock.usableStock})` : `Insufficient (${stock.usableStock})`)
+      : ['OUT_OF_STOCK', 'EXPIRED'].includes(stockState)
+        ? localizedStockState(stockState, lang)
+        : ['LOW_STOCK', 'NEAR_EXPIRY'].includes(stockState)
+          ? localizedStockState(stockState, lang)
+          : (lang === 'ar' ? 'جاهز' : 'Ready');
+
+  const doseDetails = [item.dosage, item.duration].filter(Boolean).join(' · ');
 
   return (
-    <div
-      className="glass-panel"
-      style={{
-        padding: '0.75rem',
-        marginBottom: '0.5rem',
-        fontSize: '0.9rem',
-        borderLeft:
-          !authoritativeMedicine || isInsufficient || ['OUT_OF_STOCK', 'EXPIRED'].includes(stockState)
-            ? '3px solid var(--danger)'
-            : ['LOW_STOCK', 'NEAR_EXPIRY'].includes(stockState)
-              ? '3px solid var(--warning)'
-              : '3px solid var(--success)'
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <strong>{lang === 'ar' ? item.drug.labelAr : item.drug.labelEn}</strong>
-        <span style={{ color: 'var(--primary)', fontWeight: 'bold' }}>
-          Qty: {item.qtyPrescribed}
-        </span>
+    <div className="pharmacy-grid-table__row">
+      <div className="pharmacy-item-info">
+        <strong>{lang === 'ar' ? item.drug?.labelAr : item.drug?.labelEn}</strong>
+        {doseDetails && <span>{doseDetails}</span>}
       </div>
 
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          fontSize: '0.8rem',
-          color: 'var(--text-secondary)',
-          marginTop: '0.25rem',
-          alignItems: 'center'
-        }}
-      >
+      <span className="pharmacy-item-qty ui-mono">
+        {item.qtyPrescribed}
+      </span>
+
+      <div className="pharmacy-item-batch">
         <span>
-          Dosage: {item.dosage} | Duration: {item.duration}
+          {!authoritativeMedicine
+            ? (lang === 'ar' ? 'جارٍ التحقق من المخزون…' : 'Checking stock…')
+            : `${lang === 'ar' ? 'أقرب صلاحية سارية: ' : 'Nearest unexpired expiry: '}${stock.nearestUnexpiredExpiry || '—'} · ${stock.usableStock} ${lang === 'ar' ? 'في المخزون' : 'in stock'}`}
         </span>
-
-        <span className={`badge badge-${badgeTone}`} style={{ fontSize: '0.7rem' }}>
-          {!authoritativeMedicine ? (lang === 'ar' ? 'جارٍ التحقق من المخزون' : 'Checking stock') : isInsufficient ? (lang === 'ar' ? `غير كافٍ (${stock.usableStock})` : `Insufficient (${stock.usableStock})`) : `${localizedStockState(stockState, lang)} (${stock.usableStock})`}
-        </span>
+        {!isUnavailable && authoritativeMedicine && (isInsufficient || ['OUT_OF_STOCK', 'EXPIRED'].includes(stockState)) && (
+          <div className="pharmacy-item-actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => onUnavailable('OUT_OF_STOCK')}
+            >
+              {lang === 'ar' ? 'تعذر الصرف' : 'Unable to Dispense'}
+            </button>
+          </div>
+        )}
       </div>
 
-      <div
-        style={{
-          fontSize: '0.75rem',
-          color: 'var(--warning)',
-          marginTop: '0.5rem'
-        }}
-      >
-        {lang === 'ar' ? 'أقرب صلاحية سارية: ' : 'Nearest unexpired expiry: '}{stock.nearestUnexpiredExpiry || '—'}
-      </div>
-      {!isUnavailable && authoritativeMedicine && (isInsufficient || ['OUT_OF_STOCK', 'EXPIRED'].includes(stockState)) && (
-        <div className="pharmacy-item-actions"><button type="button" className="btn" onClick={() => onUnavailable('OUT_OF_STOCK')}>{lang === 'ar' ? 'تعذر الصرف' : 'Unable to Dispense'}</button></div>
-      )}
+      <span className={`ui-status ${statusToneClass}`}>
+        {statusText}
+      </span>
     </div>
   );
 }

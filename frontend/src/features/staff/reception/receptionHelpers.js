@@ -51,7 +51,7 @@ export function queueRowStatusStyles(status) {
   switch (status) {
     case 'SCHEDULED':
     case 'CONFIRMED':
-      return { '--queue-accent': '#9ca3af', background: 'rgba(156, 163, 175, 0.05)' };
+      return { '--queue-accent': 'var(--color-text-muted)', background: 'var(--color-surface-muted)' };
     case 'CHECKED_IN':
       return { '--queue-accent': 'var(--warning)', background: 'rgba(245, 158, 11, 0.08)' };
     case 'IN_CONSULTATION':
@@ -86,3 +86,17 @@ export function calculateInvoiceTotals(services) {
     }, 0n)
   };
 }
+
+export function formatQueueDateLabel(isoDate, lang, todayIso) {
+  if (!isoDate) return '';
+  const dateObj = new Date(`${isoDate}T12:00:00`);
+  if (Number.isNaN(dateObj.getTime())) return isoDate;
+  const isToday = todayIso ? isoDate === todayIso : false;
+  const formatted = new Intl.DateTimeFormat(lang === 'ar' ? 'ar-SD' : 'en-GB', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long'
+  }).format(dateObj);
+  return isToday ? (lang === 'ar' ? `اليوم، ${formatted}` : `Today, ${formatted}`) : formatted;
+}
+
