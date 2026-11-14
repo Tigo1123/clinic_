@@ -1,9 +1,22 @@
 import './clinicSetup.css';
+import './adminDashboard.css';
 import ClinicSetupPanel from './ClinicSetupPanel';
-import { lazy, Suspense, useEffect, useState } from 'react';
-import { Activity, Building, CalendarDays, DollarSign, Sliders, Users } from 'lucide-react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import {
+  Activity,
+  Building,
+  CalendarDays,
+  DollarSign,
+  Plus,
+  ShieldCheck,
+  Sliders,
+  Stethoscope,
+  UserPlus,
+  Users,
+  X
+} from 'lucide-react';
+import { useStaffNav } from '../staffShellContext';
 import { apiErrorMessage, fetchWithAuth } from '../../../services/staff/staffApi';
-import RoleHero from '../components/RoleHero';
 import { getStaffPasswordChecks, isStaffPasswordValid, STAFF_PASSWORD_MAX_LENGTH } from './staffPasswordPolicy';
 import { buildStaffCreationPayload } from './staffCreationPayload';
 import { filterStaffUsers, isStaffRole } from './staffRoles';
@@ -16,8 +29,8 @@ import PasswordField from '../../../components/PasswordField.jsx';
 // recharts (via AnalyticsPanel) is large; load it only when the analytics tab is opened.
 const AnalyticsPanel = lazy(() => import('./AnalyticsPanel'));
 
-export default function AdminDashboard({ user, lang, t }) {
-  const [activeTab, setActiveTab] = useState('profile');
+export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }) {
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [users, setUsers] = useState([]);
   const [analyticsData, setAnalyticsData] = useState(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
@@ -25,6 +38,13 @@ export default function AdminDashboard({ user, lang, t }) {
   const [pricing, setPricing] = useState(null);
   const [pricingDrafts, setPricingDrafts] = useState({});
   const [pricingLoading, setPricingLoading] = useState(false);
+
+  // Filters for staff directory
+  const [searchStaff, setSearchStaff] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
+  const [showAddStaffModal, setShowAddStaffModal] = useState(false);
+  const [manageTarget, setManageTarget] = useState(null);
+  const [showAddSpecialtyModal, setShowAddSpecialtyModal] = useState(false);
 
   // User form states
   const [newUsername, setNewUsername] = useState('');
@@ -57,6 +77,25 @@ export default function AdminDashboard({ user, lang, t }) {
   const [revokePending, setRevokePending] = useState(false);
   const newPasswordChecks = getStaffPasswordChecks(newPassword);
   const resetPasswordChecks = getStaffPasswordChecks(resetNewPassword);
+
+  const navItems = useMemo(() => [
+    { id: 'profile', label: lang === 'ar' ? 'الملف التعريفي للمنشأة' : 'Facility profile', icon: Building },
+    { id: 'users', label: lang === 'ar' ? 'حسابات الموظفين' : 'Staff accounts', icon: Users },
+    { id: 'pricing', label: lang === 'ar' ? 'إدارة الأسعار' : 'Pricing Management', icon: DollarSign },
+    { id: 'specialties', label: lang === 'ar' ? 'التخصصات' : 'Specialties', icon: Stethoscope },
+    ...(user?.role === 'ADMIN' ? [{ id: 'scheduling', label: lang === 'ar' ? 'جداول الأطباء' : 'Doctor schedules', icon: CalendarDays }] : []),
+    { id: 'analytics', label: lang === 'ar' ? 'التقارير' : 'Reports', icon: Activity },
+    { id: 'logs', label: lang === 'ar' ? 'سجل العمليات' : 'Audit log', icon: ShieldCheck },
+    { id: 'clinic-setup', label: lang === 'ar' ? 'الأطباء والكتالوجات' : 'Doctors & catalogs', icon: Sliders }
+  ], [lang, user?.role]);
+
+  useStaffNav({
+    items: navItems,
+    activeId: activeTab,
+    onSelect: setActiveTab,
+    roleLabel: lang === 'ar' ? 'إدارة النظام' : 'Administration'
+  });
+
   useEffect(() => {
     fetchWithAuth('/api/specialties').then((response) => response.ok ? response.json() : []).then(setSpecialties).catch(() => setSpecialties([]));
   }, []);
@@ -65,7 +104,9 @@ export default function AdminDashboard({ user, lang, t }) {
     event.preventDefault(); setSpecialtyError(''); setSpecialtyFeedback(null);
     const response = await fetchWithAuth('/api/specialties', { method: 'POST', body: JSON.stringify({ ...specialtyDraft, active: true }) });
     if (!response.ok) { setSpecialtyError(apiErrorMessage(await response.json().catch(() => ({})), lang === 'ar' ? 'تعذر إنشاء التخصص.' : 'Unable to create specialty.')); return; }
-    setSpecialtyDraft({ code: '', nameAr: '', nameEn: '' }); await reloadSpecialties();
+    setSpecialtyDraft({ code: '', nameAr: '', nameEn: '' });
+    setShowAddSpecialtyModal(false);
+    await reloadSpecialties();
   };
   const saveSpecialty = async (specialty) => {
     setSpecialtyError(''); setSpecialtyFeedback(null);
@@ -222,6 +263,7 @@ export default function AdminDashboard({ user, lang, t }) {
         setNewFullNameEn('');
         setNewSpecialtyId('');
         setNewConsultationFee('');
+        setShowAddStaffModal(false);
         // Reload list
         fetchWithAuth('/api/auth/users')
           .then((r) => r.json())
@@ -353,216 +395,160 @@ export default function AdminDashboard({ user, lang, t }) {
     }
   };
 
+  const staffList = filterStaffUsers(users);
+  const totalStaffCount = staffList.length;
+  const activeStaffCount = staffList.filter((u) => u.status === 'ACTIVE').length;
+
+  const filteredStaff = staffList.filter((u) => {
+    if (roleFilter && u.role !== roleFilter) return false;
+    if (!searchStaff) return true;
+    const q = searchStaff.toLowerCase();
+    return (
+      (u.username && u.username.toLowerCase().includes(q)) ||
+      (u.fullNameAr && u.fullNameAr.toLowerCase().includes(q)) ||
+      (u.fullNameEn && u.fullNameEn.toLowerCase().includes(q))
+    );
+  });
+
   return (
-    <div className="dashboard-wrapper admin-workspace">
-      {/* Side menu */}
-      <aside className="sidebar-menu no-print-section">
-        <div className="menu-items">
-          <button
-            className={`menu-btn ${activeTab === 'profile' ? 'active' : ''}`}
-            onClick={() => setActiveTab('profile')}
-          >
-            <Building size={18} />
-            {lang === 'ar' ? 'الملف التعريفي للمنشأة' : 'Facility Profile'}
-          </button>
-          <button
-            className={`menu-btn ${activeTab === 'users' ? 'active' : ''}`}
-            onClick={() => setActiveTab('users')}
-          >
-            <Users size={18} />
-            {lang === 'ar' ? 'حسابات الموظفين' : 'Staff Accounts'}
-          </button>
-          <button
-            className={`menu-btn ${activeTab === 'pricing' ? 'active' : ''}`}
-            onClick={() => setActiveTab('pricing')}
-          >
-            <DollarSign size={18} />
-            {lang === 'ar' ? 'إدارة الأسعار' : 'Pricing Management'}
-          </button>
-          <button className={`menu-btn ${activeTab === 'specialties' ? 'active' : ''}`} onClick={() => setActiveTab('specialties')}><Sliders size={18}/>{lang === 'ar' ? 'التخصصات' : 'Specialties'}</button>
-          <button className={`menu-btn ${activeTab === 'clinic-setup' ? 'active' : ''}`} onClick={() => setActiveTab('clinic-setup')}><Sliders size={18}/>{lang === 'ar' ? 'الأطباء والكتالوجات' : 'Doctors & catalogs'}</button>
-          <button className={`menu-btn ${activeTab === 'scheduling' ? 'active' : ''}`} onClick={() => setActiveTab('scheduling')}><CalendarDays size={18}/>{lang === 'ar' ? 'جداول الأطباء' : 'Doctor schedules'}</button>
-          <button
-            className={`menu-btn ${activeTab === 'analytics' ? 'active' : ''}`}
-            onClick={() => setActiveTab('analytics')}
-          >
-            <Activity size={18} />
-            {lang === 'ar' ? 'التقارير والتحليلات' : 'Reports & Analytics'}
-          </button>
-          <button
-            className={`menu-btn ${activeTab === 'logs' ? 'active' : ''}`}
-            onClick={() => setActiveTab('logs')}
-          >
-            <Sliders size={18} />
-            {lang === 'ar' ? 'سجلات تدقيق الأمان' : 'Security Audit Logs'}
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Panel Content */}
-      <div className="workspace-panel">
-        {activeTab !== 'clinic-setup' && <RoleHero role="admin" lang={lang}/>}
-        {activeTab === 'clinic-setup' && <ClinicSetupPanel lang={lang} t={t}/>}
-        {activeTab === 'profile' && (
+    <div className="admin-workspace">
+      {activeTab === 'clinic-setup' && <ClinicSetupPanel lang={lang} t={t}/>}
+      {activeTab === 'profile' && (
+        <div className="admin-main">
           <ClinicProfilePanel lang={lang} t={t}/>
-        )}
+        </div>
+      )}
 
-        {activeTab === 'users' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '350px 1fr', gap: '2rem' }}>
-            <div className="glass-panel" style={{ padding: '1.5rem' }}>
-              <h4 style={{ marginBottom: '1.5rem' }}>{lang === 'ar' ? 'إضافة موظف جديد' : 'Add New Staff'}</h4>
-              {errorMsg && <div className="badge badge-danger" style={{ width: '100%', marginBottom: '1rem', padding: '0.5rem' }}>{errorMsg}</div>}
-              {successMsg && <div className="badge badge-success" style={{ width: '100%', marginBottom: '1rem', padding: '0.5rem' }}>{successMsg}</div>}
-
-              <form onSubmit={handleCreateUser} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <div className="form-group">
-                  <label className="form-label">{t('username')}</label>
-                  <input
-                    type="email"
-                    required
-                    placeholder="staff@cms.com"
-                    className="form-input"
-                    value={newUsername}
-                    onChange={(e) => setNewUsername(e.target.value)}
-                  />
-                </div>
-                <div className="form-group">
-                  <PasswordField label={t('password')} required autoComplete="new-password" minLength={10} maxLength={STAFF_PASSWORD_MAX_LENGTH} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} helperText={t('passwordRequirementsSummary')} />
-                  <div className="password-requirements" aria-live="polite">
-                    {Object.entries({
-                      minimumLength: lang === 'ar' ? '10 أحرف على الأقل' : 'At least 10 characters',
-                      maximumLength: lang === 'ar' ? '200 حرف على الأكثر' : 'At most 200 characters',
-                      uppercase: lang === 'ar' ? 'حرف إنجليزي كبير' : 'One uppercase letter',
-                      lowercase: lang === 'ar' ? 'حرف إنجليزي صغير' : 'One lowercase letter',
-                      number: lang === 'ar' ? 'رقم واحد على الأقل' : 'One number'
-                    }).map(([key, label]) => (
-                      <span key={key} className={newPasswordChecks[key] ? 'valid' : ''}>{label}</span>
-                    ))}
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">{lang === 'ar' ? 'الدور الوظيفي' : 'Role'}</label>
-                  <select className="form-input" value={newRole} onChange={(e) => setNewRole(e.target.value)}>
-                    <option value="ADMIN">{getRoleLabel('ADMIN')}</option>
-                    <option value="RECEPTIONIST">{getRoleLabel('RECEPTIONIST')}</option>
-                    <option value="DOCTOR">{getRoleLabel('DOCTOR')}</option>
-                    <option value="PHARMACIST">{getRoleLabel('PHARMACIST')}</option>
-                    <option value="LAB_TECH">{getRoleLabel('LAB_TECH')}</option>
-                  </select>
-                </div>
-                {newRole === 'DOCTOR' && (
-                  <>
-                    <div className="form-group">
-                      <label className="form-label">{lang === 'ar' ? 'الاسم الكامل (عربي)' : 'Full Name (Arabic)'}</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder={lang === 'ar' ? 'د. محمد أحمد' : 'Dr. Mohamed Ahmed'}
-                        className="form-input"
-                        value={newFullNameAr}
-                        onChange={(e) => setNewFullNameAr(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">{lang === 'ar' ? 'الاسم الكامل (إنجليزي)' : 'Full Name (English)'}</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Dr. Mohamed Ahmed"
-                        className="form-input"
-                        value={newFullNameEn}
-                        onChange={(e) => setNewFullNameEn(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group"><label className="form-label">{lang === 'ar' ? 'التخصص' : 'Specialty'}</label><select required className="form-input" value={newSpecialtyId} onChange={(e) => setNewSpecialtyId(e.target.value)}><option value="">{lang === 'ar' ? 'اختر التخصص' : 'Select specialty'}</option>{specialties.filter((specialty) => specialty.active).map((specialty) => <option key={specialty.id} value={specialty.id}>{lang === 'ar' ? specialty.nameAr : specialty.nameEn}</option>)}</select></div>
-                    <div className="form-group">
-                      <label className="form-label">{lang === 'ar' ? 'رسوم الكشف (جنيه سوداني)' : 'Consultation Fee (SDG)'}</label>
-                      <input
-                        type="number"
-                        required
-                        className="form-input"
-                        value={newConsultationFee}
-                        onChange={(e) => setNewConsultationFee(e.target.value)}
-                      />
-                    </div>
-                  </>
-                )}
-                <button type="submit" className="btn btn-primary" style={{ marginTop: '1rem' }}>
-                  {lang === 'ar' ? 'إنشاء الحساب' : 'Create Account'}
-                </button>
-              </form>
+      {activeTab === 'users' && (
+        <div className="admin-main">
+          <header className="admin-header">
+            <div className="admin-header-titles">
+              <h1 className="ui-page-title">{lang === 'ar' ? 'حسابات الموظفين' : 'Staff accounts'}</h1>
+              <span className="admin-header-count">
+                {lang === 'ar'
+                  ? `${totalStaffCount} حسابات · ${activeStaffCount} نشط`
+                  : `${totalStaffCount} accounts · ${activeStaffCount} active`}
+              </span>
             </div>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                setErrorMsg('');
+                setSuccessMsg('');
+                setShowAddStaffModal(true);
+              }}
+            >
+              <UserPlus size={18} strokeWidth={1.8} aria-hidden="true" />
+              {lang === 'ar' ? 'إضافة موظف' : 'Add staff member'}
+            </button>
+          </header>
 
-            <div className="glass-panel" style={{ padding: '1.5rem' }}>
-              <h4 style={{ marginBottom: '1.5rem' }}>{lang === 'ar' ? 'سجل موظفي النظام' : 'Staff Directory'}</h4>
-              <div className="table-responsive">
-                <table className="staff-table">
-                <thead>
-                  <tr>
-                    <th>{t('username')}</th>
-                    <th>{lang === 'ar' ? 'الدور' : 'Role'}</th>
-                    <th>{lang === 'ar' ? 'الحالة' : 'Status'}</th>
-                    <th>{lang === 'ar' ? 'إجراءات' : 'Actions'}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filterStaffUsers(users).map((u) => (
-                    <tr key={u.id}>
-                      <td>{u.username}</td>
-                      <td>
-                        <span className="badge badge-success" style={{ fontSize: '0.8rem' }}>
-                          {getRoleLabel(u.role)}
-                        </span>
-                      </td>
-                      <td>
-                        <span className={`badge ${u.status === 'ACTIVE' ? 'badge-success' : 'badge-danger'}`}>
-                          {getUserStatusLabel(u.status)}
-                        </span>
-                      </td>
-                      <td>
-                        {isStaffRole(u.role) && <>
-                        <button
-                          className={`btn ${u.status === 'ACTIVE' ? 'btn-danger' : 'btn-primary'}`}
-                          style={{ padding: '4px 8px', fontSize: '0.8rem' }}
-                          onClick={() => handleToggleUserStatus(u.id, u.status)}
-                        >
-                          {u.status === 'ACTIVE' ? (lang === 'ar' ? 'تعطيل' : 'Deactivate') : (lang === 'ar' ? 'تفعيل' : 'Activate')}
-                        </button>
-                        {u.id !== user?.id && <button
-                          type="button"
-                          className="btn btn-secondary"
-                          style={{ padding: '4px 8px', fontSize: '0.8rem', marginInlineStart: '0.4rem' }}
-                          onClick={() => {
-                            setResetTarget(u);
-                            setResetError('');
-                          }}
-                        >
-                          {lang === 'ar' ? 'إعادة تعيين كلمة المرور' : 'Reset Password'}
-                        </button>}
-                        {u.id !== user?.id && u.status === 'ACTIVE' && <button
-                          type="button"
-                          className="btn btn-secondary"
-                          style={{ padding: '4px 8px', fontSize: '0.8rem', marginInlineStart: '0.4rem' }}
-                          onClick={() => { setRevokeTarget(u); setRevokeError(''); }}
-                        >
-                          {lang === 'ar' ? 'إنهاء الجلسات' : 'Sign out of all devices'}
-                        </button>}
-                        </>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                </table>
+          {errorMsg && <div className="badge badge-danger admin-alert" role="alert">{errorMsg}</div>}
+          {successMsg && <div className="badge badge-success admin-alert" role="status">{successMsg}</div>}
+
+          <div className="admin-filters">
+            <label className="admin-filter-group admin-filter-search">
+              <span className="ui-section-label">{lang === 'ar' ? 'البحث عن موظف' : 'Search staff'}</span>
+              <input
+                type="search"
+                className="form-input"
+                placeholder={lang === 'ar' ? 'الاسم أو اسم المستخدم' : 'Name or username'}
+                value={searchStaff}
+                onChange={(e) => setSearchStaff(e.target.value)}
+              />
+            </label>
+            <label className="admin-filter-group admin-filter-role">
+              <span className="ui-section-label">{lang === 'ar' ? 'الدور الوظيفي' : 'Role'}</span>
+              <select
+                className="form-input"
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+              >
+                <option value="">{lang === 'ar' ? 'كل الأدوار' : 'All roles'}</option>
+                <option value="DOCTOR">{getRoleLabel('DOCTOR')}</option>
+                <option value="RECEPTIONIST">{getRoleLabel('RECEPTIONIST')}</option>
+                <option value="PHARMACIST">{getRoleLabel('PHARMACIST')}</option>
+                <option value="LAB_TECH">{getRoleLabel('LAB_TECH')}</option>
+                <option value="ADMIN">{getRoleLabel('ADMIN')}</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="admin-table-panel ui-panel">
+            <div className="admin-staff-table-scroll">
+              <div className="admin-staff-header-grid">
+                <span>{lang === 'ar' ? 'الاسم' : 'Name'}</span>
+                <span>{lang === 'ar' ? 'اسم المستخدم' : 'Username'}</span>
+                <span>{lang === 'ar' ? 'الدور' : 'Role'}</span>
+                <span>{lang === 'ar' ? 'الحالة' : 'Status'}</span>
+                <span></span>
               </div>
+              {filteredStaff.length === 0 ? (
+                <div className="admin-empty-state">
+                  {lang === 'ar' ? 'لا يوجد موظفون مطابقون للبحث.' : 'No staff accounts match the filter.'}
+                </div>
+              ) : (
+                filteredStaff.map((u) => {
+                  const staffName = (lang === 'ar' ? u.fullNameAr : u.fullNameEn) || (lang === 'ar' ? u.fullNameEn : u.fullNameAr) || u.username;
+                  return (
+                    <div key={u.id} className="admin-staff-row-grid">
+                      <span className="admin-staff-name">{staffName}</span>
+                      <span className="ui-mono admin-staff-username">{u.username}</span>
+                      <span className="admin-staff-role">{getRoleLabel(u.role)}</span>
+                      <span className={`ui-status ${u.status === 'ACTIVE' ? 'ui-status--ok' : 'ui-status--muted'}`}>
+                        {getUserStatusLabel(u.status)}
+                      </span>
+                      <div className="admin-staff-actions">
+                        {isStaffRole(u.role) && (
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            onClick={() => setManageTarget(u)}
+                          >
+                            {lang === 'ar' ? 'إدارة' : 'Manage'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
-            {resetTarget && <div className="modal-overlay" role="presentation">
-              <div className="modal-content-panel" role="dialog" aria-modal="true" aria-labelledby="staff-password-reset-title" style={{ width: 'min(520px, 100%)', padding: '1.5rem' }}>
-                <h3 id="staff-password-reset-title">{lang === 'ar' ? 'إعادة تعيين كلمة مرور الموظف' : 'Reset Staff Password'}</h3>
-                <p>{resetTarget.username} — {getRoleLabel(resetTarget.role)}</p>
-                {resetError && <div role="alert" className="badge badge-danger" style={{ width: '100%', marginBottom: '1rem', padding: '0.5rem' }}>{resetError}</div>}
-                <form onSubmit={handlePasswordReset} style={{ display: 'grid', gap: '1rem' }}>
+          </div>
+
+          <span className="admin-hint">
+            {lang === 'ar'
+              ? 'إدارة تفتح لوحة لإعادة تعيين كلمة المرور وإنهاء جلسات المستخدم من جميع الأجهزة.'
+              : 'Manage opens one panel for password reset and signing a user out of all devices.'}
+          </span>
+
+          {showAddStaffModal && (
+            <div className="modal-overlay" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setShowAddStaffModal(false); }}>
+              <div className="modal-content-panel admin-add-staff-modal" role="dialog" aria-modal="true" aria-labelledby="add-staff-title">
+                <div className="admin-modal-header">
+                  <div>
+                    <span className="ui-section-label">{lang === 'ar' ? 'حساب جديد' : 'New Account'}</span>
+                    <h3 id="add-staff-title">{lang === 'ar' ? 'إضافة موظف جديد' : 'Add New Staff'}</h3>
+                  </div>
+                  <button type="button" className="btn btn-secondary" onClick={() => setShowAddStaffModal(false)} aria-label={lang === 'ar' ? 'إغلاق' : 'Close'}><X size={18} aria-hidden="true" /></button>
+                </div>
+                {errorMsg && <div className="badge badge-danger admin-modal-alert">{errorMsg}</div>}
+                {successMsg && <div className="badge badge-success admin-modal-alert">{successMsg}</div>}
+                <form onSubmit={handleCreateUser} className="admin-form">
                   <div className="form-group">
-                    <PasswordField id="staff-reset-new-password" label={lang === 'ar' ? 'كلمة المرور الجديدة' : 'New Password'} autoComplete="new-password" required minLength={10} maxLength={STAFF_PASSWORD_MAX_LENGTH} value={resetNewPassword} onChange={(event) => setResetNewPassword(event.target.value)} helperText={t('passwordRequirementsSummary')} />
+                    <label className="form-label">{t('username')}</label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="staff@cms.com"
+                      className="form-input"
+                      value={newUsername}
+                      onChange={(e) => setNewUsername(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <PasswordField label={t('password')} required autoComplete="new-password" minLength={10} maxLength={STAFF_PASSWORD_MAX_LENGTH} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} helperText={t('passwordRequirementsSummary')} />
                     <div className="password-requirements" aria-live="polite">
                       {Object.entries({
                         minimumLength: lang === 'ar' ? '10 أحرف على الأقل' : 'At least 10 characters',
@@ -570,70 +556,331 @@ export default function AdminDashboard({ user, lang, t }) {
                         uppercase: lang === 'ar' ? 'حرف إنجليزي كبير' : 'One uppercase letter',
                         lowercase: lang === 'ar' ? 'حرف إنجليزي صغير' : 'One lowercase letter',
                         number: lang === 'ar' ? 'رقم واحد على الأقل' : 'One number'
-                      }).map(([key, label]) => <span key={key} className={resetPasswordChecks[key] ? 'valid' : ''}>{label}</span>)}
+                      }).map(([key, label]) => (
+                        <span key={key} className={newPasswordChecks[key] ? 'valid' : ''}>{label}</span>
+                      ))}
                     </div>
                   </div>
                   <div className="form-group">
-                    <PasswordField id="staff-reset-confirm-password" label={lang === 'ar' ? 'تأكيد كلمة المرور الجديدة' : 'Confirm New Password'} autoComplete="new-password" required value={resetConfirmPassword} onChange={(event) => setResetConfirmPassword(event.target.value)} error={Boolean(resetConfirmPassword && resetNewPassword !== resetConfirmPassword)} helperText={resetConfirmPassword && resetNewPassword !== resetConfirmPassword ? t('passwordsDoNotMatch') : undefined} />
+                    <label className="form-label">{lang === 'ar' ? 'الدور الوظيفي' : 'Role'}</label>
+                    <select className="form-input" value={newRole} onChange={(e) => setNewRole(e.target.value)}>
+                      <option value="ADMIN">{getRoleLabel('ADMIN')}</option>
+                      <option value="RECEPTIONIST">{getRoleLabel('RECEPTIONIST')}</option>
+                      <option value="DOCTOR">{getRoleLabel('DOCTOR')}</option>
+                      <option value="PHARMACIST">{getRoleLabel('PHARMACIST')}</option>
+                      <option value="LAB_TECH">{getRoleLabel('LAB_TECH')}</option>
+                    </select>
                   </div>
-                  <div className="form-group">
-                    <PasswordField id="staff-reset-admin-password" label={lang === 'ar' ? 'كلمة مرور المدير الحالية' : 'Current Admin Password'} autoComplete="current-password" required value={resetAdminPassword} onChange={(event) => setResetAdminPassword(event.target.value)} />
-                  </div>
-                  {user?.mfaEnabled && <div className="form-group">
-                    <label className="form-label" htmlFor="staff-reset-mfa-code">{lang === 'ar' ? 'رمز المصادقة' : 'Authenticator Code'}</label>
-                    <input id="staff-reset-mfa-code" className="form-input" type="text" inputMode="numeric" autoComplete="one-time-code" required pattern="[0-9]{6}" value={resetMfaCode} onChange={(event) => setResetMfaCode(event.target.value.replace(/\D/g, '').slice(0, 6))} />
-                  </div>}
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem' }}>
-                    <button type="button" className="btn btn-secondary" disabled={resetPending} onClick={closePasswordReset}>{lang === 'ar' ? 'إلغاء' : 'Cancel'}</button>
-                    <button type="submit" className="btn btn-primary" disabled={resetPending}>{resetPending ? (lang === 'ar' ? 'جارٍ الحفظ…' : 'Saving…') : (lang === 'ar' ? 'إعادة التعيين' : 'Reset Password')}</button>
+                  {newRole === 'DOCTOR' && (
+                    <>
+                      <div className="form-group">
+                        <label className="form-label">{lang === 'ar' ? 'الاسم الكامل (عربي)' : 'Full Name (Arabic)'}</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder={lang === 'ar' ? 'د. محمد أحمد' : 'Dr. Mohamed Ahmed'}
+                          className="form-input"
+                          value={newFullNameAr}
+                          onChange={(e) => setNewFullNameAr(e.target.value)}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">{lang === 'ar' ? 'الاسم الكامل (إنجليزي)' : 'Full Name (English)'}</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Dr. Mohamed Ahmed"
+                          className="form-input"
+                          value={newFullNameEn}
+                          onChange={(e) => setNewFullNameEn(e.target.value)}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">{lang === 'ar' ? 'التخصص' : 'Specialty'}</label>
+                        <select required className="form-input" value={newSpecialtyId} onChange={(e) => setNewSpecialtyId(e.target.value)}>
+                          <option value="">{lang === 'ar' ? 'اختر التخصص' : 'Select specialty'}</option>
+                          {specialties.filter((specialty) => specialty.active).map((specialty) => (
+                            <option key={specialty.id} value={specialty.id}>{lang === 'ar' ? specialty.nameAr : specialty.nameEn}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">{lang === 'ar' ? 'رسوم الكشف (جنيه سوداني)' : 'Consultation Fee (SDG)'}</label>
+                        <input
+                          type="number"
+                          required
+                          className="form-input"
+                          value={newConsultationFee}
+                          onChange={(e) => setNewConsultationFee(e.target.value)}
+                        />
+                      </div>
+                    </>
+                  )}
+                  <div className="admin-form-actions">
+                    <button type="button" className="btn btn-secondary" onClick={() => setShowAddStaffModal(false)}>
+                      {lang === 'ar' ? 'إلغاء' : 'Cancel'}
+                    </button>
+                    <button type="submit" className="btn btn-primary">
+                      {lang === 'ar' ? 'إنشاء الحساب' : 'Create Account'}
+                    </button>
                   </div>
                 </form>
               </div>
-            </div>}
-            {revokeTarget && <div className="modal-overlay" role="presentation">
-              <div className="modal-content-panel" role="dialog" aria-modal="true" aria-labelledby="staff-session-revocation-title" style={{ width: 'min(520px, 100%)', padding: '1.5rem' }}>
-                <h3 id="staff-session-revocation-title">{lang === 'ar' ? 'إنهاء جلسات المستخدم' : 'Sign out user from all devices'}</h3>
-                <p>{revokeTarget.username} — {getRoleLabel(revokeTarget.role)}</p>
-                <p style={{ opacity: 0.8 }}>
-                  {lang === 'ar'
-                    ? 'سيتم إنهاء الجلسات النشطة فقط. لن يتم تعطيل الحساب أو تغيير كلمة المرور أو الدور.'
-                    : 'This ends active sessions only. It does not deactivate the account, reset the password, or change the role.'}
-                </p>
-                {revokeError && <div role="alert" className="badge badge-danger" style={{ width: '100%', marginBottom: '1rem', padding: '0.5rem' }}>{revokeError}</div>}
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem' }}>
-                  <button type="button" className="btn btn-secondary" disabled={revokePending} onClick={closeSessionRevocation}>{lang === 'ar' ? 'إلغاء' : 'Cancel'}</button>
-                  <button type="button" className="btn btn-danger" disabled={revokePending} onClick={handleSessionRevocation}>{revokePending ? (lang === 'ar' ? 'جارٍ الإنهاء…' : 'Signing out…') : (lang === 'ar' ? 'إنهاء جميع الجلسات' : 'Sign out all devices')}</button>
+            </div>
+          )}
+
+          {manageTarget && (() => {
+            const u = manageTarget;
+            const staffName = (lang === 'ar' ? u.fullNameAr : u.fullNameEn) || (lang === 'ar' ? u.fullNameEn : u.fullNameAr) || u.username;
+            return (
+              <div className="modal-overlay" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setManageTarget(null); }}>
+                <div className="modal-content-panel admin-manage-modal" role="dialog" aria-modal="true" aria-labelledby="manage-staff-title">
+                  <div className="admin-modal-header">
+                    <div>
+                      <span className="ui-section-label">{lang === 'ar' ? 'إدارة الموظف' : 'Manage Staff Member'}</span>
+                      <h3 id="manage-staff-title">{staffName}</h3>
+                    </div>
+                    <button type="button" className="btn btn-secondary" onClick={() => setManageTarget(null)} aria-label={lang === 'ar' ? 'إغلاق' : 'Close'}><X size={18} aria-hidden="true" /></button>
+                  </div>
+                  <div className="admin-manage-info">
+                    <div>
+                      <span className="ui-section-label">{lang === 'ar' ? 'اسم المستخدم' : 'Username'}</span>
+                      <span className="ui-mono admin-manage-field-value">{u.username}</span>
+                    </div>
+                    <div>
+                      <span className="ui-section-label">{lang === 'ar' ? 'الدور' : 'Role'}</span>
+                      <span className="admin-manage-field-value">{getRoleLabel(u.role)}</span>
+                    </div>
+                    <div>
+                      <span className="ui-section-label">{lang === 'ar' ? 'الحالة' : 'Status'}</span>
+                      <span className={`ui-status ${u.status === 'ACTIVE' ? 'ui-status--ok' : 'ui-status--muted'} admin-manage-field-value`}>
+                        {getUserStatusLabel(u.status)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="admin-manage-actions">
+                    {isStaffRole(u.role) && (
+                      <button
+                        type="button"
+                        className={`btn ${u.status === 'ACTIVE' ? 'btn-danger' : 'btn-primary'}`}
+                        onClick={() => {
+                          handleToggleUserStatus(u.id, u.status);
+                          setManageTarget((prev) => prev ? { ...prev, status: prev.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' } : null);
+                        }}
+                      >
+                        {u.status === 'ACTIVE' ? (lang === 'ar' ? 'تعطيل الحساب' : 'Deactivate') : (lang === 'ar' ? 'تفعيل الحساب' : 'Activate')}
+                      </button>
+                    )}
+                    {u.id !== user?.id && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => {
+                          setResetTarget(u);
+                          setResetError('');
+                          setManageTarget(null);
+                        }}
+                      >
+                        {lang === 'ar' ? 'إعادة تعيين كلمة المرور' : 'Reset Password'}
+                      </button>
+                    )}
+                    {u.id !== user?.id && u.status === 'ACTIVE' && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => {
+                          setRevokeTarget(u);
+                          setRevokeError('');
+                          setManageTarget(null);
+                        }}
+                      >
+                        {lang === 'ar' ? 'إنهاء الجلسات' : 'Sign out of all devices'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>}
+            );
+          })()}
+
+          {resetTarget && <div className="modal-overlay" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) closePasswordReset(); }}>
+            <div className="modal-content-panel admin-reset-modal" role="dialog" aria-modal="true" aria-labelledby="staff-password-reset-title">
+              <h3 id="staff-password-reset-title">{lang === 'ar' ? 'إعادة تعيين كلمة مرور الموظف' : 'Reset Staff Password'}</h3>
+              <p>{resetTarget.username} — {getRoleLabel(resetTarget.role)}</p>
+              {resetError && <div role="alert" className="badge badge-danger admin-modal-alert">{resetError}</div>}
+              <form onSubmit={handlePasswordReset} className="admin-grid-form">
+                <div className="form-group">
+                  <PasswordField id="staff-reset-new-password" label={lang === 'ar' ? 'كلمة المرور الجديدة' : 'New Password'} autoComplete="new-password" required minLength={10} maxLength={STAFF_PASSWORD_MAX_LENGTH} value={resetNewPassword} onChange={(event) => setResetNewPassword(event.target.value)} helperText={t('passwordRequirementsSummary')} />
+                  <div className="password-requirements" aria-live="polite">
+                    {Object.entries({
+                      minimumLength: lang === 'ar' ? '10 أحرف على الأقل' : 'At least 10 characters',
+                      maximumLength: lang === 'ar' ? '200 حرف على الأكثر' : 'At most 200 characters',
+                      uppercase: lang === 'ar' ? 'حرف إنجليزي كبير' : 'One uppercase letter',
+                      lowercase: lang === 'ar' ? 'حرف إنجليزي صغير' : 'One lowercase letter',
+                      number: lang === 'ar' ? 'رقم واحد على الأقل' : 'One number'
+                    }).map(([key, label]) => <span key={key} className={resetPasswordChecks[key] ? 'valid' : ''}>{label}</span>)}
+                  </div>
+                </div>
+                <div className="form-group">
+                  <PasswordField id="staff-reset-confirm-password" label={lang === 'ar' ? 'تأكيد كلمة المرور الجديدة' : 'Confirm New Password'} autoComplete="new-password" required value={resetConfirmPassword} onChange={(event) => setResetConfirmPassword(event.target.value)} error={Boolean(resetConfirmPassword && resetNewPassword !== resetConfirmPassword)} helperText={resetConfirmPassword && resetNewPassword !== resetConfirmPassword ? t('passwordsDoNotMatch') : undefined} />
+                </div>
+                <div className="form-group">
+                  <PasswordField id="staff-reset-admin-password" label={lang === 'ar' ? 'كلمة مرور المدير الحالية' : 'Current Admin Password'} autoComplete="current-password" required value={resetAdminPassword} onChange={(event) => setResetAdminPassword(event.target.value)} />
+                </div>
+                {user?.mfaEnabled && <div className="form-group">
+                  <label className="form-label" htmlFor="staff-reset-mfa-code">{lang === 'ar' ? 'رمز المصادقة' : 'Authenticator Code'}</label>
+                  <input id="staff-reset-mfa-code" className="form-input" type="text" inputMode="numeric" autoComplete="one-time-code" required pattern="[0-9]{6}" value={resetMfaCode} onChange={(event) => setResetMfaCode(event.target.value.replace(/\D/g, '').slice(0, 6))} />
+                </div>}
+                <div className="admin-modal-actions">
+                  <button type="button" className="btn btn-secondary" disabled={resetPending} onClick={closePasswordReset}>{lang === 'ar' ? 'إلغاء' : 'Cancel'}</button>
+                  <button type="submit" className="btn btn-primary" disabled={resetPending}>{resetPending ? (lang === 'ar' ? 'جارٍ الحفظ…' : 'Saving…') : (lang === 'ar' ? 'إعادة التعيين' : 'Reset Password')}</button>
+                </div>
+              </form>
+            </div>
+          </div>}
+
+          {revokeTarget && <div className="modal-overlay" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) closeSessionRevocation(); }}>
+            <div className="modal-content-panel admin-revoke-modal" role="dialog" aria-modal="true" aria-labelledby="staff-session-revocation-title">
+              <h3 id="staff-session-revocation-title">{lang === 'ar' ? 'إنهاء جلسات المستخدم' : 'Sign out user from all devices'}</h3>
+              <p>{revokeTarget.username} — {getRoleLabel(revokeTarget.role)}</p>
+              <p className="admin-modal-description">
+                {lang === 'ar'
+                  ? 'سيتم إنهاء الجلسات النشطة فقط. لن يتم تعطيل الحساب أو تغيير كلمة المرور أو الدور.'
+                  : 'This ends active sessions only. It does not deactivate the account, reset the password, or change the role.'}
+              </p>
+              {revokeError && <div role="alert" className="badge badge-danger admin-modal-alert">{revokeError}</div>}
+              <div className="admin-modal-actions">
+                <button type="button" className="btn btn-secondary" disabled={revokePending} onClick={closeSessionRevocation}>{lang === 'ar' ? 'إلغاء' : 'Cancel'}</button>
+                <button type="button" className="btn btn-danger" disabled={revokePending} onClick={handleSessionRevocation}>{revokePending ? (lang === 'ar' ? 'جارٍ الإنهاء…' : 'Signing out…') : (lang === 'ar' ? 'إنهاء جميع الجلسات' : 'Sign out all devices')}</button>
+              </div>
+            </div>
+          </div>}
+        </div>
+      )}
+
+      {activeTab === 'pricing' && (
+        <div className="admin-main">
+          <header className="admin-header">
+            <div className="admin-header-titles">
+              <h1 className="ui-page-title">{lang === 'ar' ? 'إدارة الأسعار' : 'Pricing Management'}</h1>
+              <span className="admin-header-subtitle">
+                {lang === 'ar'
+                  ? 'تُستخدم الأسعار المحفوظة هنا للفواتير الجديدة فقط، ولا تتغير الفواتير التاريخية.'
+                  : 'Prices saved here apply to future invoices only. Historical invoices remain unchanged.'}
+              </span>
+            </div>
+          </header>
+          {errorMsg && <div className="badge badge-danger admin-alert" role="alert">{errorMsg}</div>}
+          {successMsg && <div className="badge badge-success admin-alert" role="status">{successMsg}</div>}
+          {pricingLoading || !pricing ? <div className="portal-loading" /> : (
+            <>
+              <PricingTable title={lang === 'ar' ? 'رسوم الاستشارات' : 'Consultation Fees'} kind="doctors" items={pricing.doctors} lang={lang} drafts={pricingDrafts} setDrafts={setPricingDrafts} onSave={saveOfficialPrice} />
+              <PricingTable title={lang === 'ar' ? 'الخدمات السريرية والمختبرية' : 'Clinical & Laboratory Services'} kind="services" items={pricing.services} lang={lang} drafts={pricingDrafts} setDrafts={setPricingDrafts} onSave={saveOfficialPrice} />
+              <PricingTable title={lang === 'ar' ? 'أسعار الصيدلية' : 'Pharmacy Selling Prices'} kind="medicines" items={pricing.medicines} lang={lang} drafts={pricingDrafts} setDrafts={setPricingDrafts} onSave={saveOfficialPrice} />
+            </>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'specialties' && (
+        <div className="admin-main">
+          <header className="admin-header">
+            <div className="admin-header-titles">
+              <h1 className="ui-page-title">{lang === 'ar' ? 'إدارة التخصصات' : 'Specialties'}</h1>
+              <span className="admin-header-subtitle">
+                {lang === 'ar' ? `${specialties.length} تخصص مسجل` : `${specialties.length} registered specialties`}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                setSpecialtyError('');
+                setSpecialtyFeedback(null);
+                setShowAddSpecialtyModal(true);
+              }}
+            >
+              <Plus size={18} strokeWidth={1.8} aria-hidden="true" />
+              {lang === 'ar' ? 'إضافة تخصص' : 'Add specialty'}
+            </button>
+          </header>
+
+          {specialtyError && <div role="alert" className="badge badge-danger">{specialtyError}</div>}
+          {specialtyFeedback && <div role={specialtyFeedback.type === 'error' ? 'alert' : 'status'} className={`badge ${specialtyFeedback.type === 'error' ? 'badge-danger' : 'badge-success'}`}>{specialtyFeedback.message}</div>}
+
+          <div className="ui-panel admin-table-panel">
+            <table className="staff-table">
+              <thead>
+                <tr>
+                  <th>{lang === 'ar' ? 'الرمز' : 'Code'}</th>
+                  <th>{lang === 'ar' ? 'العربية' : 'Arabic'}</th>
+                  <th>{lang === 'ar' ? 'الإنجليزية' : 'English'}</th>
+                  <th>{lang === 'ar' ? 'الحالة' : 'Status'}</th>
+                  <th>{lang === 'ar' ? 'الإجراءات' : 'Actions'}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {specialties.map((specialty) => (
+                  <SpecialtyRow
+                    key={specialty.id}
+                    specialty={specialty}
+                    lang={lang}
+                    onSave={saveSpecialty}
+                    isAdmin={user?.role === 'ADMIN'}
+                    request={fetchWithAuth}
+                    onDeleted={specialtyDeleted}
+                    onFeedback={showSpecialtyFeedback}
+                  />
+                ))}
+              </tbody>
+            </table>
           </div>
-        )}
 
-        {activeTab === 'pricing' && (
-          <div className="glass-panel" style={{ padding: '1.5rem' }}>
-            <h3>{lang === 'ar' ? 'إدارة الأسعار الرسمية للمنشأة' : 'Facility Pricing Management'}</h3>
-            <p style={{ opacity: 0.75 }}>
-              {lang === 'ar'
-                ? 'تُستخدم الأسعار المحفوظة هنا للفواتير الجديدة فقط، ولا تتغير الفواتير التاريخية.'
-                : 'Prices saved here apply to future invoices only. Historical invoices remain unchanged.'}
-            </p>
-            {errorMsg && <div className="badge badge-danger" style={{ padding: '0.6rem', marginBottom: '1rem' }}>{errorMsg}</div>}
-            {successMsg && <div className="badge badge-success" style={{ padding: '0.6rem', marginBottom: '1rem' }}>{successMsg}</div>}
-            {pricingLoading || !pricing ? <div className="spinner" /> : (
-              <>
-                <PricingTable title={lang === 'ar' ? 'رسوم الاستشارات' : 'Consultation Fees'} kind="doctors" items={pricing.doctors} lang={lang} drafts={pricingDrafts} setDrafts={setPricingDrafts} onSave={saveOfficialPrice} />
-                <PricingTable title={lang === 'ar' ? 'الخدمات السريرية والمختبرية' : 'Clinical & Laboratory Services'} kind="services" items={pricing.services} lang={lang} drafts={pricingDrafts} setDrafts={setPricingDrafts} onSave={saveOfficialPrice} />
-                <PricingTable title={lang === 'ar' ? 'أسعار الصيدلية' : 'Pharmacy Selling Prices'} kind="medicines" items={pricing.medicines} lang={lang} drafts={pricingDrafts} setDrafts={setPricingDrafts} onSave={saveOfficialPrice} />
-              </>
-            )}
-          </div>
-        )}
+          {showAddSpecialtyModal && (
+            <div className="modal-overlay" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setShowAddSpecialtyModal(false); }}>
+              <div className="modal-content-panel admin-specialty-modal" role="dialog" aria-modal="true" aria-labelledby="add-specialty-title">
+                <div className="admin-modal-header">
+                  <div>
+                    <span className="ui-section-label">{lang === 'ar' ? 'تخصص جديد' : 'New Specialty'}</span>
+                    <h3 id="add-specialty-title">{lang === 'ar' ? 'إضافة تخصص جديد' : 'Add New Specialty'}</h3>
+                  </div>
+                  <button type="button" className="btn btn-secondary" onClick={() => setShowAddSpecialtyModal(false)} aria-label={lang === 'ar' ? 'إغلاق' : 'Close'}><X size={18} aria-hidden="true" /></button>
+                </div>
+                <form onSubmit={createSpecialty} className="admin-form">
+                  <div className="form-group">
+                    <label className="form-label">{lang === 'ar' ? 'رمز التخصص' : 'Specialty code'}</label>
+                    <input required className="form-input ui-mono" placeholder={lang === 'ar' ? 'مثال: CARD' : 'e.g. CARD'} value={specialtyDraft.code} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, code: e.target.value }))}/>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">{lang === 'ar' ? 'الاسم بالعربية' : 'Arabic name'}</label>
+                    <input required className="form-input" placeholder={lang === 'ar' ? 'الاسم بالعربية' : 'Arabic name'} value={specialtyDraft.nameAr} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, nameAr: e.target.value }))}/>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">{lang === 'ar' ? 'الاسم بالإنجليزية' : 'English name'}</label>
+                    <input required className="form-input" placeholder={lang === 'ar' ? 'الاسم بالإنجليزية' : 'English name'} value={specialtyDraft.nameEn} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, nameEn: e.target.value }))}/>
+                  </div>
+                  <div className="admin-form-actions">
+                    <button type="button" className="btn btn-secondary" onClick={() => setShowAddSpecialtyModal(false)}>
+                      {lang === 'ar' ? 'إلغاء' : 'Cancel'}
+                    </button>
+                    <button type="submit" className="btn btn-primary">{lang === 'ar' ? 'إضافة' : 'Add'}</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
-        {activeTab === 'specialties' && <div className="glass-panel" style={{ padding: '1.5rem' }}><h3>{lang === 'ar' ? 'إدارة التخصصات' : 'Specialty management'}</h3>{specialtyError && <div role="alert" className="badge badge-danger">{specialtyError}</div>}{specialtyFeedback && <div role={specialtyFeedback.type === 'error' ? 'alert' : 'status'} className={`badge ${specialtyFeedback.type === 'error' ? 'badge-danger' : 'badge-success'}`}>{specialtyFeedback.message}</div>}<form onSubmit={createSpecialty} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem', margin: '1rem 0' }}><input required className="form-input" placeholder={lang === 'ar' ? 'رمز التخصص' : 'Specialty code'} value={specialtyDraft.code} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, code: e.target.value }))}/><input required className="form-input" placeholder={lang === 'ar' ? 'الاسم بالعربية' : 'Arabic name'} value={specialtyDraft.nameAr} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, nameAr: e.target.value }))}/><input required className="form-input" placeholder={lang === 'ar' ? 'الاسم بالإنجليزية' : 'English name'} value={specialtyDraft.nameEn} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, nameEn: e.target.value }))}/><button className="btn btn-primary">{lang === 'ar' ? 'إضافة' : 'Add'}</button></form><div className="table-wrap"><table><thead><tr><th>{lang === 'ar' ? 'الرمز' : 'Code'}</th><th>{lang === 'ar' ? 'العربية' : 'Arabic'}</th><th>{lang === 'ar' ? 'الإنجليزية' : 'English'}</th><th>{lang === 'ar' ? 'الحالة' : 'Status'}</th><th>{lang === 'ar' ? 'الإجراءات' : 'Actions'}</th></tr></thead><tbody>{specialties.map((specialty) => <SpecialtyRow key={specialty.id} specialty={specialty} lang={lang} onSave={saveSpecialty} isAdmin={user?.role === 'ADMIN'} request={fetchWithAuth} onDeleted={specialtyDeleted} onFeedback={showSpecialtyFeedback}/>)}</tbody></table></div></div>}
-        {activeTab === 'scheduling' && user?.role === 'ADMIN' && <AdminSchedulePanel lang={lang} t={t} />}
+      {activeTab === 'scheduling' && user?.role === 'ADMIN' && (
+        <div className="admin-main">
+          <AdminSchedulePanel lang={lang} t={t} />
+        </div>
+      )}
 
-        {activeTab === 'analytics' && (
-          <Suspense fallback={<div role="status" aria-live="polite" style={{ padding: '2rem 1rem', textAlign: 'center', opacity: 0.75 }}>{t('analyticsLoading')}</div>}>
+      {activeTab === 'analytics' && (
+        <div className="admin-main">
+          <Suspense fallback={<div role="status" aria-live="polite" className="admin-loading-fallback">{t('analyticsLoading')}</div>}>
             <AnalyticsPanel
               data={analyticsData}
               loading={loadingAnalytics}
@@ -654,39 +901,81 @@ export default function AdminDashboard({ user, lang, t }) {
               }}
             />
           </Suspense>
-        )}
+        </div>
+      )}
 
-        {activeTab === 'logs' && (
+      {activeTab === 'logs' && (
+        <div className="admin-main">
           <AuditLogPanel lang={lang} t={t}/>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function PricingTable({ title, kind, items, lang, drafts, setDrafts, onSave }) {
   const priceField = kind === 'doctors' ? 'consultationFee' : kind === 'services' ? 'baseFeeSdg' : 'unitPriceSdg';
-  return <section style={{ marginTop: '1.5rem', overflowX: 'auto' }}>
-    <h4>{title}</h4>
-    <table className="staff-table">
-      <thead><tr><th>{lang === 'ar' ? 'الاسم' : 'Name'}</th><th>{lang === 'ar' ? 'الفئة' : 'Category'}</th><th>{lang === 'ar' ? 'السعر الحالي' : 'Current Price'}</th><th>{lang === 'ar' ? 'الحالة' : 'Status'}</th><th>{lang === 'ar' ? 'آخر تحديث' : 'Last Updated'}</th><th>{lang === 'ar' ? 'إجراء' : 'Action'}</th></tr></thead>
-      <tbody>{items.map((item) => {
-        const key = `${kind}:${item.id}`;
-        const currentPrice = item[priceField];
-        const draft = drafts[key] || { priceSdg: currentPrice == null ? '' : String(Number(currentPrice)), status: item.status };
-        return <tr key={item.id}>
-          <td>{lang === 'ar' ? (item.fullNameAr || item.labelAr) : (item.fullNameEn || item.labelEn)}</td>
-          <td>{item.category || item.specialtyEn || item.dosageForm || '—'}</td>
-          <td><input aria-label={`${kind} price`} className="form-input" type="number" min="1" step="1" placeholder={lang === 'ar' ? 'غير محدد' : 'Not configured'} value={draft.priceSdg} onChange={(event) => setDrafts((current) => ({ ...current, [key]: { ...draft, priceSdg: event.target.value } }))} /></td>
-          <td><select aria-label={`${kind} status`} className="form-input" value={draft.status} onChange={(event) => setDrafts((current) => ({ ...current, [key]: { ...draft, status: event.target.value } }))}><option value="ACTIVE">{lang === 'ar' ? 'نشط' : 'Active'}</option><option value="INACTIVE">{lang === 'ar' ? 'غير نشط' : 'Inactive'}</option></select></td>
-          <td>{item.updatedAt ? new Date(item.updatedAt).toLocaleString(lang === 'ar' ? 'ar' : 'en') : '—'}</td>
-          <td><button type="button" className="btn btn-primary" onClick={() => onSave(kind, item)}>{lang === 'ar' ? 'حفظ' : 'Save'}</button></td>
-        </tr>;
-      })}</tbody>
-    </table>
-  </section>;
+  return (
+    <section className="admin-pricing-section">
+      <h3 className="admin-section-title">{title}</h3>
+      <div className="ui-panel admin-table-panel">
+        <table className="staff-table">
+          <thead>
+            <tr>
+              <th>{lang === 'ar' ? 'الاسم' : 'Name'}</th>
+              <th>{lang === 'ar' ? 'الفئة' : 'Category'}</th>
+              <th>{lang === 'ar' ? 'السعر الحالي' : 'Current Price'}</th>
+              <th>{lang === 'ar' ? 'الحالة' : 'Status'}</th>
+              <th>{lang === 'ar' ? 'آخر تحديث' : 'Last Updated'}</th>
+              <th>{lang === 'ar' ? 'إجراء' : 'Action'}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => {
+              const key = `${kind}:${item.id}`;
+              const currentPrice = item[priceField];
+              const draft = drafts[key] || { priceSdg: currentPrice == null ? '' : String(Number(currentPrice)), status: item.status };
+              return (
+                <tr key={item.id}>
+                  <td className="admin-pricing-name">{lang === 'ar' ? (item.fullNameAr || item.labelAr) : (item.fullNameEn || item.labelEn)}</td>
+                  <td className="admin-pricing-category">{item.category || item.specialtyEn || item.dosageForm || '—'}</td>
+                  <td>
+                    <input
+                      aria-label={`${kind} price`}
+                      className="form-input ui-mono"
+                      type="number"
+                      min="1"
+                      step="1"
+                      placeholder={lang === 'ar' ? 'غير محدد' : 'Not configured'}
+                      value={draft.priceSdg}
+                      onChange={(event) => setDrafts((current) => ({ ...current, [key]: { ...draft, priceSdg: event.target.value } }))}
+                    />
+                  </td>
+                  <td>
+                    <select
+                      aria-label={`${kind} status`}
+                      className="form-input"
+                      value={draft.status}
+                      onChange={(event) => setDrafts((current) => ({ ...current, [key]: { ...draft, status: event.target.value } }))}
+                    >
+                      <option value="ACTIVE">{lang === 'ar' ? 'نشط' : 'Active'}</option>
+                      <option value="INACTIVE">{lang === 'ar' ? 'غير نشط' : 'Inactive'}</option>
+                    </select>
+                  </td>
+                  <td className="ui-mono admin-pricing-updated">
+                    {item.updatedAt ? new Date(item.updatedAt).toLocaleString(lang === 'ar' ? 'ar' : 'en') : '—'}
+                  </td>
+                  <td>
+                    <button type="button" className="btn btn-secondary" onClick={() => onSave(kind, item)}>
+                      {lang === 'ar' ? 'حفظ' : 'Save'}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
 }
-
-/* ==========================================
-   2. RECEPTIONIST DASHBOARD
-   ========================================== */

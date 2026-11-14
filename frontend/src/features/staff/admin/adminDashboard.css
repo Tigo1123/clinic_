@@ -1,0 +1,289 @@
+/* adminDashboard.css - Clinical ledger administration styles */
+.admin-workspace {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  width: 100%;
+}
+
+.admin-main {
+  padding-block: 32px;
+  padding-inline: 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+  max-width: var(--content-max, 1440px);
+  margin-inline: auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 768px) {
+  .admin-main {
+    padding-block: 20px;
+    padding-inline: 16px;
+    gap: 16px;
+  }
+}
+
+/* Header */
+.admin-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.admin-header-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.admin-header-count,
+.admin-header-subtitle {
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+/* Filter row */
+.admin-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.admin-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.admin-filter-search {
+  flex: 1 1 280px;
+  max-width: 420px;
+}
+
+.admin-filter-role {
+  flex: 0 1 220px;
+}
+
+/* Table panel */
+.admin-table-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow-x: auto;
+}
+
+.admin-staff-table-scroll {
+  min-width: 720px;
+}
+
+.admin-staff-header-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1.2fr) 120px 110px;
+  gap: 16px;
+  padding-block: 14px;
+  padding-inline: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.admin-staff-row-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1.2fr) 120px 110px;
+  gap: 16px;
+  align-items: center;
+  min-height: 60px;
+  padding-block: 0;
+  padding-inline: 20px;
+  border-block-start: 1px solid var(--color-divider);
+}
+
+.admin-staff-row-grid:hover {
+  background: var(--color-surface-muted);
+}
+
+.admin-staff-name {
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.admin-staff-username {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.admin-staff-role {
+  color: var(--color-text-secondary);
+}
+
+.admin-staff-actions {
+  justify-self: end;
+}
+
+.admin-hint {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.admin-empty-state {
+  padding-block: 40px;
+  padding-inline: 20px;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+/* Modals */
+.admin-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-block-end: 20px;
+}
+
+.admin-modal-header h3 {
+  margin-block-start: 4px;
+  margin-block-end: 0;
+}
+
+.admin-add-staff-modal {
+  width: min(540px, 100%);
+  padding: 1.75rem;
+}
+
+.admin-manage-modal {
+  width: min(520px, 100%);
+  padding: 24px;
+}
+
+.admin-reset-modal,
+.admin-revoke-modal {
+  width: min(520px, 100%);
+  padding: 1.5rem;
+}
+
+.admin-specialty-modal {
+  width: min(500px, 100%);
+  padding: 1.75rem;
+}
+
+.admin-manage-info {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 16px;
+  background: var(--color-surface-muted);
+  border-radius: var(--radius-md);
+  margin-block-end: 20px;
+}
+
+.admin-manage-field-value {
+  display: block;
+  margin-block-start: 4px;
+}
+
+.admin-manage-field-value.ui-status {
+  display: inline-flex;
+}
+
+.admin-manage-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.admin-alert {
+  width: 100%;
+  padding: 0.6rem;
+}
+
+.admin-modal-alert {
+  width: 100%;
+  margin-block-end: 1rem;
+  padding: 0.5rem;
+}
+
+.admin-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.admin-grid-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.admin-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-block-start: 1rem;
+}
+
+.admin-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+.admin-modal-description {
+  opacity: 0.8;
+  margin-block: 0.5rem;
+}
+
+.admin-loading-fallback {
+  padding-block: 2rem;
+  padding-inline: 1rem;
+  text-align: center;
+  opacity: 0.75;
+}
+
+.admin-pricing-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-block-start: 16px;
+}
+
+.admin-section-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.admin-pricing-name {
+  font-weight: 500;
+}
+
+.admin-pricing-category {
+  color: var(--color-text-secondary);
+}
+
+.admin-pricing-updated {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.specialty-row-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.admin-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-block: 16px;
+}
