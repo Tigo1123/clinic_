@@ -4,58 +4,64 @@ export default function CustomPrescribedItemCard({ item, lang, queueView, onRevi
   const requiresReview = customMedicineRequiresReview(item);
   const isUnavailable = item.pharmacyReviewStatus === 'EXTERNAL';
 
+  const doseDetails = [item.dosage, item.duration].filter(Boolean).join(' · ');
+
   return (
-    <div
-      className="glass-panel"
-      style={{
-        padding: '0.75rem',
-        marginBottom: '0.5rem',
-        fontSize: '0.9rem',
-        borderLeft: '3px solid var(--warning)'
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div className="pharmacy-grid-table__row">
+      <div className="pharmacy-item-info">
         <strong>{item.customDrugName || (lang === 'ar' ? 'دواء مكتوب يدويًا' : 'Custom medication')}</strong>
-        <span style={{ color: 'var(--primary)', fontWeight: 'bold' }}>
-          Qty: {item.qtyPrescribed}
-        </span>
+        {doseDetails && <span>{doseDetails}</span>}
+        {isUnavailable && item.pharmacyReviewNote && (
+          <div className="pharmacy-resolution-note">{item.pharmacyReviewNote}</div>
+        )}
       </div>
 
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          fontSize: '0.8rem',
-          color: 'var(--text-secondary)',
-          marginTop: '0.25rem',
-          alignItems: 'center',
-          gap: '0.5rem'
-        }}
-      >
+      <span className="pharmacy-item-qty ui-mono">
+        {item.qtyPrescribed}
+      </span>
+
+      <div className="pharmacy-item-batch">
         <span>
-          Dosage: {item.dosage} | Duration: {item.duration}
+          {isUnavailable
+            ? (lang === 'ar' ? 'تعذر الصرف (غير متوفر)' : 'Unable to Dispense (Unavailable)')
+            : (lang === 'ar' ? 'غير مرتبط بالمخزون' : 'Not linked to inventory')}
         </span>
-
-        <span className={`badge badge-${isUnavailable ? 'danger' : 'warning'}`} style={{ fontSize: '0.7rem' }}>
-          {isUnavailable ? (lang === 'ar' ? 'تعذر الصرف' : 'Unable to Dispense') : (lang === 'ar' ? 'دواء يدوي · غير مرتبط بالمخزون' : 'Manual medicine · Not linked to inventory')}
-        </span>
+        {requiresReview && (
+          <div className="pharmacy-item-actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => onReview()}
+            >
+              {lang === 'ar' ? 'مراجعة الدواء' : 'Review medicine'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => onUnavailable('DOCTOR_REVIEW_REQUIRED')}
+            >
+              {lang === 'ar' ? 'تعذر الصرف' : 'Unable to Dispense'}
+            </button>
+          </div>
+        )}
+        {isUnavailable && queueView === 'active' && (
+          <div className="pharmacy-item-actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => onUnavailable('OTHER')}
+            >
+              {lang === 'ar' ? 'إكمال معالجة الوصفة' : 'Finalize Prescription Resolution'}
+            </button>
+          </div>
+        )}
       </div>
 
-      <div style={{ fontSize: '0.75rem', color: 'var(--warning)', marginTop: '0.5rem' }}>
-        {lang === 'ar'
-          ? 'هذا الدواء تمت كتابته يدويًا بواسطة الطبيب ولن يتم خصمه تلقائيًا من مخزون العيادة.'
-          : 'This medication was entered manually by the doctor and will not be deducted automatically from clinic inventory.'}
-      </div>
-      {requiresReview && (
-        <div className="pharmacy-item-actions">
-          <button type="button" className="btn btn-primary" onClick={() => onReview()}>{lang === 'ar' ? 'مراجعة / ربط الدواء' : 'Review / Link Medication'}</button>
-          <button type="button" className="btn" onClick={() => onUnavailable('DOCTOR_REVIEW_REQUIRED')}>{lang === 'ar' ? 'تعذر الصرف' : 'Unable to Dispense'}</button>
-        </div>
-      )}
-      {isUnavailable && queueView === 'active' && (
-        <div className="pharmacy-item-actions"><button type="button" className="btn" onClick={() => onUnavailable('OTHER')}>{lang === 'ar' ? 'إكمال معالجة الوصفة' : 'Finalize Prescription Resolution'}</button></div>
-      )}
-      {isUnavailable && item.pharmacyReviewNote && <div className="pharmacy-resolution-note">{item.pharmacyReviewNote}</div>}
+      <span className={`ui-status ${isUnavailable ? 'ui-status--danger' : 'ui-status--warn'}`}>
+        {isUnavailable
+          ? (lang === 'ar' ? 'تعذر الصرف' : 'Unable to Dispense')
+          : (lang === 'ar' ? 'يحتاج مراجعة' : 'Needs review')}
+      </span>
     </div>
   );
 }
