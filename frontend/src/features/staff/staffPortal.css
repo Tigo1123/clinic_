@@ -292,7 +292,7 @@
 
 .step-node.active {
   border-color: var(--color-primary);
-  background: var(--color-primary);
+  background: var(--color-primary-action);
   color: #fff;
   box-shadow: 0 0 0 4px var(--color-primary-soft);
 }
@@ -357,7 +357,7 @@
 }
 
 .slot-btn.selected {
-  background: var(--color-primary);
+  background: var(--color-primary-action);
   color: #fff;
   border-color: var(--color-primary);
 }
@@ -675,7 +675,7 @@
 }
 
 .currency-toggle-btn.active {
-  background: var(--color-primary);
+  background: var(--color-primary-action);
   color: #fff;
 }
 
@@ -1335,7 +1335,7 @@
 
 .step-node.active {
   border-color: var(--primary);
-  background: var(--primary);
+  background: var(--color-primary-action);
   color: var(--text-inverse);
   box-shadow: 0 0 15px var(--primary-glow);
 }
@@ -1397,7 +1397,7 @@
 }
 
 .slot-btn.selected {
-  background: var(--primary);
+  background: var(--color-primary-action);
   color: var(--text-inverse);
   border-color: var(--primary);
   font-weight: bold;
@@ -1715,7 +1715,7 @@
 }
 
 .currency-toggle-btn.active {
-  background: var(--primary);
+  background: var(--color-primary-action);
   color: var(--text-inverse);
 }
 

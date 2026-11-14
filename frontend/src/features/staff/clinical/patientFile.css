@@ -424,7 +424,7 @@
   font-weight: 600;
 }
 .patient-file-tabs button.active::after {
-  background: var(--color-primary);
+  background: var(--color-primary-action);
 }
 
 /* ── Section & Lists ── */

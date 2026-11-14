@@ -247,13 +247,13 @@
 }
 
 .public-button--primary {
-  background: var(--color-primary);
+  background: var(--color-primary-action);
   color: var(--text-inverse) !important;
   border-color: var(--color-primary);
 }
 
 .public-button--primary:hover {
-  background: var(--color-primary-hover);
+  background: var(--color-primary-action-hover);
   border-color: var(--color-primary-hover);
 }
 
