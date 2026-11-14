@@ -1,12 +1,12 @@
 import { logoutAccount } from '../../services/logout.js';
 import React, { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { LogOut, HeartPulse, ShieldCheck } from 'lucide-react';
+import { HeartPulse, ShieldCheck } from 'lucide-react';
 import ThemeToggle from '../../components/ui/ThemeToggle';
 import '../patient/auth/patientAuth.css';
 
-import NotificationDropdown from './components/NotificationDropdown';
 import StaffSecurityDialog from './components/StaffSecurityDialog';
+import StaffShell from './components/StaffShell';
 import MfaCodeInput from './components/MfaCodeInput';
 import { clearStaffSession, readStaffSession, writeStaffSession } from '../../services/authStorage';
 import { completeStaffMfa, completeStaffMfaRecovery, isTerminalMfaError, startStaffLogin } from '../../services/staff/staffLogin';
@@ -22,7 +22,6 @@ import { useFacilityBranding } from '../../app/branding/FacilityBrandingContext.
 import { brandingSubline } from '../../app/branding/brandingConfig';
 import { withLoginSubmissionLock } from '../../utils/loginSubmission.js';
 import PasswordField from '../../components/PasswordField.jsx';
-
 const AdminDashboard = lazy(() => import('./admin/AdminDashboard'));
 const LaboratoryDashboard = lazy(() => import('./laboratory/LaboratoryDashboard'));
 const PharmacyDashboard = lazy(() => import('./pharmacy/PharmacyDashboard'));
@@ -146,50 +145,30 @@ export default function App({ initialView = 'login' }) {
   }
 
   return (
-    <div className="app-layout">
-      {/* Global Navbar */}
-      <header className="nav-header no-print-section">
-        <div className="brand-section">
-          <HeartPulse className="logo-icon" size={28} />
-          <span className="brand-title">{displayName}<small className="brand-product-descriptor">{productDescriptor}</small></span>
+    <StaffShell
+      user={user}
+      displayName={displayName}
+      lang={lang}
+      t={t}
+      onToggleLanguage={toggleLanguage}
+      onLogout={handleLogout}
+      onOpenSecurity={() => setSecurityOpen(true)}
+    >
+      {recoveryLoginNotice && user && (
+        <div role="status" className="staff-shell__notice staff-shell__notice--warning">
+          {t('recoveryLoginNotice')}
         </div>
-        <div className="header-actions">
-          <button className="lang-toggle-btn" onClick={toggleLanguage}>
-            {lang === 'ar' ? 'English' : 'العربية'}
-          </button>
-          <ThemeToggle className="lang-toggle-btn" style={{ padding: '0.5rem' }} size={18} />
-
-          {user ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              {!user.mustChangePassword && <NotificationDropdown userId={user?.id} lang={lang} />}
-              <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                {user.username} ({user.role})
-              </span>
-              {!user.mustChangePassword && <button className="btn btn-secondary" onClick={() => setSecurityOpen(true)}>
-                <ShieldCheck size={16} />
-                {t('securitySettings')}
-              </button>}
-              <button className="btn btn-secondary" onClick={handleLogout}>
-                <LogOut size={16} />
-                {t('logout')}
-              </button>
-            </div>
-          ) : <button className="btn btn-secondary" onClick={() => { window.location.href = '/'; }}>{t('patientPortal')}</button>}
+      )}
+      {sessionRevokedNotice && (
+        <div role="alert" className="staff-shell__notice staff-shell__notice--danger">
+          {t('sessionNoLongerValid')}
         </div>
-      </header>
-
-      {/* Main Container */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-        {recoveryLoginNotice && user && <div role="status" className="badge badge-warning recovery-login-notice">{t('recoveryLoginNotice')}</div>}
-        {sessionRevokedNotice && (
-          <div role="alert" className="badge badge-danger staff-login-error">{t('sessionNoLongerValid')}</div>
-        )}
-        {view === 'dashboard' && user && (user.mustChangePassword
-          ? <RequiredPasswordChange t={t} onComplete={handleLogout} />
-          : <DashboardContainer user={user} lang={lang} t={t} />)}
-      </main>
+      )}
+      {view === 'dashboard' && user && (user.mustChangePassword
+        ? <RequiredPasswordChange t={t} onComplete={handleLogout} />
+        : <DashboardContainer user={user} lang={lang} t={t} />)}
       {securityOpen && user && <StaffSecurityDialog user={user} onUserChange={handleUserChange} onClose={() => setSecurityOpen(false)} t={t} />}
-    </div>
+    </StaffShell>
   );
 }
 
