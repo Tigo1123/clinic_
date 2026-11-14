@@ -1,4 +1,4 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import type { PrismaClient } from '../generated/prisma/index.js';
 import prisma from '../db.js';
 
@@ -20,9 +20,13 @@ export class PrismaService {
  * Connects the shared client when the Nest application starts and disconnects it
  * on shutdown. Registered once in AppModule because lifecycle hooks only run on
  * class instances, not on the shared client object itself.
+ *
+ * Disconnects in onApplicationShutdown, which Nest runs after the HTTP and Socket.IO
+ * servers have closed, so in-flight requests keep their database until they finish.
+ * onModuleDestroy would run before the servers close.
  */
 @Injectable()
-export class PrismaConnectionLifecycle implements OnModuleInit, OnModuleDestroy {
+export class PrismaConnectionLifecycle implements OnModuleInit, OnApplicationShutdown {
   async onModuleInit() {
     try {
       await prisma.$connect();
@@ -34,7 +38,7 @@ export class PrismaConnectionLifecycle implements OnModuleInit, OnModuleDestroy 
     }
   }
 
-  async onModuleDestroy() {
+  async onApplicationShutdown() {
     await prisma.$disconnect();
   }
 }

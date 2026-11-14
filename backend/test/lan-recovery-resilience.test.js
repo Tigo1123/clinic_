@@ -134,7 +134,7 @@ test('graceful shutdown closes revocation, Socket.IO, HTTP, and Prisma resources
   let previous = -1;
   for (const marker of order) { const index = server.indexOf(marker); assert.ok(index > previous, `${marker} missing or out of order`); previous = index; }
   assert.match(server, /\['SIGTERM', 'SIGINT'\]/);
-  assert.match(backendDockerfile, /CMD \["node", "src\/server\.js"\]/);
+  assert.match(backendDockerfile, /CMD \["node", "dist\/main\.js"\]/);
   assert.doesNotMatch(backendDockerfile, /CMD \["npm"/);
 });
 

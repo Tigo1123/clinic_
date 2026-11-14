@@ -94,18 +94,11 @@ async function bootExpress() {
 }
 
 async function bootNest() {
-  const { NestFactory } = await import('@nestjs/core');
   const load = (file) => import(pathToFileURL(path.join(distRoot, file)).href);
-  const { AppModule } = await load('app.module.js');
-  const { AppConfigService } = await load('modules/config/config.service.js');
+  const { createApp } = await load('main.js');
   const { RealtimeGateway } = await load('modules/realtime/realtime.gateway.js');
   const { SocketRevocationService } = await load('modules/realtime/socket-revocation.service.js');
-  const { securityHeadersMiddleware, corsMiddleware } = await load('utils/edgeSecurity.js');
-  const app = await NestFactory.create(AppModule, { logger: false });
-  const configService = app.get(AppConfigService);
-  app.use(securityHeadersMiddleware(configService.isProduction));
-  app.use(corsMiddleware(configService.allowedOrigins));
-  app.setGlobalPrefix('api');
+  const app = await createApp({ logger: false });
   await app.init();
   const revocation = app.get(SocketRevocationService);
   const gateway = app.get(RealtimeGateway);

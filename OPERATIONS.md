@@ -105,6 +105,11 @@ images. If a migration ran, assess backward compatibility: restore the pre-deplo
 and uploads together before starting previous images. Verify readiness and smoke tests. Git
 rollback alone is insufficient.
 
+While the Express server is still in the backend image, a NestJS-specific problem can also be
+rolled back without changing images or data: override the backend container command with
+`["node", "src/server.js"]` and restart it. Both servers use the same database schema, services,
+and API contract. Confirm `/api/health/ready` and the smoke tests afterwards.
+
 ## Retention decisions
 
 Application logs, audit logs, notification logs, uploads, and backups currently have no
