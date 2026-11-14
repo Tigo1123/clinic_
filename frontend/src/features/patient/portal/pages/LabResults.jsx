@@ -1,10 +1,15 @@
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { ArrowLeft, ChevronDown, ChevronRight, FileText } from 'lucide-react';
 import { formatPatientDateTime } from '../patientRecord';
-import { doctorName, Collection } from './shared.jsx';
+import { useApi, State, Empty, doctorName } from './shared.jsx';
 
 export function LabResults() {
   const { t, i18n } = useTranslation();
   const lang = i18n.language?.startsWith('ar') ? 'ar' : 'en';
+  const { data, error, loading, reload } = useApi('/api/patient/lab-results');
+  const [expandedId, setExpandedId] = useState(null);
 
   const getTestName = (test) => {
     if (test?.service) {
@@ -12,172 +17,179 @@ export function LabResults() {
         ? test.service.labelAr || test.service.labelEn
         : test.service.labelEn || test.service.labelAr;
     }
-
     return test?.customTestName || t('customLabTest');
   };
 
   const getReferenceRange = (test) => {
     const min = test?.referenceRangeMin;
     const max = test?.referenceRangeMax;
-
-    if (min == null && max == null) {
-      return t('notAvailable');
-    }
-
-    if (min != null && max != null) {
-      return `${min} – ${max}`;
-    }
-
-    if (min != null) {
-      return `${t('greaterThanOrEqual')} ${min}`;
-    }
-
+    if (min == null && max == null) return t('notAvailable');
+    if (min != null && max != null) return `${min} – ${max}`;
+    if (min != null) return `${t('greaterThanOrEqual')} ${min}`;
     return `${t('lessThanOrEqual')} ${max}`;
   };
 
   const formatDate = (value) => {
     if (!value) return t('notAvailable');
-
     const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return t('notAvailable');
+    return date.toLocaleDateString(lang === 'ar' ? 'ar' : 'en', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
 
-    if (Number.isNaN(date.getTime())) {
-      return t('notAvailable');
-    }
-
-    return date.toLocaleDateString(
-      lang === 'ar' ? 'ar' : 'en',
-      {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-      }
-    );
+  const toggleExpand = (id) => {
+    setExpandedId((prev) => (prev === id ? null : id));
   };
 
   return (
-    <Collection
-      path="/api/patient/lab-results"
-      titleKey="labResults"
-      render={(item) => {
-        const doctor = item?.doctor;
-        const doctorDisplayName = doctor
-          ? doctorName(doctor, lang)
-          : t('notAvailable');
+    <State loading={loading} error={error} onRetry={reload}>
+      <div className="patient-lab-results">
+        <Link to="/patient" className="patient-back-link">
+          <ArrowLeft size={18} strokeWidth={1.8} aria-hidden="true" />
+          {t('patientBack')}
+        </Link>
 
-        return (
-          <div className="patient-lab-result">
-            <div className="patient-lab-result__header">
-              <div>
-                <span className="patient-lab-result__eyebrow">
-                  {t('laboratoryReport')}
-                </span>
+        <h1 className="patient-page-title">{t('labResults')}</h1>
 
-                <h2>
-                  {t('labOrderDate')}: {formatDate(item.orderDate)}
-                </h2>
-              </div>
+        {!data?.length ? (
+          <Empty>{t('noRecords')}</Empty>
+        ) : (
+          <div className="patient-panel">
+            {data.map((item) => {
+              const isExpanded = expandedId === item.id;
+              const doctor = item?.doctor;
+              const doctorDisplayName = doctor ? doctorName(doctor, lang) : t('notAvailable');
+              const testsSummary = (item.tests || []).map(getTestName).join(', ') || t('laboratoryReport');
+              const hasAbnormal = (item.tests || []).some((test) => Boolean(test.isOutOfRange));
 
-              <span className="patient-lab-result__released">
-                {t('released')}
-              </span>
-            </div>
-
-            <div className="patient-lab-result__meta">
-              <div>
-                <span>{t('doctor')}</span>
-                <strong>{doctorDisplayName}</strong>
-              </div>
-
-              <div>
-                <span>{t('releasedAt')}</span>
-                <strong>{formatPatientDateTime(item.releasedAt, lang, t('notAvailable'))}</strong>
-              </div>
-
-              <div>
-                <span>{t('testsCount')}</span>
-                <strong>{item.tests?.length || 0}</strong>
-              </div>
-            </div>
-
-            <div className="patient-lab-tests">
-              {(item.tests || []).map((test) => {
-                const abnormal = Boolean(test.isOutOfRange);
-
-                return (
-                  <article
-                    className={`patient-lab-test ${
-                      abnormal
-                        ? 'patient-lab-test--abnormal'
-                        : 'patient-lab-test--normal'
-                    }`}
-                    key={test.id}
+              return (
+                <div key={item.id} className="patient-lab-row">
+                  <button
+                    type="button"
+                    onClick={() => toggleExpand(item.id)}
+                    aria-expanded={isExpanded}
+                    className="patient-lab-row__trigger"
                   >
-                    <div className="patient-lab-test__heading">
-                      <div>
-                        <span className="patient-lab-test__category">
-                          {t('laboratoryReport')}
+                    <div className="patient-lab-row__content">
+                      <span className="patient-lab-row__tests">
+                        {testsSummary}
+                      </span>
+                      <span className="patient-lab-row__sub">
+                        <span className="ui-mono">
+                          {t('labOrderDate')}: {formatDate(item.orderDate)}
                         </span>
-
-                        <h3>{getTestName(test)}</h3>
-                      </div>
-
-                      <span
-                        className={`patient-lab-status ${
-                          abnormal
-                            ? 'patient-lab-status--abnormal'
-                            : 'patient-lab-status--normal'
-                        }`}
-                      >
-                        {abnormal
-                          ? t('abnormalResult')
-                          : t('normalResult')}
+                        {' · '}{doctorDisplayName}
+                      </span>
+                      <span className={`patient-lab-row__status ${hasAbnormal ? 'patient-lab-row__status--abnormal' : 'patient-lab-row__status--normal'}`}>
+                        <span aria-hidden="true" className="patient-lab-row__dot" />
+                        {hasAbnormal ? t('abnormalResult') : t('released')}
                       </span>
                     </div>
 
-                    <div className="patient-lab-test__result">
-                      <span>{t('result')}</span>
-                      <strong><bdi dir="auto">{test.resultValue ?? t('notAvailable')}</bdi></strong>
+                    <div className="patient-lab-row__arrow">
+                      {isExpanded ? (
+                        <ChevronDown size={18} strokeWidth={1.8} aria-hidden="true" />
+                      ) : (
+                        <ChevronRight size={18} strokeWidth={1.8} className="patient-row-link__arrow" aria-hidden="true" />
+                      )}
                     </div>
+                  </button>
 
-                    <div className="patient-lab-test__details">
-                      <div>
-                        <span>{t('referenceRange')}</span>
-                        <strong><bdi dir="ltr">{getReferenceRange(test)}</bdi></strong>
+                  {isExpanded && (
+                    <div className="patient-lab-expanded">
+                      <div className="patient-lab-meta">
+                        <div>
+                          <span>{t('doctor')}:</span>
+                          <strong>{doctorDisplayName}</strong>
+                        </div>
+                        <div>
+                          <span>{t('releasedAt')}:</span>
+                          <strong className="ui-mono">{formatPatientDateTime(item.releasedAt, lang, t('notAvailable'))}</strong>
+                        </div>
+                        <div>
+                          <span>{t('testsCount')}:</span>
+                          <strong className="ui-mono">{item.tests?.length || 0}</strong>
+                        </div>
                       </div>
 
-                      <div>
-                        <span>{t('resultStatus')}</span>
-                        <strong>
-                          {abnormal
-                            ? t('outsideReferenceRange')
-                            : t('withinReferenceRange')}
-                        </strong>
+                      <div className="patient-lab-tests-list">
+                        {(item.tests || []).map((test) => {
+                          const abnormal = Boolean(test.isOutOfRange);
+                          return (
+                            <article
+                              key={test.id}
+                              className="patient-lab-card"
+                            >
+                              <div className="patient-lab-card__header">
+                                <div>
+                                  <span className="patient-lab-card__eyebrow">
+                                    {t('laboratoryReport')}
+                                  </span>
+                                  <h3 className="patient-lab-card__title">
+                                    {getTestName(test)}
+                                  </h3>
+                                </div>
+                                <span className={`patient-lab-card__badge ${abnormal ? 'patient-lab-card__badge--abnormal' : 'patient-lab-card__badge--normal'}`}>
+                                  {abnormal ? t('abnormalResult') : t('normalResult')}
+                                </span>
+                              </div>
+
+                              <div className="patient-lab-card__row">
+                                <span>
+                                  {t('result')}:{' '}
+                                  <strong className="ui-mono" dir="auto">
+                                    {test.resultValue ?? t('notAvailable')}
+                                  </strong>
+                                </span>
+                                <span className="patient-lab-card__ref">
+                                  {t('referenceRange')}:{' '}
+                                  <bdi dir="ltr" className="ui-mono">
+                                    {getReferenceRange(test)}
+                                  </bdi>
+                                </span>
+                              </div>
+
+                              <div className="patient-lab-card__status-line">
+                                <span>{t('resultStatus')}: </span>
+                                <strong>
+                                  {abnormal
+                                    ? t('outsideReferenceRange')
+                                    : t('withinReferenceRange')}
+                                </strong>
+                              </div>
+
+                              {test.attachmentPath && (
+                                <div className="patient-lab-card__attach-wrap">
+                                  <a
+                                    className="patient-button secondary patient-lab-card__attach-btn"
+                                    href={test.attachmentPath}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    <FileText size={14} aria-hidden="true" />
+                                    {t('viewLabAttachment')}
+                                  </a>
+                                </div>
+                              )}
+                            </article>
+                          );
+                        })}
                       </div>
+
+                      <p className="patient-lab-disclaimer">
+                        {t('labResultDisclaimer')}
+                      </p>
                     </div>
-
-                    {test.attachmentPath && (
-                      <div className="patient-lab-test__actions">
-                        <a
-                          className="patient-button secondary"
-                          href={test.attachmentPath}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          {t('viewLabAttachment')}
-                        </a>
-                      </div>
-                    )}
-                  </article>
-                );
-              })}
-            </div>
-
-            <p className="patient-lab-disclaimer">
-              {t('labResultDisclaimer')}
-            </p>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        );
-      }}
-    />
+        )}
+      </div>
+    </State>
   );
 }

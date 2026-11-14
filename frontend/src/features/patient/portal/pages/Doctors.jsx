@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Search, UserRound } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { doctorMatchesDirectorySearch, doctorSpecialtyKey, doctorSpecialtyOptions, localizeDoctorSpecialty } from '../doctorSpecialty';
 import { useApi, State, Empty, doctorName } from './shared.jsx';
 
-export function Doctors(){
+export function Doctors() {
   const { t, i18n } = useTranslation();
   const { data, error, loading, reload } = useApi('/api/patient/doctors');
   const [query, setQuery] = useState('');
@@ -16,112 +16,87 @@ export function Doctors(){
 
   const filtered = (data || []).filter((doctor) => {
     const matchesQuery = doctorMatchesDirectorySearch(doctor, query);
-
-    const matchesSpecialty =
-      !specialty ||
-      doctorSpecialtyKey(doctor) === specialty;
-
+    const matchesSpecialty = !specialty || doctorSpecialtyKey(doctor) === specialty;
     return matchesQuery && matchesSpecialty;
   });
 
   return (
     <State loading={loading} error={error} onRetry={reload}>
-      <div className="patient-doctors-directory" dir={language === 'ar' ? 'rtl' : 'ltr'}>
-      <header className="doctor-search-header">
-        <div>
-          <span>{t('healthServices')}</span>
-          <h1>{t('doctors')}</h1>
-        </div>
+      <div className="patient-doctors-directory patient-doctors" dir={language === 'ar' ? 'rtl' : 'ltr'}>
+        <h1 className="patient-page-title">{t('doctors')}</h1>
 
-        <label className="doctor-search">
-          <Search size={19}/>
+        <label className="patient-field patient-doctors__search-field">
           <span className="sr-only">{t('searchDoctors')}</span>
           <input
+            type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t('searchDoctors')}
+            className="patient-doctors__search-input"
           />
         </label>
-      </header>
 
-      {specialties.length > 0 && (
-        <div
-          className="specialty-chips"
-          aria-label={t('selectSpecialty')}
-        >
-          <button
-            className={!specialty ? 'selected' : ''}
-            aria-pressed={!specialty}
-            onClick={() => setSpecialty('')}
-          >
-            {t('all')}
-          </button>
-
-          {specialties.map((item) => (
+        {specialties.length > 0 && (
+          <div className="specialty-chips" aria-label={t('selectSpecialty')}>
             <button
-              className={specialty === item.key ? 'selected' : ''}
-              aria-pressed={specialty === item.key}
-              onClick={() => setSpecialty(item.key)}
-              key={item.key}
+              className={!specialty ? 'selected' : ''}
+              aria-pressed={!specialty}
+              onClick={() => setSpecialty('')}
             >
-              {item.label}
+              {t('all')}
             </button>
-          ))}
-        </div>
-      )}
+            {specialties.map((item) => (
+              <button
+                className={specialty === item.key ? 'selected' : ''}
+                aria-pressed={specialty === item.key}
+                onClick={() => setSpecialty(item.key)}
+                key={item.key}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        )}
 
-      <div className="section-heading-row">
-        <h2>{t('doctors')}</h2>
-        <span>{filtered.length}</span>
-      </div>
+        {!filtered.length ? (
+          <Empty>{t('noDoctors')}</Empty>
+        ) : (
+          <div className="patient-panel">
+            {filtered.map((doctor) => (
+              <div
+                className="patient-hairline-row patient-doctors__row"
+                key={doctor.id}
+              >
+                <Link
+                  to={`/patient/book/${doctor.id}`}
+                  className="patient-doctors__info"
+                >
+                  <span className="patient-doctors__name">{doctorName(doctor, i18n.language)}</span>
+                  <span className="patient-doctors__meta">
+                    {localizeDoctorSpecialty(doctor, language)}
+                    {doctor.consultationFee ? ` · ${Number(doctor.consultationFee).toLocaleString(i18n.language === 'ar' ? 'ar' : 'en')} ${i18n.language === 'ar' ? 'ج.س' : 'SDG'}` : ''}
+                  </span>
+                </Link>
 
-      {!filtered.length ? (
-        <Empty>{t('noDoctors')}</Empty>
-      ) : (
-        <div className="doctor-list">
-          {filtered.map((doctor) => (
-            <article
-              className="patient-card doctor-card"
-              key={doctor.id}
-            >
-              <div className="doctor-card__avatar">
-                <UserRound/>
-              </div>
-
-              <div className="doctor-card__body">
-                <h2>{doctorName(doctor, i18n.language)}</h2>
-
-                <p>
-                  {localizeDoctorSpecialty(doctor, language)}
-                </p>
-
-                <strong>
-                  {Number(doctor.consultationFee).toLocaleString(
-                    i18n.language === 'ar' ? 'ar' : 'en'
-                  )}{' '}
-                  {i18n.language === 'ar' ? 'ج.س' : 'SDG'}
-                </strong>
-
-                <div className="patient-actions">
+                <div className="patient-doctors__actions">
                   <Link
-                    className="patient-button secondary"
+                    className="patient-button secondary patient-doctors__details-btn"
                     to={`/patient/doctors/${doctor.id}`}
                   >
                     {t('details')}
                   </Link>
-
                   <Link
-                    className="patient-button"
                     to={`/patient/book/${doctor.id}`}
+                    aria-label={`${t('book')} ${doctorName(doctor, i18n.language)}`}
+                    className="patient-doctors__book-link"
                   >
-                    {t('book')}
+                    <ChevronRight size={18} strokeWidth={1.8} className="patient-row-link__arrow" aria-hidden="true" />
                   </Link>
                 </div>
               </div>
-            </article>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
       </div>
     </State>
   );
