@@ -157,7 +157,6 @@ export function PatientLogin(){
 
           <button
             className="patient-button"
-            style={{width:'100%'}}
             disabled={loading}
           >
             {loading?t('loading'):t('verify')}
@@ -202,8 +201,7 @@ export function PatientLogin(){
         {pendingVerification&&
           <button
             type="button"
-            className="patient-button"
-            style={{width:'100%',marginBottom:'.75rem'}}
+            className="patient-button secondary patient-auth-resend-inline"
             disabled={loading}
             onClick={resendVerification}
           >
@@ -213,7 +211,6 @@ export function PatientLogin(){
 
         <button
           className="patient-button"
-          style={{width:'100%'}}
           disabled={loading}
         >
           {loading?t('loading'):t('login')}
@@ -355,13 +352,12 @@ export function PatientForgotPassword(){
 
           <button
             className="patient-button"
-            style={{width:'100%'}}
             disabled={loading}
           >
             {loading ? t('loading') : t('sendResetCode')}
           </button>
 
-          <div style={{marginTop:'1rem',textAlign:'center'}}>
+          <div className="patient-auth-back-nav">
             <Link to="/patient-login">
               {t('backToLogin')}
             </Link>
@@ -407,7 +403,6 @@ export function PatientForgotPassword(){
 
           <button
             className="patient-button"
-            style={{width:'100%'}}
             disabled={
               loading ||
               !passwordValid ||
@@ -489,7 +484,7 @@ export function PatientRegister() {
   const reviewPhone = normalisePatientPhone(form.phone, form.phoneCountry) || form.phone;
   if (googleReviewState) return <AuthShell title={t('createPatientAccount')} onboarding><section className="onboarding-success" aria-live="polite"><h2>{t('googleManualReviewTitle')}</h2><p>{t(googleReviewState === 'AMBIGUOUS_MATCH' ? 'googleAmbiguousReview' : 'googleManualReview')}</p><button className="patient-button" onClick={() => navigate('/patient-login')}>{t('signIn')}</button></section></AuthShell>;
   if (verified) return <AuthShell title={t('onboardingSuccessTitle')} onboarding><section className="onboarding-success" aria-live="polite"><Check size={44}/><p>{t('onboardingSuccessText')}</p><strong>{identity?.fullNameAr || identity?.fullNameEn}</strong>{identity?.fileNumber && <p className="onboarding-mrn">{t('onboardingMrn')}: {identity.fileNumber}</p>}{error&&<Alert>{error}</Alert>}<button className="patient-button" disabled={loading} onClick={continueToDashboard}>{loading?t('loading'):t('onboardingContinueDashboard')}</button></section></AuthShell>;
-  if (challenge) return <AuthShell title={t('verificationCode')} onboarding><form className="onboarding-verification" onSubmit={verify} aria-live="polite"><p className="onboarding-caption">{t('onboardingVerificationIntro')}</p>{challenge.developmentCode && <div className="patient-alert success">{t('developmentCode')}: <strong>{challenge.developmentCode}</strong></div>}<Field label={t('verificationCode')} value={code} onChange={setCode} autoComplete="one-time-code" inputMode="numeric" maxLength={6} dir="ltr"/>{notice&&<div className="patient-alert success" role="status">{notice}</div>}{error&&<Alert>{error}</Alert>}<button className="patient-button" style={{width:'100%'}} disabled={loading || resending}>{loading?t('loading'):t('verify')}</button><section className="onboarding-resend" aria-live="polite"><p>{t('onboardingResendPrompt')}</p><button type="button" className="onboarding-resend-button" disabled={resending || loading || resendRemaining > 0} onClick={resendVerification}>{resending ? t('loading') : resendRemaining > 0 ? t('onboardingResendAvailableIn', { seconds:resendRemaining }) : t('onboardingResendAction')}</button></section></form></AuthShell>;
+  if (challenge) return <AuthShell title={t('verificationCode')} onboarding><form className="onboarding-verification" onSubmit={verify} aria-live="polite"><p className="onboarding-caption">{t('onboardingVerificationIntro')}</p>{challenge.developmentCode && <div className="patient-alert success">{t('developmentCode')}: <strong>{challenge.developmentCode}</strong></div>}<Field label={t('verificationCode')} value={code} onChange={setCode} autoComplete="one-time-code" inputMode="numeric" maxLength={6} dir="ltr"/>{notice&&<div className="patient-alert success" role="status">{notice}</div>}{error&&<Alert>{error}</Alert>}<button className="patient-button" disabled={loading || resending}>{loading?t('loading'):t('verify')}</button><section className="onboarding-resend" aria-live="polite"><p>{t('onboardingResendPrompt')}</p><button type="button" className="onboarding-resend-button" disabled={resending || loading || resendRemaining > 0} onClick={resendVerification}>{resending ? t('loading') : resendRemaining > 0 ? t('onboardingResendAvailableIn', { seconds:resendRemaining }) : t('onboardingResendAction')}</button></section></form></AuthShell>;
   const nameFields = step === 0 ? NAME_FIELDS.slice(0, 4) : NAME_FIELDS.slice(4);
   return <AuthShell title={t('createPatientAccount')} onboarding><form className="onboarding-form" onSubmit={submit}>
     <div className="onboarding-progress-meta" aria-live="polite">{t('onboardingStepOf', { current:step + 1, total:ONBOARDING_STEPS.length })}</div>
@@ -670,8 +665,7 @@ export function PatientClaim() {
       </p>
 
           <div
-            className="patient-alert"
-            style={{ marginBottom: '1.25rem' }}
+            className="patient-alert patient-alert--info"
           >
             <strong>
               {lang === 'ar'
@@ -679,7 +673,7 @@ export function PatientClaim() {
                 : 'Why am I seeing this page?'}
             </strong>
 
-            <p style={{ margin: '.4rem 0 0' }}>
+            <p className="patient-claim-alert-desc">
               {lang === 'ar'
                 ? 'تم تسجيل الدخول إلى حسابك بنجاح، لكن النظام لم يؤكد بعد ارتباط الحساب بملف طبي. لن يتم عرض أي بيانات طبية حتى يتم الربط بشكل آمن.'
                 : 'You signed in successfully, but this account is not yet confirmed as linked to a medical record. Clinical data will remain unavailable until secure linking is completed.'}
@@ -730,10 +724,6 @@ export function PatientClaim() {
             <button
               type="submit"
               className="patient-button"
-              style={{
-                width: '100%',
-                marginTop: '1rem'
-              }}
               disabled={
                 loading ||
                 !form.code.trim() ||
@@ -750,15 +740,8 @@ export function PatientClaim() {
             </button>
           </form>
 
-          <div
-            style={{
-              marginTop: '1.25rem',
-              paddingTop: '1.25rem',
-              borderTop:
-                '1px solid var(--border-color, rgba(148, 163, 184, .2))'
-            }}
-          >
-            <p style={{ fontSize: '.9rem' }}>
+          <div className="patient-claim-footer">
+            <p className="patient-claim-help">
               {lang === 'ar'
                 ? 'ليس لديك رمز ربط؟ اطلب من موظف الاستقبال التحقق من ملفك وإصدار رمز جديد. الرمز صالح لمدة 30 دقيقة.'
                 : 'Do not have a claim code? Ask reception to verify your record and issue a new code. Claim codes are valid for 30 minutes.'}
@@ -766,11 +749,7 @@ export function PatientClaim() {
 
             <button
               type="button"
-              className="patient-button secondary"
-              style={{
-                width: '100%',
-                marginTop: '.75rem'
-              }}
+              className="patient-button secondary patient-claim-logout-btn"
               onClick={handleLogout}
             >
               {lang === 'ar'
@@ -786,7 +765,7 @@ function OfflineActivation(){
   const { t } = useTranslation(); const navigate = useNavigate();
   const [form,setForm]=useState({code:'',dateOfBirth:'',email:'',password:'',confirmPassword:''}); const [error,setError]=useState(''); const [loading,setLoading]=useState(false);
   async function submit(event){event.preventDefault();if(form.password!==form.confirmPassword){setError(t('passwordMismatch'));return;}setLoading(true);setError('');try{await apiRequest('/api/patient-auth/offline-activation',{method:'POST',body:JSON.stringify({code:form.code.trim(),dateOfBirth:form.dateOfBirth,email:form.email.trim()||undefined,password:form.password})});navigate('/patient-login',{state:{message:t('offlineActivationSuccess')}});}catch(e){setError(e.code==='CLAIM_VERIFICATION_FAILED'?t('claimCredentialInvalid'):e.message);}finally{setLoading(false);}}
-  return <AuthShell title={t('offlineActivation')}><p>{t('offlineActivationInstructions')}</p><form onSubmit={submit}><Field label={t('claimCode')} value={form.code} onChange={code=>setForm({...form,code})} autoComplete="one-time-code"/><Field label={t('dateOfBirth')} type="date" value={form.dateOfBirth} onChange={dateOfBirth=>setForm({...form,dateOfBirth})}/><Field label={t('emailOptional')} type="email" value={form.email} onChange={email=>setForm({...form,email})}/><Field label={t('newPassword')} type="password" value={form.password} onChange={password=>setForm({...form,password})} autoComplete="new-password" helperText={t('passwordRequirementsSummary')}/><Field label={t('confirmPassword')} type="password" value={form.confirmPassword} onChange={confirmPassword=>setForm({...form,confirmPassword})} autoComplete="new-password" error={Boolean(form.confirmPassword && form.password !== form.confirmPassword)} helperText={form.confirmPassword && form.password !== form.confirmPassword ? t('passwordMismatch') : undefined}/>{error&&<Alert>{error}</Alert>}<button className="patient-button" style={{width:'100%'}} disabled={loading}>{loading?t('loading'):t('activatePatientAccount')}</button></form></AuthShell>;
+  return <AuthShell title={t('offlineActivation')}><p>{t('offlineActivationInstructions')}</p><form onSubmit={submit}><Field label={t('claimCode')} value={form.code} onChange={code=>setForm({...form,code})} autoComplete="one-time-code"/><Field label={t('dateOfBirth')} type="date" value={form.dateOfBirth} onChange={dateOfBirth=>setForm({...form,dateOfBirth})}/><Field label={t('emailOptional')} type="email" value={form.email} onChange={email=>setForm({...form,email})}/><Field label={t('newPassword')} type="password" value={form.password} onChange={password=>setForm({...form,password})} autoComplete="new-password" helperText={t('passwordRequirementsSummary')}/><Field label={t('confirmPassword')} type="password" value={form.confirmPassword} onChange={confirmPassword=>setForm({...form,confirmPassword})} autoComplete="new-password" error={Boolean(form.confirmPassword && form.password !== form.confirmPassword)} helperText={form.confirmPassword && form.password !== form.confirmPassword ? t('passwordMismatch') : undefined}/>{error&&<Alert>{error}</Alert>}<button className="patient-button" disabled={loading}>{loading?t('loading'):t('activatePatientAccount')}</button></form></AuthShell>;
 }
 
 function AuthShell({ title, children, onboarding = false }) {
