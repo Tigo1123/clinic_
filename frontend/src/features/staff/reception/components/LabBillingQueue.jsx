@@ -1,199 +1,141 @@
+import { FlaskConical, RefreshCw } from 'lucide-react';
 
-export default function LabBillingQueue({ lang, labBillingLoading, labBillingOrders, selectedLabBillingOrder, refreshLabBillingQueue, handleSelectLabBillingOrder }) {
+export default function LabBillingQueue({
+  lang,
+  labBillingLoading,
+  labBillingOrders,
+  selectedLabBillingOrder,
+  refreshLabBillingQueue,
+  handleSelectLabBillingOrder
+}) {
   return (
-    <section
-      className="glass-panel"
-      style={{
-        padding: '1rem',
-        marginBottom: '0.75rem'
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: '0.75rem',
-          marginBottom: '0.75rem'
-        }}
-      >
-        <div>
-          <strong>
-            {lang === 'ar'
-              ? 'فواتير المختبر'
-              : 'Laboratory Bills'}
-          </strong>
-
-          <div
-            style={{
-              fontSize: '0.78rem',
-              color: 'var(--text-secondary)',
-              marginTop: '0.2rem'
-            }}
-          >
+    <div className="reception-view-container">
+      <header className="reception-view-header">
+        <div className="reception-view-header-start">
+          <h1 className="ui-page-title">{lang === 'ar' ? 'فواتير المختبر' : 'Lab billing'}</h1>
+          <span className="reception-header-subtitle">
             {lang === 'ar'
               ? 'طلبات الفحوصات الصادرة من الطبيب'
               : 'Diagnostic orders submitted by doctors'}
-          </div>
+          </span>
         </div>
-
         <button
           type="button"
-          className="btn btn-secondary"
-          style={{
-            padding: '4px 10px',
-            fontSize: '0.75rem'
-          }}
+          className="btn btn-secondary reception-refresh-btn"
           onClick={refreshLabBillingQueue}
           disabled={labBillingLoading}
         >
-          {labBillingLoading
-            ? (lang === 'ar'
-                ? 'جاري التحديث...'
-                : 'Refreshing...')
-            : (lang === 'ar'
-                ? 'تحديث'
-                : 'Refresh')}
+          <RefreshCw size={14} className={labBillingLoading ? 'spin' : ''} aria-hidden="true" />
+          <span>
+            {labBillingLoading
+              ? (lang === 'ar' ? 'جاري التحديث...' : 'Refreshing...')
+              : (lang === 'ar' ? 'تحديث' : 'Refresh')}
+          </span>
         </button>
-      </div>
+      </header>
 
-      {labBillingOrders.length === 0 ? (
-        <div
-          style={{
-            padding: '1rem',
-            textAlign: 'center',
-            color: 'var(--text-secondary)',
-            fontSize: '0.85rem'
-          }}
-        >
-          {lang === 'ar'
-            ? 'لا توجد طلبات مختبر تحتاج متابعة مالية حالياً.'
-            : 'No laboratory orders currently require billing follow-up.'}
+      <div className="ui-panel reception-lab-panel">
+        <div className="reception-lab-panel-header">
+          <div className="reception-lab-title-wrap">
+            <FlaskConical size={18} aria-hidden="true" />
+            <h2 className="reception-panel-title">
+              {lang === 'ar' ? 'طلبات بانتظار التحصيل' : 'Orders Awaiting Payment'}
+            </h2>
+          </div>
+          <span className="reception-panel-count">
+            {labBillingOrders.length} {lang === 'ar' ? 'طلبات' : 'orders'}
+          </span>
         </div>
-      ) : (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.5rem'
-          }}
-        >
-          {labBillingOrders.map((order) => {
-            const remaining =
-              order.invoice?.remainingBalanceSdg ??
-              order.estimatedTotalSdg ??
-              0;
 
-            const paid = order.status === 'PAID';
+        {labBillingOrders.length === 0 ? (
+          <div className="reception-panel-empty">
+            <span>
+              {lang === 'ar'
+                ? 'لا توجد طلبات مختبر تحتاج متابعة مالية حالياً.'
+                : 'No laboratory orders currently require billing follow-up.'}
+            </span>
+          </div>
+        ) : (
+          <div className="reception-lab-list">
+            {labBillingOrders.map((order) => {
+              const remaining =
+                order.invoice?.remainingBalanceSdg ??
+                order.estimatedTotalSdg ??
+                0;
+              const paid = order.status === 'PAID';
+              const isSelected = selectedLabBillingOrder?.id === order.id;
 
-            return (
-              <button
-                key={order.id}
-                type="button"
-                className={`queue-card-item glass-panel ${
-                  selectedLabBillingOrder?.id === order.id
-                    ? 'selected'
-                    : ''
-                }`}
-                style={{
-                  width: '100%',
-                  textAlign: 'start',
-                  cursor: 'pointer'
-                }}
-                onClick={() =>
-                  handleSelectLabBillingOrder(order)
-                }
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    gap: '0.75rem',
-                    flexWrap: 'wrap'
-                  }}
+              let statusClass = 'ui-status--warn';
+              let statusLabel = lang === 'ar' ? 'بانتظار الدفع' : 'Waiting for Payment';
+
+              if (order.pricingRequired) {
+                statusClass = 'ui-status--warn';
+                statusLabel = lang === 'ar' ? 'بانتظار مراجعة المختبر' : 'Lab Review Pending';
+              } else if (paid) {
+                statusClass = 'ui-status--ok';
+                statusLabel = lang === 'ar' ? 'مدفوع' : 'Paid';
+              } else if (order.billingStatus === 'PARTIALLY_PAID') {
+                statusClass = 'ui-status--warn';
+                statusLabel = lang === 'ar' ? 'مدفوع جزئياً' : 'Partially Paid';
+              }
+
+              const patientName = lang === 'ar'
+                ? order.patient?.fullNameAr || order.patient?.fullNameEn || '—'
+                : order.patient?.fullNameEn || order.patient?.fullNameAr || '—';
+
+              const testsSummary = order.items
+                .map((item) =>
+                  lang === 'ar'
+                    ? item.service?.labelAr ||
+                      `${item.customTestName}${item.labReviewStatus === 'EXTERNAL' ? ' — خارجي' : ''}`
+                    : item.service?.labelEn ||
+                      `${item.customTestName}${item.labReviewStatus === 'EXTERNAL' ? ' — External' : ''}`
+                )
+                .filter(Boolean)
+                .join(' • ');
+
+              return (
+                <article
+                  key={order.id}
+                  className={`reception-lab-row ${isSelected ? 'is-selected' : ''}`}
                 >
-                  <strong>
-                    {lang === 'ar'
-                      ? order.patient.fullNameAr
-                      : order.patient.fullNameEn}
-                  </strong>
-
-                  <span
-                    className={`badge ${
-                      paid
-                        ? 'badge-success'
-                        : 'badge-warning'
-                    }`}
-                  >
-                    {order.pricingRequired
-                      ? (lang === 'ar'
-                          ? 'بانتظار مراجعة المختبر'
-                          : 'Lab Review Pending')
-                      : paid
-                        ? (lang === 'ar'
-                            ? 'مدفوع'
-                            : 'Paid')
-                        : order.billingStatus ===
-                            'PARTIALLY_PAID'
-                          ? (lang === 'ar'
-                              ? 'مدفوع جزئياً'
-                              : 'Partially Paid')
-                          : (lang === 'ar'
-                              ? 'بانتظار الدفع'
-                              : 'Waiting for Payment')}
-                  </span>
-                </div>
-
-                <div
-                  style={{
-                    fontSize: '0.8rem',
-                    color: 'var(--text-secondary)',
-                    marginTop: '0.35rem'
-                  }}
-                >
-                  {order.items
-                    .map((item) =>
-                      lang === 'ar'
-                        ? item.service?.labelAr ||
-                          `${item.customTestName}${item.labReviewStatus === 'EXTERNAL' ? ' — خارجي' : ''}`
-                        : item.service?.labelEn ||
-                          `${item.customTestName}${item.labReviewStatus === 'EXTERNAL' ? ' — External' : ''}`
-                    )
-                    .filter(Boolean)
-                    .join(' • ')}
-                </div>
-
-                {!order.pricingRequired && (
-                  <div
-                    style={{
-                      marginTop: '0.35rem',
-                      fontWeight: '600'
-                    }}
-                  >
-                    {paid
-                      ? (lang === 'ar'
-                          ? 'جاهز للمختبر'
-                          : 'Ready for Laboratory')
-                      : `${lang === 'ar'
-                          ? 'المتبقي'
-                          : 'Remaining'}: ${Number(
-                          remaining
-                        ).toLocaleString(
-                          lang === 'ar'
-                            ? 'ar'
-                            : 'en'
-                        )} ${
-                          lang === 'ar'
-                            ? 'ج.س'
-                            : 'SDG'
-                        }`}
+                  <div className="reception-lab-patient">
+                    <strong>{patientName}</strong>
+                    <span className="ui-mono" dir="ltr">{order.patient?.fileNumber || '—'}</span>
                   </div>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </section>
+
+                  <div className="reception-lab-tests" title={testsSummary}>
+                    {testsSummary || (lang === 'ar' ? 'فحوصات مختبر' : 'Laboratory tests')}
+                  </div>
+
+                  <span className={`ui-status ${statusClass} reception-lab-status`}>
+                    {statusLabel}
+                  </span>
+
+                  <span className="ui-mono reception-lab-amount" dir="ltr">
+                    {!order.pricingRequired && !paid && `${Number(remaining).toLocaleString(lang === 'ar' ? 'ar' : 'en')} ${lang === 'ar' ? 'ج.س' : 'SDG'}`}
+                    {paid && <span className="reception-lab-ready-text">{lang === 'ar' ? 'جاهز للمختبر' : 'Ready for Laboratory'}</span>}
+                  </span>
+
+                  <div className="reception-lab-action">
+                    <button
+                      type="button"
+                      className="btn btn-secondary reception-lab-action-btn"
+                      onClick={() => handleSelectLabBillingOrder(order)}
+                    >
+                      {paid
+                        ? (lang === 'ar' ? 'عرض الفاتورة' : 'View Invoice')
+                        : order.billingStatus === 'PARTIALLY_PAID'
+                          ? (lang === 'ar' ? 'إكمال دفع المختبر' : 'Continue Laboratory Payment')
+                          : (lang === 'ar' ? 'دفع رسوم المختبر' : 'Pay Laboratory')}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
