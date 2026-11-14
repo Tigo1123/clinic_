@@ -1,22 +1,22 @@
-.admin-schedule-panel { display:flex; flex-direction:column; gap:1rem; }
-.admin-schedule-header { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; padding:1.25rem; border-radius:16px; background:linear-gradient(135deg, var(--color-primary, #0f766e), #164e63); color:#fff; }
-.admin-schedule-eyebrow { display:flex; align-items:center; gap:.45rem; font-size:.8rem; opacity:.9; }
-.admin-schedule-header h2 { margin:.4rem 0; }
-.admin-schedule-header p { margin:0; opacity:.9; }
-.admin-schedule-doctor { margin:0; color:var(--text-secondary, #64748b); }
-.admin-schedule-notice { padding:.75rem 1rem; border-inline-start:4px solid var(--color-primary, #0f766e); border-radius:8px; background:var(--bg-card, #f0fdfa); color:var(--text-primary, #134e4a); }
-.admin-schedule-empty { padding:1rem; border:1px dashed var(--border-color, #cbd5e1); border-radius:12px; color:var(--text-secondary, #64748b); }
-.admin-period-list { display:grid; gap:1rem; margin-top:1rem; }
-.admin-period { border:1px solid var(--border-color, #e2e8f0); border-radius:12px; padding:1rem; min-width:0; }
-.admin-period legend { padding:0 .4rem; font-weight:700; }
-.admin-period-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; align-items:end; }
-.admin-period-grid label, .admin-break { display:flex; flex-direction:column; gap:.35rem; }
-.admin-breaks { display:flex; flex-direction:column; gap:.6rem; margin-top:1rem; }
-.admin-break { display:grid; grid-template-columns:1fr 1fr auto; align-items:end; gap:.5rem; }
-.admin-schedule-actions { display:flex; flex-wrap:wrap; gap:.75rem; margin-top:1rem; }
-.admin-exception-form { margin-top:1.5rem; padding-top:1.5rem; border-top:1px solid var(--border-color, #e2e8f0); }
-.admin-exception-form h3 { margin-top:0; }
-.admin-exception { display:flex; justify-content:space-between; align-items:center; gap:.75rem; padding:.75rem 0; border-bottom:1px solid var(--border-color, #e2e8f0); }
-@media (max-width: 700px) { .admin-period-grid { grid-template-columns:1fr; } .admin-break { grid-template-columns:1fr 1fr auto; } .admin-exception { align-items:flex-start; flex-direction:column; } }
+.admin-schedule-panel { display: flex; flex-direction: column; gap: 1.5rem; }
+.admin-schedule-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; padding: 0; background: transparent; color: var(--color-text); }
+.admin-schedule-eyebrow { display: flex; align-items: center; gap: .45rem; font-size: .75rem; font-weight: 500; text-transform: uppercase; letter-spacing: .06em; color: var(--color-text-muted); }
+.admin-schedule-header h2 { margin: .25rem 0; font-size: 1.75rem; font-weight: 600; letter-spacing: -.01em; color: var(--color-text); }
+.admin-schedule-header p { margin: 0; color: var(--color-text-muted); font-size: 14px; }
+.admin-schedule-doctor { margin: 0; color: var(--color-text-secondary); font-weight: 500; }
+.admin-schedule-notice { padding: .75rem 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-muted); color: var(--color-text); }
+.admin-schedule-empty { padding: 1.5rem; border: 1px dashed var(--color-border); border-radius: var(--radius-lg); color: var(--color-text-muted); text-align: center; }
+.admin-period-list { display: grid; gap: 1rem; margin-top: 1rem; }
+.admin-period { border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 1.25rem; min-width: 0; background: var(--color-surface); }
+.admin-period legend { padding: 0 .4rem; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--color-text-muted); }
+.admin-period-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; align-items: end; }
+.admin-period-grid label, .admin-break { display: flex; flex-direction: column; gap: .35rem; font-size: 12px; font-weight: 500; color: var(--color-text-muted); }
+.admin-breaks { display: flex; flex-direction: column; gap: .6rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--color-divider); }
+.admin-break { display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: .5rem; }
+.admin-schedule-actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1rem; }
+.admin-exception-form { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--color-divider); }
+.admin-exception-form h3 { margin-top: 0; font-size: 16px; font-weight: 600; color: var(--color-text); }
+.admin-exception { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: .75rem 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); margin-top: .5rem; }
+@media (max-width: 700px) { .admin-period-grid { grid-template-columns: 1fr; } .admin-break { grid-template-columns: 1fr 1fr auto; } .admin-exception { align-items: flex-start; flex-direction: column; } }
 
 .admin-schedule-editor { border: 0; padding: 0; margin: 0; min-width: 0; }
