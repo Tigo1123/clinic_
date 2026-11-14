@@ -1,6 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { HttpException, HttpStatus } from '@nestjs/common';
+import { getClinicDateString } from '../src/utils/clinicTime.js';
+
+const DAY_NAMES = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+
+// A clinic-local date `days` after today, so fixtures never fall in the past.
+function clinicDateFromToday(days) {
+  const [year, month, day] = getClinicDateString().split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
+function dayNameOf(date) {
+  return DAY_NAMES[new Date(`${date}T00:00:00Z`).getUTCDay()];
+}
 
 test('NestJS Phase 7: Appointments Module resolves from AppModule', async () => {
   process.env.NODE_ENV = 'test';
@@ -349,6 +362,7 @@ test('AppointmentsService: applyOverride validates justification, state, and emi
 
 test('AppointmentsService: transfer validates target doctor, checked-in status, and locks rows', async () => {
   const { AppointmentsService } = await import('../dist/modules/appointments/appointments.service.js');
+  const transferDate = clinicDateFromToday(1);
 
   let queueEmitted = null;
   const mockGateway = {
@@ -365,7 +379,7 @@ test('AppointmentsService: transfer validates target doctor, checked-in status, 
             id: 'apt-checkin',
             doctorId: 'doc-source',
             status: 'CHECKED_IN',
-            appointmentDate: '2026-11-13',
+            appointmentDate: transferDate,
             appointmentTime: '19:00',
           };
         }
@@ -374,7 +388,7 @@ test('AppointmentsService: transfer validates target doctor, checked-in status, 
             id: 'apt-not-checkin',
             doctorId: 'doc-source',
             status: 'SCHEDULED',
-            appointmentDate: '2026-11-13',
+            appointmentDate: transferDate,
             appointmentTime: '19:00',
           };
         }
@@ -419,7 +433,7 @@ test('AppointmentsService: transfer validates target doctor, checked-in status, 
           active: true,
           periods: [
             {
-              dayOfWeek: 'FRIDAY',
+              dayOfWeek: dayNameOf(transferDate),
               startTime: '18:00',
               endTime: '22:00',
               slotDurationMinutes: 30,

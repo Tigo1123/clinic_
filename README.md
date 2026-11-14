@@ -5,7 +5,7 @@ and `FACILITY_NAME_EN` deployment variables to show the institution's name promi
 language falls back to the Shifa product name when its facility name is unset. No facility name
 is assumed or supplied by this repository.
 
-The repository contains an Express/Prisma backend and React/Vite frontend. The active database
+The repository contains a Node.js/Prisma backend (an Express server and a NestJS server at parity, ahead of the NestJS cutover) and React/Vite frontend. The active database
 provider is PostgreSQL. Development, test, staging, and production must use separate databases
 or tightly isolated schemas; uploads use independent durable storage.
 
