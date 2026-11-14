@@ -1,8 +1,5 @@
-import { Activity, ArrowUpRight, CalendarDays, FileHeart, FlaskConical, HeartPulse, Pill, ReceiptText, ShieldCheck, Stethoscope, UserRound, UserRoundCheck, UsersRound } from 'lucide-react';
+import { CalendarDays, FileHeart, FlaskConical, HeartPulse, Pill, ReceiptText, ShieldCheck, Stethoscope, UserRound, UserRoundCheck, UsersRound } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import receptionPhoto from '../../../assets/landing/healthcare-reception.webp';
-import laboratoryPhoto from '../../../assets/landing/healthcare-laboratory.webp';
-import consultationPhoto from '../../../assets/landing/healthcare-consultation.webp';
 
 const overviewIcons = [HeartPulse, CalendarDays, FlaskConical, Pill, ReceiptText];
 const featureIcons = [CalendarDays, FileHeart, Stethoscope, FlaskConical, Pill, ReceiptText];
@@ -10,132 +7,333 @@ const journeyIcons = [CalendarDays, UserRoundCheck, Stethoscope, ReceiptText, Fl
 const roleIcons = [UserRound, UsersRound, Stethoscope, FlaskConical, Pill, ShieldCheck];
 
 function SectionHeading({ kicker, title, intro, id }) {
-  return <div className="public-section-heading">
-    <span className="public-kicker"><span className="public-kicker__dot" />{kicker}</span>
-    <h2 id={id}>{title}</h2>
-    <p>{intro}</p>
-  </div>;
+  return (
+    <div className="public-section-heading">
+      {kicker && <span className="ui-section-label">{kicker}</span>}
+      <h2 id={id} className="public-section-heading__title">{title}</h2>
+      {intro && <p className="public-section-heading__intro">{intro}</p>}
+    </div>
+  );
 }
 
 export function SystemOverview({ copy }) {
-  return <section className="public-overview" aria-label={copy.overviewLabel}>
-    <div className="public-container public-overview__inner">
-      <p>{copy.overviewLabel}</p>
-      <div className="public-overview__items">
-        {copy.overviewItems.map((item, index) => {
-          const Icon = overviewIcons[index];
-          return <span key={item}><Icon aria-hidden="true" />{item}</span>;
-        })}
+  return (
+    <section className="public-overview public-section" aria-label={copy.overviewLabel}>
+      <div className="public-container">
+        <div className="ui-panel public-overview__panel">
+          <span className="ui-section-label public-overview__label">{copy.overviewLabel}</span>
+          <div className="public-overview__items">
+            {copy.overviewItems.map((item, index) => {
+              const Icon = overviewIcons[index] || HeartPulse;
+              return (
+                <span className="public-overview__item" key={item}>
+                  <Icon size={16} aria-hidden="true" />
+                  <span>{item}</span>
+                </span>
+              );
+            })}
+          </div>
+        </div>
       </div>
-    </div>
-  </section>;
-}
-
-function FeaturePreview({ feature, index }) {
-  const steps = [feature.previewA, feature.previewB, feature.previewC];
-  return <div className={`feature-preview feature-preview--${index + 1}`} aria-hidden="true">
-    <div className="feature-preview__top"><span className="feature-preview__dots"><i /><i /><i /></span><span>{feature.previewTitle}</span><Activity /></div>
-    <div className="feature-preview__body">
-      {steps.map((step, stepIndex) => <div className="feature-preview__step" key={step}>
-        <span className="feature-preview__step-mark">{String(stepIndex + 1).padStart(2, '0')}</span>
-        <strong>{step}</strong>
-      </div>)}
-    </div>
-  </div>;
+    </section>
+  );
 }
 
 export function FeatureSection({ copy }) {
-  return <section className="public-features public-section" id="features" aria-labelledby="features-title">
-    <div className="public-container">
-      <SectionHeading kicker={copy.featureKicker} title={copy.featureTitle} intro={copy.featureIntro} id="features-title" />
-      <div className="public-feature-grid">
-        {copy.features.map((feature, index) => {
-          const Icon = featureIcons[index];
-          return <article className={`public-feature public-feature--${index + 1}`} key={feature.tag}>
-            <div className="public-feature__top"><span className="public-feature__icon"><Icon aria-hidden="true" /></span><span className="public-feature__tag">{feature.tag}</span></div>
-            <div className="public-feature__copy"><h3>{feature.title}</h3><p>{feature.body}</p></div>
-            <FeaturePreview feature={feature} index={index} />
-          </article>;
-        })}
+  return (
+    <section className="public-features public-section" id="features" aria-labelledby="features-title">
+      <div className="public-container">
+        <SectionHeading kicker={copy.featureKicker} title={copy.featureTitle} intro={copy.featureIntro} id="features-title" />
+        <div className="ui-panel">
+          {copy.features.map((feature, index) => {
+            const Icon = featureIcons[index] || HeartPulse;
+            const steps = [feature.previewA, feature.previewB, feature.previewC].filter(Boolean);
+            return (
+              <div className="ui-row public-feature-row" key={feature.tag}>
+                <span className="public-feature-row__icon" aria-hidden="true">
+                  <Icon size={18} />
+                </span>
+                <div className="public-feature-row__content">
+                  <div className="public-feature-row__header">
+                    <h3 className="public-feature-row__title">{feature.title}</h3>
+                    <span className="public-feature-row__tag">{feature.tag}</span>
+                  </div>
+                  <p className="public-feature-row__desc">{feature.body}</p>
+                  {steps.length > 0 && (
+                    <div className="public-feature-row__steps">
+                      <span className="ui-section-label public-feature-row__step-label">{feature.previewTitle}:</span>
+                      {steps.map((step, sIdx) => (
+                        <span className="public-feature-step" key={step}>
+                          <span className="ui-mono public-feature-step__num">
+                            {String(sIdx + 1).padStart(2, '0')}
+                          </span>
+                          <span>{step}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
-    </div>
-  </section>;
+    </section>
+  );
 }
 
 export function JourneySection({ copy }) {
-  return <section className="public-journey public-section" id="journey" aria-labelledby="journey-title">
-    <div className="public-container">
-      <SectionHeading kicker={copy.journeyKicker} title={copy.journeyTitle} intro={copy.journeyIntro} id="journey-title" />
-      <ol className="public-journey__track">
-        {copy.journey.map((step, index) => {
-          const Icon = journeyIcons[index];
-          return <li key={step.title}>
-            <div className="public-journey__number"><Icon aria-hidden="true" /><span>{String(index + 1).padStart(2, '0')}</span></div>
-            <h3>{step.title}</h3><p>{step.body}</p>
-          </li>;
-        })}
-      </ol>
-    </div>
-  </section>;
+  return (
+    <section className="public-journey public-section" id="journey" aria-labelledby="journey-title">
+      <div className="public-container">
+        <SectionHeading kicker={copy.journeyKicker} title={copy.journeyTitle} intro={copy.journeyIntro} id="journey-title" />
+        <div className="ui-panel">
+          <ol className="public-journey-list">
+            {copy.journey.map((step, index) => {
+              const Icon = journeyIcons[index] || HeartPulse;
+              return (
+                <li className="ui-row public-journey-row" key={step.title}>
+                  <span className="ui-mono public-journey-row__num">
+                    {String(index + 1).padStart(2, '0')}
+                  </span>
+                  <span className="public-journey-row__icon" aria-hidden="true">
+                    <Icon size={18} />
+                  </span>
+                  <div className="public-journey-row__content">
+                    <h3 className="public-journey-row__title">{step.title}</h3>
+                    <p className="public-journey-row__desc">{step.body}</p>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 export function HumanCareSection({ copy }) {
-  return <section className="public-human public-section" aria-labelledby="human-title">
-    <div className="public-container public-human__layout">
-      <div className="public-human__copy"><SectionHeading kicker={copy.humanKicker} title={copy.humanTitle} intro={copy.humanIntro} id="human-title" /><div className="public-human__detail"><HeartPulse aria-hidden="true" /><span>{copy.humanDetail}</span></div></div>
-      <div className="public-human__collage">
-        <figure className="public-human__image public-human__image--main"><img src={receptionPhoto} alt={copy.receptionAlt} loading="lazy" /><figcaption>{copy.receptionCaption}</figcaption></figure>
-        <figure className="public-human__image public-human__image--consult"><img src={consultationPhoto} alt={copy.consultationAlt} loading="lazy" /><figcaption>{copy.consultationCaption}</figcaption></figure>
-        <figure className="public-human__image public-human__image--lab"><img src={laboratoryPhoto} alt={copy.laboratoryAlt} loading="lazy" /><figcaption>{copy.laboratoryCaption}</figcaption></figure>
+  return (
+    <section className="public-human public-section" aria-labelledby="human-title">
+      <div className="public-container">
+        <SectionHeading kicker={copy.humanKicker} title={copy.humanTitle} intro={copy.humanIntro} id="human-title" />
+        <div className="ui-panel">
+          <div className="ui-row public-human-row">
+            <span className="public-human-row__icon" aria-hidden="true"><UsersRound size={18} /></span>
+            <div className="public-human-row__content">
+              <h3 className="public-human-row__title">{copy.receptionCaption}</h3>
+              <p className="public-human-row__desc">{copy.humanDetail}</p>
+            </div>
+          </div>
+          <div className="ui-row public-human-row">
+            <span className="public-human-row__icon" aria-hidden="true"><Stethoscope size={18} /></span>
+            <div className="public-human-row__content">
+              <h3 className="public-human-row__title">{copy.consultationCaption}</h3>
+              <p className="public-human-row__desc">{copy.humanDetail}</p>
+            </div>
+          </div>
+          <div className="ui-row public-human-row">
+            <span className="public-human-row__icon" aria-hidden="true"><FlaskConical size={18} /></span>
+            <div className="public-human-row__content">
+              <h3 className="public-human-row__title">{copy.laboratoryCaption}</h3>
+              <p className="public-human-row__desc">{copy.humanDetail}</p>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
-  </section>;
+    </section>
+  );
 }
 
 export function ProductPreviewSection({ copy, brand }) {
-  return <section className="public-product public-section" aria-labelledby="product-title">
-    <div className="public-container">
-      <SectionHeading kicker={copy.productKicker} title={copy.productTitle} intro={copy.productIntro} id="product-title" />
-      <div className="product-preview" data-asset-slot="product-dashboard-preview">
-        <div className="product-preview__bar"><span className="product-preview__dots"><i /><i /><i /></span><strong>{copy.productWorkspace}</strong><span className="product-preview__secure"><ShieldCheck aria-hidden="true" />{copy.productWorkspaceStatus}</span></div>
-        <div className="product-preview__body">
-          <aside className="product-preview__sidebar"><span className="product-preview__brand"><HeartPulse />{brand}</span><span className="is-active"><CalendarDays />{copy.productAppointments}</span><span><UsersRound />{copy.productPatients}</span><span><ReceiptText />{copy.productBilling}</span><span><FlaskConical />{copy.productLab}</span></aside>
-          <div className="product-preview__main"><div className="product-preview__heading"><div><span>{copy.productEyebrow}</span><h3>{copy.productHeading}</h3></div><button type="button" tabIndex="-1">{copy.productAction}<ArrowUpRight aria-hidden="true" /></button></div><div className="product-preview__metrics"><div><span>{copy.metricOneLabel}</span><strong>{copy.metricOneValue}</strong><small>{copy.metricOneNote}</small></div><div><span>{copy.metricTwoLabel}</span><strong>{copy.metricTwoValue}</strong><small>{copy.metricTwoNote}</small></div><div><span>{copy.metricThreeLabel}</span><strong>{copy.metricThreeValue}</strong><small>{copy.metricThreeNote}</small></div></div><div className="product-preview__grid"><div className="product-preview__queue"><div className="product-preview__subhead"><strong>{copy.queueTitle}</strong><span>{copy.queueToday}</span></div>{[copy.queueOne, copy.queueTwo, copy.queueThree].map((item, index) => <div className="product-preview__queue-item" key={item}><span className={`product-preview__avatar product-preview__avatar--${index + 1}`}>{index + 1}</span><div><strong>{item}</strong><small>{copy.queueMeta[index]}</small></div><span className="product-preview__badge">{copy.queueStatus[index]}</span></div>)}</div><div className="product-preview__chart"><div className="product-preview__subhead"><strong>{copy.chartTitle}</strong><span>{copy.chartRange}</span></div><div className="product-preview__bars" aria-hidden="true"><i /><i /><i /><i /><i /><i /><i /></div><div className="product-preview__axis"><span>08:00</span><span>12:00</span><span>16:00</span></div></div></div></div>
+  const workspaces = [
+    [CalendarDays, copy.productAppointments],
+    [UsersRound, copy.productPatients],
+    [ReceiptText, copy.productBilling],
+    [FlaskConical, copy.productLab]
+  ];
+
+  const queueItems = [
+    { title: copy.queueOne, meta: copy.queueMeta[0], status: copy.queueStatus[0], modifier: 'ok' },
+    { title: copy.queueTwo, meta: copy.queueMeta[1], status: copy.queueStatus[1], modifier: 'wait' },
+    { title: copy.queueThree, meta: copy.queueMeta[2], status: copy.queueStatus[2], modifier: 'warn' }
+  ];
+
+  return (
+    <section className="public-product public-section" aria-labelledby="product-title">
+      <div className="public-container">
+        <SectionHeading kicker={copy.productKicker} title={copy.productTitle} intro={copy.productIntro} id="product-title" />
+        <div className="ui-panel public-product-panel">
+          <div className="public-product-panel__header">
+            <div className="public-product-panel__brand">
+              <HeartPulse size={16} aria-hidden="true" />
+              <span>{brand} · {copy.productWorkspace}</span>
+            </div>
+            <span className="ui-status ui-status--ok">{copy.productWorkspaceStatus}</span>
+          </div>
+
+          <div className="public-product-panel__subheader">
+            <div>
+              <span className="ui-section-label">{copy.productEyebrow}</span>
+              <h3 className="public-product-panel__title">{copy.productHeading}</h3>
+            </div>
+            <button type="button" className="public-button public-button--secondary public-product-panel__action" tabIndex={-1}>
+              {copy.productAction}
+            </button>
+          </div>
+
+          <div className="public-product-panel__nav" aria-hidden="true">
+            {workspaces.map(([Icon, label], idx) => (
+              <span className={`public-product-panel__nav-item ${idx === 0 ? 'is-active' : ''}`} key={label}>
+                <Icon size={16} aria-hidden="true" />
+                <span>{label}</span>
+              </span>
+            ))}
+          </div>
+
+          <div className="public-product-panel__metrics">
+            <div className="public-product-metric">
+              <span className="ui-section-label">{copy.metricOneLabel}</span>
+              <strong className="ui-mono public-product-metric__val">{copy.metricOneValue}</strong>
+              <small className="public-product-metric__note">{copy.metricOneNote}</small>
+            </div>
+            <div className="public-product-metric">
+              <span className="ui-section-label">{copy.metricTwoLabel}</span>
+              <strong className="ui-mono public-product-metric__val">{copy.metricTwoValue}</strong>
+              <small className="public-product-metric__note">{copy.metricTwoNote}</small>
+            </div>
+            <div className="public-product-metric">
+              <span className="ui-section-label">{copy.metricThreeLabel}</span>
+              <strong className="ui-mono public-product-metric__val">{copy.metricThreeValue}</strong>
+              <small className="public-product-metric__note">{copy.metricThreeNote}</small>
+            </div>
+          </div>
+
+          <div className="public-product-panel__queue-header">
+            <strong className="public-product-panel__queue-title">{copy.queueTitle}</strong>
+            <span className="ui-mono public-product-panel__queue-badge">{copy.queueToday}</span>
+          </div>
+
+          <div className="public-product-panel__queue-rows">
+            {queueItems.map((item, index) => (
+              <div className="ui-row public-product-queue-row" key={item.title}>
+                <span className="ui-mono public-product-queue-row__num">
+                  {String(index + 1).padStart(2, '0')}
+                </span>
+                <div className="public-product-queue-row__main">
+                  <strong className="public-product-queue-row__title">{item.title}</strong>
+                  <span className="ui-mono public-product-queue-row__meta">{item.meta}</span>
+                </div>
+                <span className={`ui-status ui-status--${item.modifier}`}>{item.status}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="public-product-panel__chart">
+            <div className="public-product-panel__chart-header">
+              <span className="ui-section-label">{copy.chartTitle}</span>
+              <span className="ui-mono public-product-panel__chart-range">{copy.chartRange}</span>
+            </div>
+            <div className="public-product-panel__chart-timeline">
+              <span className="ui-mono">08:00</span>
+              <span className="public-product-panel__chart-bar" aria-hidden="true" />
+              <span className="ui-mono">12:00</span>
+              <span className="public-product-panel__chart-bar" aria-hidden="true" />
+              <span className="ui-mono">16:00</span>
+            </div>
+          </div>
         </div>
+
+        <p className="public-product-note">
+          <ShieldCheck size={14} aria-hidden="true" />
+          <span>{copy.productNote}</span>
+        </p>
       </div>
-      <p className="product-preview__note"><ShieldCheck aria-hidden="true" />{copy.productNote}</p>
-    </div>
-  </section>;
+    </section>
+  );
 }
 
 export function RoleSection({ copy }) {
-  return <section className="public-roles public-section" id="about" aria-labelledby="roles-title">
-    <div className="public-container public-roles__layout">
-      <div className="public-roles__intro"><SectionHeading kicker={copy.rolesKicker} title={copy.rolesTitle} intro={copy.rolesIntro} id="roles-title" /><div className="public-roles__symbol" aria-hidden="true"><span><HeartPulse /></span><i /><i /><i /></div></div>
-      <div className="public-roles__grid">
-        {copy.roles.map((role, index) => {
-          const Icon = roleIcons[index];
-          return <article className="public-role" key={role.title}><span className="public-role__icon"><Icon aria-hidden="true" /></span><div><h3>{role.title}</h3><p>{role.body}</p></div></article>;
-        })}
+  return (
+    <section className="public-roles public-section" id="about" aria-labelledby="roles-title">
+      <div className="public-container">
+        <SectionHeading kicker={copy.rolesKicker} title={copy.rolesTitle} intro={copy.rolesIntro} id="roles-title" />
+        <div className="ui-panel">
+          {copy.roles.map((role, index) => {
+            const Icon = roleIcons[index] || HeartPulse;
+            return (
+              <div className="ui-row public-role-row" key={role.title}>
+                <span className="public-role-row__icon" aria-hidden="true">
+                  <Icon size={18} />
+                </span>
+                <div className="public-role-row__content">
+                  <h3 className="public-role-row__title">{role.title}</h3>
+                  <p className="public-role-row__desc">{role.body}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
-    </div>
-  </section>;
+    </section>
+  );
 }
 
 export function FinalCTA({ copy }) {
-  return <section className="public-cta public-section" aria-labelledby="cta-title">
-    <div className="public-container"><div className="public-cta__panel">
-      <div className="public-cta__decoration" aria-hidden="true"><span /><span /><span /></div>
-      <div className="public-cta__content"><span className="public-kicker"><span className="public-kicker__dot" />{copy.ctaKicker}</span><h2 id="cta-title">{copy.ctaTitle}</h2><p>{copy.ctaBody}</p><div className="public-cta__actions"><Link className="public-button public-button--light" to="/register">{copy.createAccount}<ArrowUpRight aria-hidden="true" /></Link><Link className="public-button public-button--ghost" to="/patient-login">{copy.patientLogin}<ArrowUpRight aria-hidden="true" /></Link></div></div>
-      <span className="public-cta__mark" aria-hidden="true"><HeartPulse /></span>
-    </div></div>
-  </section>;
+  return (
+    <section className="public-cta public-section" aria-labelledby="cta-title">
+      <div className="public-container">
+        <div className="ui-panel public-cta-panel">
+          <span className="ui-section-label">{copy.ctaKicker}</span>
+          <h2 id="cta-title" className="public-cta-panel__title">{copy.ctaTitle}</h2>
+          <p className="public-cta-panel__desc">{copy.ctaBody}</p>
+          <div className="public-cta-panel__actions">
+            <Link className="public-button public-button--primary" to="/register">
+              {copy.createAccount}
+            </Link>
+            <Link className="public-link" to="/patient-login">
+              {copy.patientLogin}
+            </Link>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 export function LandingFooter({ copy, brand, descriptor }) {
-  return <footer className="public-footer"><div className="public-container public-footer__inner">
-      <div className="public-footer__brand"><Link className="public-brand" to="/"><span className="public-brand__mark"><HeartPulse aria-hidden="true" /></span><span className="public-brand__lockup"><span className="public-brand__name">{brand}</span><small>{descriptor}</small></span></Link><p>{copy.footerDescription}</p></div>
-    <div className="public-footer__column"><strong>{copy.footerNavigate}</strong><a href="#home">{copy.home}</a><a href="#features">{copy.featuresNav}</a><a href="#journey">{copy.howItWorks}</a><a href="#about">{copy.about}</a></div>
-    <div className="public-footer__column"><strong>{copy.footerAccess}</strong><Link to="/register">{copy.createAccount}</Link><Link to="/patient-login">{copy.patientLogin}</Link><Link to="/staff">{copy.staffLogin}</Link></div>
-  </div><div className="public-container public-footer__bottom"><span>© {new Date().getFullYear()} {brand} · {descriptor}</span><span>{copy.footerDescription}</span></div></footer>;
+  return (
+    <footer className="public-footer">
+      <div className="public-container public-footer__inner">
+        <div className="public-footer__brand">
+          <Link className="public-brand" to="/" aria-label={brand}>
+            <span className="public-brand__mark"><HeartPulse aria-hidden="true" size={16} /></span>
+            <span className="public-brand__lockup">
+              <span className="public-brand__name">{brand}</span>
+              {descriptor && <small className="public-brand__descriptor">{descriptor}</small>}
+            </span>
+          </Link>
+          <p className="public-footer__desc">{copy.footerDescription}</p>
+        </div>
+        <div className="public-footer__column">
+          <strong className="public-footer__column-title">{copy.footerNavigate}</strong>
+          <a href="#home">{copy.home}</a>
+          <a href="#features">{copy.featuresNav}</a>
+          <a href="#journey">{copy.howItWorks}</a>
+          <a href="#about">{copy.about}</a>
+        </div>
+        <div className="public-footer__column">
+          <strong className="public-footer__column-title">{copy.footerAccess}</strong>
+          <Link to="/register">{copy.createAccount}</Link>
+          <Link to="/patient-login">{copy.patientLogin}</Link>
+          <Link to="/staff">{copy.staffLogin}</Link>
+        </div>
+      </div>
+      <div className="public-container public-footer__bottom">
+        <span>© {new Date().getFullYear()} {brand}{descriptor ? ` · ${descriptor}` : ''}</span>
+        <span>{copy.footerCopyright || copy.footerDescription}</span>
+      </div>
+    </footer>
+  );
 }
