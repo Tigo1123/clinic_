@@ -38,7 +38,7 @@ services:
     build:
       context: $PWD/backend
       dockerfile: Dockerfile
-    command: [sh, -c, 'node src/server.js & child=\$\$!; while kill -0 \$\$child 2>/dev/null; do if [ -f /tmp/phase1a6-backend-fail ]; then rm /tmp/phase1a6-backend-fail; kill -KILL \$\$child; wait \$\$child || true; exit 42; fi; sleep 1; done; wait \$\$child']
+    command: [sh, -c, 'node dist/main.js & child=\$\$!; while kill -0 \$\$child 2>/dev/null; do if [ -f /tmp/phase1a6-backend-fail ]; then rm /tmp/phase1a6-backend-fail; kill -KILL \$\$child; wait \$\$child || true; exit 42; fi; sleep 1; done; wait \$\$child']
     environment:
       NODE_ENV: development
       CLINIC_TIME_ZONE: Africa/Khartoum

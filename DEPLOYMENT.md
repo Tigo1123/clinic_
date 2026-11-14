@@ -102,7 +102,7 @@ TRUST_PROXY=true
 | `SOCKET_REVOCATION_RECONCILE_MS` | `10000`; account-state reconciliation interval. |
 | `SOCKET_REVOCATION_UNHEALTHY_GRACE_MS` | `15000`; listener outage grace before existing sockets are disconnected. Both timing values must be positive integers. |
 | `PORT`, `UPLOAD_DIR`, `UPLOAD_MAX_BYTES` | `5000`, backend `./uploads`, `10485760` bytes respectively; containers map uploads to `/app/uploads`. Make uploads writable by the runtime user and durable. |
-| `TRUST_PROXY` | Only the literal `true` enables Express's one-hop trust setting. Match the actual trusted proxy topology. |
+| `TRUST_PROXY` | Only the literal `true` enables the one-hop Express `trust proxy` setting (used by both the NestJS and Express servers). Match the actual trusted proxy topology. |
 | `BCRYPT_ROUNDS` | `12` in authentication paths; the first-admin script requires an integer from 10 through 15. |
 | `PHONE_DEFAULT_COUNTRY`, `DEFAULT_STATE_ID` | `RW` and `1` in code; LAN example/Compose choose `SD`. State 1 must actually exist where used. |
 | `PATIENT_CANCELLATION_CUTOFF_HOURS` | `2`; business time uses `CLINIC_TIME_ZONE`, not the host's `TZ`. |
@@ -192,7 +192,7 @@ For LAN, use its separate file and installation profiles, then:
 docker compose --env-file /secure/path/clinic-lan.env -f compose.lan.yml up -d --build backend frontend
 ```
 
-Normal backend image startup is **`node src/server.js`**, with Node as PID 1 for signal handling. `npm start`, `start:container`, and `start:staging` are package aliases to that server and do not migrate/seed. `start:staging:migrate` explicitly runs `prisma migrate deploy && npm run start:staging`; it is an existing staging-only convenience and needs migration authority. Do not run it with a least-privilege production runtime login or silently give runtime ownership. For hosted staging, choose an explicit migration job where roles are separated; platform start-command/branch settings require independent verification. No deployment branch convention is enforced by these scripts.
+Normal backend image startup is **`node dist/main.js`** (the compiled NestJS server), with Node as PID 1 for signal handling. `npm start`, `start:container`, and `start:staging` are package aliases to that server and do not migrate/seed. They need the compiled output, so any platform that runs them outside the Docker image must run `npm run build:nest` in its build step (it needs dev dependencies). The Express server (`node src/server.js`, or `npm run start:express`) remains in the image as a rollback entry point. `start:staging:migrate` explicitly runs `prisma migrate deploy && npm run start:staging`; it is an existing staging-only convenience and needs migration authority. Do not run it with a least-privilege production runtime login or silently give runtime ownership. For hosted staging, choose an explicit migration job where roles are separated; platform start-command/branch settings require independent verification. No deployment branch convention is enforced by these scripts.
 
 | Endpoint / check | Meaning |
 | --- | --- |

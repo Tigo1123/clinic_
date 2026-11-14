@@ -5,7 +5,7 @@ and `FACILITY_NAME_EN` deployment variables to show the institution's name promi
 language falls back to the Shifa product name when its facility name is unset. No facility name
 is assumed or supplied by this repository.
 
-The repository contains a Node.js/Prisma backend (an Express server and a NestJS server at parity, ahead of the NestJS cutover) and React/Vite frontend. The active database
+The repository contains a Node.js/Prisma backend (NestJS in production, with the earlier Express server kept for rollback) and React/Vite frontend. The active database
 provider is PostgreSQL. Development, test, staging, and production must use separate databases
 or tightly isolated schemas; uploads use independent durable storage.
 
@@ -15,12 +15,12 @@ database files, backups, or uploaded clinical attachments.
 
 ## System architecture
 
-The backend has two server entry points during the NestJS dual-run. The Express server
-(`backend/src/server.js`) is still the production entry point and the one the backend image starts.
-The NestJS application (`backend/src/main.ts`) is built to `backend/dist/` and is being prepared for
-cutover. Both servers use the same domain services, utilities, and middleware, and the parity tests in
-`backend/test/nestjs-*.test.js` compare their HTTP and Socket.io behavior. Nothing in the code selects
-between them at runtime. The entry file that is started decides which server runs.
+The NestJS application (`backend/src/main.ts`, built to `backend/dist/main.js`) is the production
+server and the one the backend image starts. The earlier Express server (`backend/src/server.js`) is
+still in the image as a rollback until it is removed. Both servers use the same domain services,
+utilities, and middleware, and the parity tests in `backend/test/nestjs-*.test.js` compare their HTTP
+and Socket.io behavior. Nothing in the code selects between them at runtime. The entry file that is
+started decides which server runs.
 
 ```mermaid
 flowchart LR
@@ -33,7 +33,7 @@ flowchart LR
   end
 
   subgraph api["backend container (Node.js :5000)"]
-    express["Express server (src/server.js)<br/>REST API and Socket.io"]
+    express["Express server (src/server.js)<br/>rollback only"]
     nest["NestJS server (dist/main.js)<br/>REST API and Socket.io gateway"]
     services["Shared services, utils, middleware"]
   end
@@ -47,8 +47,8 @@ flowchart LR
   staff --> spa
   patient --> proxy
   staff --> proxy
-  proxy -->|"current container entry"| express
-  proxy -.->|"after cutover"| nest
+  proxy -->|"container entry"| nest
+  proxy -.->|"rollback"| express
   express --> services
   nest --> services
   services --> db
@@ -63,8 +63,8 @@ flowchart LR
 | --- | --- | --- |
 | Frontend SPA | [frontend/src](frontend/src) | React 19 + Vite app with a public landing page, a patient portal, and the staff workspace. Uses MUI, i18next (Arabic and English), and Socket.io client. |
 | Frontend proxy | [frontend/nginx.conf](frontend/nginx.conf) | Serves the built SPA and forwards `/api/` and `/socket.io/` to the backend. Sets the Content-Security-Policy and other security headers. |
-| Express server | [backend/src/server.js](backend/src/server.js) | Current production entry point (`node src/server.js`). Express app with security headers, CORS, request IDs, the Socket.io server, and REST routes mounted under `/api`. |
-| NestJS server | [backend/src/main.ts](backend/src/main.ts) | Nest bootstrap. [AppModule](backend/src/app.module.ts) imports the feature modules in [backend/src/modules](backend/src/modules). Sets a global `/api` prefix and the same security headers and CORS middleware as Express. Built with `npm run build:nest`; not yet the container entry point. |
+| Express server | [backend/src/server.js](backend/src/server.js) | Rollback entry point (`node src/server.js`, or `npm run start:express`). Express app with security headers, CORS, request IDs, the Socket.io server, and REST routes mounted under `/api`. Scheduled for removal once NestJS has run stably in production. |
+| NestJS server | [backend/src/main.ts](backend/src/main.ts) | Production entry point (`node dist/main.js`). `createApp()` builds the app from [AppModule](backend/src/app.module.ts) and the feature modules in [backend/src/modules](backend/src/modules) with the same HTTP edge as Express: no `X-Powered-By`, one-hop proxy trust when `TRUST_PROXY=true`, security headers, CORS, and a global `/api` prefix. On SIGTERM or SIGINT it stops socket revocation, closes HTTP and Socket.IO, then disconnects Prisma, and exits 0. Built with `npm run build:nest`. |
 | Realtime gateway (NestJS) | [backend/src/modules/realtime](backend/src/modules/realtime) | Socket.io gateway with the same handshake authentication, readiness gate, and rooms as `server.js`. |
 | Shared backend code | [backend/src/services](backend/src/services), [backend/src/utils](backend/src/utils), [backend/src/middleware](backend/src/middleware) | Domain logic, utilities, and Express middleware. Nest modules call these directly, so both servers share one implementation. |
 | Nest common layer | [backend/src/common](backend/src/common) and [backend/src/database](backend/src/database) | Global guards, exception filter, Zod pipe, decorators, request ID middleware, and the Prisma module. |
@@ -73,8 +73,8 @@ flowchart LR
 
 ### Backend layers
 
-Requests move through these layers. The Express stack serves production today. The NestJS stack sits
-on the same services.
+Requests move through these layers. The NestJS stack serves production. The Express stack is kept for
+rollback and sits on the same services.
 
 Express stack:
 
@@ -122,9 +122,9 @@ The Prisma schema covers these areas:
 
 ### Deployment topology
 
-- **Docker Compose** ([docker-compose.yml](docker-compose.yml)) runs three services: `postgres` (PostgreSQL 16), `backend` (Node 22), and `frontend` (nginx). The backend starts only after the database health check passes. The backend image is built from [backend/Dockerfile](backend/Dockerfile). Its runner stage starts Express (`node src/server.js`) and copies the compiled NestJS output to `dist/` without starting it. The Dockerfile notes that the `CMD` changes to `["node", "dist/main.js"]` at cutover. The compose file does not override the command.
+- **Docker Compose** ([docker-compose.yml](docker-compose.yml)) runs three services: `postgres` (PostgreSQL 16), `backend` (Node 22), and `frontend` (nginx). The backend starts only after the database health check passes. The backend image is built from [backend/Dockerfile](backend/Dockerfile). Its runner stage starts NestJS (`node dist/main.js`). Express (`src/server.js`) is still in the image; to roll back, override the container command with `["node", "src/server.js"]`. The compose file does not override the command.
 - **LAN profile** ([compose.lan.yml](compose.lan.yml)) runs the app on an internal network. The database and app networks are internal and not reachable from outside. It adds one-time bootstrap, first-admin, and backup services, with scripts in [deploy/lan](deploy/lan). It builds the same backend image.
-- **Running locally:** `npm start`, `npm run dev`, and `npm run start:staging` run Express. `npm run build:nest` followed by `npm run start:nest` runs the compiled NestJS app, and `npm run dev:nest` runs it in watch mode.
+- **Running locally:** `npm run dev` runs NestJS in watch mode. `npm start`, `npm run start:staging`, and `npm run start:nest` run the compiled app, so run `npm run build:nest` first. `npm run start:express` and `npm run dev:express` run the Express server for rollback checks.
 - **CI/CD** ([.github/workflows/ci-cd.yml](.github/workflows/ci-cd.yml)) builds the NestJS app, runs backend tests (including the NestJS parity tests), frontend tests, lint, and build, then builds the Docker images.
 
 ## Local validation

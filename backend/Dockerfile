@@ -48,7 +48,7 @@ USER node
 # Expose port 5000
 EXPOSE 5000
 
-# Keep Node as PID 1 so Docker SIGTERM/SIGINT reach graceful shutdown handlers
-# Express stays the production entrypoint until NestJS reaches route parity.
-# Switch to ["node", "dist/main.js"] at cutover.
-CMD ["node", "src/server.js"]
+# Keep Node as PID 1 so Docker SIGTERM/SIGINT reach graceful shutdown handlers.
+# NestJS is the production entrypoint. Express (src/server.js) is still in the
+# image as a rollback: override the command with ["node", "src/server.js"].
+CMD ["node", "dist/main.js"]

@@ -1,7 +1,7 @@
 // Express <-> NestJS HTTP parity.
 //
 // Boots the Express app (src/server.js) and the compiled Nest app (dist/app.module.js,
-// bootstrapped the same way as src/main.ts) and sends identical requests to both.
+// bootstrapped with createApp() from src/main.ts) and sends identical requests to both.
 // Status code and normalised JSON body must match exactly.
 //
 // Run through the project runner so the schema is isolated and seeded:
@@ -133,18 +133,10 @@ async function resetAndSeed(prisma) {
     WHERE u.id = t.id`);
 }
 
-// Mirrors src/main.ts: same middleware, same global prefix, same init.
+// Boots the app with createApp() from src/main.ts, the same setup production runs.
 async function bootNest() {
-  const { NestFactory } = await import('@nestjs/core');
-  const load = (file) => import(pathToFileURL(path.join(distRoot, file)).href);
-  const { AppModule } = await load('app.module.js');
-  const { AppConfigService } = await load('modules/config/config.service.js');
-  const { securityHeadersMiddleware, corsMiddleware } = await load('utils/edgeSecurity.js');
-  const app = await NestFactory.create(AppModule, { logger: false });
-  const configService = app.get(AppConfigService);
-  app.use(securityHeadersMiddleware(configService.isProduction));
-  app.use(corsMiddleware(configService.allowedOrigins));
-  app.setGlobalPrefix('api');
+  const { createApp } = await import(pathToFileURL(path.join(distRoot, 'main.js')).href);
+  const app = await createApp({ logger: false });
   await app.init();
   return app;
 }
