@@ -84,6 +84,8 @@ async function bootExpress() {
     url,
     getIo: () => io,
     isReady: () => socketRevocation.isReady(),
+    stopListener: () => socketRevocation.stop(),
+    startListener: () => socketRevocation.start(),
     async close() {
       await socketRevocation.stop();
       io.close(); // also closes httpServer
@@ -112,6 +114,8 @@ async function bootNest() {
     url,
     getIo: () => gateway.server,
     isReady: () => revocation.isReady(),
+    stopListener: () => revocation.stop(),
+    startListener: () => revocation.start(),
     close: () => app.close()
   };
 }
@@ -239,6 +243,23 @@ function defineSuite(worldName, boot) {
       } finally {
         socket.close();
       }
+    });
+
+    // Revocation listener down (DB outage / LISTEN connection lost): a valid token must be
+    // refused with the retryable code, and connections resume once the listener recovers.
+    test('revocation listener down -> SOCKET_SECURITY_UNAVAILABLE, recovers after restart', async () => {
+      await world.stopListener();
+      try {
+        assert.equal(world.isReady(), false);
+        const result = await expectConnectError(world.url, { auth: { token: tokenFor(admin) } });
+        assert.equal(result.code, 'SOCKET_SECURITY_UNAVAILABLE');
+        assert.equal(result.message, 'Realtime session security is temporarily unavailable.');
+      } finally {
+        await world.startListener();
+        await waitUntil(() => world.isReady(), `${worldName} revocation listener ready again`);
+      }
+      const socket = await connectOk(world.url, tokenFor(admin));
+      socket.close();
     });
   });
 }

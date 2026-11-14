@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
 import { RealtimeGateway } from '../realtime/realtime.gateway.js';
+import { isLabReviewDecision, type LabReviewInput } from './lab-review.schema.js';
 
 @Injectable()
 export class LaboratoryService {
@@ -33,11 +34,9 @@ export class LaboratoryService {
     });
   }
 
-  async reviewItem(id: string, body: any, user: any, ip?: string) {
-    const decision = typeof body?.decision === 'string' ? body.decision.trim().toUpperCase() : '';
-    const note = typeof body?.note === 'string' && body.note.trim() ? body.note.trim() : null;
-    const allowed = ['LINK_EXISTING', 'CREATE_SERVICE', 'EXTERNAL'];
-    if (!allowed.includes(decision)) {
+  async reviewItem(id: string, body: LabReviewInput, user: any, ip?: string) {
+    const { decision, note } = body;
+    if (!isLabReviewDecision(decision)) {
       throw new HttpException(
         { code: 'LAB_REVIEW_DECISION_INVALID', message: 'decision must be LINK_EXISTING, CREATE_SERVICE, or EXTERNAL.' },
         HttpStatus.UNPROCESSABLE_ENTITY,
@@ -79,7 +78,7 @@ export class LaboratoryService {
 
       let service: any = null;
       if (decision === 'LINK_EXISTING') {
-        const serviceId = typeof body?.serviceId === 'string' ? body.serviceId.trim() : '';
+        const { serviceId } = body;
         if (!serviceId) {
           throw new HttpException(
             { code: 'LAB_SERVICE_ID_REQUIRED', message: 'serviceId is required when linking an existing service.' },
@@ -103,7 +102,7 @@ export class LaboratoryService {
       }
 
       if (decision === 'CREATE_SERVICE') {
-        const form = body?.service || {};
+        const form = body.service;
         const labelEn = typeof form.labelEn === 'string' ? form.labelEn.trim() : '';
         const labelAr = typeof form.labelAr === 'string' ? form.labelAr.trim() : '';
         if (!labelEn || !labelAr || labelEn.length > 150 || labelAr.length > 150) {

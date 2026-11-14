@@ -19,15 +19,6 @@ interface ErrorEnvelope {
   };
 }
 
-const PRISMA_CODE_PATTERN = /^P\d{4}$/;
-
-function isPrismaError(err: any): boolean {
-  return (
-    err?.name === 'PrismaClientKnownRequestError' ||
-    (typeof err?.code === 'string' && PRISMA_CODE_PATTERN.test(err.code))
-  );
-}
-
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
@@ -85,32 +76,10 @@ export class ApiExceptionFilter implements ExceptionFilter {
         message = 'The upload request is invalid.';
       }
     }
-    // 5. Prisma database errors
-    else if (isPrismaError(err)) {
-      switch (err.code) {
-        case 'P2002':
-          status = HttpStatus.CONFLICT; // 409
-          code = 'CONFLICT';
-          message = 'A resource with this identifier already exists.';
-          details = err.meta?.target ? { target: err.meta.target } : undefined;
-          break;
-        case 'P2025':
-          status = HttpStatus.NOT_FOUND; // 404
-          code = 'NOT_FOUND';
-          message = 'Resource not found.';
-          break;
-        case 'P2028':
-        case 'P2034':
-          status = HttpStatus.CONFLICT; // 409
-          code = 'TRANSACTION_CONFLICT';
-          message = 'Transaction contention. Please retry.';
-          break;
-        default:
-          status = HttpStatus.INTERNAL_SERVER_ERROR;
-          code = 'DATABASE_ERROR';
-          message = 'A database error occurred.';
-      }
-    }
+    // 5. Prisma errors are deliberately NOT mapped here. Routes that expect
+    //    P2002/P2025 handle them explicitly (same as Express); anything that
+    //    escapes is a bug and falls through to the logged 500 below, matching
+    //    src/utils/apiError.js errorHandler.
     // 6. NestJS built-in HttpExceptions
     else if (exception instanceof HttpException) {
       status = exception.getStatus();
