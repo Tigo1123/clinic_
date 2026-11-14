@@ -263,8 +263,8 @@ export default function LaboratoryDashboard({ lang }) {
     const form = resultForms[item.id] || {};
     if (!form.value?.trim()) return;
     const numericValue = Number(form.value);
-    const min = form.min === '' || form.min == null ? (item.referenceRangeMin != null ? Number(item.referenceRangeMin) : undefined) : Number(form.min);
-    const max = form.max === '' || form.max == null ? (item.referenceRangeMax != null ? Number(item.referenceRangeMax) : undefined) : Number(form.max);
+    const min = form.min === '' || form.min == null ? undefined : Number(form.min);
+    const max = form.max === '' || form.max == null ? undefined : Number(form.max);
     const isOut = Number.isFinite(numericValue) && ((Number.isFinite(min) && numericValue < min) || (Number.isFinite(max) && numericValue > max));
 
     try {
