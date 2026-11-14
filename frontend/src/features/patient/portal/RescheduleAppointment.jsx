@@ -39,7 +39,7 @@ export default function RescheduleAppointment() {
     setSlotsLoading(true);
     setError('');
     apiRequest(`/api/appointments/slots?doctorId=${appointment.doctor.id}&date=${date}`)
-      .then(value => { if (current) setSlots(value); })
+      .then((value) => { if (current) setSlots(value); })
       .catch((requestError) => { if (current) setError(requestError.message); })
       .finally(() => { if (current) setSlotsLoading(false); });
     return () => { current = false; };
@@ -68,13 +68,57 @@ export default function RescheduleAppointment() {
 
   if (loading) return <div className="patient-card"><Skeleton/></div>;
   if (error && !appointment) return <ErrorState message={error}/>;
-  return <section className="patient-card">
-    <h1>{t('rescheduleAppointment')}</h1>
-    <form onSubmit={submit}>
-      <label className="patient-field">{t('selectDate')}<input type="date" min={clinicDateString()} value={date} onChange={(event) => setDate(event.target.value)} required /></label>
-      <fieldset className="patient-card"><legend>{t('selectTime')}</legend><div className="patient-actions">{slots.map((slot) => <button type="button" aria-pressed={time === slot} className={`patient-button ${time === slot ? '' : 'secondary'}`} key={slot} onClick={() => setTime(slot)}>{slot}</button>)}</div>{slotsLoading ? <p role="status">{t('loading')}</p> : !slots.length && !error && <p>{t('noSlots')}</p>}</fieldset>
-      {error && <div className="patient-alert error" role="alert">{error}</div>}
-      <button className="patient-button" disabled={!time || saving || slotsLoading} aria-busy={saving}>{saving ? t('loading') : t('rescheduleAppointment')}</button>
-    </form>
-  </section>;
+
+  return (
+    <section className="patient-reschedule">
+      <h1 className="patient-page-title">{t('rescheduleAppointment')}</h1>
+
+      <form onSubmit={submit} className="patient-reschedule__form">
+        <label className="patient-field patient-reschedule__field">
+          <span className="ui-section-label patient-reschedule__label">{t('selectDate')}</span>
+          <input
+            type="date"
+            min={clinicDateString()}
+            value={date}
+            onChange={(event) => setDate(event.target.value)}
+            required
+            className="form-input patient-reschedule__input"
+          />
+        </label>
+
+        <fieldset className="patient-reschedule__fieldset">
+          <legend className="ui-section-label patient-reschedule__legend">{t('selectTime')}</legend>
+          <div className="slot-grid">
+            {slots.map((slot) => (
+              <button
+                type="button"
+                aria-pressed={time === slot}
+                className={`slot-chip ui-mono ${time === slot ? 'selected' : ''}`}
+                key={slot}
+                onClick={() => setTime(slot)}
+              >
+                {slot}
+              </button>
+            ))}
+          </div>
+          {slotsLoading ? (
+            <p role="status" className="patient-reschedule__loading-text">{t('loading')}</p>
+          ) : !slots.length && !error && (
+            <p className="patient-reschedule__empty-text">{t('noSlots')}</p>
+          )}
+        </fieldset>
+
+        {error && <div className="patient-alert error" role="alert">{error}</div>}
+
+        <button
+          type="submit"
+          className="patient-button patient-home__book-btn patient-reschedule__submit"
+          disabled={!time || saving || slotsLoading}
+          aria-busy={saving}
+        >
+          {saving ? t('loading') : t('rescheduleAppointment')}
+        </button>
+      </form>
+    </section>
+  );
 }
