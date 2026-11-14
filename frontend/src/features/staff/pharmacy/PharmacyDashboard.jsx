@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, FileText, HelpCircle, Sliders, Stethoscope } from 'lucide-react';
+import { AlertTriangle, ClipboardCheck, HelpCircle, Package, Pill, RefreshCw, Stethoscope } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../../services/staff/staffApi';
-import RoleHero from '../components/RoleHero';
 import PharmacyManagement from './PharmacyManagement';
 import PharmacyPayment from './PharmacyPayment';
 import Dialog from '../../../components/ui/Dialog';
-import { buildMedicationReviewPayload, pharmacyAlertModel } from './pharmacyHelpers';
+import { buildMedicationReviewPayload, customMedicineRequiresReview, pharmacyAlertModel } from './pharmacyHelpers';
 import MedicationReviewCard from './components/MedicationReviewCard';
 import PrescriptionQueueCard from './components/PrescriptionQueueCard';
 import PrescribedStockItemCard from './components/PrescribedStockItemCard';
 import CustomPrescribedItemCard from './components/CustomPrescribedItemCard';
 import PharmacyAlertsBody from './components/PharmacyAlertsBody';
+import { useStaffNav } from '../staffShellContext';
+import './pharmacyDashboard.css';
 
 export default function PharmacyDashboard({ lang, t: _t }) {
   const [prescriptions, setPrescriptions] = useState([]);
@@ -34,6 +35,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
 
   // Custom medications awaiting pharmacist review
   const [medicationReviews, setMedicationReviews] = useState([]);
+  const [selectedReviewId, setSelectedReviewId] = useState(null);
   const [reviewModeById, setReviewModeById] = useState({});
   const [reviewForms, setReviewForms] = useState({});
   const [reviewSavingId, setReviewSavingId] = useState(null);
@@ -44,7 +46,6 @@ export default function PharmacyDashboard({ lang, t: _t }) {
   const [unavailableReason, setUnavailableReason] = useState('OUT_OF_STOCK');
   const [unavailableNote, setUnavailableNote] = useState('');
   const [unavailableSaving, setUnavailableSaving] = useState(false);
-  const reviewSectionRef = useRef(null);
   const alertRequestRef = useRef(0);
 
   const loadAlertInventory = useCallback(async () => {
@@ -89,9 +90,12 @@ export default function PharmacyDashboard({ lang, t: _t }) {
         return res.json();
       })
       .then((data) => {
-        setMedicationReviews(
-          Array.isArray(data) ? data : []
-        );
+        const list = Array.isArray(data) ? data : [];
+        setMedicationReviews(list);
+        setSelectedReviewId((current) => {
+          if (current && list.some((item) => item.id === current)) return current;
+          return list[0]?.id || null;
+        });
       })
       .catch(() => {
         setMedicationReviews([]);
@@ -111,10 +115,11 @@ export default function PharmacyDashboard({ lang, t: _t }) {
         setPrescriptions(queue);
 
         setSelectedRx((current) => {
-          if (!current) return null;
+          if (!current) return queue[0] || null;
 
           return (
             queue.find((rx) => rx.id === current.id) ||
+            queue[0] ||
             null
           );
         });
@@ -186,7 +191,6 @@ export default function PharmacyDashboard({ lang, t: _t }) {
         [item.id]: {
           drugId: '',
           note: '',
-
           labelEn: item.customDrugName || '',
           labelAr: '',
           genericName: '',
@@ -221,8 +225,9 @@ export default function PharmacyDashboard({ lang, t: _t }) {
   const chooseReviewDecision = (decision) => {
     if (!reviewDialogItem) return;
     setReviewMode(reviewDialogItem, decision);
+    setSelectedReviewId(reviewDialogItem.id);
+    setActiveSection('reviews');
     setReviewDialogItem(null);
-    requestAnimationFrame(() => reviewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   };
 
   const updateReviewForm = (id, field, value) => {
@@ -254,9 +259,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
 
     if (decision === 'CREATE_FORMULARY') {
       const qtyOnHand = Number(form.qtyOnHand);
-      const minReorderLevel = Number(
-        form.minReorderLevel
-      );
+      const minReorderLevel = Number(form.minReorderLevel);
 
       if (
         !form.genericName?.trim() ||
@@ -312,7 +315,6 @@ export default function PharmacyDashboard({ lang, t: _t }) {
         );
         return;
       }
-
     }
 
     const body = buildMedicationReviewPayload(item, decision, form);
@@ -359,8 +361,6 @@ export default function PharmacyDashboard({ lang, t: _t }) {
         return next;
       });
 
-      // CREATE_FORMULARY returns the newly created drug and batch.
-      // Add it immediately to the pharmacist catalog without refresh.
       if (
         decision === 'CREATE_FORMULARY' &&
         payload.drug
@@ -513,341 +513,437 @@ export default function PharmacyDashboard({ lang, t: _t }) {
 
   const alertModel = pharmacyAlertModel(alertMedicines || []);
 
+  useStaffNav({
+    items: [
+      {
+        id: 'dispensing',
+        label: lang === 'ar' ? 'صرف الوصفات' : 'Dispensing',
+        icon: Pill,
+        count: prescriptions.length
+      },
+      {
+        id: 'reviews',
+        label: lang === 'ar' ? 'مراجعة الأدوية' : 'Medicine review',
+        icon: ClipboardCheck,
+        count: medicationReviews.length
+      },
+      {
+        id: 'inventory',
+        label: lang === 'ar' ? 'المخزون' : 'Inventory',
+        icon: Package
+      },
+      {
+        id: 'alerts',
+        label: lang === 'ar' ? 'تنبيهات المخزون' : 'Stock alerts',
+        icon: AlertTriangle,
+        count: alertMedicines ? alertModel.totalAlertCount : null
+      }
+    ],
+    activeId: activeSection,
+    onSelect: setActiveSection,
+    roleLabel: lang === 'ar' ? 'صيدلي' : 'Pharmacist'
+  });
+
+  const customNeedingReview = (selectedRx?.prescribedDrugs || []).find(
+    (item) => !item.drug && customMedicineRequiresReview(item)
+  );
+
+  const selectedReviewItem = medicationReviews.find((item) => item.id === selectedReviewId) || medicationReviews[0] || null;
+
   return (
-    <div className="dashboard-wrapper">
-      <div className="workspace-panel" style={{ padding: '1rem' }}>
-        <RoleHero role="pharmacy" lang={lang}/>
-        <div className="pharmacy-pilot-summary" aria-label={lang === 'ar' ? 'ملخص العمل' : 'Operational summary'}>
-          <div><strong>{prescriptions.length}</strong><span>{lang === 'ar' ? 'وصفات بانتظار الصرف' : 'Pending prescriptions'}</span></div>
-          <div><strong>{medicationReviews.length}</strong><span>{lang === 'ar' ? 'طلبات أدوية جديدة' : 'Custom medicine requests'}</span></div>
-        </div>
-        <div className="pharmacy-workspace-tabs" role="tablist" aria-label={lang === 'ar' ? 'أقسام الصيدلية' : 'Pharmacy sections'}>
-          {[
-            ['dispensing', lang === 'ar' ? 'صرف الوصفات' : 'Prescription Dispensing', prescriptions.length],
-            ['inventory', lang === 'ar' ? 'الأدوية والمخزون' : 'Medicines & Inventory', null],
-            ['alerts', lang === 'ar' ? 'التنبيهات' : 'Stock & Expiry Alerts', alertMedicines ? alertModel.totalAlertCount : null],
-            ['reviews', lang === 'ar' ? 'طلبات الأدوية الجديدة' : 'Custom Medicine Review', medicationReviews.length]
-          ].map(([id, label, count]) => <button key={id} type="button" role="tab" aria-selected={activeSection === id} aria-controls={`pharmacy-section-${id}`} className={activeSection === id ? 'is-active' : ''} onClick={() => setActiveSection(id)}><span>{label}</span>{count !== null && <span className="pharmacy-tab-count">{count}</span>}</button>)}
-        </div>
+    <div className="pharmacy-workspace dashboard-wrapper">
+      {/* Accessible tablist preserved for screen readers and unit tests */}
+      <div className="sr-only" role="tablist" aria-label={lang === 'ar' ? 'أقسام الصيدلية' : 'Pharmacy sections'}>
+        {[
+          ['dispensing', lang === 'ar' ? 'صرف الوصفات' : 'Prescription Dispensing', prescriptions.length],
+          ['inventory', lang === 'ar' ? 'الأدوية والمخزون' : 'Medicines & Inventory', null],
+          ['alerts', lang === 'ar' ? 'التنبيهات' : 'Stock & Expiry Alerts', alertMedicines ? alertModel.totalAlertCount : null],
+          ['reviews', lang === 'ar' ? 'طلبات الأدوية الجديدة' : 'Custom Medicine Review', medicationReviews.length]
+        ].map(([id, label, count]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={activeSection === id}
+            aria-controls={`pharmacy-section-${id}`}
+            className={activeSection === id ? 'is-active' : ''}
+            onClick={() => setActiveSection(id)}
+          >
+            <span>{label}</span>
+            {count !== null && <span className="pharmacy-tab-count">{count}</span>}
+          </button>
+        ))}
+      </div>
 
-        {activeSection === 'inventory' && <div id="pharmacy-section-inventory" role="tabpanel"><PharmacyManagement lang={lang} refreshToken={managementRefresh} onInventoryChanged={loadAlertInventory} /></div>}
+      {/* ── SECTION 1: DISPENSING (Pharmacy.dc.html) ─────────── */}
+      {activeSection === 'dispensing' && (
+        <div id="pharmacy-section-dispensing" role="tabpanel" className="pharmacy-split">
+          {/* List column */}
+          <section aria-labelledby="rx-list-title" className="pharmacy-split__list">
+            <div className="pharmacy-list-header">
+              <h2 id="rx-list-title" className="pharmacy-list-title">
+                {lang === 'ar' ? 'الوصفات الطبية' : 'Prescriptions'}
+              </h2>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={queueView === 'active' ? fetchPendingRx : fetchPrescriptionHistory}
+              >
+                <RefreshCw size={14} /> {lang === 'ar' ? 'تحديث' : 'Refresh'}
+              </button>
+            </div>
 
-        <Dialog
-          open={Boolean(reviewDialogItem)}
-          title={lang === 'ar' ? 'مراجعة الدواء' : 'Review Medication'}
-          description={reviewDialogItem?.customDrugName || ''}
-          onClose={() => setReviewDialogItem(null)}
-        >
+            <div role="group" aria-label={lang === 'ar' ? 'عرض الوصفات' : 'Prescription view'} className="pharmacy-segmented">
+              <button
+                type="button"
+                aria-pressed={queueView === 'active'}
+                className={`pharmacy-segmented__btn ${queueView === 'active' ? 'is-active' : ''}`}
+                onClick={() => setQueueView('active')}
+              >
+                {lang === 'ar' ? `بانتظار الصرف · ${prescriptions.length}` : `To dispense · ${prescriptions.length}`}
+              </button>
+              <button
+                type="button"
+                aria-pressed={queueView === 'history'}
+                className={`pharmacy-segmented__btn ${queueView === 'history' ? 'is-active' : ''}`}
+                onClick={() => { setQueueView('history'); fetchPrescriptionHistory(); }}
+              >
+                {lang === 'ar' ? `السجل · ${prescriptionHistory.length}` : `Dispensed · ${prescriptionHistory.length}`}
+                <span className="sr-only">History</span>
+              </button>
+            </div>
+
+            <div className="pharmacy-list-items">
+              {(queueView === 'active' ? prescriptions : prescriptionHistory).length === 0 ? (
+                <div className="pharmacy-compact-empty">
+                  <HelpCircle size={24} />
+                  <p>
+                    {queueView === 'active'
+                      ? (lang === 'ar' ? 'لا توجد وصفات بانتظار الصرف.' : 'No prescriptions are awaiting dispensing.')
+                      : (lang === 'ar' ? 'لا توجد وصفات محفوظة في السجل.' : 'No prescription history is available.')}
+                  </p>
+                </div>
+              ) : (
+                (queueView === 'active' ? prescriptions : prescriptionHistory).map((rx) => (
+                  <PrescriptionQueueCard
+                    key={rx.id}
+                    rx={rx}
+                    lang={lang}
+                    queueView={queueView}
+                    selected={selectedRx?.id === rx.id}
+                    onSelect={() => { setSelectedRx(rx); setPaymentState(null); }}
+                  />
+                ))
+              )}
+            </div>
+          </section>
+
+          {/* Detail column */}
+          <section aria-labelledby="rx-title" className="pharmacy-split__detail">
+            {selectedRx ? (
+              <>
+                <header className="pharmacy-detail-header">
+                  <h1 id="rx-title">
+                    {lang === 'ar' ? selectedRx.patient.fullNameAr : selectedRx.patient.fullNameEn}
+                  </h1>
+                  <span className="pharmacy-detail-header__meta">
+                    {lang === 'ar' ? 'وصف بواسطة د. ' : 'Prescribed by Dr. '}
+                    {lang === 'ar' ? selectedRx.doctor.fullNameAr : selectedRx.doctor.fullNameEn}
+                    {' · '}
+                    <span className="pharmacy-detail-header__id ui-mono">
+                      {selectedRx.prescriptionNumber || selectedRx.id}
+                    </span>
+                  </span>
+                </header>
+
+                {errorMsg && <div role="alert" className="badge badge-danger pharmacy-alert-banner">{errorMsg}</div>}
+                {successMsg && <div role="status" className="badge badge-success pharmacy-alert-banner">{successMsg}</div>}
+
+                {/* Items table */}
+                <div className="pharmacy-table-panel">
+                  <div className="pharmacy-grid-table">
+                    <div className="pharmacy-grid-table__header">
+                      <span>{lang === 'ar' ? 'الدواء' : 'Medicine'}</span>
+                      <span>{lang === 'ar' ? 'الكمية' : 'Qty'}</span>
+                      <span>{lang === 'ar' ? 'الدفعة / المخزون' : 'Batch / Stock'}</span>
+                      <span>{lang === 'ar' ? 'الحالة' : 'Status'}</span>
+                    </div>
+                    {selectedRx.prescribedDrugs.map((item) => {
+                      if (!item.drug) {
+                        return (
+                          <CustomPrescribedItemCard
+                            key={item.id}
+                            item={item}
+                            lang={lang}
+                            queueView={queueView}
+                            onReview={() => openCustomMedicineReview(item)}
+                            onUnavailable={(reason) => openUnavailableResolution(item, reason)}
+                          />
+                        );
+                      }
+
+                      return (
+                        <PrescribedStockItemCard
+                          key={item.id}
+                          item={item}
+                          lang={lang}
+                          authoritativeMedicine={selectedStock[item.drugId || item.drug.id]}
+                          onUnavailable={(reason) => openUnavailableResolution(item, reason)}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Amber notice if item requires review */}
+                {customNeedingReview && (
+                  <div className="pharmacy-amber-notice">
+                    <span>
+                      <strong>{customNeedingReview.customDrugName} {lang === 'ar' ? 'دواء يدوي.' : 'is a custom medicine.'}</strong>{' '}
+                      {lang === 'ar' ? 'قم بربطه بالمخزون أو توثيق تعذر الصرف قبل المتابعة.' : 'Link it to stock or mark it unavailable before dispensing.'}
+                    </span>
+                    <button type="button" onClick={() => openCustomMedicineReview(customNeedingReview)}>
+                      {lang === 'ar' ? 'مراجعة الدواء' : 'Review medicine'}
+                    </button>
+                  </div>
+                )}
+
+                {/* Totals & Payment */}
+                {queueView === 'active' && (
+                  <PharmacyPayment
+                    key={`${selectedRx.id}:${paymentRefresh}`}
+                    prescriptionId={selectedRx.id}
+                    lang={lang}
+                    onStateChange={setPaymentState}
+                  />
+                )}
+
+                {/* Dispense footer */}
+                {queueView === 'active' && (
+                  <div className="pharmacy-dispense-footer">
+                    <span className="pharmacy-dispense-hint">
+                      {paymentState?.dispensingAllowed
+                        ? (lang === 'ar' ? 'تم استيفاء الدفع. الوصفة جاهزة للصرف.' : 'Invoice is fully paid. Prescription is ready to dispense.')
+                        : (lang === 'ar' ? 'يتاح الصرف بعد سداد الفاتورة بالكامل واعتماد جميع الأدوية.' : 'Dispensing unlocks once the invoice is paid and every medicine is resolved.')}
+                    </span>
+                    <button
+                      type="button"
+                      className={`btn ${paymentState?.dispensingAllowed ? 'btn-primary' : 'btn-secondary'}`}
+                      disabled={!paymentState?.dispensingAllowed || dispensing}
+                      onClick={() => handleDispense(selectedRx)}
+                    >
+                      {dispensing
+                        ? (lang === 'ar' ? 'جارٍ الصرف…' : 'Dispensing…')
+                        : (lang === 'ar' ? 'صرف الوصفة الطبية' : 'Dispense prescription')}
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="pharmacy-compact-empty">
+                <Stethoscope size={36} />
+                <p>
+                  {lang === 'ar'
+                    ? 'اختر وصفة طبية من القائمة لعرض الأدوية والتحقق من المخزون.'
+                    : 'Select a prescription to review medications and inventory availability.'}
+                </p>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {/* ── SECTION 2: MEDICINE REVIEW (Split View) ─────────── */}
+      {activeSection === 'reviews' && (
+        <div id="pharmacy-section-reviews" role="tabpanel" className="pharmacy-split">
+          {/* List column */}
+          <section aria-labelledby="review-list-title" className="pharmacy-split__list">
+            <div className="pharmacy-list-header">
+              <h2 id="review-list-title" className="pharmacy-list-title">
+                {lang === 'ar' ? 'طلبات الأدوية الجديدة' : 'Medicine review'}
+              </h2>
+              <span className={`badge ${medicationReviews.length ? 'badge-warning' : 'badge-success'}`}>
+                {medicationReviews.length}
+              </span>
+            </div>
+
+            <p className="pharmacy-cell-meta pharmacy-review-intro">
+              {lang === 'ar'
+                ? 'الأدوية التي كتبها الطبيب ولم يتم اعتمادها بعد من الصيدلية. يجب ربط الدواء بالمخزون أو إضافته كدواء غير نشط بانتظار تسعير المدير أو تحديده كدواء خارجي.'
+                : 'Custom medicines entered by doctors must be reviewed before automatic billing. Link them to existing stock, create them for administrator pricing, or mark them for external purchase.'}
+            </p>
+
+            {reviewErrorMsg && (
+              <div role="alert" className="badge badge-danger pharmacy-alert-banner pharmacy-alert-banner--inset">
+                {reviewErrorMsg}
+              </div>
+            )}
+            {reviewSuccessMsg && (
+              <div role="status" className="badge badge-success pharmacy-alert-banner pharmacy-alert-banner--inset">
+                {reviewSuccessMsg}
+              </div>
+            )}
+
+            <div className="pharmacy-list-items">
+              {medicationReviews.length === 0 ? (
+                <div className="pharmacy-compact-empty">
+                  <p>
+                    <strong>
+                      {lang === 'ar'
+                        ? 'لا توجد طلبات أدوية جديدة حالياً.'
+                        : 'No medication requests awaiting review.'}
+                    </strong>
+                  </p>
+                </div>
+              ) : (
+                medicationReviews.map((item) => {
+                  const patientName = lang === 'ar'
+                    ? (item.patient?.fullNameAr || item.patient?.fullNameEn)
+                    : (item.patient?.fullNameEn || item.patient?.fullNameAr);
+                  const isSelected = selectedReviewItem?.id === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`pharmacy-queue-item ${isSelected ? 'is-selected' : ''}`}
+                      onClick={() => setSelectedReviewId(item.id)}
+                    >
+                      <span className="pharmacy-queue-item__info">
+                        <span className="pharmacy-queue-item__name">{item.customDrugName}</span>
+                        <span className="pharmacy-cell-meta">{patientName}</span>
+                        <span className="ui-status ui-status--warn">
+                          {lang === 'ar' ? 'بانتظار المراجعة' : 'Awaiting review'}
+                        </span>
+                      </span>
+                      <span className="pharmacy-queue-item__time ui-mono">
+                        Qty: {item.qtyPrescribed}
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </section>
+
+          {/* Detail column */}
+          <section aria-labelledby="review-detail-title" className="pharmacy-split__detail">
+            {selectedReviewItem ? (
+              <MedicationReviewCard
+                key={selectedReviewItem.id}
+                item={selectedReviewItem}
+                lang={lang}
+                form={reviewForms[selectedReviewItem.id] || {}}
+                mode={reviewModeById[selectedReviewItem.id] || 'LINK_EXISTING'}
+                drugCatalog={drugCatalog}
+                saving={reviewSavingId === selectedReviewItem.id}
+                onSetMode={(mode) => setReviewMode(selectedReviewItem, mode)}
+                onFieldChange={(field, value) => updateReviewForm(selectedReviewItem.id, field, value)}
+                onSubmit={(decision) => handleMedicationReview(selectedReviewItem, decision)}
+              />
+            ) : (
+              <div className="pharmacy-compact-empty">
+                <AlertTriangle size={36} color="var(--color-warning)" />
+                <p>
+                  {lang === 'ar'
+                    ? 'اختر طلباً لمراجعته واعتماده.'
+                    : 'Select a medication request to review and approve.'}
+                </p>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {/* ── SECTION 3: INVENTORY (PharmacyInventory.dc.html) ── */}
+      {activeSection === 'inventory' && (
+        <div id="pharmacy-section-inventory" role="tabpanel">
+          <PharmacyManagement
+            lang={lang}
+            refreshToken={managementRefresh}
+            onInventoryChanged={loadAlertInventory}
+          />
+        </div>
+      )}
+
+      {/* ── SECTION 4: STOCK ALERTS ─────────────────────────── */}
+      {activeSection === 'alerts' && (
+        <div id="pharmacy-section-alerts" role="tabpanel" className="pharmacy-alerts-view">
+          <header className="ui-page-header">
+            <h1 className="ui-page-title">
+              {lang === 'ar' ? 'تنبيهات المخازن والصلاحية' : 'Stock Alerts & Expiry'}
+            </h1>
+            <button type="button" className="btn btn-secondary" onClick={loadAlertInventory}>
+              <RefreshCw size={15} /> {lang === 'ar' ? 'تحديث' : 'Refresh'}
+            </button>
+          </header>
+          <PharmacyAlertsBody
+            lang={lang}
+            alertLoadError={alertLoadError}
+            alertMedicines={alertMedicines}
+            alertModel={alertModel}
+            onRetry={loadAlertInventory}
+          />
+        </div>
+      )}
+
+      {/* ── DIALOGS ─────────────────────────────────────────── */}
+      <Dialog
+        open={Boolean(reviewDialogItem)}
+        title={lang === 'ar' ? 'مراجعة الدواء' : 'Review Medication'}
+        description={reviewDialogItem?.customDrugName || ''}
+        onClose={() => setReviewDialogItem(null)}
+      >
+        <div className="dialog-actions">
+          <button type="button" className="btn btn-primary" onClick={() => chooseReviewDecision('LINK_EXISTING')}>
+            {lang === 'ar' ? 'ربط بدواء موجود' : 'Link Existing'}
+          </button>
+          <button type="button" className="btn btn-primary" onClick={() => chooseReviewDecision('CREATE_FORMULARY')}>
+            {lang === 'ar' ? 'إضافة كدواء جديد' : 'Create Formulary Medicine'}
+          </button>
+          <button type="button" className="btn btn-secondary" onClick={() => chooseReviewDecision('EXTERNAL')}>
+            {lang === 'ar' ? 'دواء خارجي' : 'External Medication'}
+          </button>
+          <button type="button" className="btn btn-secondary" onClick={() => setReviewDialogItem(null)}>
+            {lang === 'ar' ? 'إلغاء' : 'Cancel'}
+          </button>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(unavailableItem)}
+        title={lang === 'ar' ? 'تعذر الصرف' : 'Unable to Dispense'}
+        description={unavailableItem ? (unavailableItem.drug ? (lang === 'ar' ? unavailableItem.drug.labelAr : unavailableItem.drug.labelEn) : unavailableItem.customDrugName) : ''}
+        onClose={() => !unavailableSaving && setUnavailableItem(null)}
+      >
+        <div className="pharmacy-unavailable-form">
+          <label className="form-group">
+            <span className="form-label">{lang === 'ar' ? 'السبب' : 'Reason'}</span>
+            <select className="form-input" value={unavailableReason} onChange={(event) => setUnavailableReason(event.target.value)}>
+              <option value="OUT_OF_STOCK">{lang === 'ar' ? 'غير متوفر بالمخزون' : 'Out of stock'}</option>
+              <option value="NOT_IN_FORMULARY">{lang === 'ar' ? 'الدواء غير معتمد في قائمة العيادة' : 'Not in the clinic formulary'}</option>
+              <option value="DOCTOR_REVIEW_REQUIRED">{lang === 'ar' ? 'دواء يدوي يحتاج مراجعة الطبيب' : 'Manual medicine requires doctor review'}</option>
+              <option value="OTHER">{lang === 'ar' ? 'سبب آخر' : 'Other'}</option>
+            </select>
+          </label>
+          <label className="form-group">
+            <span className="form-label">{lang === 'ar' ? 'ملاحظة اختيارية' : 'Optional note'}</span>
+            <textarea className="form-input" maxLength="500" value={unavailableNote} onChange={(event) => setUnavailableNote(event.target.value)} />
+          </label>
+          <p className="form-help">
+            {lang === 'ar'
+              ? 'لن يُسجل الدواء كمصروف، ولن يُخصم من المخزون أو تُحصّل قيمته.'
+              : 'The item will not be marked dispensed, deducted from stock, or charged.'}
+          </p>
           <div className="dialog-actions">
-            <button type="button" className="btn btn-primary" onClick={() => chooseReviewDecision('LINK_EXISTING')}>
-              {lang === 'ar' ? 'ربط بدواء موجود' : 'Link Existing'}
+            <button type="button" className="btn btn-danger" disabled={unavailableSaving} onClick={resolveUnavailable}>
+              {unavailableSaving ? (lang === 'ar' ? 'جارٍ الحفظ…' : 'Saving…') : (lang === 'ar' ? 'تأكيد تعذر الصرف' : 'Confirm Unable to Dispense')}
             </button>
-            <button type="button" className="btn btn-primary" onClick={() => chooseReviewDecision('CREATE_FORMULARY')}>
-              {lang === 'ar' ? 'إضافة كدواء جديد' : 'Create Formulary Medicine'}
-            </button>
-            <button type="button" className="btn" onClick={() => chooseReviewDecision('EXTERNAL')}>
-              {lang === 'ar' ? 'دواء خارجي' : 'External Medication'}
-            </button>
-            <button type="button" className="btn" onClick={() => setReviewDialogItem(null)}>
+            <button type="button" className="btn btn-secondary" disabled={unavailableSaving} onClick={() => setUnavailableItem(null)}>
               {lang === 'ar' ? 'إلغاء' : 'Cancel'}
             </button>
           </div>
-        </Dialog>
-
-        <Dialog
-          open={Boolean(unavailableItem)}
-          title={lang === 'ar' ? 'تعذر الصرف' : 'Unable to Dispense'}
-          description={unavailableItem ? (unavailableItem.drug ? (lang === 'ar' ? unavailableItem.drug.labelAr : unavailableItem.drug.labelEn) : unavailableItem.customDrugName) : ''}
-          onClose={() => !unavailableSaving && setUnavailableItem(null)}
-        >
-          <div className="pharmacy-unavailable-form">
-            <label className="form-group">
-              <span className="form-label">{lang === 'ar' ? 'السبب' : 'Reason'}</span>
-              <select className="form-input" value={unavailableReason} onChange={(event) => setUnavailableReason(event.target.value)}>
-                <option value="OUT_OF_STOCK">{lang === 'ar' ? 'غير متوفر بالمخزون' : 'Out of stock'}</option>
-                <option value="NOT_IN_FORMULARY">{lang === 'ar' ? 'الدواء غير معتمد في قائمة العيادة' : 'Not in the clinic formulary'}</option>
-                <option value="DOCTOR_REVIEW_REQUIRED">{lang === 'ar' ? 'دواء يدوي يحتاج مراجعة الطبيب' : 'Manual medicine requires doctor review'}</option>
-                <option value="OTHER">{lang === 'ar' ? 'سبب آخر' : 'Other'}</option>
-              </select>
-            </label>
-            <label className="form-group">
-              <span className="form-label">{lang === 'ar' ? 'ملاحظة اختيارية' : 'Optional note'}</span>
-              <textarea className="form-input" maxLength="500" value={unavailableNote} onChange={(event) => setUnavailableNote(event.target.value)} />
-            </label>
-            <p className="form-help">{lang === 'ar' ? 'لن يُسجل الدواء كمصروف، ولن يُخصم من المخزون أو تُحصّل قيمته.' : 'The item will not be marked dispensed, deducted from stock, or charged.'}</p>
-            <div className="dialog-actions">
-              <button type="button" className="btn btn-danger" disabled={unavailableSaving} onClick={resolveUnavailable}>{unavailableSaving ? (lang === 'ar' ? 'جارٍ الحفظ…' : 'Saving…') : (lang === 'ar' ? 'تأكيد تعذر الصرف' : 'Confirm Unable to Dispense')}</button>
-              <button type="button" className="btn" disabled={unavailableSaving} onClick={() => setUnavailableItem(null)}>{lang === 'ar' ? 'إلغاء' : 'Cancel'}</button>
-            </div>
-          </div>
-        </Dialog>
-
-        {activeSection === 'reviews' && <div id="pharmacy-section-reviews" role="tabpanel"><div
-          ref={reviewSectionRef}
-          className="glass-panel"
-          style={{
-            padding: '1rem',
-            marginBottom: '1rem'
-          }}
-        >
-          <div
-            className="panel-header"
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              gap: '1rem',
-              alignItems: 'center'
-            }}
-          >
-            <span className="panel-title">
-              <AlertTriangle
-                size={18}
-                color="var(--warning)"
-              />
-              {lang === 'ar'
-                ? 'طلبات الأدوية الجديدة'
-                : 'New Medication Requests'}
-            </span>
-
-            <span
-              className={
-                medicationReviews.length
-                  ? 'badge badge-warning'
-                  : 'badge badge-success'
-              }
-            >
-              {medicationReviews.length}
-            </span>
-          </div>
-
-          <p
-            style={{
-              color: 'var(--text-secondary)',
-              fontSize: '0.82rem',
-              marginBottom: '1rem'
-            }}
-          >
-            {lang === 'ar'
-              ? 'الأدوية التي كتبها الطبيب ولم يتم اعتمادها بعد من الصيدلية. يجب ربط الدواء بالمخزون أو إضافته كدواء غير نشط بانتظار تسعير المدير أو تحديده كدواء خارجي.'
-              : 'Custom medicines entered by doctors must be reviewed before automatic billing. Link them to existing stock, create them for administrator pricing, or mark them for external purchase.'}
-          </p>
-
-          {reviewErrorMsg && (
-            <div
-              className="badge badge-danger"
-              style={{
-                display: 'block',
-                padding: '0.65rem',
-                marginBottom: '0.75rem'
-              }}
-            >
-              {reviewErrorMsg}
-            </div>
-          )}
-
-          {reviewSuccessMsg && (
-            <div
-              className="badge badge-success"
-              style={{
-                display: 'block',
-                padding: '0.65rem',
-                marginBottom: '0.75rem'
-              }}
-            >
-              {reviewSuccessMsg}
-            </div>
-          )}
-
-          {medicationReviews.length === 0 ? (
-            <div
-              style={{
-                textAlign: 'center',
-                padding: '1.5rem',
-                color: 'var(--text-secondary)'
-              }}
-            >
-              <strong>
-                {lang === 'ar'
-                  ? 'لا توجد طلبات أدوية جديدة حالياً.'
-                  : 'No medication requests awaiting review.'}
-              </strong>
-            </div>
-          ) : (
-            <div
-              style={{
-                display: 'grid',
-                gap: '0.85rem'
-              }}
-            >
-              {medicationReviews.map((item) => (
-                <MedicationReviewCard
-                  key={item.id}
-                  item={item}
-                  lang={lang}
-                  form={reviewForms[item.id] || {}}
-                  mode={reviewModeById[item.id] || ''}
-                  drugCatalog={drugCatalog}
-                  saving={reviewSavingId === item.id}
-                  onSetMode={(mode) => setReviewMode(item, mode)}
-                  onFieldChange={(field, value) => updateReviewForm(item.id, field, value)}
-                  onSubmit={(decision) => handleMedicationReview(item, decision)}
-                />
-              ))}
-            </div>
-          )}
-        </div></div>}
-
-        {(activeSection === 'dispensing' || activeSection === 'alerts') && <div
-          id={`pharmacy-section-${activeSection}`}
-          role="tabpanel"
-          className={`panel-grid pharmacy-operational-grid pharmacy-view-${activeSection}`}
-        >
-          {/* COLUMN 1: ACTIVE RX QUEUE */}
-          <div className="panel-column glass-panel pharmacy-queue-column" style={{ padding: '1rem' }}>
-            <div className="panel-header">
-              <span className="panel-title">
-                <FileText size={18} />
-                {lang === 'ar'
-      ? 'الوصفات الطبية بانتظار الصرف'
-      : 'Prescriptions Awaiting Dispensing'}
-              </span>
-
-              <button
-                type="button"
-                className="btn btn-secondary"
-                style={{
-                  padding: '4px 10px',
-                  fontSize: '0.75rem'
-                }}
-                onClick={queueView === 'active' ? fetchPendingRx : fetchPrescriptionHistory}
-              >
-                {lang === 'ar' ? 'تحديث' : 'Refresh'}
-              </button>
-            </div>
-            <div className="pharmacy-queue-tabs" role="tablist" aria-label={lang === 'ar' ? 'عرض الوصفات' : 'Prescription view'}>
-              <button type="button" role="tab" aria-selected={queueView === 'active'} className={queueView === 'active' ? 'is-active' : ''} onClick={() => setQueueView('active')}>{lang === 'ar' ? 'بانتظار الصرف' : 'Awaiting Dispensing'} <span>{prescriptions.length}</span></button>
-              <button type="button" role="tab" aria-selected={queueView === 'history'} className={queueView === 'history' ? 'is-active' : ''} onClick={() => { setQueueView('history'); fetchPrescriptionHistory(); }}>{lang === 'ar' ? 'السجل' : 'History'} <span>{prescriptionHistory.length}</span></button>
-            </div>
-            {(queueView === 'active' ? prescriptions : prescriptionHistory).length === 0 ? (
-              <div className="pharmacy-compact-empty">
-                <HelpCircle size={24} />
-                <p>{queueView === 'active' ? (lang === 'ar' ? 'لا توجد وصفات بانتظار الصرف.' : 'No prescriptions are awaiting dispensing.') : (lang === 'ar' ? 'لا توجد وصفات محفوظة في السجل.' : 'No prescription history is available.')}</p>
-              </div>
-            ) : (
-              (queueView === 'active' ? prescriptions : prescriptionHistory).map((rx) => (
-                <PrescriptionQueueCard
-                  key={rx.id}
-                  rx={rx}
-                  lang={lang}
-                  queueView={queueView}
-                  selected={selectedRx?.id === rx.id}
-                  onSelect={() => { setSelectedRx(rx); setPaymentState(null); }}
-                />
-              ))
-            )}
-          </div>
-
-          {/* COLUMN 2: PRESCRIPTION DISPENSER */}
-          <div className="panel-column glass-panel pharmacy-dispense-column" style={{ padding: '1rem' }}>
-            <div className="panel-header">
-              <span className="panel-title">
-                <Sliders size={18} />
-                {lang === 'ar' ? 'شاشة صرف الأدوية' : 'Rx Dispensation Desk'}
-              </span>
-            </div>
-            {errorMsg && <div className="badge badge-danger" style={{ padding: '0.5rem' }}>{errorMsg}</div>}
-            {successMsg && <div className="badge badge-success" style={{ padding: '0.5rem' }}>{successMsg}</div>}
-
-            {selectedRx ? (
-              <div>
-                <h4>
-                  {lang === 'ar' ? 'المريض:' : 'Patient:'}{' '}
-                  {lang === 'ar' ? selectedRx.patient.fullNameAr : selectedRx.patient.fullNameEn}
-                </h4>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-                  {lang === 'ar' ? 'الطبيب المعالج:' : 'Doctor:'} {lang === 'ar' ? selectedRx.doctor.fullNameAr : selectedRx.doctor.fullNameEn}
-                </p>
-
-                {queueView === 'active' && <PharmacyPayment key={`${selectedRx.id}:${paymentRefresh}`} prescriptionId={selectedRx.id} lang={lang} onStateChange={setPaymentState} />}
-
-                {selectedRx.prescribedDrugs.map((item) => {
-                  if (!item.drug) {
-                    return (
-                      <CustomPrescribedItemCard
-                        key={item.id}
-                        item={item}
-                        lang={lang}
-                        queueView={queueView}
-                        onReview={() => openCustomMedicineReview(item)}
-                        onUnavailable={(reason) => openUnavailableResolution(item, reason)}
-                      />
-                    );
-                  }
-
-                  return (
-                    <PrescribedStockItemCard
-                      key={item.id}
-                      item={item}
-                      lang={lang}
-                      authoritativeMedicine={selectedStock[item.drugId || item.drug.id]}
-                      onUnavailable={(reason) => openUnavailableResolution(item, reason)}
-                    />
-                  );
-                })}
-
-                {queueView === 'active' && <button
-                  className="btn btn-primary"
-                  style={{
-                    width: '100%',
-                    marginTop: '1.5rem'
-                  }}
-                  onClick={() => handleDispense(selectedRx)}
-                  disabled={!paymentState?.dispensingAllowed || dispensing}
-                >
-                  {paymentState?.dispensingAllowed
-                    ? (lang === 'ar'
-                        ? (dispensing ? 'جارٍ الصرف…' : 'صرف الأدوية وتحديث المستودع')
-                        : (dispensing ? 'Dispensing…' : 'Confirm Dispensation'))
-                    : (lang === 'ar'
-                        ? '🔒 الدفع الكامل مطلوب قبل الصرف'
-                        : '🔒 Full Payment Required Before Dispensing')}
-                </button>}
-              </div>
-            ) : (
-              <div className="pharmacy-compact-empty pharmacy-select-prescription">
-                <Stethoscope size={28} />
-                <p>{lang === 'ar'
-      ? 'اختر وصفة طبية من القائمة لعرض الأدوية والتحقق من المخزون.'
-      : 'Select a prescription to review medications and inventory availability.'}</p>
-              </div>
-            )}
-          </div>
-
-          {/* COLUMN 3: ALERTS & INVENTORY */}
-          <div className="panel-column glass-panel pharmacy-alert-column" style={{ padding: '1rem' }}>
-            <div className="panel-header">
-              <span className="panel-title">
-                <AlertTriangle size={18} color="var(--warning)" />
-                {lang === 'ar' ? 'تنبيهات المخازن والصلاحية' : 'Stock Alerts & Expiry'}
-              </span>
-              <button type="button" className="btn btn-secondary" onClick={loadAlertInventory}>
-                {lang === 'ar' ? 'تحديث' : 'Refresh'}
-              </button>
-            </div>
-            <PharmacyAlertsBody
-              lang={lang}
-              alertLoadError={alertLoadError}
-              alertMedicines={alertMedicines}
-              alertModel={alertModel}
-              onRetry={loadAlertInventory}
-            />
-          </div>
-        </div>}
-      </div>
+        </div>
+      </Dialog>
     </div>
   );
 }
-
-/* ==========================================
-   5. LAB TECHNICIAN DASHBOARD
-   ========================================== */
