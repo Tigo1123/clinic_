@@ -7,7 +7,7 @@ export default function LandingHero({ copy }) {
       <div className="public-container public-hero__inner">
         <div className="public-hero__copy">
           <span className="ui-section-label">{copy.heroKicker}</span>
-          <h1 id="hero-title" className="public-hero__title">
+          <h1 id="hero-title" className="ui-page-title public-hero__title">
             <span>{copy.heroLineOne}</span> <span>{copy.heroLineTwo}</span>
           </h1>
           <p className="public-hero__description">{copy.heroDescription}</p>

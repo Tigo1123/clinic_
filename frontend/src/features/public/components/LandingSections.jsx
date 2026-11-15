@@ -317,14 +317,14 @@ export function LandingFooter({ copy, brand, descriptor }) {
           <p className="public-footer__desc">{copy.footerDescription}</p>
         </div>
         <div className="public-footer__column">
-          <strong className="public-footer__column-title">{copy.footerNavigate}</strong>
+          <strong className="ui-section-label public-footer__column-title">{copy.footerNavigate}</strong>
           <a href="#home">{copy.home}</a>
           <a href="#features">{copy.featuresNav}</a>
           <a href="#journey">{copy.howItWorks}</a>
           <a href="#about">{copy.about}</a>
         </div>
         <div className="public-footer__column">
-          <strong className="public-footer__column-title">{copy.footerAccess}</strong>
+          <strong className="ui-section-label public-footer__column-title">{copy.footerAccess}</strong>
           <Link to="/register">{copy.createAccount}</Link>
           <Link to="/patient-login">{copy.patientLogin}</Link>
           <Link to="/staff">{copy.staffLogin}</Link>
