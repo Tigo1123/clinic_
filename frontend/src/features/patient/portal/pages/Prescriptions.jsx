@@ -16,7 +16,7 @@ export function Prescriptions() {
           {t('patientBack')}
         </Link>
 
-        <h1 className="patient-page-title">{t('prescriptions')}</h1>
+        <h1 className="patient-page-title ui-page-title">{t('prescriptions')}</h1>
 
         {!data?.length ? (
           <Empty>{t('noRecords')}</Empty>

@@ -52,7 +52,7 @@ export function LabResults() {
           {t('patientBack')}
         </Link>
 
-        <h1 className="patient-page-title">{t('labResults')}</h1>
+        <h1 className="patient-page-title ui-page-title">{t('labResults')}</h1>
 
         {!data?.length ? (
           <Empty>{t('noRecords')}</Empty>
@@ -83,7 +83,7 @@ export function LabResults() {
                         </span>
                         {' · '}{doctorDisplayName}
                       </span>
-                      <span className={`patient-lab-row__status ${hasAbnormal ? 'patient-lab-row__status--abnormal' : 'patient-lab-row__status--normal'}`}>
+                      <span className={`ui-status ${hasAbnormal ? 'ui-status--danger' : 'ui-status--ok'} patient-lab-row__status`}>
                         <span aria-hidden="true" className="patient-lab-row__dot" />
                         {hasAbnormal ? t('abnormalResult') : t('released')}
                       </span>
@@ -132,7 +132,7 @@ export function LabResults() {
                                     {getTestName(test)}
                                   </h3>
                                 </div>
-                                <span className={`patient-lab-card__badge ${abnormal ? 'patient-lab-card__badge--abnormal' : 'patient-lab-card__badge--normal'}`}>
+                                <span className={`ui-status ${abnormal ? 'ui-status--danger' : 'ui-status--ok'} patient-lab-card__badge`}>
                                   {abnormal ? t('abnormalResult') : t('normalResult')}
                                 </span>
                               </div>

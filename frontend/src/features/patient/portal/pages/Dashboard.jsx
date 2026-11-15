@@ -79,7 +79,7 @@ export function Dashboard() {
                   </span>
                   {t('patientPortalShort')}
                 </div>
-                <h1 className="patient-dashboard__greeting-title">
+                <h1 className="patient-dashboard__greeting-title ui-page-title">
                   {patientGreeting(profile.data, language)}
                 </h1>
               </div>

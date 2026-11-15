@@ -23,7 +23,7 @@ export function DoctorDetails() {
       </Link>
 
       <header className="patient-doctor-details__header">
-        <h1 className="patient-page-title">{doctorName(data, i18n.language)}</h1>
+        <h1 className="patient-page-title ui-page-title">{doctorName(data, i18n.language)}</h1>
         <span className="patient-doctor-details__spec">
           {localizeDoctorSpecialty(data, language)}
         </span>

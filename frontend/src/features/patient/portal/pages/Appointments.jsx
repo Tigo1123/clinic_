@@ -16,7 +16,7 @@ export function Appointments() {
   return (
     <State loading={loading} error={error} onRetry={reload}>
       <div className="patient-visits">
-        <h1 className="patient-page-title">{t('myAppointments')}</h1>
+        <h1 className="patient-page-title ui-page-title">{t('myAppointments')}</h1>
 
         <div className="patient-tabs ui-segmented" role="group" aria-label={t('myAppointments')}>
           {['upcoming', 'past', 'cancelled', 'all'].map((item) => (
