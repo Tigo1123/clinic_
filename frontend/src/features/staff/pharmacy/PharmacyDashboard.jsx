@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ClipboardCheck, HelpCircle, Package, Pill, RefreshCw, Stethoscope } from 'lucide-react';
+import { AlertTriangle, ClipboardCheck, Package, Pill, RefreshCw } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../../services/staff/staffApi';
 import PharmacyManagement from './PharmacyManagement';
 import PharmacyPayment from './PharmacyPayment';
@@ -577,11 +577,11 @@ export default function PharmacyDashboard({ lang, t: _t }) {
 
       {/* ── SECTION 1: DISPENSING (Pharmacy.dc.html) ─────────── */}
       {activeSection === 'dispensing' && (
-        <div id="pharmacy-section-dispensing" role="tabpanel" className="pharmacy-split">
+        <div id="pharmacy-section-dispensing" role="tabpanel" className="pharmacy-split ui-split">
           {/* List column */}
           <section aria-labelledby="rx-list-title" className="pharmacy-split__list">
             <div className="pharmacy-list-header">
-              <h2 id="rx-list-title" className="pharmacy-list-title">
+              <h2 id="rx-list-title" className="pharmacy-list-title ui-section-label">
                 {lang === 'ar' ? 'الوصفات الطبية' : 'Prescriptions'}
               </h2>
               <button
@@ -593,7 +593,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
               </button>
             </div>
 
-            <div role="group" aria-label={lang === 'ar' ? 'عرض الوصفات' : 'Prescription view'} className="pharmacy-segmented">
+            <div role="group" aria-label={lang === 'ar' ? 'عرض الوصفات' : 'Prescription view'} className="pharmacy-segmented ui-segmented">
               <button
                 type="button"
                 aria-pressed={queueView === 'active'}
@@ -616,8 +616,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
             <div className="pharmacy-list-items">
               {(queueView === 'active' ? prescriptions : prescriptionHistory).length === 0 ? (
                 <div className="pharmacy-compact-empty">
-                  <HelpCircle size={24} />
-                  <p>
+                  <p className="pharmacy-empty-text">
                     {queueView === 'active'
                       ? (lang === 'ar' ? 'لا توجد وصفات بانتظار الصرف.' : 'No prescriptions are awaiting dispensing.')
                       : (lang === 'ar' ? 'لا توجد وصفات محفوظة في السجل.' : 'No prescription history is available.')}
@@ -642,27 +641,29 @@ export default function PharmacyDashboard({ lang, t: _t }) {
           <section aria-labelledby="rx-title" className="pharmacy-split__detail">
             {selectedRx ? (
               <>
-                <header className="pharmacy-detail-header">
-                  <h1 id="rx-title">
-                    {lang === 'ar' ? selectedRx.patient.fullNameAr : selectedRx.patient.fullNameEn}
-                  </h1>
-                  <span className="pharmacy-detail-header__meta">
-                    {lang === 'ar' ? 'وصف بواسطة د. ' : 'Prescribed by Dr. '}
-                    {lang === 'ar' ? selectedRx.doctor.fullNameAr : selectedRx.doctor.fullNameEn}
-                    {' · '}
-                    <span className="pharmacy-detail-header__id ui-mono">
-                      {selectedRx.prescriptionNumber || selectedRx.id}
+                <header className="pharmacy-detail-header ui-page-header">
+                  <div>
+                    <h1 id="rx-title" className="ui-page-title">
+                      {lang === 'ar' ? selectedRx.patient.fullNameAr : selectedRx.patient.fullNameEn}
+                    </h1>
+                    <span className="pharmacy-detail-header__meta">
+                      {lang === 'ar' ? 'وصف بواسطة د. ' : 'Prescribed by Dr. '}
+                      {lang === 'ar' ? selectedRx.doctor.fullNameAr : selectedRx.doctor.fullNameEn}
+                      {' · '}
+                      <span className="pharmacy-detail-header__id ui-mono">
+                        {selectedRx.prescriptionNumber || selectedRx.id}
+                      </span>
                     </span>
-                  </span>
+                  </div>
                 </header>
 
-                {errorMsg && <div role="alert" className="badge badge-danger pharmacy-alert-banner">{errorMsg}</div>}
-                {successMsg && <div role="status" className="badge badge-success pharmacy-alert-banner">{successMsg}</div>}
+                {errorMsg && <div role="alert" className="pharmacy-alert-banner pharmacy-alert-banner--danger">{errorMsg}</div>}
+                {successMsg && <div role="status" className="pharmacy-alert-banner pharmacy-alert-banner--success">{successMsg}</div>}
 
                 {/* Items table */}
-                <div className="pharmacy-table-panel">
+                <div className="pharmacy-table-panel ui-panel">
                   <div className="pharmacy-grid-table">
-                    <div className="pharmacy-grid-table__header">
+                    <div className="pharmacy-grid-table__header ui-section-label">
                       <span>{lang === 'ar' ? 'الدواء' : 'Medicine'}</span>
                       <span>{lang === 'ar' ? 'الكمية' : 'Qty'}</span>
                       <span>{lang === 'ar' ? 'الدفعة / المخزون' : 'Batch / Stock'}</span>
@@ -741,8 +742,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
               </>
             ) : (
               <div className="pharmacy-compact-empty">
-                <Stethoscope size={36} />
-                <p>
+                <p className="pharmacy-empty-text">
                   {lang === 'ar'
                     ? 'اختر وصفة طبية من القائمة لعرض الأدوية والتحقق من المخزون.'
                     : 'Select a prescription to review medications and inventory availability.'}
@@ -755,14 +755,14 @@ export default function PharmacyDashboard({ lang, t: _t }) {
 
       {/* ── SECTION 2: MEDICINE REVIEW (Split View) ─────────── */}
       {activeSection === 'reviews' && (
-        <div id="pharmacy-section-reviews" role="tabpanel" className="pharmacy-split">
+        <div id="pharmacy-section-reviews" role="tabpanel" className="pharmacy-split ui-split">
           {/* List column */}
           <section aria-labelledby="review-list-title" className="pharmacy-split__list">
             <div className="pharmacy-list-header">
-              <h2 id="review-list-title" className="pharmacy-list-title">
+              <h2 id="review-list-title" className="pharmacy-list-title ui-section-label">
                 {lang === 'ar' ? 'طلبات الأدوية الجديدة' : 'Medicine review'}
               </h2>
-              <span className={`badge ${medicationReviews.length ? 'badge-warning' : 'badge-success'}`}>
+              <span className="ui-mono" style={{ fontSize: '13px', color: 'var(--color-text-muted)' }}>
                 {medicationReviews.length}
               </span>
             </div>
@@ -774,12 +774,12 @@ export default function PharmacyDashboard({ lang, t: _t }) {
             </p>
 
             {reviewErrorMsg && (
-              <div role="alert" className="badge badge-danger pharmacy-alert-banner pharmacy-alert-banner--inset">
+              <div role="alert" className="pharmacy-alert-banner pharmacy-alert-banner--danger pharmacy-alert-banner--inset">
                 {reviewErrorMsg}
               </div>
             )}
             {reviewSuccessMsg && (
-              <div role="status" className="badge badge-success pharmacy-alert-banner pharmacy-alert-banner--inset">
+              <div role="status" className="pharmacy-alert-banner pharmacy-alert-banner--success pharmacy-alert-banner--inset">
                 {reviewSuccessMsg}
               </div>
             )}
@@ -787,12 +787,10 @@ export default function PharmacyDashboard({ lang, t: _t }) {
             <div className="pharmacy-list-items">
               {medicationReviews.length === 0 ? (
                 <div className="pharmacy-compact-empty">
-                  <p>
-                    <strong>
-                      {lang === 'ar'
-                        ? 'لا توجد طلبات أدوية جديدة حالياً.'
-                        : 'No medication requests awaiting review.'}
-                    </strong>
+                  <p className="pharmacy-empty-text">
+                    {lang === 'ar'
+                      ? 'لا توجد طلبات أدوية جديدة حالياً.'
+                      : 'No medication requests awaiting review.'}
                   </p>
                 </div>
               ) : (
@@ -842,8 +840,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
               />
             ) : (
               <div className="pharmacy-compact-empty">
-                <AlertTriangle size={36} color="var(--color-warning)" />
-                <p>
+                <p className="pharmacy-empty-text">
                   {lang === 'ar'
                     ? 'اختر طلباً لمراجعته واعتماده.'
                     : 'Select a medication request to review and approve.'}
@@ -897,7 +894,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
           <button type="button" className="btn btn-primary" onClick={() => chooseReviewDecision('LINK_EXISTING')}>
             {lang === 'ar' ? 'ربط بدواء موجود' : 'Link Existing'}
           </button>
-          <button type="button" className="btn btn-primary" onClick={() => chooseReviewDecision('CREATE_FORMULARY')}>
+          <button type="button" className="btn btn-secondary" onClick={() => chooseReviewDecision('CREATE_FORMULARY')}>
             {lang === 'ar' ? 'إضافة كدواء جديد' : 'Create Formulary Medicine'}
           </button>
           <button type="button" className="btn btn-secondary" onClick={() => chooseReviewDecision('EXTERNAL')}>

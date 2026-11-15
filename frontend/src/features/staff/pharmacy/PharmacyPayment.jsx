@@ -141,9 +141,9 @@ export default function PharmacyPayment({ prescriptionId, lang, onStateChange })
 
   if (loading && !state) {
     return (
-      <section className="pharmacy-payment-wrapper" aria-labelledby="medicine-invoice-title">
+      <section className="pharmacy-payment-wrapper ui-panel" aria-labelledby="medicine-invoice-title">
         <div className="pharmacy-compact-empty">
-          <p>{lang === 'ar' ? 'جارٍ تحميل فاتورة الأدوية…' : 'Loading medicine invoice…'}</p>
+          <p className="pharmacy-empty-text">{lang === 'ar' ? 'جارٍ تحميل فاتورة الأدوية…' : 'Loading medicine invoice…'}</p>
         </div>
       </section>
     );
@@ -171,7 +171,7 @@ export default function PharmacyPayment({ prescriptionId, lang, onStateChange })
   return (
     <section className="pharmacy-payment-wrapper" aria-labelledby="medicine-invoice-title">
       <div className="pharmacy-payment-header">
-        <h3 id="medicine-invoice-title" className="pharmacy-list-title">
+        <h3 id="medicine-invoice-title" className="pharmacy-list-title ui-section-label">
           {lang === 'ar' ? 'فاتورة الأدوية' : 'Medicine Invoice'}
         </h3>
         <button
@@ -185,7 +185,7 @@ export default function PharmacyPayment({ prescriptionId, lang, onStateChange })
       </div>
 
       <div className="pharmacy-payment-section">
-        <dl className="pharmacy-totals-card">
+        <dl className="pharmacy-totals-card ui-panel">
           <div className="pharmacy-totals-row">
             <dt>{lang === 'ar' ? 'إجمالي الفاتورة' : 'Invoice total'}</dt>
             <dd className="ui-mono">SDG {invoice.totalAmountSdg.toLocaleString()}</dd>
@@ -209,15 +209,15 @@ export default function PharmacyPayment({ prescriptionId, lang, onStateChange })
         </dl>
 
         {state.dispensingAllowed ? (
-          <div className="pharmacy-totals-card pharmacy-paid-card">
+          <div className="pharmacy-totals-card pharmacy-paid-card ui-panel">
             <span className="ui-status ui-status--ok pharmacy-paid-status">
               {lang === 'ar' ? 'تم دفع فاتورة الأدوية بالكامل' : 'Medicine invoice is fully paid'}
             </span>
           </div>
         ) : (
-          <form className="pharmacy-payment-form-card" onSubmit={submit}>
+          <form className="pharmacy-payment-form-card ui-panel" onSubmit={submit}>
             <label className="pharmacy-payment-field">
-              <span className="form-label">{lang === 'ar' ? 'طريقة الدفع' : 'Payment method'}</span>
+              <span className="form-label ui-section-label">{lang === 'ar' ? 'طريقة الدفع' : 'Payment method'}</span>
               <select
                 className="form-input"
                 disabled={reconciliationRequired}
@@ -233,9 +233,9 @@ export default function PharmacyPayment({ prescriptionId, lang, onStateChange })
             </label>
 
             <label className="pharmacy-payment-field">
-              <span className="form-label">{lang === 'ar' ? 'المبلغ (SDG)' : 'Amount (SDG)'}</span>
+              <span className="form-label ui-section-label">{lang === 'ar' ? 'المبلغ (SDG)' : 'Amount (SDG)'}</span>
               <input
-                className="form-input"
+                className="form-input ui-mono"
                 disabled={reconciliationRequired}
                 type="number"
                 min="1"
@@ -267,7 +267,7 @@ export default function PharmacyPayment({ prescriptionId, lang, onStateChange })
       )}
 
       {message.text && (
-        <div role="status" className={`badge badge-${message.type} pharmacy-alert-banner pharmacy-alert-banner--spaced`}>
+        <div role="status" className={`pharmacy-alert-banner pharmacy-alert-banner--${message.type === 'danger' ? 'danger' : message.type === 'success' ? 'success' : 'warning'} pharmacy-alert-banner--spaced`}>
           {message.text}
         </div>
       )}
