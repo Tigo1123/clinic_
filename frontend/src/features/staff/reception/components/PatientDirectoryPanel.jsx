@@ -14,7 +14,7 @@ export default function PatientDirectoryPanel({
 }) {
   return (
     <div className="reception-view-container">
-      <header className="reception-view-header">
+      <header className="ui-page-header reception-view-header">
         <div className="reception-view-header-start">
           <h1 className="ui-page-title">{lang === 'ar' ? 'المرضى' : 'Patients'}</h1>
           <span className="reception-header-subtitle">
@@ -60,16 +60,16 @@ export default function PatientDirectoryPanel({
         </div>
       </div>
 
-      {visiblePatientDirectoryError && (
-        <div role="alert" className="reception-alert-danger">
-          {visiblePatientDirectoryError}
-        </div>
-      )}
-
       <div className="ui-panel reception-directory-panel">
         {patientDirectoryBusy && (
           <div className="reception-panel-empty">
             <span>{lang === 'ar' ? 'جارٍ البحث عن المرضى...' : 'Searching patients...'}</span>
+          </div>
+        )}
+
+        {!patientDirectoryBusy && visiblePatientDirectoryError && (
+          <div role="alert" className="reception-panel-empty reception-panel-error">
+            <span>{visiblePatientDirectoryError}</span>
           </div>
         )}
 
