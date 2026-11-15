@@ -4,10 +4,39 @@ import { repositoryInventory, inspectDatabase } from '../scripts/audit-clinic-re
 
 test('repository inventory includes every Prisma model, relationship and migration', async () => {
   const inventory = await repositoryInventory();
-  assert.equal(inventory.modelCount, 41);
+  assert.equal(inventory.modelCount, 46);
   assert.ok(inventory.models.find(model => model.name === 'Patient').relationships.some(relation => relation.field === 'invoices' && relation.target === 'Invoice' && relation.cardinality === 'many'));
   assert.ok(inventory.models.find(model => model.name === 'Payment').relationships.some(relation => relation.field === 'invoice' && relation.target === 'Invoice' && relation.cardinality === 'required'));
-  assert.equal(inventory.migrations.length, 26);
+  assert.equal(inventory.migrations.length, 33);
+});
+
+
+test('Neon applied migration checksums match the seven preserved SQL files', async () => {
+  // Recorded from the Neon production branch read-only Prisma migration audit.
+  // This is a repository integrity test: it never connects to a database.
+  const inventory = await repositoryInventory();
+  const expected = {
+    '20261022120000_shared_rate_limit_buckets': 'd87910178a2bc7eecf89daa1d6f48c93158ca2935cbb65c0162355fdd7e52d5c',
+    '20261024100000_patient_insurance_membership': '93491b8c7f37149c741ed1f82f8ad44bcda556ae31fac73fd21978162dee7ddb',
+    '20261027120000_durable_workflow_notifications': '65f12e01d30213166329dc924124bbf16efd871eef25ec178ffdeea57985d3c2',
+    '20261027130000_dedupe_custom_prescription_notices': '5d87b190598a9f1ba5ddcc2cc05b4e87819e8b55b1e2d3be684d46c953b985bf',
+    '20261027140000_distinguish_medicine_catalog_notices': '2f570366f4931cea1b53dda0d995faa186b57bee24e697ca12524b463ceeba46',
+    '20261030190000_reception_cancellation_notice': 'a90a4ec01c01f93d966c42a96d440d91c60e36a59d576de616228d57fdd081ab',
+    '20261107090000_durable_qa_verification_capture': '82b060e8263b2b06ab02c2e6021369f2476c16490d5246145025e57ad27c5a65',
+  };
+  const actual = Object.fromEntries(inventory.migrations
+    .filter(migration => Object.hasOwn(expected, migration.name))
+    .map(({ name, checksum }) => [name, checksum]));
+  assert.deepEqual(actual, expected);
+  for (const modelName of [
+    'RateLimitBucket',
+    'PatientInsurance',
+    'QaVerificationCapture',
+    'StockNotificationState',
+    'InvoiceIssueOperation'
+  ]) {
+    assert.ok(inventory.models.some(model => model.name === modelName), modelName);
+  }
 });
 
 function fixture(readOnly = 'on') {
