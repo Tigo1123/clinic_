@@ -38,7 +38,8 @@ const clinicalModalReplacements = [
   [/import \{ fetchWithAuth \} from '\.\.\/\.\.\/\.\.\/services\/staff\/staffApi';/, 'const fetchWithAuth = (...args) => globalThis.modalFetch(...args);'],
   [/import \{ useAuth \} from '\.\.\/\.\.\/\.\.\/app\/auth\/auth-context';/, 'const useAuth = () => ({ user: globalThis.modalUser });'],
   [/import \{ useFacilityBranding \} from '\.\.\/\.\.\/\.\.\/app\/branding\/FacilityBrandingContext\.js';/, "const useFacilityBranding = () => ({ displayNameAr: 'شفاء', displayNameEn: 'Shifa', facilityNameAr: null, facilityNameEn: null, productNameAr: 'شفاء', productNameEn: 'Shifa', productDescriptorAr: 'نظام إدارة المنشآت الصحية', productDescriptorEn: 'Healthcare Facility Management System' });"],
-  [/import FacilityIdentityLine from '\.\.\/components\/FacilityIdentityLine';/, 'const FacilityIdentityLine = () => null;']
+  [/import FacilityIdentityLine from '\.\.\/components\/FacilityIdentityLine';/, 'const FacilityIdentityLine = () => null;'],
+  [/import \{ lockPageScroll \} from '\.\.\/\.\.\/\.\.\/utils\/scrollLock\.js';/, 'const lockPageScroll = () => () => {};']
 ];
 const clinicalSharedPath = await compileModule('../src/features/staff/clinical/clinicalShared.js', []);
 const clinicalSiblings = { './clinicalShared.js': clinicalSharedPath.href };

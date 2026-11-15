@@ -53,6 +53,7 @@ export function readSmtpConfig(env = process.env, { required = false } = {}) {
     pass: normalizedValue(env, 'SMTP_PASS'),
     fromEmail: normalizedValue(env, fromVariable),
     fromName: smtpFromName(env),
-    connectionTimeout: Number(env.SMTP_CONNECTION_TIMEOUT_MS || 10000)
+    connectionTimeout: Number(env.SMTP_CONNECTION_TIMEOUT_MS || 10000),
+    socketTimeout: Number(env.SMTP_SOCKET_TIMEOUT_MS || 20000)
   };
 }

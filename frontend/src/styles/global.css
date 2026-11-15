@@ -40,7 +40,10 @@ html, body {
   background-color: var(--color-bg);
   color: var(--color-text);
   min-height: 100vh;
-  overflow-x: hidden;
+  /* clip, not hidden: hidden on html and body makes body a scroll container, so
+     position: sticky elements (the staff rail, sticky headers) stick to body,
+     which never scrolls, and move with the page instead of staying put. */
+  overflow-x: clip;
   font-size: 14px;
   line-height: 1.45;
 }

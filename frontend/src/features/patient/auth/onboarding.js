@@ -89,5 +89,7 @@ export function onboardingErrorMessage(error, messages) {
   if (code === 'PHONE_ALREADY_REGISTERED') return messages.phoneDuplicate;
   if (/DUPLICATE|IDENTITY|MANUAL_REVIEW|AMBIGUOUS/.test(code || '')) return messages.manualReview;
   if (/VERIFICATION.*(EXPIRED|INVALID)/.test(code || '')) return messages.verificationFailed;
+  if ((code === 'VERIFICATION_UNAVAILABLE' || code === 'VERIFICATION_DELIVERY_FAILED') && messages.verificationUnavailable) return messages.verificationUnavailable;
+  if (code === 'REQUEST_TIMEOUT' && messages.requestTimeout) return messages.requestTimeout;
   return messages.requestFailed;
 }

@@ -5,6 +5,7 @@ import { useAuth } from '../../../app/auth/auth-context';
 import './patientFile.css';
 import { useFacilityBranding } from '../../../app/branding/FacilityBrandingContext.js';
 import { getWhatsAppLink } from './clinicalShared.js';
+import { lockPageScroll } from '../../../utils/scrollLock.js';
 
 const STATUS_LABELS = {
   ACTIVE: ['نشط', 'Active'], ARCHIVED: ['مؤرشف', 'Archived'],
@@ -115,8 +116,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
 
   useEffect(() => {
     const previousFocus = document.activeElement;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const unlockScroll = lockPageScroll();
     (closeButtonRef.current || dialogRef.current)?.focus();
 
     const handleKeyDown = (event) => {
@@ -143,7 +143,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
     document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = previousOverflow;
+      unlockScroll();
       previousFocus?.focus?.();
     };
   }, []);

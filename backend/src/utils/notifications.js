@@ -12,7 +12,11 @@ export function smtpTransport(config = readSmtpConfig()) {
     port: config.port,
     secure: config.secure,
     auth: { user: config.user, pass: config.pass },
-    connectionTimeout: config.connectionTimeout
+    connectionTimeout: config.connectionTimeout,
+    // Nodemailer's defaults (30s greeting, 10min socket) let a stalled SMTP
+    // server hold registration requests open long enough to look frozen.
+    greetingTimeout: config.connectionTimeout,
+    socketTimeout: config.socketTimeout
   });
 }
 
