@@ -14,7 +14,7 @@
 
 1. Confirm the exact Neon project, database and branch and verify rows, schema and migration history against the latest main commit. The user-visible Neon migrations count appears higher than the historical October release report; never assume migration drift is safe.
 2. Capture an encrypted restorable PostgreSQL backup and conduct a separate isolated restore test. Back up file uploads separately. Never run prisma migrate reset, prisma db push or general seed on the live database.
-3. Use a dedicated, least-privilege Neon runtime role. In Neon Connect, prepare the verified TLS PostgreSQL URL for the approved branch and database. For DATABASE_URL, review Prisma pooling compatibility. SOCKET_REVOCATION_DATABASE_URL must use a direct Neon endpoint (not a transaction pooler) because PostgreSQL LISTEN requires persistent sessions. Verify both URLs point to the same database.
+3. Use a dedicated, least-privilege Neon runtime role. For the pooled Prisma runtime URL on the staging-feature backend, include `connection_limit=5&pool_timeout=10` (validated ranges: connection_limit 1–20 and pool_timeout 1–60). Neon Connect may omit these query parameters, causing Render startup failure even when TLS and database access work. Keep `sslmode=require` and any channel binding settings. The direct listener URL **must not use** a `-pooler` hostname. In Neon Connect, prepare the verified TLS PostgreSQL URL for the approved branch and database. For DATABASE_URL, review Prisma pooling compatibility. SOCKET_REVOCATION_DATABASE_URL must use a direct Neon endpoint (not a transaction pooler) because PostgreSQL LISTEN requires persistent sessions. Verify both URLs point to the same database.
 4. Set the connection URLs privately in Render's Environment for clinic-production-api. Keep and protect existing JWT_SECRET, MEDICAL_ENCRYPTION_KEY, MFA_ENCRYPTION_KEY, verification delivery and other keys. Rotating medical encryption keys without a separate procedure risks permanent loss of access to encrypted records.
 5. Set NODE_ENV=production, CLINIC_TIME_ZONE and exact HTTPS CORS_ALLOWED_ORIGINS to match the intended browser site. Never turn on development OTP/verification for public production traffic.
 6. Only deploy backend after read-only migration status checks and a successful backup/restore. Confirm /api/health/ready succeeds, as well as a healthy socket.revocation_listener_ready event. A passing GitHub build does not prove database readiness.
@@ -34,3 +34,11 @@
 - Neon app connection details and production Render env settings have not been read or changed by this PR.
 - Successful backup plus restore, schema drift check, privilege check, permanent uploads, delivery/MFA and live end-to-end acceptance are pending.
 - No actual live-clinical go-live claim is made until all of these are satisfied.
+
+## Verified staging integration — 15 November 2026
+
+- Created Neon snapshot `clinic-pre-nestjs-cutover-2026-11-15` from the source database and an isolated branch `clinic-nestjs-staging-2026-11-15` (not anonymized; treat data as sensitive).
+- Updated **only** `clinic-staging-api` Render environment: pooled `DATABASE_URL`, direct `DIRECT_URL`, and direct `SOCKET_REVOCATION_DATABASE_URL` for the new Neon branch. Existing JWT/encryption keys were preserved.
+- A first staging deploy failed because `DATABASE_URL` lacked `connection_limit` and `pool_timeout`, as required by feature-branch `backend/src/config.js`. Added them and redeployed.
+- The next Render deploy reported **live**, and logs showed `33 migrations found`, `No pending migrations to apply`, `server.started`, and `socket.revocation_listener_ready`.
+- **Caution:** the service still tracks `feat/next-improvements` and runs **Express** (`node src/server.js`). This validates staging database connectivity, not the current NestJS `main` release. The main production API still needs a separate guarded NestJS cutover after review.
