@@ -1372,7 +1372,7 @@ export default function ReceptionDashboard({ lang, t }) {
         {/* ── 2. WALK-IN INTAKE VIEW (Focused View) ────────────────── */}
         {activeTab === 'walkin' && (
           <div className="reception-focused-view">
-            <header className="reception-focused-header">
+            <header className="ui-page-header reception-focused-header">
               <button
                 type="button"
                 className="reception-back-link"
@@ -1445,14 +1445,9 @@ export default function ReceptionDashboard({ lang, t }) {
                     {walkInPatient && (
                       <div className="reception-selected-card">
                         <div className="reception-selected-card-info">
-                          <div className="reception-selected-header">
-                            <strong className="reception-selected-patient-name">
-                              {lang === 'ar' ? walkInPatient.fullNameAr : walkInPatient.fullNameEn}
-                            </strong>
-                            <span className="ui-status ui-status--ok reception-selected-badge">
-                              {lang === 'ar' ? 'تم اختيار المريض' : 'Patient selected'}
-                            </span>
-                          </div>
+                          <strong className="reception-selected-patient-name">
+                            {lang === 'ar' ? walkInPatient.fullNameAr : walkInPatient.fullNameEn}
+                          </strong>
                           <span className="ui-mono reception-selected-patient-mrn" dir="ltr">
                             {walkInPatient.fileNumber || '—'}
                           </span>
@@ -1621,7 +1616,7 @@ export default function ReceptionDashboard({ lang, t }) {
         {/* ── 3. REGISTER PATIENT VIEW (Focused View) ─────────────── */}
         {activeTab === 'register' && (
           <div className="reception-focused-view">
-            <header className="reception-focused-header">
+            <header className="ui-page-header reception-focused-header">
               <button
                 type="button"
                 className="reception-back-link"
@@ -1725,23 +1720,34 @@ export default function ReceptionDashboard({ lang, t }) {
         {/* ── 4. BILLING & PAYMENT VIEW ────────────────────────────── */}
         {activeTab === 'billing' && (
           <div className="reception-billing-view">
-            <header className="reception-billing-header">
-              <h1 className="ui-page-title">
-                {billingPatient
-                  ? (lang === 'ar' ? billingPatient.fullNameAr : billingPatient.fullNameEn)
-                  : (lang === 'ar' ? 'الفوترة والدفع' : 'Billing')}
-              </h1>
-              {billingPatient ? (
-                <span className="reception-billing-subtitle">
-                  <span className="ui-mono" dir="ltr">{billingPatient.fileNumber || '—'}</span>
-                  {billingAppointment?.doctor && (
-                    <span> · {lang === 'ar' ? `د. ${billingAppointment.doctor.fullNameAr}` : `Dr. ${billingAppointment.doctor.fullNameEn}`}</span>
-                  )}
-                </span>
-              ) : (
-                <span className="reception-billing-subtitle">
-                  {lang === 'ar' ? 'اختر مريضاً لبدء الفوترة' : 'Select a patient to begin billing'}
-                </span>
+            <header className="ui-page-header reception-billing-header">
+              <div className="reception-billing-title-block">
+                <h1 className="ui-page-title">
+                  {billingPatient
+                    ? (lang === 'ar' ? billingPatient.fullNameAr : billingPatient.fullNameEn)
+                    : (lang === 'ar' ? 'الفوترة والدفع' : 'Billing')}
+                </h1>
+                {billingPatient ? (
+                  <span className="reception-billing-subtitle">
+                    <span className="ui-mono" dir="ltr">{billingPatient.fileNumber || '—'}</span>
+                    {billingAppointment?.doctor && (
+                      <span> · {lang === 'ar' ? `د. ${billingAppointment.doctor.fullNameAr}` : `Dr. ${billingAppointment.doctor.fullNameEn}`}</span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="reception-billing-subtitle">
+                    {lang === 'ar' ? 'اختر مريضاً لبدء الفوترة' : 'Select a patient to begin billing'}
+                  </span>
+                )}
+              </div>
+              {billingPatient && (
+                <button
+                  type="button"
+                  className="btn btn-secondary reception-header-btn"
+                  onClick={() => setViewingProfilePatientId(billingPatient.id)}
+                >
+                  {lang === 'ar' ? 'فتح ملف المريض' : 'Open Patient Profile'}
+                </button>
               )}
             </header>
 
@@ -1791,23 +1797,6 @@ export default function ReceptionDashboard({ lang, t }) {
                 </ul>
               )}
             </div>
-
-            {billingPatient && (
-              <div className="reception-patient-chip">
-                <div>
-                  <span className="reception-chip-label">{lang === 'ar' ? 'المريض المختار:' : 'Selected Patient:'}</span>
-                  <strong>{lang === 'ar' ? billingPatient.fullNameAr : billingPatient.fullNameEn}</strong>
-                  <span className="ui-mono reception-chip-mrn" dir="ltr">{billingPatient.fileNumber || '—'}</span>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-secondary reception-chip-btn"
-                  onClick={() => setViewingProfilePatientId(billingPatient.id)}
-                >
-                  {lang === 'ar' ? 'فتح ملف المريض' : 'Open Patient Profile'}
-                </button>
-              </div>
-            )}
 
             <div className="reception-billing-grid">
               {/* Left Column: Services & Insurance */}
@@ -2074,7 +2063,7 @@ export default function ReceptionDashboard({ lang, t }) {
         {/* ── 6. SHIFT CLOSE / RECONCILE VIEW ──────────────────────── */}
         {activeTab === 'reconcile' && (
           <div className="reception-shiftclose-view">
-            <header className="reception-view-header">
+            <header className="ui-page-header reception-view-header">
               <div className="reception-view-header-start">
                 <h1 className="ui-page-title">{lang === 'ar' ? 'مطابقة الوردية' : 'Shift close'}</h1>
                 <span className="reception-header-subtitle">

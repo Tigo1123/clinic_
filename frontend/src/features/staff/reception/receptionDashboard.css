@@ -9,12 +9,16 @@
   background: var(--color-bg);
   color: var(--color-text);
   min-height: 100%;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 .reception-workspace {
   box-sizing: border-box;
-  padding: clamp(1rem, 2.5vw, 2rem);
+  padding: 32px 40px;
   max-width: var(--content-max, 1440px);
+  width: 100%;
   margin-inline: auto;
   display: flex;
   flex-direction: column;
@@ -49,10 +53,12 @@
   background: transparent;
   color: inherit;
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 4px;
+  min-width: var(--control-height, 44px);
+  min-height: var(--control-height, 44px);
+  padding: 0;
   border-radius: var(--radius-sm);
 }
 
@@ -385,13 +391,12 @@
   white-space: nowrap;
 }
 .reception-emergency-tag {
-  font-size: .6875rem;
+  font-size: .75rem;
   font-weight: 600;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  background: var(--color-danger-soft);
-  color: var(--color-danger-text-on-soft, var(--color-danger));
+  color: var(--color-danger);
   margin-inline-start: 6px;
+  background: transparent;
+  padding: 0;
 }
 .reception-queue-col-action {
   justify-self: end;
@@ -489,7 +494,17 @@
   flex: 1;
   min-height: var(--control-height, 44px);
   border-radius: var(--radius-md);
+  border: 1px solid var(--color-control-border);
+  background: var(--color-surface);
+  color: var(--color-text);
   font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.reception-btn-decline:hover {
+  background: var(--color-danger-soft);
+  color: var(--color-danger-text-on-soft, var(--color-danger));
+  border-color: var(--color-danger);
 }
 
 /* Lab bills in Attention card */
@@ -538,12 +553,13 @@
 .reception-focused-view {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  max-width: 760px;
+  gap: 24px;
+  max-width: 720px;
 }
 .reception-focused-header {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 4px;
 }
 .reception-back-link {
@@ -579,6 +595,32 @@
   flex-direction: column;
   gap: 20px;
 }
+.reception-focused-panel .ui-segmented {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--color-surface-muted);
+  border-radius: 10px;
+  border: 0;
+}
+.reception-focused-panel .ui-segmented button {
+  flex: 1;
+  min-height: var(--control-height, 44px);
+  border-radius: 7px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+.reception-focused-panel .ui-segmented button.active,
+.reception-focused-panel .ui-segmented button[aria-selected="true"] {
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: 600;
+}
 .reception-form-field {
   display: flex;
   flex-direction: column;
@@ -611,7 +653,7 @@
   justify-content: space-between;
   gap: 12px;
   min-height: 60px;
-  padding: 0 16px;
+  padding: 0 12px;
   border-radius: var(--radius-md);
   background: var(--color-primary-soft);
   border: 1px solid var(--color-primary);
@@ -620,14 +662,6 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-}
-.reception-selected-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.reception-selected-badge {
-  font-size: .75rem;
 }
 .reception-selected-patient-name {
   font-weight: 600;
@@ -659,6 +693,7 @@
   background: var(--color-surface);
   color: var(--color-text);
   font: inherit;
+  font-family: var(--font-mono, ui-monospace, monospace);
   font-size: .875rem;
   font-weight: 500;
   cursor: pointer;
@@ -667,9 +702,10 @@
   align-items: center;
   justify-content: center;
 }
-.reception-slot-pill.is-selected {
+.reception-slot-pill.is-selected,
+.reception-slot-pill[aria-pressed="true"] {
   background: var(--color-primary-action);
-  border-color: var(--color-primary);
+  border-color: var(--color-primary-action);
   color: var(--text-inverse);
   font-weight: 600;
 }
@@ -696,9 +732,16 @@
 .reception-billing-view {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
 }
 .reception-billing-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.reception-billing-title-block {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -725,28 +768,6 @@
 }
 .reception-billing-search-input {
   padding-inline: 42px 14px;
-}
-.reception-patient-chip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 18px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  max-width: 680px;
-}
-.reception-chip-label {
-  font-size: .8125rem;
-  color: var(--color-text-muted);
-  margin-inline-end: 8px;
-}
-.reception-chip-mrn {
-  margin-inline-start: 8px;
-  font-size: .8125rem;
-  color: var(--color-primary);
-  font-weight: 600;
 }
 .reception-billing-grid {
   display: flex;
@@ -819,11 +840,14 @@
   border: 0;
   color: var(--color-danger);
   cursor: pointer;
-  padding: 4px;
-  display: flex;
+  min-width: var(--control-height, 44px);
+  min-height: var(--control-height, 44px);
+  padding: 0;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
+  transition: background var(--transition);
 }
 .reception-remove-service-btn:hover {
   background: var(--color-danger-soft);
@@ -874,8 +898,8 @@
 }
 .reception-due-amount {
   font-size: 1.125rem;
-  font-weight: 700;
-  color: var(--color-primary);
+  font-weight: 600;
+  color: var(--color-text);
 }
 .reception-billing-summary-error {
   margin: 0;
@@ -887,16 +911,16 @@
 .reception-payment-form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 .reception-payment-row {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  gap: 12px;
+}
+.reception-payment-row + .reception-payment-row {
+  padding-top: 14px;
+  border-top: 1px solid var(--color-divider);
 }
 .reception-payment-field {
   display: flex;
@@ -920,7 +944,7 @@
 .reception-shiftclose-view {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
   max-width: 560px;
 }
 .reception-shiftclose-form {
@@ -965,6 +989,18 @@
 }
 .reception-reconcile-body {
   font-size: .875rem;
+}
+
+/* ── View Container Shared ─────────────────────────────────── */
+.reception-view-container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* ── Panel State Modifiers ─────────────────────────────────── */
+.reception-panel-error {
+  color: var(--color-danger-text-on-soft, var(--color-danger));
 }
 
 /* ── Lab Billing Full View ─────────────────────────────────── */
@@ -1131,8 +1167,8 @@
 
 /* ── Status Dot Pill Utility Override (if needed) ──────────── */
 .ui-status-dot {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: currentColor;
   flex-shrink: 0;
@@ -1140,6 +1176,9 @@
 
 /* ── Responsive & Accessibility ────────────────────────────── */
 @media (max-width: 900px) {
+  .reception-workspace {
+    padding: 24px 20px;
+  }
   .reception-main-columns {
     flex-direction: column;
   }
@@ -1156,7 +1195,7 @@
 
 @media (max-width: 760px) {
   .reception-workspace {
-    padding: 12px;
+    padding: 16px 12px;
   }
   .reception-name-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
