@@ -6,6 +6,7 @@ import './patientFile.css';
 import { useFacilityBranding } from '../../../app/branding/FacilityBrandingContext.js';
 import FacilityIdentityLine from '../components/FacilityIdentityLine';
 import { getWhatsAppLink } from './clinicalShared.js';
+import { lockPageScroll } from '../../../utils/scrollLock.js';
 
 /* ==========================================
    POST-VISIT SUMMARY & INSTRUCTIONS MODAL
@@ -84,8 +85,7 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = '
 
   useEffect(() => {
     const previousFocus = returnFocusTo || document.activeElement;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const unlockScroll = lockPageScroll();
     (closeButtonRef.current || dialogRef.current)?.focus();
 
     const handleKeyDown = (event) => {
@@ -112,7 +112,7 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = '
     document.addEventListener('keydown', handleKeyDown, true);
     return () => {
       document.removeEventListener('keydown', handleKeyDown, true);
-      document.body.style.overflow = previousOverflow;
+      unlockScroll();
       previousFocus?.focus?.();
     };
   }, [onClose, returnFocusTo]);

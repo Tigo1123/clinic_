@@ -366,7 +366,7 @@
 .dashboard-wrapper {
   display: flex;
   flex: 1;
-  overflow: hidden;
+  overflow-x: clip;
 }
 
 .sidebar-menu {
@@ -415,7 +415,7 @@
 .workspace-panel {
   flex: 1;
   padding: clamp(1.5rem, 2.5vw, 2.5rem);
-  overflow-y: auto;
+  overflow-x: clip;
 }
 
 /* Glass Panels and Cards */
@@ -1405,7 +1405,7 @@
 .dashboard-wrapper {
   display: flex;
   flex: 1;
-  overflow: hidden;
+  overflow-x: clip;
 }
 
 .sidebar-menu {
@@ -1455,7 +1455,7 @@
 .workspace-panel {
   flex: 1;
   padding: 2rem;
-  overflow-y: auto;
+  overflow-x: clip;
 }
 
 /* Glass Panels and Cards */

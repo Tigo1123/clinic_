@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { lockPageScroll } from '../../utils/scrollLock.js';
 
 export default function Dialog({ open, title, description, children, onClose, initialFocusRef }) {
   const dialogRef = useRef(null);
@@ -20,8 +21,8 @@ export default function Dialog({ open, title, description, children, onClose, in
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     }
     dialog.addEventListener('keydown', handleKey);
-    document.body.style.overflow = 'hidden';
-    return () => { dialog.removeEventListener('keydown', handleKey); document.body.style.overflow = ''; returnFocusRef.current?.focus?.(); };
+    const unlockScroll = lockPageScroll();
+    return () => { dialog.removeEventListener('keydown', handleKey); unlockScroll(); returnFocusRef.current?.focus?.(); };
   }, [initialFocusRef, onClose, open]);
   if (!open) return null;
   return createPortal(<div className="ui-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section ref={dialogRef} className="ui-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" aria-describedby={description ? 'dialog-description' : undefined} tabIndex={-1}><h2 id="dialog-title">{title}</h2>{description && <p id="dialog-description">{description}</p>}{children}</section></div>, document.body);

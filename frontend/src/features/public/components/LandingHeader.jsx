@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { HeartPulse, Languages, Menu, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import ThemeToggle from '../../../components/ui/ThemeToggle.jsx';
+import { lockPageScroll } from '../../../utils/scrollLock.js';
 
 export default function LandingHeader({ copy, brand, descriptor, language, onLanguageChange }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -16,9 +17,8 @@ export default function LandingHeader({ copy, brand, descriptor, language, onLan
 
   useEffect(() => {
     if (!menuOpen) return undefined;
-    const previousOverflow = document.body.style.overflow;
     const desktopQuery = window.matchMedia('(min-width: 901px)');
-    document.body.style.overflow = 'hidden';
+    const unlockScroll = lockPageScroll();
     menuRef.current?.querySelector('a')?.focus();
     const handleResize = () => { if (desktopQuery.matches) setMenuOpen(false); };
     desktopQuery.addEventListener('change', handleResize);
@@ -43,7 +43,7 @@ export default function LandingHeader({ copy, brand, descriptor, language, onLan
 
     document.addEventListener('keydown', handleKeyDown);
     return () => {
-      document.body.style.overflow = previousOverflow;
+      unlockScroll();
       document.removeEventListener('keydown', handleKeyDown);
       desktopQuery.removeEventListener('change', handleResize);
     };
