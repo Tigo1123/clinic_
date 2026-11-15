@@ -412,7 +412,11 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
 
   return (
     <div className="admin-workspace">
-      {activeTab === 'clinic-setup' && <ClinicSetupPanel lang={lang} t={t}/>}
+      {activeTab === 'clinic-setup' && (
+        <div className="admin-main">
+          <ClinicSetupPanel lang={lang} t={t}/>
+        </div>
+      )}
       {activeTab === 'profile' && (
         <div className="admin-main">
           <ClinicProfilePanel lang={lang} t={t}/>
@@ -421,7 +425,7 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
 
       {activeTab === 'users' && (
         <div className="admin-main">
-          <header className="admin-header">
+          <header className="admin-header ui-page-header">
             <div className="admin-header-titles">
               <h1 className="ui-page-title">{lang === 'ar' ? 'حسابات الموظفين' : 'Staff accounts'}</h1>
               <span className="admin-header-count">
@@ -760,7 +764,7 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
 
       {activeTab === 'pricing' && (
         <div className="admin-main">
-          <header className="admin-header">
+          <header className="admin-header ui-page-header">
             <div className="admin-header-titles">
               <h1 className="ui-page-title">{lang === 'ar' ? 'إدارة الأسعار' : 'Pricing Management'}</h1>
               <span className="admin-header-subtitle">
@@ -784,7 +788,7 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
 
       {activeTab === 'specialties' && (
         <div className="admin-main">
-          <header className="admin-header">
+          <header className="admin-header ui-page-header">
             <div className="admin-header-titles">
               <h1 className="ui-page-title">{lang === 'ar' ? 'إدارة التخصصات' : 'Specialties'}</h1>
               <span className="admin-header-subtitle">
@@ -820,18 +824,26 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
                 </tr>
               </thead>
               <tbody>
-                {specialties.map((specialty) => (
-                  <SpecialtyRow
-                    key={specialty.id}
-                    specialty={specialty}
-                    lang={lang}
-                    onSave={saveSpecialty}
-                    isAdmin={user?.role === 'ADMIN'}
-                    request={fetchWithAuth}
-                    onDeleted={specialtyDeleted}
-                    onFeedback={showSpecialtyFeedback}
-                  />
-                ))}
+                {specialties.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="admin-empty-state">
+                      {lang === 'ar' ? 'لا توجد تخصصات مسجلة.' : 'No registered specialties.'}
+                    </td>
+                  </tr>
+                ) : (
+                  specialties.map((specialty) => (
+                    <SpecialtyRow
+                      key={specialty.id}
+                      specialty={specialty}
+                      lang={lang}
+                      onSave={saveSpecialty}
+                      isAdmin={user?.role === 'ADMIN'}
+                      request={fetchWithAuth}
+                      onDeleted={specialtyDeleted}
+                      onFeedback={showSpecialtyFeedback}
+                    />
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -917,7 +929,7 @@ function PricingTable({ title, kind, items, lang, drafts, setDrafts, onSave }) {
   const priceField = kind === 'doctors' ? 'consultationFee' : kind === 'services' ? 'baseFeeSdg' : 'unitPriceSdg';
   return (
     <section className="admin-pricing-section">
-      <h3 className="admin-section-title">{title}</h3>
+      <h3 className="admin-section-title ui-section-label">{title}</h3>
       <div className="ui-panel admin-table-panel">
         <table className="staff-table">
           <thead>
@@ -931,7 +943,14 @@ function PricingTable({ title, kind, items, lang, drafts, setDrafts, onSave }) {
             </tr>
           </thead>
           <tbody>
-            {items.map((item) => {
+            {items.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="admin-empty-state">
+                  {lang === 'ar' ? 'لا توجد عناصر مسجلة.' : 'No entries found.'}
+                </td>
+              </tr>
+            ) : (
+              items.map((item) => {
               const key = `${kind}:${item.id}`;
               const currentPrice = item[priceField];
               const draft = drafts[key] || { priceSdg: currentPrice == null ? '' : String(Number(currentPrice)), status: item.status };
@@ -972,7 +991,8 @@ function PricingTable({ title, kind, items, lang, drafts, setDrafts, onSave }) {
                   </td>
                 </tr>
               );
-            })}
+            })
+          )}
           </tbody>
         </table>
       </div>
