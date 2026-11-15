@@ -79,6 +79,10 @@ test('safe localized errors cover duplicate identities, verification, rate limit
   assert.equal(onboardingErrorMessage({ code:'VERIFICATION_CODE_EXPIRED' }, messages), 'verify');
   assert.equal(onboardingErrorMessage({ status:429 }, messages), 'rate');
   assert.equal(onboardingErrorMessage({ message:'raw database error' }, messages), 'failed');
+  const extended = { ...messages, verificationUnavailable:'unavailable', requestTimeout:'timeout' };
+  assert.equal(onboardingErrorMessage({ code:'VERIFICATION_UNAVAILABLE' }, extended), 'unavailable');
+  assert.equal(onboardingErrorMessage({ code:'VERIFICATION_DELIVERY_FAILED' }, extended), 'unavailable');
+  assert.equal(onboardingErrorMessage({ code:'REQUEST_TIMEOUT' }, extended), 'timeout');
 });
 
 test('OTP resend cooldown is deterministic and localized in both languages', async () => {

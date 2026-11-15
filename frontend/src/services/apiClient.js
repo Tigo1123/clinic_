@@ -97,6 +97,22 @@ export function patientApiRequest(path, options = {}) {
   return request(path, options, 'patient');
 }
 
-export function publicApiRequest(path, options = {}) {
-  return request(path, options);
+export const PUBLIC_REQUEST_TIMEOUT_MS = 45000;
+
+// Public auth requests (sign-up, sign-in, verification) must never leave the
+// form spinning forever if the server or a proxy stops responding.
+export async function publicApiRequest(path, options = {}) {
+  if (options.signal || typeof AbortController === 'undefined') return request(path, options);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PUBLIC_REQUEST_TIMEOUT_MS);
+  try {
+    return await request(path, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new ApiClientError(0, 'REQUEST_TIMEOUT', 'The server took too long to respond.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
