@@ -7,11 +7,23 @@ let publicConfig = { ...DEFAULT_BRANDING };
 
 export function getPublicConfig() { return publicConfig; }
 
+// Render static sites use a separate origin from the backend unless a reverse
+// proxy is configured. Resolve the public configuration through the same API
+// origin as the rest of the patient and staff requests.
+export function publicConfigUrl(baseUrl = import.meta.env?.VITE_API_BASE_URL || '') {
+  const base = String(baseUrl || '').trim().replace(/\/+$/, '');
+  return `${base}/api/public-config`;
+}
+
 export async function loadClinicTimeZone() {
   try {
-    const response = await fetch('/api/public-config', { headers: { Accept: 'application/json' } });
+    const response = await fetch(publicConfigUrl(), {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return CLINIC_TIME_ZONE;
     const config = await response.json();
-    if (response.ok && config && typeof config === 'object') {
+    if (config && typeof config === 'object') {
       publicConfig = { ...DEFAULT_BRANDING, ...config };
       if (typeof config.clinicTimeZone === 'string' && config.clinicTimeZone) {
         backendClinicTimeZone = config.clinicTimeZone;
