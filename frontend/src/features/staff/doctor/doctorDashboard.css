@@ -36,7 +36,7 @@
 }
 
 .doctor-dashboard__workspace {
-  padding: 24px 32px;
+  padding: 32px 40px;
   max-width: var(--content-max);
   margin-inline: auto;
   overflow-x: clip;
@@ -309,10 +309,10 @@
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
-  padding: 20px 24px;
-  background: var(--doctor-surface);
-  border: 1px solid var(--doctor-border);
-  border-radius: var(--radius-lg);
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
 }
 .doctor-patient-context__identity {
   display: flex;
@@ -322,7 +322,7 @@
 }
 .doctor-patient-context__identity h2 {
   margin: 0;
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--doctor-ink);
@@ -335,6 +335,25 @@
   color: var(--doctor-muted);
   font-size: 13px;
 }
+.doctor-patient-context .badge-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  color: var(--doctor-primary);
+  border: 0;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+.doctor-patient-context .badge-info::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
 .doctor-mrn {
   font-family: var(--font-mono);
   font-weight: 500;
@@ -345,6 +364,14 @@
   font-weight: 600;
   display: inline-flex;
   align-items: center;
+  background: transparent;
+  border: 1px solid var(--color-control-border);
+  color: var(--doctor-ink);
+  text-decoration: none;
+}
+.doctor-open-patient-file:hover {
+  background: var(--color-surface-muted);
+  border-color: var(--doctor-border);
 }
 
 /* ── One-line Vitals Strip ── */
@@ -581,17 +608,66 @@
   display: inline;
   margin-inline-start: 4px;
 }
+.doctor-prescribed-card .badge-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  color: var(--doctor-warning);
+  border: 0;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+.doctor-prescribed-card .badge-warning::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+.doctor-prescribed-card .badge-info {
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  color: var(--doctor-muted);
+  border: 0;
+  padding: 0;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
 .doctor-prescribed-actions {
   display: flex;
-  gap: 6px;
+  gap: 4px;
 }
 .doctor-prescribed-actions .btn {
   min-height: 44px;
-  padding: 0 14px;
+  padding: 0 12px;
   font-size: 13px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition);
+}
+.doctor-prescribed-actions .btn-secondary {
+  color: var(--color-primary);
+  font-weight: 500;
+}
+.doctor-prescribed-actions .btn-secondary:hover {
+  background: var(--color-surface-muted);
+}
+.doctor-prescribed-actions .btn-danger {
+  color: var(--color-danger);
+  font-weight: 500;
+}
+.doctor-prescribed-actions .btn-danger:hover {
+  background: var(--color-danger-soft);
 }
 
 /* ── Lab Services Order ── */
@@ -940,6 +1016,22 @@
 }
 
 /* ── Responsive Rules (Strict test matches) ── */
+@media (max-width: 900px) {
+  .doctor-operational-grid {
+    display: flex;
+    flex-direction: column;
+  }
+  .doctor-queue-panel, .doctor-clinical-workspace {
+    width: 100%;
+  }
+  .doctor-queue-panel {
+    position: static;
+  }
+  .doctor-vitals-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 860px) {
   .doctor-operational-grid {
     display: flex;
@@ -971,6 +1063,11 @@
   }
 }
 
+[dir='rtl'] .doctor-stepper-back svg,
+[dir='rtl'] .doctor-stepper-continue svg {
+  transform: scaleX(-1);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .doctor-dashboard *,
   .doctor-dashboard *::before,
@@ -994,15 +1091,46 @@
 }
 
 .doctor-alert-banner {
-  padding: 0.75rem 1rem;
+  padding: 12px 16px;
   width: 100%;
   border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.doctor-alert-banner.badge-danger {
+  background: var(--color-danger-soft);
+  color: var(--color-danger-text-on-soft, var(--color-danger));
+  border: 1px solid var(--color-danger);
+}
+.doctor-alert-banner.badge-success {
+  background: var(--color-success-soft);
+  color: var(--color-primary-on-soft, var(--color-success));
+  border: 1px solid var(--color-success);
 }
 
 .doctor-readonly-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
-  padding: 0.75rem;
+  padding: 12px 16px;
   border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  font-size: 13px;
+}
+.doctor-readonly-badge::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  flex: none;
 }
 
 .doctor-historical-summary {
@@ -1023,24 +1151,34 @@
   margin: 0.5rem 0;
 }
 .doctor-timeline-card {
-  margin-bottom: 1rem;
-  padding: 0.85rem;
+  margin-bottom: 0;
+  padding: 16px 20px;
   position: relative;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--color-divider);
+  border-radius: 0;
+  box-shadow: none;
+}
+.doctor-history-panel .doctor-timeline-card:first-child {
+  border-top: 0;
 }
 .lock-container-block {
   position: absolute;
-  inset-inline-end: 10px;
-  top: 10px;
+  inset-inline-end: 16px;
+  top: 16px;
   display: flex;
-  gap: 4px;
+  gap: 6px;
   align-items: center;
-  background: rgba(0, 0, 0, 0.5);
-  padding: 2px 6px;
-  border-radius: 4px;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-control-border);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
 }
 .lock-label {
-  font-size: 0.65rem;
+  font-size: 0.75rem;
   color: var(--doctor-danger);
+  font-weight: 500;
 }
 .timeline-details {
   font-size: 0.85rem;
@@ -1150,6 +1288,20 @@
 .doctor-prescription-add-wrap {
   margin-top: 16px;
 }
+.doctor-add-prescription {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-primary);
+  background: var(--color-primary-soft);
+  color: var(--color-primary-on-soft, var(--color-primary));
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.doctor-add-prescription:hover {
+  background: var(--color-surface-muted);
+}
 .doctor-prescribed-list__title {
   margin-bottom: 8px;
 }
@@ -1162,40 +1314,51 @@
 
 .doctor-review-lab-results {
   margin-bottom: 20px;
-  padding: 16px;
-  border: 1px solid var(--doctor-success);
-  border-radius: var(--radius-md);
-  background: var(--color-success-soft);
+  padding: 16px 20px;
+  border: 1px solid var(--doctor-border);
+  border-radius: var(--radius-lg);
+  background: var(--doctor-surface);
 }
 .doctor-review-lab-results__title {
-  margin: 0 0 8px;
-  color: var(--doctor-success);
-  font-size: 15px;
+  margin: 0 0 12px;
+  color: var(--doctor-ink);
+  font-size: 16px;
+  font-weight: 600;
 }
 .doctor-review-lab-results__empty {
   margin: 0;
   color: var(--doctor-muted);
+  font-size: 13px;
 }
 .doctor-review-lab-results__grid {
-  display: grid;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--color-divider);
 }
 .doctor-lab-result-item {
-  padding: 8px 12px;
-  background: var(--doctor-surface);
-  border-radius: 6px;
-  border-inline-start: 3px solid var(--doctor-success);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 10px 0;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--color-divider);
+  border-radius: 0;
 }
-.doctor-lab-result-item.is-out-of-range {
-  border-inline-start-color: var(--doctor-danger);
+.doctor-lab-result-item strong {
+  font-weight: 500;
+  font-size: 13px;
 }
 .doctor-lab-result-value {
   font-size: 13px;
+  font-family: var(--font-mono);
 }
 .doctor-review-lab-results__note {
   font-size: 12px;
   color: var(--doctor-muted);
-  margin: 10px 0 0;
+  margin: 12px 0 0;
 }
 
 .doctor-review-missing {

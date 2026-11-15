@@ -394,7 +394,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
                       ['prescriptions', lang === 'ar' ? 'الوصفات' : 'Prescriptions'],
                       ['labOrders', lang === 'ar' ? 'طلبات المختبر' : 'Lab orders']
                     ] : [['invoices', lang === 'ar' ? 'الفواتير' : 'Invoices']])
-                  ].map(([key, label]) => <div key={key} className="patient-file-metric"><strong>{profile.summaryCounts?.[key] ?? 0}</strong><span>{label}</span></div>)}
+                  ].map(([key, label]) => <div key={key} className="patient-file-metric"><strong className="ui-mono">{profile.summaryCounts?.[key] ?? 0}</strong><span>{label}</span></div>)}
                 </div>
 
                 {/* Patient Portal Link Management */}
@@ -465,7 +465,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
                             : 'Patient Claim Code'}
                         </span>
 
-                        <div dir="ltr" className="patient-file-claim-code">
+                        <div dir="ltr" className="ui-mono patient-file-claim-code">
                           {claimCode}
                         </div>
 
@@ -561,7 +561,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
                 <section id="patient-file-panel-appointments" role="tabpanel" aria-labelledby="patient-file-tab-appointments" className="patient-file-section">
                   <h4><Calendar size={18} />{lang === 'ar' ? 'المواعيد' : 'Appointments'}</h4>
                   {!(profile.appointments || []).length ? <p className="patient-file-empty">{lang === 'ar' ? 'لا توجد مواعيد مسجلة.' : 'No appointments recorded.'}</p> : (
-                    <div className="patient-file-list">{profile.appointments.map((appointment) => <article key={appointment.id} className="patient-file-list-item"><div><strong>{appointment.appointmentDate}</strong><span dir="ltr">{appointment.appointmentTime}</span></div><div>{appointment.doctor ? (lang === 'ar' ? appointment.doctor.fullNameAr : appointment.doctor.fullNameEn) : '—'}</div><span className="patient-file-status">{localizedStatus(appointment.status, lang)}</span></article>)}</div>
+                    <div className="patient-file-list">{profile.appointments.map((appointment) => <article key={appointment.id} className="patient-file-list-item"><div><strong>{appointment.appointmentDate}</strong><span className="ui-mono" dir="ltr">{appointment.appointmentTime}</span></div><div>{appointment.doctor ? (lang === 'ar' ? appointment.doctor.fullNameAr : appointment.doctor.fullNameEn) : '—'}</div><span className="patient-file-status">{localizedStatus(appointment.status, lang)}</span></article>)}</div>
                   )}
                 </section>
               )}
@@ -569,7 +569,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
               {activeSection === 'billing' && (
                 <section id="patient-file-panel-billing" role="tabpanel" aria-labelledby="patient-file-tab-billing" className="patient-file-section">
                   <h4><Receipt size={18} />{lang === 'ar' ? 'الفوترة' : 'Billing'}</h4>
-                  {!(profile.invoices || []).length ? <p className="patient-file-empty">{lang === 'ar' ? 'لا توجد فواتير مسجلة.' : 'No invoices recorded.'}</p> : <div className="patient-file-list">{profile.invoices.map((invoice) => <article key={invoice.id} className="patient-file-list-item"><div><strong>{new Date(invoice.invoiceDate).toLocaleDateString(lang === 'ar' ? 'ar' : 'en')}</strong><span>{invoice.invoiceType}</span></div><strong>{invoice.totalAmountSdg.toLocaleString(lang === 'ar' ? 'ar' : 'en')} {lang === 'ar' ? 'ج.س' : 'SDG'}</strong><span className="patient-file-status">{localizedStatus(invoice.paymentStatus, lang)}</span></article>)}</div>}
+                  {!(profile.invoices || []).length ? <p className="patient-file-empty">{lang === 'ar' ? 'لا توجد فواتير مسجلة.' : 'No invoices recorded.'}</p> : <div className="patient-file-list">{profile.invoices.map((invoice) => <article key={invoice.id} className="patient-file-list-item"><div><strong>{new Date(invoice.invoiceDate).toLocaleDateString(lang === 'ar' ? 'ar' : 'en')}</strong><span>{invoice.invoiceType}</span></div><strong className="ui-mono">{invoice.totalAmountSdg.toLocaleString(lang === 'ar' ? 'ar' : 'en')} {lang === 'ar' ? 'ج.س' : 'SDG'}</strong><span className="patient-file-status">{localizedStatus(invoice.paymentStatus, lang)}</span></article>)}</div>}
                 </section>
               )}
 
