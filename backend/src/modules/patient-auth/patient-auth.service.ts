@@ -149,7 +149,7 @@ export class PatientAuthService {
       const email = normalizeEmail(body.email);
       if (demoRegistration && !stagingDemoIdentityAllowed(email, phoneNormalized)) {
         throw new HttpException(
-          { code: 'STAGING_DEMO_IDENTITY_REQUIRED', message: 'Use a fictional qa+NAME@clinic-qa.invalid email and a reserved +120255501xx test phone on Staging.' },
+          { code: 'STAGING_DEMO_IDENTITY_REQUIRED', message: 'Staging demo accepts qa+NAME@clinic-qa.invalid with a +2507855501xx test phone only. No messages are sent.' },
           HttpStatus.UNPROCESSABLE_ENTITY,
         );
       }
