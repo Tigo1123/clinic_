@@ -3,8 +3,8 @@ import { localizedStockState } from '../pharmacyHelpers';
 export default function PharmacyAlertsBody({ lang, alertLoadError, alertMedicines, alertModel, onRetry }) {
   if (alertLoadError) {
     return (
-      <div className="pharmacy-compact-empty">
-        <p role="alert">{alertLoadError}</p>
+      <div className="pharmacy-compact-empty ui-panel">
+        <p role="alert" className="pharmacy-empty-text">{alertLoadError}</p>
         <button type="button" className="btn btn-secondary" onClick={onRetry}>
           {lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}
         </button>
@@ -14,16 +14,16 @@ export default function PharmacyAlertsBody({ lang, alertLoadError, alertMedicine
 
   if (alertMedicines === null) {
     return (
-      <div className="pharmacy-compact-empty">
-        <p>{lang === 'ar' ? 'جارٍ تحميل التنبيهات…' : 'Loading alerts…'}</p>
+      <div className="pharmacy-compact-empty ui-panel">
+        <p className="pharmacy-empty-text">{lang === 'ar' ? 'جارٍ تحميل التنبيهات…' : 'Loading alerts…'}</p>
       </div>
     );
   }
 
   if (alertModel.totalAlertCount === 0) {
     return (
-      <div className="pharmacy-compact-empty">
-        <p>
+      <div className="pharmacy-compact-empty ui-panel">
+        <p className="pharmacy-empty-text">
           {lang === 'ar'
             ? 'لا توجد تنبيهات مخزون أو صلاحية حالياً.'
             : 'There are no inventory or expiry alerts at this time.'}
@@ -52,7 +52,7 @@ export default function PharmacyAlertsBody({ lang, alertLoadError, alertMedicine
           <section key={state} className="pharmacy-alert-group ui-panel" aria-labelledby={`pharmacy-alert-${state}`}>
             <h3 id={`pharmacy-alert-${state}`} className="ui-section-label">
               <span>{title}</span>
-              <span className={`badge badge-${tone}`}>{count}</span>
+              <span className="ui-mono" style={{ fontSize: '13px', color: 'var(--color-text-muted)' }}>{count}</span>
             </h3>
             <div className="pharmacy-alert-list">
               {alerts.map((alert) => (

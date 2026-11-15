@@ -24,12 +24,12 @@ async function jsonRequest(url, options, fallback, lang) {
 }
 
 function Field({ id, label, error, ...props }) {
-  return <div className="form-group"><label className="form-label" htmlFor={id}>{label}</label><input id={id} className={`form-input${error ? ' form-input-error' : ''}`} aria-invalid={Boolean(error)} aria-describedby={error ? `${id}-error` : undefined} {...props} />{error && <small id={`${id}-error`} className="pharmacy-field-error">{error}</small>}</div>;
+  return <div className="form-group"><label className="form-label ui-section-label" htmlFor={id}>{label}</label><input id={id} className={`form-input${error ? ' form-input-error' : ''}`} aria-invalid={Boolean(error)} aria-describedby={error ? `${id}-error` : undefined} {...props} />{error && <small id={`${id}-error`} className="pharmacy-field-error">{error}</small>}</div>;
 }
 
 function DialogFeedback({ feedback }) {
   return feedback.text
-    ? <div role="alert" className={`badge badge-${feedback.type} pharmacy-alert-banner pharmacy-alert-banner--bottom-spaced`}>{feedback.text}</div>
+    ? <div role="alert" className={`pharmacy-alert-banner pharmacy-alert-banner--${feedback.type === 'danger' ? 'danger' : feedback.type === 'success' ? 'success' : 'warning'} pharmacy-alert-banner--bottom-spaced`}>{feedback.text}</div>
     : null;
 }
 
@@ -58,13 +58,13 @@ function BatchFields({ form, setForm, lang, errors = {}, idPrefix = 'batch' }) {
 function StockBadges({ medicine, lang }) {
   const stock = authoritativeStockSummary(medicine);
   const state = stockPresentation(stock);
-  const tone = { OUT_OF_STOCK: 'danger', EXPIRED: 'danger', LOW_STOCK: 'warning', NEAR_EXPIRY: 'warning', HEALTHY: 'success' }[state];
+  const tone = { OUT_OF_STOCK: 'danger', EXPIRED: 'danger', LOW_STOCK: 'warn', NEAR_EXPIRY: 'warn', HEALTHY: 'ok' }[state];
   return (
     <div className="pharmacy-badges">
-      <span className={`badge ${medicine.status === 'ACTIVE' ? 'badge-success' : 'badge-warning'}`}>{medicine.status}</span>
-      <span className={`badge badge-${tone} pharmacy-state-badge`}>{localizedStockState(state, lang)}</span>
+      <span className={`ui-status ${medicine.status === 'ACTIVE' ? 'ui-status--ok' : 'ui-status--warn'}`}>{medicine.status === 'ACTIVE' ? (lang === 'ar' ? 'نشط' : 'Active') : (lang === 'ar' ? 'غير نشط' : 'Inactive')}</span>
+      <span className={`ui-status ui-status--${tone} pharmacy-state-badge`}>{localizedStockState(state, lang)}</span>
       {stock.expiredBatchCount > 0 && state !== 'EXPIRED' && (
-        <span className="badge badge-danger pharmacy-state-badge">{localizedStockState('EXPIRED', lang)}</span>
+        <span className="ui-status ui-status--danger pharmacy-state-badge">{localizedStockState('EXPIRED', lang)}</span>
       )}
     </div>
   );
@@ -269,30 +269,34 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
       </form>
 
       {feedback.text && (
-        <div role="status" className={`badge badge-${feedback.type} pharmacy-alert-banner`}>
+        <div role="status" className={`pharmacy-alert-banner pharmacy-alert-banner--${feedback.type === 'danger' ? 'danger' : feedback.type === 'success' ? 'success' : 'warning'}`}>
           {feedback.text}
         </div>
       )}
 
       {loading && items.length === 0 ? (
-        <div className="pharmacy-compact-empty">
-          <p className="pharmacy-empty">{lang === 'ar' ? 'جارٍ تحميل الأدوية…' : 'Loading medicines…'}</p>
+        <div className="pharmacy-table-panel ui-panel">
+          <div className="pharmacy-compact-empty">
+            <p className="pharmacy-empty pharmacy-empty-text">{lang === 'ar' ? 'جارٍ تحميل الأدوية…' : 'Loading medicines…'}</p>
+          </div>
         </div>
       ) : items.length === 0 ? (
-        <div className="pharmacy-compact-empty">
-          <p className="pharmacy-empty">{lang === 'ar' ? 'لا توجد أدوية مطابقة.' : 'No medicines found.'}</p>
+        <div className="pharmacy-table-panel ui-panel">
+          <div className="pharmacy-compact-empty">
+            <p className="pharmacy-empty pharmacy-empty-text">{lang === 'ar' ? 'لا توجد أدوية مطابقة.' : 'No medicines found.'}</p>
+          </div>
         </div>
       ) : (
-        <div className={`pharmacy-table-panel${loading ? ' is-refreshing' : ''}`}>
+        <div className={`pharmacy-table-panel ui-panel${loading ? ' is-refreshing' : ''}`}>
           <table className="pharmacy-inventory-table">
             <thead>
               <tr>
-                <th>{lang === 'ar' ? 'الدواء' : 'Medicine'}</th>
-                <th>{lang === 'ar' ? 'السعر الرسمي' : 'Official price'}</th>
-                <th>{lang === 'ar' ? 'المخزون الصالح' : 'Usable stock'}</th>
-                <th>{lang === 'ar' ? 'أقرب صلاحية' : 'Nearest expiry'}</th>
-                <th>{lang === 'ar' ? 'حالة المخزون' : 'Stock status'}</th>
-                <th>{lang === 'ar' ? 'حالة القائمة' : 'Formulary status'}</th>
+                <th className="ui-section-label">{lang === 'ar' ? 'الدواء' : 'Medicine'}</th>
+                <th className="ui-section-label">{lang === 'ar' ? 'السعر الرسمي' : 'Official price'}</th>
+                <th className="ui-section-label">{lang === 'ar' ? 'المخزون الصالح' : 'Usable stock'}</th>
+                <th className="ui-section-label">{lang === 'ar' ? 'أقرب صلاحية' : 'Nearest expiry'}</th>
+                <th className="ui-section-label">{lang === 'ar' ? 'حالة المخزون' : 'Stock status'}</th>
+                <th className="ui-section-label">{lang === 'ar' ? 'حالة القائمة' : 'Formulary status'}</th>
                 <th><span className="sr-only">{lang === 'ar' ? 'الإجراءات' : 'Actions'}</span></th>
               </tr>
             </thead>
@@ -563,32 +567,32 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
 
       <Dialog open={dialog === 'batches'} title={lang === 'ar' ? 'دفعات المخزون' : 'Inventory batches'} onClose={closeDialog}>
         {batchLoading ? (
-          <p className="pharmacy-empty">{lang === 'ar' ? 'جارٍ تحميل الدفعات…' : 'Loading batches…'}</p>
+          <p className="pharmacy-empty pharmacy-empty-text">{lang === 'ar' ? 'جارٍ تحميل الدفعات…' : 'Loading batches…'}</p>
         ) : batchError ? (
           <div className="pharmacy-compact-empty">
-            <div role="alert" className="badge badge-danger">{batchError}</div>
+            <div role="alert" className="pharmacy-alert-banner pharmacy-alert-banner--danger">{batchError}</div>
             <button type="button" className="btn btn-secondary" onClick={() => loadBatches(selected.id, batchPagination.page)}>
               {lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}
             </button>
           </div>
         ) : batches.length === 0 ? (
-          <p className="pharmacy-empty">{lang === 'ar' ? 'لا توجد دفعات مسجلة.' : 'No inventory batches found.'}</p>
+          <p className="pharmacy-empty pharmacy-empty-text">{lang === 'ar' ? 'لا توجد دفعات مسجلة.' : 'No inventory batches found.'}</p>
         ) : (
           <div className="pharmacy-scroll-table">
             <table>
               <thead>
                 <tr>
-                  <th>{lang === 'ar' ? 'الدفعة' : 'Batch'}</th>
-                  <th>{lang === 'ar' ? 'الصلاحية' : 'Expiry'}</th>
-                  <th>{lang === 'ar' ? 'الكمية' : 'Quantity'}</th>
-                  <th>{lang === 'ar' ? 'إعادة الطلب' : 'Reorder'}</th>
-                  <th>{lang === 'ar' ? 'الحالة' : 'State'}</th>
+                  <th className="ui-section-label">{lang === 'ar' ? 'الدفعة' : 'Batch'}</th>
+                  <th className="ui-section-label">{lang === 'ar' ? 'الصلاحية' : 'Expiry'}</th>
+                  <th className="ui-section-label">{lang === 'ar' ? 'الكمية' : 'Quantity'}</th>
+                  <th className="ui-section-label">{lang === 'ar' ? 'إعادة الطلب' : 'Reorder'}</th>
+                  <th className="ui-section-label">{lang === 'ar' ? 'الحالة' : 'State'}</th>
                 </tr>
               </thead>
               <tbody>
                 {batches.map((batch) => {
                   const state = batchPresentation(batch);
-                  const tone = ['EXPIRED', 'OUT_OF_STOCK'].includes(state) ? 'danger' : ['LOW_STOCK', 'NEAR_EXPIRY'].includes(state) ? 'warning' : 'success';
+                  const tone = ['EXPIRED', 'OUT_OF_STOCK'].includes(state) ? 'danger' : ['LOW_STOCK', 'NEAR_EXPIRY'].includes(state) ? 'warn' : 'ok';
                   return (
                     <tr key={batch.id}>
                       <td dir="ltr" className="ui-mono">{batch.batchNumber}</td>
@@ -596,7 +600,7 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
                       <td className="ui-mono">{batch.qtyOnHand}</td>
                       <td className="ui-mono">{batch.minReorderLevel}</td>
                       <td>
-                        <span className={`badge badge-${tone}`}>{localizedStockState(state, lang)}</span>
+                        <span className={`ui-status ui-status--${tone}`}>{localizedStockState(state, lang)}</span>
                       </td>
                     </tr>
                   );
@@ -626,27 +630,27 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
 
       <Dialog open={dialog === 'movements'} title={lang === 'ar' ? 'سجل حركة المخزون' : 'Stock movement ledger'} onClose={closeDialog}>
         {movementLoading ? (
-          <p className="pharmacy-empty">{lang === 'ar' ? 'جارٍ تحميل الحركات…' : 'Loading movements…'}</p>
+          <p className="pharmacy-empty pharmacy-empty-text">{lang === 'ar' ? 'جارٍ تحميل الحركات…' : 'Loading movements…'}</p>
         ) : movementError ? (
           <div className="pharmacy-compact-empty">
-            <div role="alert" className="badge badge-danger">{movementError}</div>
+            <div role="alert" className="pharmacy-alert-banner pharmacy-alert-banner--danger">{movementError}</div>
             <button type="button" className="btn btn-secondary" onClick={() => loadMovements(selected.id, movementPagination.page)}>
               {lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}
             </button>
           </div>
         ) : movements.length === 0 ? (
-          <p className="pharmacy-empty">{lang === 'ar' ? 'لا توجد حركات مخزون مسجلة.' : 'No stock movements found.'}</p>
+          <p className="pharmacy-empty pharmacy-empty-text">{lang === 'ar' ? 'لا توجد حركات مخزون مسجلة.' : 'No stock movements found.'}</p>
         ) : (
           <div className="pharmacy-scroll-table">
             <table>
               <thead>
                 <tr>
-                  <th>{lang === 'ar' ? 'النوع' : 'Type'}</th>
-                  <th>{lang === 'ar' ? 'الدفعة' : 'Batch'}</th>
-                  <th>{lang === 'ar' ? 'التغيير' : 'Delta'}</th>
-                  <th>{lang === 'ar' ? 'الرصيد' : 'Balance'}</th>
-                  <th>{lang === 'ar' ? 'المنفذ' : 'Actor'}</th>
-                  <th>{lang === 'ar' ? 'الوقت' : 'Time'}</th>
+                  <th className="ui-section-label">{lang === 'ar' ? 'النوع' : 'Type'}</th>
+                  <th className="ui-section-label">{lang === 'ar' ? 'الدفعة' : 'Batch'}</th>
+                  <th className="ui-section-label">{lang === 'ar' ? 'التغيير' : 'Delta'}</th>
+                  <th className="ui-section-label">{lang === 'ar' ? 'الرصيد' : 'Balance'}</th>
+                  <th className="ui-section-label">{lang === 'ar' ? 'المنفذ' : 'Actor'}</th>
+                  <th className="ui-section-label">{lang === 'ar' ? 'الوقت' : 'Time'}</th>
                 </tr>
               </thead>
               <tbody>

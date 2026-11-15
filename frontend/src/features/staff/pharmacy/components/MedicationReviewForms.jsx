@@ -1,14 +1,14 @@
 export function LinkExistingForm({ lang, form, drugCatalog, selectedExistingDrug, selectedStock, saving, onFieldChange, onSubmit }) {
   return (
     <div className="ui-panel pharmacy-review-card">
-      <strong>
+      <h3 className="ui-section-label" style={{ fontSize: '13px', margin: 0 }}>
         {lang === 'ar'
           ? 'ربط الدواء بقائمة الصيدلية'
           : 'Link to Existing Formulary'}
-      </strong>
+      </h3>
 
       <div className="form-group">
-        <label className="form-label" htmlFor="review-link-select">
+        <label className="form-label ui-section-label" htmlFor="review-link-select">
           {lang === 'ar' ? 'اختر الدواء' : 'Select medication'}
         </label>
         <select
@@ -90,15 +90,15 @@ export function LinkExistingForm({ lang, form, drugCatalog, selectedExistingDrug
 export function CreateFormularyForm({ lang, form, customDrugName, remainingQty, tomorrow, saving, onFieldChange, onSubmit }) {
   return (
     <div className="ui-panel pharmacy-review-card">
-      <strong>
+      <h3 className="ui-section-label" style={{ fontSize: '13px', margin: 0 }}>
         {lang === 'ar'
           ? 'إنشاء دواء جديد غير نشط وإدخال المخزون'
           : 'Create Medication & Initial Stock'}
-      </strong>
+      </h3>
 
       <div className="pharmacy-form-grid">
         <div className="form-group">
-          <label className="form-label" htmlFor="create-labelEn">English name</label>
+          <label className="form-label ui-section-label" htmlFor="create-labelEn">English name</label>
           <input
             id="create-labelEn"
             className="form-input"
@@ -234,11 +234,11 @@ export function CreateFormularyForm({ lang, form, customDrugName, remainingQty, 
 export function ExternalMedicationForm({ lang, form, saving, onFieldChange, onSubmit }) {
   return (
     <div className="ui-panel pharmacy-review-card">
-      <strong>
+      <h3 className="ui-section-label" style={{ fontSize: '13px', margin: 0 }}>
         {lang === 'ar'
           ? 'تحديد الدواء كدواء خارجي'
           : 'Mark as External Medication'}
-      </strong>
+      </h3>
 
       <p className="pharmacy-dispense-hint">
         {lang === 'ar'
@@ -247,7 +247,7 @@ export function ExternalMedicationForm({ lang, form, saving, onFieldChange, onSu
       </p>
 
       <div className="form-group">
-        <label className="form-label" htmlFor="external-note">
+        <label className="form-label ui-section-label" htmlFor="external-note">
           {lang === 'ar' ? 'سبب أو ملاحظة للصيدلية' : 'Reason or pharmacy note'}
         </label>
         <textarea
