@@ -57,6 +57,14 @@ model State {
   patients Patient[]
 }
 
+model RateLimitBucket {
+  key       String   @id
+  count     Int
+  resetTime DateTime
+
+  @@index([resetTime])
+}
+
 model Doctor {
   id                 String                    @id @default(uuid())
   userId             String                    @unique
@@ -70,7 +78,7 @@ model Doctor {
   consultationFee    Decimal
   weeklySchedule     String // JSON config of slots & hours
   status             String                    @default("ACTIVE") // ACTIVE, INACTIVE
-  updatedAt          DateTime                  @updatedAt
+  updatedAt          DateTime                  @default(now()) @updatedAt
   appointments       Appointment[]
   medicalRecords     MedicalRecord[]
   prescriptions      Prescription[]
@@ -167,7 +175,7 @@ model Specialty {
 
 model Patient {
   id                       String             @id @default(uuid())
-  fileNumber               String             @unique @default(dbgenerated("('SHF-'::text || lpad(nextval('patient_file_number_seq'::regclass)::text, 6, '0'::text))"))
+  fileNumber               String             @unique @default(dbgenerated("('SHF-'::text || lpad((nextval('patient_file_number_seq'::regclass))::text, 6, '0'::text))"))
   fullNameAr               String
   fullNameEn               String
   firstNameAr              String?
@@ -198,6 +206,7 @@ model Patient {
   labOrders                LabOrder[]
   invoices                 Invoice[]
   insuranceClaims          InsuranceClaim[]
+  insuranceMemberships     PatientInsurance[]
   userId                   String?            @unique
   user                     User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
   claimCodes               PatientClaimCode[]
@@ -294,7 +303,7 @@ model DrugFormulary {
   identityKey      String           @unique
   unitPriceSdg     Decimal?
   status           String           @default("INACTIVE") // ACTIVE, INACTIVE
-  updatedAt        DateTime         @updatedAt
+  updatedAt        DateTime         @default(now()) @updatedAt
   prescribedDrugs  PrescribedDrug[]
   inventoryBatches InventoryBatch[]
   stockMovements   StockMovement[]
@@ -380,7 +389,7 @@ model ClinicalService {
   baseFeeUsd    Decimal?
   category      String // CONSULTATION, LABORATORY, RADIOLOGY, CLINICAL_PROCEDURE
   status        String         @default("ACTIVE") // ACTIVE, INACTIVE
-  updatedAt     DateTime       @updatedAt
+  updatedAt     DateTime       @default(now()) @updatedAt
   labOrderItems LabOrderItem[]
 }
 
@@ -434,6 +443,7 @@ model PendingExternalAuth {
 }
 
 model VerificationChallenge {
+  qaCapture        QaVerificationCapture?
   authVersion      Int?
   id               String    @id @default(uuid())
   userId           String
@@ -448,6 +458,16 @@ model VerificationChallenge {
   createdAt        DateTime  @default(now())
 
   @@index([userId, type, createdAt])
+}
+
+model QaVerificationCapture {
+  challengeId   String                @id
+  challenge     VerificationChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  codeEncrypted String
+  expiresAt     DateTime
+  createdAt     DateTime              @default(now())
+
+  @@index([expiresAt])
 }
 
 model MfaConfiguration {
@@ -579,6 +599,7 @@ model Invoice {
   items               InvoiceItem[]
   payments            Payment[]
   paymentOperations   PaymentOperation[]
+  issueOperations     InvoiceIssueOperation[]
   refunds             Refund[]
 
   @@index([invoiceDate])
@@ -667,6 +688,9 @@ model InsuranceCompany {
   labelEn          String
   copayPercentage  Decimal
   billingCycleDays Int              @default(30)
+  active           Boolean          @default(true)
+  coveredCategories String[]        @default(["CONSULTATION", "LABORATORY", "RADIOLOGY", "CLINICAL_PROCEDURE"])
+  memberships      PatientInsurance[]
   claims           InsuranceClaim[]
 }
 
@@ -711,7 +735,44 @@ model Notification {
   title     String
   message   String
   isRead    Boolean  @default(false)
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(dbgenerated("timezone('UTC'::text, CURRENT_TIMESTAMP)"))
+  type       String   @default("GENERAL")
+  entityType String?
+  entityId   String?
+  eventKey   String?
 
   @@index([userId, isRead])
+  @@index([userId, createdAt, id])
+  @@unique([userId, eventKey])
+}
+
+model StockNotificationState {
+  drugId   String @id
+  state    String @default("UNKNOWN")
+  revision Int    @default(0)
+}
+
+model PatientInsurance {
+  id                 String @id @default(uuid())
+  patientId          String
+  patient            Patient @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  insuranceCompanyId String
+  insuranceCompany   InsuranceCompany @relation(fields: [insuranceCompanyId], references: [id], onDelete: Restrict)
+  memberNumber       String
+  plan               String?
+  validFrom          String
+  validUntil         String
+  active             Boolean @default(true)
+  updatedAt          DateTime @default(now()) @updatedAt
+
+  @@unique([patientId, insuranceCompanyId])
+}
+
+model InvoiceIssueOperation {
+  key         String @id
+  requestHash String
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@index([invoiceId])
 }
