@@ -30,14 +30,14 @@ test('demo registration is possible only on the explicitly pinned isolated stagi
 });
 
 test('demo signup requires fictional email and reserved non-real phone', () => {
-  assert.equal(stagingDemoIdentityAllowed('qa+patient1@clinic-qa.invalid', '+12025550123'), true);
-  assert.equal(stagingDemoIdentityAllowed('qa+patient-2@clinic-qa.invalid', '+12025550199'), true);
+  assert.equal(stagingDemoIdentityAllowed('qa+patient1@clinic-qa.invalid', '+250785550123'), true);
+  assert.equal(stagingDemoIdentityAllowed('qa+patient-2@clinic-qa.invalid', '+250785550199'), true);
   for (const [email, phone] of [
-    ['person@gmail.com', '+12025550123'],
-    ['qa+patient1@clinic-qa.invalid', '+250795331304'],
-    ['qa+patient1@clinic-qa.invalid', '+12025550223'],
-    ['qa+patient1@clinic-qa.invalid', '+120255501231'],
-    ['qa+patient1@clinic-qa.invalid.evil.example', '+12025550123'],
-    ['qa+x@clinic-qa.invalid', '+12025550123'],
+    ['person@gmail.com', '+250785550123'],
+    ['qa+patient1@clinic-qa.invalid', '+249911111111'],
+    ['qa+patient1@clinic-qa.invalid', '+250785550223'],
+    ['qa+patient1@clinic-qa.invalid', '+2507855501231'],
+    ['qa+patient1@clinic-qa.invalid.evil.example', '+250785550123'],
+    ['qa+x@clinic-qa.invalid', '+250785550123'],
   ]) assert.equal(stagingDemoIdentityAllowed(email, phone), false, email);
 });
