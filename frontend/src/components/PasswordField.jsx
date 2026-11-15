@@ -35,14 +35,13 @@ export default function PasswordField({
   const direction = (i18n.resolvedLanguage || i18n.language || 'en').startsWith('ar') ? 'rtl' : 'ltr';
   const muiTheme = useMemo(() => createPatientMuiTheme(mode, direction), [mode, direction]);
   const [visible, setVisible] = useState(false);
-  const [focused, setFocused] = useState(false);
+  const [, setFocused] = useState(false);
   const handleFocus = event => { setFocused(true); onFocus?.(event); };
   const handleBlur = event => {
     const control = event.currentTarget.closest('.MuiFormControl-root');
     setFocused(Boolean(control?.contains(event.relatedTarget)));
     onBlur?.(event);
   };
-  const labelShrink = focused || (typeof value === 'string' ? value.length > 0 : Boolean(value));
   return (
     <CacheProvider value={patientStyleCaches[direction]}>
       <MuiThemeProvider theme={muiTheme}>
@@ -63,14 +62,21 @@ export default function PasswordField({
       disabled={disabled}
       dir={direction}
       sx={{
-        // Match Shifa's regular auth fields (44px control, 8px radius, 1px
+        marginBottom: '14px',
+        // Match Shifa's regular auth fields (label above, 44px control, 8px radius, 1px
         // outline) while retaining MUI's label, validation and adornment logic.
         '& .MuiInputLabel-root': {
-          color: 'var(--color-text-secondary, var(--text-secondary))',
-          fontSize: '0.875rem',
+          position: 'static',
+          transform: 'none !important',
+          display: 'block',
+          marginBottom: '6px',
+          color: 'var(--color-text-muted)',
+          fontSize: '12px',
           fontWeight: 500,
-          lineHeight: 1.45,
-          '&.Mui-focused': { color: 'var(--color-text-secondary, var(--text-secondary))' },
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+          lineHeight: 'normal',
+          '&.Mui-focused': { color: 'var(--color-text-muted)' },
           '&.Mui-error': { color: 'var(--color-danger, var(--auth-error))' },
         },
         '& .MuiInputLabel-asterisk': { marginInlineStart: '0.2em' },
@@ -80,15 +86,19 @@ export default function PasswordField({
           minHeight: '44px !important',
           maxHeight: '44px !important',
           borderRadius: 'var(--radius-md, 8px)',
-          paddingInline: '12px',
+          paddingInline: '14px',
           color: 'var(--color-text, var(--text-primary))',
           backgroundColor: 'var(--color-surface, var(--bg-surface))',
           transition: 'border-color var(--transition, 150ms ease), background-color var(--transition, 150ms ease), box-shadow var(--transition, 150ms ease)',
           '& .MuiOutlinedInput-notchedOutline': {
+            top: 0,
             inset: 0,
             borderRadius: 'var(--radius-md, 8px)',
             borderColor: 'var(--color-control-border, var(--border-color))',
             borderWidth: '1px',
+            '& legend': {
+              display: 'none',
+            },
           },
           '&:hover .MuiOutlinedInput-notchedOutline': {
             borderColor: 'var(--color-text-muted, var(--text-secondary))',
@@ -116,13 +126,15 @@ export default function PasswordField({
           boxSizing: 'border-box',
           minWidth: 0,
           padding: '0 !important',
+          height: '100%',
           border: '0 !important',
           borderRadius: 0,
           outline: '0 !important',
           boxShadow: 'none !important',
           backgroundColor: 'transparent !important',
           fontSize: '14px',
-          lineHeight: 1.45,
+          lineHeight: '44px',
+          color: 'var(--color-text, var(--text-primary))',
           '&:focus, &:focus-visible, &[aria-invalid="true"]': {
             border: '0 !important',
             outline: '0 !important',
@@ -130,18 +142,30 @@ export default function PasswordField({
             backgroundColor: 'transparent !important',
           },
         },
-        '& .MuiInputAdornment-root': { marginInline: '4px 0' },
+        '& .MuiInputAdornment-root': {
+          marginInline: '4px 0',
+          height: '100%',
+          maxHeight: 'none',
+        },
         '& .MuiIconButton-root': {
           width: 32,
           height: 32,
           padding: '6px',
-          color: 'var(--color-text-secondary, var(--text-secondary))',
+          color: 'var(--color-text-muted, var(--text-secondary))',
           borderRadius: 'var(--radius-md, 8px)',
           '&:hover': { color: 'var(--color-text, var(--text-primary))', backgroundColor: 'var(--color-surface-muted)' },
           '&:focus-visible': { outline: '2px solid var(--color-primary)', outlineOffset: 1 },
           '&.Mui-disabled': { color: 'var(--color-text-muted, var(--text-secondary))', opacity: 0.55 },
         },
-        '& .MuiFormHelperText-root': { marginInline: 0 },
+        '& .MuiFormHelperText-root': {
+          marginInline: 0,
+          marginTop: '4px',
+          fontSize: '0.78rem',
+          color: 'var(--color-text-muted)',
+          '&.Mui-error': {
+            color: 'var(--color-danger, var(--auth-error))',
+          },
+        },
         ...(sx || {}),
       }}
       slotProps={{
@@ -153,7 +177,7 @@ export default function PasswordField({
           onFocus: handleFocus,
           onBlur: handleBlur,
         },
-        inputLabel: { shrink: labelShrink },
+        inputLabel: { shrink: true },
         input: {
           endAdornment: (
             <InputAdornment position="end">

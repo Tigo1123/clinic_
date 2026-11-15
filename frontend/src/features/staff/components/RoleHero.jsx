@@ -1,5 +1,4 @@
 import { Activity, ClipboardList, Microscope, PackageCheck, Stethoscope, UserRoundCheck } from 'lucide-react';
-import HealthcareIllustration from './HealthcareIllustration';
 
 const icons={reception:UserRoundCheck,doctor:Stethoscope,laboratory:Microscope,pharmacy:PackageCheck,admin:Activity};
 const copy={
@@ -9,4 +8,4 @@ const copy={
   pharmacy:{en:['Pharmacy Workspace','Review prescriptions, FEFO batches, and safe dispensing.'],ar:['مساحة عمل الصيدلية','مراجعة الوصفات ودفعات الصرف حسب الأسبق انتهاءً.']},
   admin:{en:['Healthcare Operations','Manage clinic access, real activity, analytics, and audit controls.'],ar:['عمليات الرعاية الصحية','إدارة الوصول ونشاط العيادة والتحليلات وسجلات التدقيق.']}
 };
-export default function RoleHero({role,lang='en'}){const Icon=icons[role]||ClipboardList;const [title,description]=copy[role]?.[lang]||copy[role]?.en||[];return <section className="role-hero"><div><span className="role-hero__eyebrow"><Icon size={16}/>{title}</span><h2>{title}</h2><p>{description}</p></div><HealthcareIllustration variant={role}/></section>}
+export default function RoleHero({role,lang='en'}){const Icon=icons[role]||ClipboardList;const [title,description]=copy[role]?.[lang]||copy[role]?.en||[];return <section className="role-hero"><div><span className="role-hero__eyebrow"><Icon size={16}/>{title}</span><h2>{title}</h2><p>{description}</p></div></section>}

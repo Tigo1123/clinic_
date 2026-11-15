@@ -1,6 +1,6 @@
 /* Patient workspace: shared semantic tokens, clinical ledger redesign. */
-.patient-app{--patient-hero-gradient:linear-gradient(120deg,var(--color-primary-soft),var(--color-surface));min-height:100dvh;background:var(--color-bg);color:var(--color-text);display:flex;flex-direction:column}
-[data-theme='dark'] .patient-app{--patient-hero-gradient:linear-gradient(120deg,var(--color-primary-soft),var(--color-surface))}
+.patient-app{--patient-hero-gradient:var(--color-surface);min-height:100dvh;background:var(--color-bg);color:var(--color-text);display:flex;flex-direction:column}
+[data-theme='dark'] .patient-app{--patient-hero-gradient:var(--color-surface)}
 .patient-hero--care{background:var(--patient-hero-gradient)}
 .patient-card{background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:1.25rem;margin-bottom:1rem;box-shadow:var(--shadow-sm)}
 .patient-button{background:var(--color-primary-action);color:var(--text-inverse);border:1px solid transparent;border-radius:var(--radius-md);min-height:44px;padding:.6rem 1.1rem;font-weight:600;font-size:15px;cursor:pointer;text-decoration:none;display:inline-flex;gap:8px;justify-content:center;align-items:center;line-height:1.5;transition:background var(--transition),border-color var(--transition);text-align:center}

@@ -33,6 +33,8 @@
   --color-danger-text-on-soft: #7A1B14;
   --color-info: #0E5A4A;
   --color-primary-on-soft: #0B4A3D;
+  --color-whatsapp: #25D366;
+  --color-whatsapp-hover: #1da851;
 
   /* ── Rail colours (always dark) ─────────────────────── */
   --color-rail: #15201C;
@@ -128,6 +130,8 @@
   --color-danger-text-on-soft: #FF9C92;
   --color-info: #7FD1B9;
   --color-on-danger: #15201C;
+  --color-whatsapp: #25D366;
+  --color-whatsapp-hover: #1da851;
   --color-skeleton-start: #1F2C27;
   --color-skeleton-end: #26332E;
   --nav-bg: rgba(24, 35, 31, .97);

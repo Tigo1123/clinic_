@@ -1,3 +1,5 @@
+@import './tokens.css';
+
 :root {
   /* ── Global aliases used by legacy components ────────── */
   --bg-base: var(--color-bg);
@@ -14,7 +16,7 @@
   --text-primary: var(--color-text);
   --text-secondary: var(--color-text-secondary);
   --text-muted: var(--color-text-muted);
-  --text-inverse: #fff;
+  --text-inverse: var(--text-inverse);
 
   /* System font fallbacks; tokens.css replaces these with the bundled faces. */
   --font-ar: Tahoma, Arial, system-ui, sans-serif;
@@ -108,7 +110,7 @@ html[lang="en"] {
 
 .btn-primary {
   background: var(--color-primary-action);
-  color: #fff;
+  color: var(--text-inverse);
   border-color: var(--color-primary);
 }
 
@@ -129,13 +131,13 @@ html[lang="en"] {
 
 .btn-danger {
   background: var(--color-danger);
-  color: var(--color-on-danger, #fff);
+  color: var(--color-on-danger, var(--text-inverse));
   border-color: var(--color-danger);
 }
 
 .btn-danger:hover {
-  background: var(--danger-hover, #7A1B14);
-  border-color: var(--danger-hover, #7A1B14);
+  background: var(--danger-hover, var(--color-danger-text-on-soft));
+  border-color: var(--danger-hover, var(--color-danger-text-on-soft));
 }
 
 .btn:disabled {
