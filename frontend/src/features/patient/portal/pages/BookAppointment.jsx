@@ -76,7 +76,7 @@ export function BookAppointment() {
       </Link>
 
       <header className="patient-book__doctor-summary">
-        <h1 className="patient-page-title">
+        <h1 className="patient-page-title ui-page-title">
           {t('bookAppointment')}
         </h1>
       </header>
