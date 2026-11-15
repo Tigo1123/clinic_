@@ -25,11 +25,11 @@ export function stagingDemoRegistrationEnabled(env = process.env) {
   }
 }
 
-// .invalid never receives email. The +2507855501xx series is used as synthetic
+// .invalid never receives email. The +2507885501xx series is used as synthetic
 // contact data for this isolated test only; no SMS is sent to these numbers.
 // This prefix was confirmed absent from the copied production User/Patient rows.
 // Never represent this demo as proof of actual phone or email ownership.
 export function stagingDemoIdentityAllowed(email, normalizedPhone) {
   return /^qa\+[a-z0-9-]{2,24}@clinic-qa\.invalid$/i.test(String(email || '').trim())
-    && /^\+2507855501\d{2}$/.test(String(normalizedPhone || '').trim());
+    && /^\+2507885501\d{2}$/.test(String(normalizedPhone || '').trim());
 }
