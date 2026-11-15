@@ -32,6 +32,7 @@ const CLAIM_SECRET_BYTES = 24;
 const CLAIM_CREDENTIAL_PATTERN = /^[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{32}$/;
 
 const offlineVerificationDisabled = () => process.env.VERIFICATION_PROVIDER === 'disabled';
+const { stagingDemoRegistrationEnabled, stagingDemoIdentityAllowed } = require('../../services/stagingDemoRegistration.js');
 const requestedAddressStateId = (value?: number) => value ?? Number(process.env.DEFAULT_STATE_ID || 1);
 
 async function resolveAddressStateId(client: any, addressStateId: number) {
@@ -138,13 +139,20 @@ export class PatientAuthService {
   async register(body: any, ip?: string) {
     let createdUserId: string | null = null;
     try {
-      if (offlineVerificationDisabled()) {
+      const demoRegistration = stagingDemoRegistrationEnabled();
+      if (offlineVerificationDisabled() && !demoRegistration) {
         throw verificationUnavailable();
       }
 
       const addressStateId = requestedAddressStateId(body.addressStateId);
       const phoneNormalized = normalizePatientPhone(body.phone);
       const email = normalizeEmail(body.email);
+      if (demoRegistration && !stagingDemoIdentityAllowed(email, phoneNormalized)) {
+        throw new HttpException(
+          { code: 'STAGING_DEMO_IDENTITY_REQUIRED', message: 'Use a fictional qa+NAME@clinic-qa.invalid email and a reserved +120255501xx test phone on Staging.' },
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
 
       if (!phoneNormalized) {
         throw new HttpException(
