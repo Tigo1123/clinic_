@@ -45,8 +45,28 @@
 }
 
 .public-container {
-  width: min(calc(100% - clamp(24px, 5vw, 48px)), 960px);
+  width: min(calc(100% - 80px), 960px);
   margin-inline: auto;
+}
+
+@media (max-width: 900px) {
+  .public-container {
+    width: min(calc(100% - 40px), 960px);
+  }
+}
+
+#main-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding-block: 32px;
+}
+
+@media (max-width: 900px) {
+  #main-content {
+    gap: 20px;
+    padding-block: 20px;
+  }
 }
 
 /* Skip link */
@@ -86,7 +106,7 @@
 }
 
 .public-header__inner {
-  width: min(calc(100% - clamp(24px, 5vw, 48px)), 960px);
+  width: min(calc(100% - 80px), 960px);
   min-height: 56px;
   margin-inline: auto;
   display: flex;
@@ -96,12 +116,19 @@
   padding-block: 6px;
 }
 
+@media (max-width: 900px) {
+  .public-header__inner {
+    width: min(calc(100% - 40px), 960px);
+  }
+}
+
 /* Brand mark + name */
 .public-brand {
   display: inline-flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
+  min-height: var(--control-height, 44px);
   color: var(--color-text) !important;
   text-decoration: none;
 }
@@ -115,7 +142,7 @@
   justify-content: center;
   border-radius: var(--radius-sm);
   background: var(--color-secondary);
-  color: var(--color-text);
+  color: var(--color-rail);
 }
 
 .public-brand__mark svg {
@@ -154,6 +181,10 @@
 }
 
 .public-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height, 44px);
+  padding-inline: 8px;
   color: var(--color-text-secondary);
   font-size: 14px;
   font-weight: 500;
@@ -343,7 +374,7 @@
     overflow-y: auto;
     border-bottom: 1px solid var(--color-border);
     background: var(--color-surface);
-    box-shadow: var(--shadow-md);
+    box-shadow: var(--shadow-sm);
   }
 
   .public-mobile-menu nav {
@@ -407,7 +438,7 @@
    ========================================================= */
 .public-hero {
   background: var(--color-bg);
-  padding-block: 48px 36px;
+  padding-block: 8px 0;
 }
 
 .public-hero__inner {
@@ -477,9 +508,9 @@
   color: var(--color-primary);
 }
 
-@media (max-width: 640px) {
+@media (max-width: 900px) {
   .public-hero {
-    padding-block: 32px 24px;
+    padding-block: 0;
   }
 
   .public-hero__actions {
@@ -494,7 +525,7 @@
   }
 
   .public-hero__secondary-link {
-    text-align: center;
+    justify-content: center;
     padding-block: 8px;
   }
 }

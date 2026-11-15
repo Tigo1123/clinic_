@@ -10,7 +10,7 @@ export default function LabBillingQueue({
 }) {
   return (
     <div className="reception-view-container">
-      <header className="reception-view-header">
+      <header className="ui-page-header reception-view-header">
         <div className="reception-view-header-start">
           <h1 className="ui-page-title">{lang === 'ar' ? 'فواتير المختبر' : 'Lab billing'}</h1>
           <span className="reception-header-subtitle">
@@ -47,7 +47,11 @@ export default function LabBillingQueue({
           </span>
         </div>
 
-        {labBillingOrders.length === 0 ? (
+        {labBillingLoading ? (
+          <div className="reception-panel-empty">
+            <span>{lang === 'ar' ? 'جارٍ تحميل فواتير المختبر...' : 'Loading lab orders...'}</span>
+          </div>
+        ) : labBillingOrders.length === 0 ? (
           <div className="reception-panel-empty">
             <span>
               {lang === 'ar'

@@ -1,22 +1,25 @@
-.admin-schedule-panel { display: flex; flex-direction: column; gap: 1.5rem; }
-.admin-schedule-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; padding: 0; background: transparent; color: var(--color-text); }
+.admin-schedule-panel { display: flex; flex-direction: column; gap: 24px; }
+.admin-schedule-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 0; background: transparent; color: var(--color-text); }
 .admin-schedule-eyebrow { display: flex; align-items: center; gap: .45rem; font-size: .75rem; font-weight: 500; text-transform: uppercase; letter-spacing: .06em; color: var(--color-text-muted); }
-.admin-schedule-header h2 { margin: .25rem 0; font-size: 1.75rem; font-weight: 600; letter-spacing: -.01em; color: var(--color-text); }
+.admin-schedule-header h2 { margin-block: .25rem; font-size: 1.75rem; font-weight: 600; letter-spacing: -.01em; color: var(--color-text); }
 .admin-schedule-header p { margin: 0; color: var(--color-text-muted); font-size: 14px; }
 .admin-schedule-doctor { margin: 0; color: var(--color-text-secondary); font-weight: 500; }
 .admin-schedule-notice { padding: .75rem 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-muted); color: var(--color-text); }
-.admin-schedule-empty { padding: 1.5rem; border: 1px dashed var(--color-border); border-radius: var(--radius-lg); color: var(--color-text-muted); text-align: center; }
-.admin-period-list { display: grid; gap: 1rem; margin-top: 1rem; }
-.admin-period { border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 1.25rem; min-width: 0; background: var(--color-surface); }
-.admin-period legend { padding: 0 .4rem; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--color-text-muted); }
+.admin-schedule-empty { padding: 24px 20px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); color: var(--color-text-muted); text-align: center; }
+.admin-period-list { display: grid; gap: 1rem; margin-block-start: 1rem; }
+.admin-period { border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 16px; min-width: 0; background: var(--color-surface); }
+.admin-period legend { padding-inline: .4rem; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--color-text-muted); }
 .admin-period-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; align-items: end; }
 .admin-period-grid label, .admin-break { display: flex; flex-direction: column; gap: .35rem; font-size: 12px; font-weight: 500; color: var(--color-text-muted); }
-.admin-breaks { display: flex; flex-direction: column; gap: .6rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--color-divider); }
+.admin-breaks { display: flex; flex-direction: column; gap: .6rem; margin-block-start: 1rem; padding-block-start: 1rem; border-block-start: 1px solid var(--color-divider); }
 .admin-break { display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: .5rem; }
-.admin-schedule-actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1rem; }
-.admin-exception-form { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--color-divider); }
-.admin-exception-form h3 { margin-top: 0; font-size: 16px; font-weight: 600; color: var(--color-text); }
-.admin-exception { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: .75rem 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); margin-top: .5rem; }
+.admin-break .btn { min-width: 44px; min-height: 44px; }
+.admin-schedule-actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-block-start: 1rem; }
+.admin-exception-form { margin-block-start: 1.5rem; padding-block-start: 1.5rem; border-block-start: 1px solid var(--color-divider); }
+.admin-exception-form h3 { margin-block-start: 0; margin-block-end: .75rem; font-size: 14px; font-weight: 600; color: var(--color-text); }
+.admin-exception { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: .75rem 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); margin-block-start: .5rem; }
+.admin-schedule-panel .badge { border-radius: var(--radius-md) !important; padding: 10px 14px; width: 100%; box-sizing: border-box; font-size: 13px; font-weight: 500; }
+@media (max-width: 900px) { .admin-period-grid { grid-template-columns: 1fr; } }
 @media (max-width: 700px) { .admin-period-grid { grid-template-columns: 1fr; } .admin-break { grid-template-columns: 1fr 1fr auto; } .admin-exception { align-items: flex-start; flex-direction: column; } }
 
 .admin-schedule-editor { border: 0; padding: 0; margin: 0; min-width: 0; }

@@ -372,7 +372,7 @@ export function Profile() {
         <div className="patient-profile">
           <header className="patient-profile__header">
             <p className="ui-section-label">{t('profile')}</p>
-            <h1 className="patient-page-title">
+            <h1 className="patient-page-title ui-page-title">
               {lang === 'ar'
                 ? data.fullNameAr || data.fullNameEn
                 : data.fullNameEn || data.fullNameAr}

@@ -71,7 +71,7 @@ export default function RescheduleAppointment() {
 
   return (
     <section className="patient-reschedule">
-      <h1 className="patient-page-title">{t('rescheduleAppointment')}</h1>
+      <h1 className="patient-page-title ui-page-title">{t('rescheduleAppointment')}</h1>
 
       <form onSubmit={submit} className="patient-reschedule__form">
         <label className="patient-field patient-reschedule__field">

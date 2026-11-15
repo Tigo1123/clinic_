@@ -46,8 +46,8 @@ export function AppointmentDetails() {
 
   return (
     <article className="patient-appointment-details">
-      <header className="patient-appointment-details__header">
-        <h1 className="patient-page-title">{t('appointmentDetails')}</h1>
+      <header className="patient-appointment-details__header ui-page-header">
+        <h1 className="patient-page-title ui-page-title">{t('appointmentDetails')}</h1>
         <div>
           <StatusBadge status={appointment.status} language={i18n.language}/>
         </div>

@@ -130,7 +130,7 @@ export default function App({ initialView = 'login' }) {
         </header>
 
         {sessionRevokedNotice && (
-          <div style={{ width: 'min(960px, calc(100% - 64px))', margin: '10px auto -10px' }}>
+          <div className="staff-session-revoked-banner">
             <div role="alert" className="patient-alert error">{t('sessionNoLongerValid')}</div>
           </div>
         )}
@@ -191,15 +191,18 @@ function RequiredPasswordChange({ t, onComplete }) {
     } catch (requestError) { setError(requestError.message); }
     finally { setSaving(false); }
   };
-  return <section className="staff-login-card" style={{ maxWidth: 460, margin: '3rem auto' }}>
-    <div className="staff-mfa-icon"><ShieldCheck size={30} /></div>
-    <h2>{t('passwordChangeRequired')}</h2><p>{t('passwordChangeRequiredDescription')}</p>
+  return <section className="patient-auth staff-login-card staff-password-change-card" aria-labelledby="staff-pw-change-title">
+    <header className="patient-auth-heading">
+      <div className="patient-auth-brand-mark staff-auth-brand-mark"><ShieldCheck size={22} aria-hidden="true" /></div>
+      <h1 id="staff-pw-change-title">{t('passwordChangeRequired')}</h1>
+      <p className="patient-auth-intro">{t('passwordChangeRequiredDescription')}</p>
+    </header>
+    {error && <div role="alert" className="patient-alert error">{error}</div>}
     <form onSubmit={submit} className="staff-login-form">
       <PasswordField label={t('currentPassword')} value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} autoComplete="current-password" required />
       <PasswordField label={t('newPassword')} value={newPassword} onChange={event => setNewPassword(event.target.value)} autoComplete="new-password" required minLength={10} maxLength={200} helperText={t('passwordRequirementsSummary')} />
       <PasswordField label={t('confirmNewPassword')} value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} autoComplete="new-password" required error={Boolean(confirmPassword && newPassword !== confirmPassword)} helperText={confirmPassword && newPassword !== confirmPassword ? t('passwordsDoNotMatch') : undefined} />
-      {error && <div role="alert" className="badge badge-danger">{error}</div>}
-      <button className="btn btn-primary" disabled={saving}>{saving ? t('loading') : t('savePassword')}</button>
+      <button type="submit" className="patient-button btn btn-primary staff-auth-submit-btn" disabled={saving}>{saving ? t('loading') : t('savePassword')}</button>
     </form>
   </section>;
 }
@@ -312,7 +315,7 @@ function LoginView({ onLogin, t, lang, productName, productDescriptor, showProdu
     <section className="patient-auth" aria-labelledby="staff-mfa-title">
       <header className="patient-auth-heading">
         {showProductIdentity && <p className="patient-auth-product-line">{productName}<span aria-hidden="true"> · </span>{productDescriptor}</p>}
-        <div className="patient-auth-brand-mark" style={{ marginBottom: '12px', width: '40px', height: '40px' }}>
+        <div className="patient-auth-brand-mark staff-auth-brand-mark">
           <ShieldCheck size={22} aria-hidden="true" />
         </div>
         <h1 id="staff-mfa-title">{mfaMethod === 'totp' ? t('twoFactorAuthentication') : t('recoveryCodeTitle')}</h1>
@@ -340,15 +343,14 @@ function LoginView({ onLogin, t, lang, productName, productDescriptor, showProdu
           </label>
         )}
 
-        <button type="submit" disabled={submitting} className="patient-button" style={{ marginTop: '10px' }}>
+        <button type="submit" disabled={submitting} className="patient-button staff-auth-submit-btn">
           {submitting ? t('verifying') : mfaMethod === 'totp' ? t('verify') : t('verifyRecoveryCode')}
         </button>
 
         <button
           type="button"
           disabled={submitting}
-          className="patient-button secondary"
-          style={{ marginTop: '10px' }}
+          className="patient-button secondary staff-auth-secondary-btn"
           onClick={() => { clearMfaCode(); setErrorMsg(''); setMfaMethod(mfaMethod === 'totp' ? 'recovery' : 'totp'); }}
         >
           {mfaMethod === 'totp' ? <>{t('lostYourPhone')} {t('useRecoveryCode')}</> : t('useAuthenticatorInstead')}
@@ -357,8 +359,7 @@ function LoginView({ onLogin, t, lang, productName, productDescriptor, showProdu
         <button
           type="button"
           disabled={submitting}
-          className="patient-button secondary"
-          style={{ marginTop: '10px' }}
+          className="patient-button secondary staff-auth-secondary-btn"
           onClick={cancelMfa}
         >
           {t('backToLogin')}
@@ -411,8 +412,7 @@ function LoginView({ onLogin, t, lang, productName, productDescriptor, showProdu
         <button
           type="submit"
           disabled={submitting}
-          className="patient-button"
-          style={{ marginTop: '6px' }}
+          className="patient-button staff-auth-submit-btn-login"
         >
           {submitting ? t('loading') : (t('signIn') || t('login'))}
         </button>
@@ -449,7 +449,7 @@ function DashboardContainer({ user, lang, t }) {
     dashboard = <LaboratoryDashboard lang={lang} />;
   }
   else return (
-    <div style={{ padding: '3rem', textAlign: 'center' }}>
+    <div className="staff-unknown-role">
       <h3>Unknown User Role. Contact administrator.</h3>
     </div>
   );

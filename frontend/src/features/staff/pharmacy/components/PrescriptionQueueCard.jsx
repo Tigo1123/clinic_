@@ -30,7 +30,7 @@ export default function PrescriptionQueueCard({ rx, lang, queueView, selected, o
   return (
     <button
       type="button"
-      className={`pharmacy-queue-item queue-card-item ${selected ? 'is-selected selected' : ''}`}
+      className={`pharmacy-queue-item ${selected ? 'is-selected selected' : ''}`}
       onClick={onSelect}
     >
       <span className="pharmacy-queue-item__info">

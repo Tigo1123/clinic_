@@ -205,7 +205,7 @@
   border: 1px solid var(--color-control-border);
   border-radius: var(--radius-md, 8px);
   background: var(--color-surface);
-  color: var(--color-primary-action);
+  color: var(--color-primary);
   font: inherit;
   font-size: 0.8125rem;
   font-weight: 500;
@@ -448,7 +448,7 @@
 }
 
 .patient-auth .patient-button.secondary {
-  color: var(--color-primary-action) !important;
+  color: var(--color-primary) !important;
   background: transparent !important;
   border: 0 !important;
   box-shadow: none !important;
@@ -464,7 +464,7 @@
 }
 
 .patient-auth .patient-button.secondary:hover {
-  color: var(--color-primary-action-hover) !important;
+  color: var(--color-primary-hover) !important;
 }
 
 .patient-auth .patient-button:disabled {
@@ -479,7 +479,7 @@
   display: block;
   width: fit-content;
   margin: -4px 0 14px auto;
-  color: var(--color-primary-action);
+  color: var(--color-primary);
   font-size: 13px;
   font-weight: 500;
   text-decoration: underline;
@@ -493,7 +493,7 @@
 
 .patient-auth-forgot:hover,
 .patient-auth-secondary-button:hover {
-  color: var(--color-primary-action-hover);
+  color: var(--color-primary-hover);
   text-decoration: underline;
 }
 
@@ -561,7 +561,7 @@
 }
 
 .patient-auth-secondary-button {
-  color: var(--color-primary-action) !important;
+  color: var(--color-primary) !important;
   font-size: 0.875rem;
   font-weight: 500;
   text-decoration: underline !important;
@@ -572,7 +572,7 @@
 }
 
 .patient-auth-secondary-button:hover {
-  color: var(--color-primary-action-hover) !important;
+  color: var(--color-primary-hover) !important;
 }
 
 .patient-claim-footer {
@@ -601,14 +601,14 @@
 }
 
 .patient-auth-back-nav a {
-  color: var(--color-primary-action);
+  color: var(--color-primary);
   font-size: 14px;
   font-weight: 500;
   text-decoration: underline;
 }
 
 .patient-auth-back-nav a:hover {
-  color: var(--color-primary-action-hover);
+  color: var(--color-primary-hover);
 }
 
 .patient-auth-resend-inline {
@@ -850,7 +850,7 @@
   min-height: 38px;
   padding: 0.35rem;
   border: 0;
-  color: var(--color-primary-action);
+  color: var(--color-primary);
   background: transparent;
   font: inherit;
   font-size: 0.82rem;

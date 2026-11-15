@@ -21,23 +21,23 @@ export default function MedicationReviewCard({ item, lang, form, mode, drugCatal
       id={`medication-review-${item.id}`}
       className="ui-panel pharmacy-review-card"
     >
-      <div className="pharmacy-review-card__header">
+      <div className="pharmacy-review-card__header ui-page-header">
         <div>
-          <strong className="pharmacy-review-title">{item.customDrugName}</strong>
+          <h1 className="pharmacy-review-title ui-page-title" style={{ fontSize: '20px' }}>{item.customDrugName}</h1>
           <div className="pharmacy-cell-meta">
             {lang === 'ar' ? 'المريض:' : 'Patient:'} <strong>{patientName}</strong>
           </div>
         </div>
 
         <span className="ui-status ui-status--warn">
-          {lang === 'ar' ? 'بانتظار مراجعة الصيدلية' : 'AWAITING PHARMACY REVIEW'}
+          {lang === 'ar' ? 'بانتظار مراجعة الصيدلية' : 'Awaiting pharmacy review'}
         </span>
       </div>
 
       <div className="pharmacy-totals-row ui-mono">
-        <span>{lang === 'ar' ? 'الكمية:' : 'Quantity:'} <strong>{remainingQty}</strong></span>
-        <span>{lang === 'ar' ? 'الجرعة:' : 'Dosage:'} <strong>{item.dosage || '—'}</strong></span>
-        <span>{lang === 'ar' ? 'المدة:' : 'Duration:'} <strong>{item.duration || '—'}</strong></span>
+        <span><span className="ui-section-label">{lang === 'ar' ? 'الكمية: ' : 'Quantity: '}</span><strong>{remainingQty}</strong></span>
+        <span><span className="ui-section-label">{lang === 'ar' ? 'الجرعة: ' : 'Dosage: '}</span><strong>{item.dosage || '—'}</strong></span>
+        <span><span className="ui-section-label">{lang === 'ar' ? 'المدة: ' : 'Duration: '}</span><strong>{item.duration || '—'}</strong></span>
       </div>
 
       <div className="pharmacy-review-card__decisions">

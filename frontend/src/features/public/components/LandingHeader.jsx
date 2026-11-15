@@ -72,7 +72,7 @@ export default function LandingHeader({ copy, brand, descriptor, language, onLan
         </button>
         <ThemeToggle className="public-theme-toggle" size={16} />
         <Link className="public-staff-link" to="/staff">{copy.staffLogin}</Link>
-        <Link className="public-button public-button--primary public-header__patient" to="/patient-login">{copy.patientLogin}</Link>
+        <Link className="public-button public-button--secondary public-header__patient" to="/patient-login">{copy.patientLogin}</Link>
         <button ref={toggleRef} className="public-menu-toggle" type="button" aria-label={menuOpen ? copy.closeMenu : copy.menu} aria-expanded={menuOpen} aria-controls="public-mobile-menu" onClick={() => setMenuOpen(open => !open)}>
           {menuOpen ? <X aria-hidden="true" size={20} /> : <Menu aria-hidden="true" size={20} />}
           <span className="sr-only">{copy.menu}</span>

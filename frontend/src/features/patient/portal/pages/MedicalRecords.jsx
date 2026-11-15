@@ -49,7 +49,7 @@ export function MedicalRecords() {
   return (
     <State loading={loading} error={error} onRetry={reload}>
       <div className="patient-records">
-        <h1 className="patient-page-title">{t('medicalRecords')}</h1>
+        <h1 className="patient-page-title ui-page-title">{t('medicalRecords')}</h1>
 
         {!data?.length ? (
           <Empty>{t('noRecords')}</Empty>
@@ -211,7 +211,7 @@ export function MedicalRecords() {
                         </p>
                       )}
                       {result.isOutOfRange && (
-                        <span className="badge badge-warning">
+                        <span className="ui-status ui-status--warn">
                           {lang === 'ar' ? 'خارج المعدل المرجعي' : 'Outside reference range'}
                         </span>
                       )}

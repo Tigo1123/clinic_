@@ -1,6 +1,6 @@
 /* Patient workspace: shared semantic tokens, clinical ledger redesign. */
-.patient-app{--patient-hero-gradient:linear-gradient(120deg,var(--color-primary-soft),var(--color-surface));min-height:100dvh;background:var(--color-bg);color:var(--color-text);display:flex;flex-direction:column}
-[data-theme='dark'] .patient-app{--patient-hero-gradient:linear-gradient(120deg,var(--color-primary-soft),var(--color-surface))}
+.patient-app{--patient-hero-gradient:var(--color-surface);min-height:100dvh;background:var(--color-bg);color:var(--color-text);display:flex;flex-direction:column}
+[data-theme='dark'] .patient-app{--patient-hero-gradient:var(--color-surface)}
 .patient-hero--care{background:var(--patient-hero-gradient)}
 .patient-card{background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:1.25rem;margin-bottom:1rem;box-shadow:var(--shadow-sm)}
 .patient-button{background:var(--color-primary-action);color:var(--text-inverse);border:1px solid transparent;border-radius:var(--radius-md);min-height:44px;padding:.6rem 1.1rem;font-weight:600;font-size:15px;cursor:pointer;text-decoration:none;display:inline-flex;gap:8px;justify-content:center;align-items:center;line-height:1.5;transition:background var(--transition),border-color var(--transition);text-align:center}
@@ -130,7 +130,7 @@
 }
 
 .patient-nav a.active {
-  color: var(--color-primary-action);
+  color: var(--color-primary);
   font-weight: 600;
   background: var(--color-primary-soft);
 }
@@ -148,13 +148,20 @@
 .patient-main {
   flex: 1;
   width: 100%;
-  max-width: 640px;
+  max-width: 680px;
   margin-inline: auto;
   box-sizing: border-box;
-  padding: 24px 20px 48px;
+  padding: 32px 32px 56px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
+}
+
+@media (min-width: 1024px) {
+  .patient-main {
+    padding: 40px 40px 64px;
+    max-width: 720px;
+  }
 }
 
 .patient-main > h1,
@@ -172,11 +179,19 @@
   align-items: center;
   gap: 8px;
   min-height: 44px;
-  color: var(--color-primary-action);
+  color: var(--color-primary);
   font-weight: 600;
   font-size: 14px;
   text-decoration: none;
   margin-block: -4px 4px;
+}
+
+.patient-main > .patient-back-link:has(+ * .patient-back-link),
+.patient-main:has(.patient-doctors) > .patient-back-link,
+.patient-main:has(.patient-visits) > .patient-back-link,
+.patient-main:has(.patient-records) > .patient-back-link,
+.patient-main:has(.patient-profile) > .patient-back-link {
+  display: none;
 }
 
 .patient-back-link:hover {
@@ -209,9 +224,9 @@
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  padding: 1.25rem;
+  padding: 16px;
   margin-bottom: 1rem;
-  box-shadow: var(--shadow-sm);
+  box-shadow: none;
 }
 
 .patient-panel {
@@ -455,12 +470,46 @@
 }
 
 .patient-empty {
-  text-align: center;
-  padding: 2rem 1rem;
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 20px;
   color: var(--color-text-muted);
-  border: 1px dashed var(--color-control-border);
-  border-radius: 12px;
+  font-size: 14px;
+  text-align: center;
   background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+.patient-panel .patient-empty {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.patient-app .error-state {
+  min-height: 60px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--color-danger);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+.patient-app .error-state svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
 }
 
 /* ── Status Dot + Word ──────────────────────────────────── */
@@ -494,7 +543,7 @@
 }
 
 .patient-tabs .patient-button {
-  min-height: 40px;
+  min-height: 44px;
   border-radius: 9px;
   border: 0;
   background: transparent;
@@ -510,7 +559,7 @@
   background: var(--color-surface);
   color: var(--color-text);
   font-weight: 600;
-  box-shadow: var(--shadow-sm);
+  box-shadow: none;
 }
 
 /* ── HOME: Dark Next Visit Block ────────────────────────── */
@@ -601,13 +650,25 @@
   color: var(--color-secondary);
 }
 
-.patient-next-visit__status::before {
+.patient-next-visit__status:empty::before {
   content: '';
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: var(--color-secondary);
   flex: none;
+}
+
+.patient-next-visit .status-badge.ui-status--ok {
+  color: var(--color-secondary);
+}
+
+.patient-next-visit .status-badge.ui-status--wait {
+  color: var(--color-rail-text);
+}
+
+.patient-next-visit .status-badge.ui-status--warn {
+  color: var(--color-warning);
 }
 
 .patient-next-visit__link {
@@ -729,7 +790,7 @@
 .slot-chip.selected {
   background: var(--color-primary-soft);
   color: var(--color-primary-strong);
-  border-color: var(--color-primary-action);
+  border-color: var(--color-primary);
   font-weight: 600;
 }
 
@@ -872,12 +933,12 @@
 
 .specialty-chips button {
   flex: none;
-  min-height: 38px;
+  min-height: 44px;
   padding: 0 14px;
   color: var(--color-text-muted);
   background: var(--color-surface);
   border: 1px solid var(--color-control-border);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-md);
   font: inherit;
   font-size: 13px;
   font-weight: 500;
@@ -935,7 +996,7 @@
   }
 
   .patient-nav a.active {
-    color: var(--color-primary-action);
+    color: var(--color-primary);
     font-weight: 600;
     background: transparent;
   }
@@ -945,9 +1006,10 @@
   }
 
   .patient-main {
-    padding-inline: 16px;
-    padding-block-start: 16px;
+    padding-inline: 20px;
+    padding-block-start: 24px;
     padding-block-end: calc(88px + env(safe-area-inset-bottom));
+    gap: 24px;
   }
 }
 
@@ -955,7 +1017,7 @@
 .patient-view {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
 }
 
 .patient-help-text {
@@ -974,7 +1036,7 @@
 .patient-records {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
 }
 
 .patient-records__row {
@@ -1109,7 +1171,7 @@
 .patient-lab-results {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
 }
 
 .patient-lab-row {
@@ -1159,7 +1221,7 @@
 }
 
 .patient-lab-row__status--normal {
-  color: var(--color-primary-action);
+  color: var(--color-success);
 }
 
 .patient-lab-row__status--abnormal {
@@ -1172,6 +1234,10 @@
   border-radius: 50%;
   background: currentColor;
   flex: none;
+}
+
+.patient-lab-row__status.ui-status .patient-lab-row__dot {
+  display: none;
 }
 
 .patient-lab-row__arrow {
@@ -1241,19 +1307,15 @@
 }
 
 .patient-lab-card__badge {
-  font-size: 12px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .patient-lab-card__badge--normal {
-  background: var(--color-success-soft);
   color: var(--color-success);
 }
 
 .patient-lab-card__badge--abnormal {
-  background: var(--color-danger-soft);
   color: var(--color-danger);
 }
 
@@ -1278,9 +1340,9 @@
 }
 
 .patient-lab-card__attach-btn {
-  min-height: 36px;
-  padding: 0 10px;
-  font-size: 12px;
+  min-height: 44px;
+  padding: 0 12px;
+  font-size: 13px;
 }
 
 .patient-lab-disclaimer {
@@ -1293,7 +1355,7 @@
 .patient-prescriptions {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
 }
 
 .patient-prescription-row {
@@ -1311,7 +1373,7 @@
 }
 
 .patient-prescription-row__icon {
-  color: var(--color-primary-action);
+  color: var(--color-primary);
 }
 
 .patient-prescription-row__date {
@@ -1642,7 +1704,7 @@
 .patient-visits {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 24px;
 }
 
 .patient-visit__row {
@@ -1722,7 +1784,7 @@
 .patient-book {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
 }
 
 .patient-book__doctor-summary {
@@ -1871,7 +1933,7 @@
 .patient-doctors {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
 }
 
 .patient-doctors__search-field {
@@ -1922,8 +1984,8 @@
 }
 
 .patient-doctors__details-btn {
-  min-height: 38px;
-  padding: 0 12px;
+  min-height: 44px;
+  padding: 0 14px;
   font-size: 13px;
 }
 
@@ -1936,7 +1998,7 @@
 .patient-doctor-details {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
 }
 
 .patient-doctor-details__header {

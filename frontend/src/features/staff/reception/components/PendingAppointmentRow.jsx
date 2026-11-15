@@ -1,4 +1,4 @@
-import { Check, MessageCircle, X } from 'lucide-react';
+import { MessageCircle } from 'lucide-react';
 import { getWhatsAppLink } from '../../../../utils/clinicData';
 
 export default function PendingAppointmentRow({
@@ -41,8 +41,7 @@ export default function PendingAppointmentRow({
           className="btn reception-btn-confirm"
           onClick={() => handleApproveAppointment(app.id)}
         >
-          <Check size={14} aria-hidden="true" />
-          <span>{lang === 'ar' ? 'تأكيد' : 'Confirm'}</span>
+          {lang === 'ar' ? 'تأكيد' : 'Confirm'}
         </button>
 
         <button
@@ -50,8 +49,7 @@ export default function PendingAppointmentRow({
           className="btn btn-secondary reception-btn-decline"
           onClick={() => handleCancelAppointment(app.id)}
         >
-          <X size={14} aria-hidden="true" />
-          <span>{lang === 'ar' ? 'رفض' : 'Decline'}</span>
+          {lang === 'ar' ? 'رفض' : 'Decline'}
         </button>
 
         {patient.phone && (

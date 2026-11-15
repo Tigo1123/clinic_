@@ -23,7 +23,7 @@ export function Doctors() {
   return (
     <State loading={loading} error={error} onRetry={reload}>
       <div className="patient-doctors-directory patient-doctors" dir={language === 'ar' ? 'rtl' : 'ltr'}>
-        <h1 className="patient-page-title">{t('doctors')}</h1>
+        <h1 className="patient-page-title ui-page-title">{t('doctors')}</h1>
 
         <label className="patient-field patient-doctors__search-field">
           <span className="sr-only">{t('searchDoctors')}</span>
@@ -74,7 +74,7 @@ export function Doctors() {
                   <span className="patient-doctors__name">{doctorName(doctor, i18n.language)}</span>
                   <span className="patient-doctors__meta">
                     {localizeDoctorSpecialty(doctor, language)}
-                    {doctor.consultationFee ? ` · ${Number(doctor.consultationFee).toLocaleString(i18n.language === 'ar' ? 'ar' : 'en')} ${i18n.language === 'ar' ? 'ج.س' : 'SDG'}` : ''}
+                    {doctor.consultationFee ? <> · <span className="ui-mono">{Number(doctor.consultationFee).toLocaleString(i18n.language === 'ar' ? 'ar' : 'en')} {i18n.language === 'ar' ? 'ج.س' : 'SDG'}</span></> : ''}
                   </span>
                 </Link>
 
