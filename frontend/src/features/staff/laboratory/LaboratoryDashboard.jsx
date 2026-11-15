@@ -416,22 +416,19 @@ export default function LaboratoryDashboard({ lang }) {
           /* ── CUSTOM TEST REVIEW SPLIT VIEW ───────────────────── */
           <section className={`laboratory-review-section ${reviewRequests.length === 0 ? 'is-empty' : ''}`} aria-labelledby="laboratory-review-title">
             {reviewRequests.length === 0 ? (
-              <div className="laboratory-empty-state" role="status">
+              <div className="laboratory-empty-state ui-panel" role="status">
                 <div className="laboratory-review-heading">
-                  <span className="laboratory-review-icon">
-                    <AlertTriangle size={17} aria-hidden="true" />
-                  </span>
                   <div>
-                    <h2 id="laboratory-review-title">
+                    <h2 id="laboratory-review-title" className="laboratory-orders-title">
                       {lang === 'ar' ? 'مراجعة الفحوصات المخصصة' : 'Custom Test Review'}
                     </h2>
-                    <p>
+                    <p className="laboratory-review-subtitle text-muted">
                       {lang === 'ar'
                         ? 'فحوصات كتبها الطبيب يدوياً وتحتاج إلى مطابقة أو اعتماد قبل التنفيذ.'
                         : 'Tests entered manually by a doctor that require review before processing.'}
                     </p>
                   </div>
-                  <span className="laboratory-review-count">0</span>
+                  <span className="laboratory-review-count ui-mono">0</span>
                 </div>
                 <p className="laboratory-review-empty">
                   {lang === 'ar' ? 'لا توجد فحوصات مخصصة بانتظار المراجعة.' : 'No custom tests are awaiting review.'}
@@ -493,7 +490,7 @@ export default function LaboratoryDashboard({ lang }) {
                     const mode = form.mode || '';
                     return (
                       <article className="laboratory-review-detail">
-                        <header className="laboratory-detail-header">
+                        <header className="laboratory-detail-header ui-page-header">
                           <div className="laboratory-detail-title-group">
                             <span className="ui-section-label">{lang === 'ar' ? 'الفحص المطلوب' : 'Requested test'}</span>
                             <h1 id="laboratory-review-detail-title" className="ui-page-title">
@@ -501,15 +498,15 @@ export default function LaboratoryDashboard({ lang }) {
                             </h1>
                             <dl className="laboratory-review-meta">
                               <div>
-                                <dt>{lang === 'ar' ? 'المريض' : 'Patient'}</dt>
+                                <dt className="ui-section-label">{lang === 'ar' ? 'المريض' : 'Patient'}</dt>
                                 <dd>{lang === 'ar' ? request.labOrder.patient.fullNameAr : request.labOrder.patient.fullNameEn}</dd>
                               </div>
                               <div>
-                                <dt>{lang === 'ar' ? 'الطبيب' : 'Doctor'}</dt>
+                                <dt className="ui-section-label">{lang === 'ar' ? 'الطبيب' : 'Doctor'}</dt>
                                 <dd>{lang === 'ar' ? request.labOrder.doctor.fullNameAr : request.labOrder.doctor.fullNameEn}</dd>
                               </div>
                               <div>
-                                <dt>{lang === 'ar' ? 'تاريخ الطلب' : 'Requested'}</dt>
+                                <dt className="ui-section-label">{lang === 'ar' ? 'تاريخ الطلب' : 'Requested'}</dt>
                                 <dd className="ui-mono">{new Date(request.labOrder.orderDate).toLocaleDateString(lang === 'ar' ? 'ar' : 'en')}</dd>
                               </div>
                             </dl>
@@ -519,8 +516,8 @@ export default function LaboratoryDashboard({ lang }) {
                           </span>
                         </header>
 
-                        {errorMsg && <div className="badge badge-danger" role="alert">{errorMsg}</div>}
-                        {successMsg && <div className="badge badge-success" role="status">{successMsg}</div>}
+                        {errorMsg && <div className="badge badge-danger laboratory-alert-banner" role="alert">{errorMsg}</div>}
+                        {successMsg && <div className="badge badge-success laboratory-alert-banner" role="status">{successMsg}</div>}
 
                         <div className="laboratory-review-panel ui-panel">
                           <div className="laboratory-review-panel-heading">
@@ -534,15 +531,17 @@ export default function LaboratoryDashboard({ lang }) {
 
                           <div className="laboratory-review-actions">
                             <button
-                              className={`btn ${mode === 'LINK_EXISTING' ? 'btn-primary' : 'btn-secondary'}`}
+                              className={`btn btn-secondary ${mode === 'LINK_EXISTING' ? 'is-active' : ''}`}
                               type="button"
+                              aria-pressed={mode === 'LINK_EXISTING'}
                               onClick={() => updateReviewForm(request.id, { mode: 'LINK_EXISTING' })}
                             >
                               {lang === 'ar' ? 'ربط بخدمة موجودة' : 'Link Existing'}
                             </button>
                             <button
-                              className={`btn ${mode === 'CREATE_SERVICE' ? 'btn-primary' : 'btn-secondary'}`}
+                              className={`btn btn-secondary ${mode === 'CREATE_SERVICE' ? 'is-active' : ''}`}
                               type="button"
+                              aria-pressed={mode === 'CREATE_SERVICE'}
                               onClick={() => updateReviewForm(request.id, {
                                 mode: 'CREATE_SERVICE',
                                 labelEn: form.labelEn || request.customTestName,
@@ -657,7 +656,7 @@ export default function LaboratoryDashboard({ lang }) {
                       ? (lang === 'ar' ? 'السجل المختبري' : 'History')
                       : (lang === 'ar' ? 'قائمة العمل' : 'Work queue')}
                   </h2>
-                  <span className="laboratory-orders-count">
+                  <span className="laboratory-orders-count ui-mono">
                     {visibleOrders.length}{' '}
                     {lang === 'ar'
                       ? (visibleOrders.length === 1 ? 'طلب' : 'طلبات')
@@ -678,7 +677,6 @@ export default function LaboratoryDashboard({ lang }) {
                 </div>
               ) : visibleOrders.length === 0 ? (
                 <div className="laboratory-orders-empty" role="status">
-                  <HelpCircle size={36} aria-hidden="true" />
                   <p>
                     {orderView === 'work'
                       ? (lang === 'ar' ? 'لا توجد طلبات فحوصات مخبرية بانتظار الإجراء حالياً.' : 'There are no laboratory orders requiring action.')
@@ -723,12 +721,12 @@ export default function LaboratoryDashboard({ lang }) {
 
             {/* COLUMN 2: RESULTS ENTRY / DETAIL PANEL */}
             <main className="laboratory-results-panel" aria-label={lang === 'ar' ? 'تسجيل نتائج الفحوصات' : 'Laboratory Results Entry'} aria-labelledby="lab-order-title">
-              {errorMsg && <div className="badge badge-danger" role="alert">{errorMsg}</div>}
-              {successMsg && <div className="badge badge-success" role="status">{successMsg}</div>}
+              {errorMsg && <div className="badge badge-danger laboratory-alert-banner" role="alert">{errorMsg}</div>}
+              {successMsg && <div className="badge badge-success laboratory-alert-banner" role="status">{successMsg}</div>}
 
               {selectedOrder ? (
                 <>
-                  <header className="laboratory-detail-header">
+                  <header className="laboratory-detail-header ui-page-header">
                     <div className="laboratory-detail-title-group">
                       <h1 id="lab-order-title" className="ui-page-title">
                         {lang === 'ar' ? selectedOrder.patient.fullNameAr : selectedOrder.patient.fullNameEn}
@@ -830,7 +828,7 @@ export default function LaboratoryDashboard({ lang }) {
                         <strong>{lang === 'ar' ? 'تم الإفراج عن النتائج' : 'Results released'}</strong>
                         <span>{lang === 'ar' ? 'هذا الطلب محفوظ في السجل المختبري للقراءة والتدقيق.' : 'This order is retained in laboratory history for review and audit.'}</span>
                       </div>
-                      <time dateTime={selectedOrder.releasedToPatientAt}>
+                      <time dateTime={selectedOrder.releasedToPatientAt} className="ui-mono">
                         {new Date(selectedOrder.releasedToPatientAt).toLocaleString(lang === 'ar' ? 'ar' : 'en')}
                       </time>
                     </div>
@@ -839,7 +837,7 @@ export default function LaboratoryDashboard({ lang }) {
                   {/* Table of tests */}
                   <div className="laboratory-table-container ui-panel">
                     <div className="laboratory-table-inner">
-                      <div className="laboratory-table-header">
+                      <div className="laboratory-table-header ui-section-label">
                         <span>{lang === 'ar' ? 'الفحص' : 'Test'}</span>
                         <span>{lang === 'ar' ? 'النتيجة' : 'Result'}</span>
                         <span>{lang === 'ar' ? 'ملاحظة للطبيب' : 'Note for the doctor'}</span>
@@ -904,7 +902,7 @@ export default function LaboratoryDashboard({ lang }) {
                               )}
                               <div className="laboratory-ref-inputs">
                                 <div className="laboratory-ref-field">
-                                  <label htmlFor={`ref-min-${item.id}`} className="laboratory-ref-label">
+                                  <label htmlFor={`ref-min-${item.id}`} className="laboratory-ref-label ui-section-label">
                                     {lang === 'ar' ? 'الحد الأدنى' : 'Reference min'}
                                   </label>
                                   <input
@@ -917,14 +915,14 @@ export default function LaboratoryDashboard({ lang }) {
                                         : (lang === 'ar' ? 'الحد الأدنى' : 'Reference min')
                                     }
                                     aria-label={lang === 'ar' ? 'الحد الأدنى للنطاق المرجعي' : 'Reference range minimum'}
-                                    className="form-input laboratory-ref-input"
+                                    className="form-input laboratory-ref-input ui-mono"
                                     value={form.min ?? ''}
                                     disabled={isReadOnly}
                                     onChange={(e) => updateResultForm(item.id, 'min', e.target.value)}
                                   />
                                 </div>
                                 <div className="laboratory-ref-field">
-                                  <label htmlFor={`ref-max-${item.id}`} className="laboratory-ref-label">
+                                  <label htmlFor={`ref-max-${item.id}`} className="laboratory-ref-label ui-section-label">
                                     {lang === 'ar' ? 'الحد الأعلى' : 'Reference max'}
                                   </label>
                                   <input
@@ -937,7 +935,7 @@ export default function LaboratoryDashboard({ lang }) {
                                         : (lang === 'ar' ? 'الحد الأعلى' : 'Reference max')
                                     }
                                     aria-label={lang === 'ar' ? 'الحد الأعلى للنطاق المرجعي' : 'Reference range maximum'}
-                                    className="form-input laboratory-ref-input"
+                                    className="form-input laboratory-ref-input ui-mono"
                                     value={form.max ?? ''}
                                     disabled={isReadOnly}
                                     onChange={(e) => updateResultForm(item.id, 'max', e.target.value)}
@@ -957,7 +955,7 @@ export default function LaboratoryDashboard({ lang }) {
                                       ? (lang === 'ar' ? 'النتائج مقفلة حتى إتمام الدفع.' : 'Results are locked until payment is complete.')
                                       : (lang === 'ar' ? 'قيمة النتيجة، مثال: 13.5' : 'Result value, e.g. 13.5')
                                 }
-                                className={`form-input laboratory-result-input ${isOutOfRange ? 'is-out-of-range' : ''}`}
+                                className={`form-input laboratory-result-input ui-mono ${isOutOfRange ? 'is-out-of-range' : ''}`}
                                 value={displayValue}
                                 disabled={isReadOnly}
                                 onChange={(e) => updateResultForm(item.id, 'value', e.target.value)}
