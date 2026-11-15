@@ -5,8 +5,9 @@ import { sendEmail } from '../utils/notifications.js';
 import { getFacilityBranding } from '../utils/facilityBranding.js';
 import { ApiError } from '../utils/apiError.js';
 import { assertPhoneVerificationAvailable, phoneVerificationProvider, sendPhoneVerificationCode } from './phoneVerification.js';
+import { stagingDemoRegistrationEnabled, stagingDemoIdentityAllowed } from './stagingDemoRegistration.js';
 
-export const registrationPurpose = () => process.env.VERIFICATION_PROVIDER === 'email' ? 'REGISTRATION_EMAIL' : 'REGISTRATION_PHONE';
+export const registrationPurpose = () => (process.env.VERIFICATION_PROVIDER === 'email' || stagingDemoRegistrationEnabled()) ? 'REGISTRATION_EMAIL' : 'REGISTRATION_PHONE';
 const invalid = () => new ApiError(422, 'VERIFICATION_INVALID', 'Verification request is invalid or already used.');
 export const verificationUnavailable = () => new ApiError(503, 'VERIFICATION_UNAVAILABLE', 'Online verification is currently unavailable. Please contact reception to activate your patient account.');
 export async function lockAccount(tx, userId) {
@@ -49,7 +50,10 @@ export async function createVerificationChallengeRecord(tx, user, type, targetNo
 export async function createVerificationChallenge(user, type, targetNormalized, { cooldownMs = 0, phoneDelivery } = {}) {
   // Disabled is an intentional offline operating mode, not a delivery attempt.
   // Refuse before persisting a challenge so no UI can honestly claim a code was sent.
-  if (process.env.VERIFICATION_PROVIDER === 'disabled') throw verificationUnavailable();
+  const stagingDemo = stagingDemoRegistrationEnabled()
+    && type === 'REGISTRATION_EMAIL'
+    && stagingDemoIdentityAllowed(targetNormalized, user?.phoneNormalized);
+  if (process.env.VERIFICATION_PROVIDER === 'disabled' && !stagingDemo) throw verificationUnavailable();
   if (type.endsWith('PHONE')) assertPhoneVerificationAvailable();
   const code = String(crypto.randomInt(100000, 1000000));
   const codeHash = await bcrypt.hash(code, 10);
@@ -79,6 +83,9 @@ export async function createVerificationChallenge(user, type, targetNormalized, 
       const delivery = await sendPhoneVerificationCode({ destination: targetNormalized, code, purpose: type }, phoneDelivery ? { delivery: phoneDelivery } : undefined);
       return { challenge, ...delivery };
     }
+    // In the isolated staging demo, return the code only for fictional identity data.
+    // No email or SMS is sent; this is not a real identity-ownership check.
+    if (stagingDemo) return { challenge, developmentCode: code };
     if (['development', 'test'].includes(process.env.NODE_ENV) && process.env.VERIFICATION_PROVIDER === 'development') return { challenge, developmentCode: code };
     const facilityName = getFacilityBranding().displayNameEn;
     const sent = await sendEmail({ to: type === 'PROFILE_PHONE_CHANGE' ? user.email : targetNormalized, subject: `${facilityName} - Confirm your patient account request`, text: `Your verification code for ${facilityName} is ${code}. It expires in 10 minutes.` });
