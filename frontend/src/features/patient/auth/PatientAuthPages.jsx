@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { Check, HeartPulse } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { patientApiRequest, publicApiRequest as apiRequest } from '../../../services/apiClient';
+import { patientErrorMessage } from '../../../services/patientErrors.js';
 import { useAuth } from '../../../app/auth/auth-context';
 import { INITIAL_ONBOARDING_FORM, NAME_FIELDS, ONBOARDING_STEPS, googleRegistrationPayload, onboardingErrorMessage, passwordChecks, registrationPayload, RESEND_COOLDOWN_SECONDS, resendSecondsRemaining, validateOnboardingStep } from './onboarding';
 import { callingCode, countryFlag, countryName, normalisePatientPhone, PATIENT_PHONE_COUNTRIES, splitInternationalPhone } from './phoneCountries';
@@ -34,6 +35,25 @@ export function PatientLogin(){
   const[challenge,setChallenge]=useState(null);
   const[code,setCode]=useState('');
   const[message,setMessage]=useState('');
+  const [loginNotice] = useState(() => {
+    try {
+      const notice = sessionStorage.getItem('patientLoginNotice');
+      if (notice) {
+        sessionStorage.removeItem('patientLoginNotice');
+        return notice;
+      }
+    } catch {}
+    return '';
+  });
+  const [resendAvailableAt, setResendAvailableAt] = useState(0);
+  const [now, setNow] = useState(Date.now());
+  const resendRemaining = resendSecondsRemaining(resendAvailableAt, now);
+
+  useEffect(() => {
+    if (resendRemaining === 0) return undefined;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [resendRemaining]);
 
   async function submit(event){
     event.preventDefault();
@@ -63,13 +83,14 @@ export function PatientLogin(){
           setPendingVerification(true);
           setError(t('pendingVerificationMessage'));
         }else{
-          setError(requestError.message);
+          setError(patientErrorMessage(requestError, t('loginFailed')));
         }
       }
     });
   }
 
   async function resendVerification(){
+    if (loading || resendRemaining > 0) return;
     setLoading(true);
     setError('');
     setMessage('');
@@ -88,9 +109,11 @@ export function PatientLogin(){
 
       setChallenge(data);
       setCode('');
+      setNow(Date.now());
+      setResendAvailableAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
       setMessage(t('verificationResent'));
     }catch(requestError){
-      setError(requestError.code === 'VERIFICATION_UNAVAILABLE' ? t('onlineVerificationUnavailable') : requestError.message);
+      setError(requestError.code === 'VERIFICATION_UNAVAILABLE' ? t('onlineVerificationUnavailable') : patientErrorMessage(requestError, t('verificationFailed')));
     }finally{
       setLoading(false);
     }
@@ -126,7 +149,7 @@ export function PatientLogin(){
       setCode('');
       setMessage(verificationMessage);
     }catch(requestError){
-      setError(requestError.message);
+      setError(patientErrorMessage(requestError, t('verificationFailed')));
     }finally{
       setLoading(false);
     }
@@ -168,6 +191,12 @@ export function PatientLogin(){
 
   return (
     <AuthShell title={t('patientLogin')}>
+      {loginNotice && (
+        <div className="patient-alert info" role="status">
+          {loginNotice}
+        </div>
+      )}
+
       {location.state?.message&&
         <div className="patient-alert success">
           {location.state.message}
@@ -202,10 +231,10 @@ export function PatientLogin(){
           <button
             type="button"
             className="patient-button secondary patient-auth-resend-inline"
-            disabled={loading}
+            disabled={loading || resendRemaining > 0}
             onClick={resendVerification}
           >
-            {t('resendVerification')}
+            {resendRemaining > 0 ? t('onboardingResendAvailableIn', { seconds: resendRemaining }) : t('resendVerification')}
           </button>
         }
 
@@ -282,7 +311,7 @@ export function PatientForgotPassword(){
         setStep('reset');
       }
     }catch(requestError){
-      setError(requestError.code === 'VERIFICATION_UNAVAILABLE' ? t('onlineVerificationUnavailable') : requestError.message);
+      setError(requestError.code === 'VERIFICATION_UNAVAILABLE' ? t('onlineVerificationUnavailable') : patientErrorMessage(requestError, t('requestFailed')));
     }finally{
       setLoading(false);
     }
@@ -322,7 +351,7 @@ export function PatientForgotPassword(){
         }
       });
     }catch(requestError){
-      setError(requestError.message);
+      setError(patientErrorMessage(requestError, t('resetPasswordFailed')));
     }finally{
       setLoading(false);
     }
@@ -412,6 +441,22 @@ export function PatientForgotPassword(){
           >
             {loading ? t('loading') : t('resetPassword')}
           </button>
+
+          <div className="patient-auth-back-nav">
+            <button
+              type="button"
+              className="patient-auth-secondary-button"
+              onClick={() => {
+                setStep('request');
+                setChallengeId('');
+                setCode('');
+                setError('');
+                setMessage('');
+              }}
+            >
+              {t('requestNewCode')}
+            </button>
+          </div>
         </form>
       )}
     </AuthShell>
@@ -632,10 +677,12 @@ export function PatientClaim() {
       }
 
       setError(
-        requestError?.message ||
-          (lang === 'ar'
+        patientErrorMessage(
+          requestError,
+          lang === 'ar'
             ? 'حدث خطأ أثناء محاولة ربط الملف الطبي.'
-            : 'An error occurred while linking your medical record.')
+            : 'An error occurred while linking your medical record.'
+        )
       );
     } finally {
       setLoading(false);

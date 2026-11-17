@@ -12,8 +12,28 @@ export function DoctorDetails() {
   const language = i18n.language?.startsWith('ar') ? 'ar' : 'en';
 
   if (loading) return <div className="patient-card"><Skeleton/></div>;
-  if (error) return <ErrorState message={error} onRetry={reload}/>;
-  if (!data) return <EmptyState title={t('doctorNotFound')}/>;
+  if (error) {
+    return (
+      <article className="patient-doctor-details">
+        <Link to="/patient/doctors" className="patient-back-link">
+          <ArrowLeft size={16} strokeWidth={1.8} aria-hidden="true" />
+          {t('doctors')}
+        </Link>
+        <ErrorState message={error} onRetry={reload}/>
+      </article>
+    );
+  }
+  if (!data) {
+    return (
+      <article className="patient-doctor-details">
+        <Link to="/patient/doctors" className="patient-back-link">
+          <ArrowLeft size={16} strokeWidth={1.8} aria-hidden="true" />
+          {t('doctors')}
+        </Link>
+        <EmptyState title={t('doctorNotFound')}/>
+      </article>
+    );
+  }
 
   return (
     <article className="patient-doctor-details">

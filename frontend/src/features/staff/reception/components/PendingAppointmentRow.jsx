@@ -7,7 +7,8 @@ export default function PendingAppointmentRow({
   branding,
   setViewingProfilePatientId,
   handleApproveAppointment,
-  handleCancelAppointment
+  handleCancelAppointment,
+  isActionPending = false
 }) {
   const patient = app.patient || {};
   const patientName = lang === 'ar'
@@ -39,6 +40,7 @@ export default function PendingAppointmentRow({
         <button
           type="button"
           className="btn reception-btn-confirm"
+          disabled={isActionPending}
           onClick={() => handleApproveAppointment(app.id)}
         >
           {lang === 'ar' ? 'تأكيد' : 'Confirm'}
@@ -47,6 +49,7 @@ export default function PendingAppointmentRow({
         <button
           type="button"
           className="btn btn-secondary reception-btn-decline"
+          disabled={isActionPending}
           onClick={() => handleCancelAppointment(app.id)}
         >
           {lang === 'ar' ? 'رفض' : 'Decline'}

@@ -152,7 +152,21 @@ export function pharmacyManagementError(payload, status, lang = 'en', fallback =
   };
   if (byStatus[status]) return byStatus[status][lang === 'ar' ? 0 : 1];
   if (!status) return lang === 'ar' ? 'تعذر الاتصال بالخادم. تحقق من الاتصال وحاول مرة أخرى.' : 'Unable to reach the server. Check your connection and try again.';
-  return fallback || (lang === 'ar' ? 'تعذر الاتصال بالخادم. حاول مرة أخرى.' : 'Unable to reach the server. Please try again.');
+  if (lang === 'ar') {
+    const arFallback = {
+      'Unable to load formulary.': 'تعذر تحميل قائمة الأدوية.',
+      'Unable to load medicine.': 'تعذر تحميل بيانات الدواء.',
+      'Unable to create medicine.': 'تعذر إنشاء الدواء.',
+      'Unable to update medicine.': 'تعذر تحديث بيانات الدواء.',
+      'Unable to receive batch.': 'تعذر استلام دفعة المخزون.',
+      'Unable to load batches.': 'تعذر تحميل الدفعات.',
+      'Unable to load movements.': 'تعذر تحميل الحركات.'
+    }[fallback];
+    if (arFallback) return arFallback;
+    if (fallback && !/[a-zA-Z]/.test(fallback)) return fallback;
+    return 'تعذر إتمام العملية الآن. حاول مرة أخرى.';
+  }
+  return fallback || 'Unable to reach the server. Please try again.';
 }
 
 export function pharmacyInventoryAlert(medicine = {}) {

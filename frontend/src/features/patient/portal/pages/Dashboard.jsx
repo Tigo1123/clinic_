@@ -262,7 +262,7 @@ export function Dashboard() {
             )}
 
             {/* Partial activity error note if applicable */}
-            {activity.length > 0 && (labs.error || records.error) && (
+            {(labs.error || records.error) && (
               <Typography role="status" variant="body2" color="text.secondary">
                 {t('dashboardPartialActivity')}
               </Typography>

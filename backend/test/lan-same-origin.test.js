@@ -26,7 +26,7 @@ function serviceBlock(name) {
 
 test('LAN browser API configuration defaults to relative same-origin paths', () => {
   assert.match(apiClient, /VITE_API_BASE_URL\s*\|\|\s*['"]['"]/);
-  assert.match(staffApi, /VITE_STAFF_API_URL\s*\|\|\s*import\.meta\.env\.VITE_API_BASE_URL\s*\|\|\s*['"]['"]/);
+  assert.match(staffApi, /VITE_STAFF_API_URL\s*\|\|\s*import\.meta\.env\??\.VITE_API_BASE_URL\s*\|\|\s*['"]['"]/);
   for (const variable of ['VITE_API_BASE_URL', 'VITE_STAFF_API_URL', 'VITE_STAFF_SOCKET_URL']) {
     assert.match(lanEnvironment, new RegExp(`^${variable}=$`, 'm'));
   }

@@ -16,7 +16,13 @@ import './laboratoryDashboard.css';
 
 export default function LaboratoryDashboard({ lang }) {
   const [orders, setOrders] = useState([]);
+  const [ordersLoadError, setOrdersLoadError] = useState(false);
   const [historyOrders, setHistoryOrders] = useState([]);
+  const [historyLoadError, setHistoryLoadError] = useState(false);
+  const [reviewLoadError, setReviewLoadError] = useState(false);
+  const [collectingSample, setCollectingSample] = useState(false);
+  const [savingAllResults, setSavingAllResults] = useState(false);
+  const [releasingResults, setReleasingResults] = useState(false);
   const [orderView, setOrderView] = useState('work');
   const [historyLoading, setHistoryLoading] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
@@ -80,18 +86,18 @@ export default function LaboratoryDashboard({ lang }) {
       if (!gate.isCurrent(generation)) return;
 
       if (!res.ok) {
-        setOrders([]);
+        setOrdersLoadError(true);
         return;
       }
 
+      setOrdersLoadError(false);
       const nextOrders = Array.isArray(data) ? data : [];
 
       setOrders((current) => mergeLabOrdersMonotonically(current, nextOrders));
       if (preferredOrderId) setSelectedOrderId(nextOrders.some((order) => order.id === preferredOrderId) ? preferredOrderId : null);
-    } catch (err) {
+    } catch {
       if (!gate.isCurrent(generation)) return;
-      console.error(err);
-      setOrders([]);
+      setOrdersLoadError(true);
     }
   };
 
@@ -111,10 +117,12 @@ export default function LaboratoryDashboard({ lang }) {
   const fetchReviewRequests = async () => {
     try {
       const res = await fetchWithAuth('/api/records/lab-order-items/pending-review');
+      if (!res.ok) throw new Error('Review load failed');
       const data = await res.json().catch(() => []);
-      setReviewRequests(res.ok && Array.isArray(data) ? data : []);
+      setReviewRequests(Array.isArray(data) ? data : []);
+      setReviewLoadError(false);
     } catch {
-      setReviewRequests([]);
+      setReviewLoadError(true);
     }
   };
 
@@ -122,14 +130,16 @@ export default function LaboratoryDashboard({ lang }) {
     setHistoryLoading(true);
     try {
       const res = await fetchWithAuth('/api/records/lab-orders/history');
+      if (!res.ok) throw new Error('History load failed');
       const data = await res.json().catch(() => []);
-      const nextHistory = res.ok && Array.isArray(data) ? data : [];
+      const nextHistory = Array.isArray(data) ? data : [];
       setHistoryOrders(nextHistory);
+      setHistoryLoadError(false);
       if (preferredOrderId && nextHistory.some((order) => order.id === preferredOrderId)) {
         setSelectedOrderId(preferredOrderId);
       }
     } catch {
-      setHistoryOrders([]);
+      setHistoryLoadError(true);
     } finally {
       setHistoryLoading(false);
     }
@@ -190,12 +200,14 @@ export default function LaboratoryDashboard({ lang }) {
   };
 
   const handleCollectSample = async () => {
+    if (collectingSample) return;
     if (!selectedOrder || selectedOrder.status !== 'PAID') {
       return;
     }
 
     setErrorMsg('');
     setSuccessMsg('');
+    setCollectingSample(true);
 
     try {
       const res = await fetchWithAuth(
@@ -234,6 +246,8 @@ export default function LaboratoryDashboard({ lang }) {
           ? 'حدث خطأ أثناء تسجيل جمع العينة.'
           : 'An error occurred while recording sample collection.'
       );
+    } finally {
+      setCollectingSample(false);
     }
   };
 
@@ -257,11 +271,11 @@ export default function LaboratoryDashboard({ lang }) {
           ? (lang === 'ar' ? 'يجب جمع العينة أولاً.' : 'Collect the sample first.')
           : (lang === 'ar' ? 'النتائج مقفلة حتى إتمام الدفع.' : 'Results are locked until payment is complete.')
       );
-      return;
+      return false;
     }
 
     const form = resultForms[item.id] || {};
-    if (!form.value?.trim()) return;
+    if (!form.value?.trim()) return false;
     const numericValue = Number(form.value);
     const min = form.min === '' || form.min == null ? undefined : Number(form.min);
     const max = form.max === '' || form.max == null ? undefined : Number(form.max);
@@ -301,6 +315,7 @@ export default function LaboratoryDashboard({ lang }) {
             }));
 
         await fetchPendingLabOrders(selectedOrder?.id);
+        return true;
       } else {
         const errorData = await res.json().catch(() => ({}));
         const errorCode = errorData?.error?.code || errorData?.code;
@@ -312,7 +327,7 @@ export default function LaboratoryDashboard({ lang }) {
               : 'Another user changed this result. The latest version was loaded; review your unsaved entry before saving again.'
           );
           await fetchPendingLabOrders(selectedOrder?.id);
-          return;
+          return false;
         }
 
         if (res.status === 409 && errorCode === 'LAB_RESULT_FINALIZED') {
@@ -322,7 +337,7 @@ export default function LaboratoryDashboard({ lang }) {
               : 'This result is no longer editable because it was completed or released. Your unsaved entry has been retained for review.'
           );
           await fetchPendingLabOrders(selectedOrder?.id);
-          return;
+          return false;
         }
 
         setErrorMsg(
@@ -333,6 +348,7 @@ export default function LaboratoryDashboard({ lang }) {
               : 'Failed to save the test result.'
           )
         );
+        return false;
       }
     } catch (e) {
       console.error(e);
@@ -341,10 +357,12 @@ export default function LaboratoryDashboard({ lang }) {
           ? 'حدث خطأ أثناء معالجة الطلب. يرجى المحاولة مرة أخرى.'
           : 'The request could not be completed. Please try again.'
       );
+      return false;
     }
   };
 
   const handleSaveAllResults = async () => {
+    if (savingAllResults) return;
     if (!selectedOrder || selectedOrder.status !== 'SAMPLE_COLLECTED') {
       if (selectedOrder?.status === 'PAID') {
         setErrorMsg(lang === 'ar' ? 'يجب جمع العينة أولاً.' : 'Collect the sample first.');
@@ -357,15 +375,40 @@ export default function LaboratoryDashboard({ lang }) {
       (item) => item.labReviewStatus !== 'EXTERNAL' && resultForms[item.id]?.value?.trim()
     );
     if (dirtyItems.length === 0) return;
-    for (const item of dirtyItems) {
-      await handleSubmitResult(item);
+    setSavingAllResults(true);
+    let failureCount = 0;
+    try {
+      for (const item of dirtyItems) {
+        const ok = await handleSubmitResult(item);
+        if (!ok) {
+          failureCount += 1;
+        }
+      }
+      if (failureCount > 0) {
+        setSuccessMsg('');
+        setErrorMsg(
+          lang === 'ar'
+            ? `تعذر حفظ ${failureCount} من ${dirtyItems.length} نتيجة. راجع الأخطاء وأعد المحاولة.`
+            : `${failureCount} of ${dirtyItems.length} results could not be saved. Review the errors and try again.`
+        );
+      } else {
+        setSuccessMsg(
+          lang === 'ar'
+            ? 'تم حفظ نتائج الفحوصات بنجاح.'
+            : 'Test results saved successfully.'
+        );
+      }
+    } finally {
+      setSavingAllResults(false);
     }
   };
 
   const handleReleaseResults = async () => {
+    if (releasingResults) return;
     if (!selectedOrder || selectedOrder.status !== 'COMPLETED') return;
     setErrorMsg('');
     setSuccessMsg('');
+    setReleasingResults(true);
     try {
       const res = await fetchWithAuth(`/api/records/lab-orders/${selectedOrder.id}/release`, { method: 'PUT' });
       const data = await res.json().catch(() => ({}));
@@ -378,6 +421,8 @@ export default function LaboratoryDashboard({ lang }) {
       setOrderView('history');
     } catch {
       setErrorMsg(lang === 'ar' ? 'تعذر الإفراج عن النتائج للمريض.' : 'Failed to release results to the patient.');
+    } finally {
+      setReleasingResults(false);
     }
   };
 
@@ -415,6 +460,12 @@ export default function LaboratoryDashboard({ lang }) {
         {orderView === 'custom' ? (
           /* ── CUSTOM TEST REVIEW SPLIT VIEW ───────────────────── */
           <section className={`laboratory-review-section ${reviewRequests.length === 0 ? 'is-empty' : ''}`} aria-labelledby="laboratory-review-title">
+            {reviewLoadError && (
+              <div role="alert" className="patient-alert error">
+                {lang === 'ar' ? 'تعذر تحميل القائمة. تحقق من الاتصال وحاول مرة أخرى.' : 'Could not load this list. Check the connection and try again.'}{' '}
+                <button type="button" onClick={fetchReviewRequests}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button>
+              </div>
+            )}
             {reviewRequests.length === 0 ? (
               <div className="laboratory-empty-state ui-panel" role="status">
                 <div className="laboratory-review-heading">
@@ -671,6 +722,18 @@ export default function LaboratoryDashboard({ lang }) {
                 </div>
               </div>
 
+              {orderView === 'work' && ordersLoadError && (
+                <div role="alert" className="patient-alert error">
+                  {lang === 'ar' ? 'تعذر تحميل القائمة. تحقق من الاتصال وحاول مرة أخرى.' : 'Could not load this list. Check the connection and try again.'} <button type="button" onClick={() => fetchPendingLabOrders()}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button>
+                </div>
+              )}
+
+              {orderView === 'history' && historyLoadError && (
+                <div role="alert" className="patient-alert error">
+                  {lang === 'ar' ? 'تعذر تحميل القائمة. تحقق من الاتصال وحاول مرة أخرى.' : 'Could not load this list. Check the connection and try again.'} <button type="button" onClick={() => fetchLabHistory()}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button>
+                </div>
+              )}
+
               {historyLoading && orderView === 'history' ? (
                 <div className="laboratory-orders-empty" role="status">
                   {lang === 'ar' ? 'جارٍ تحميل السجل المختبري...' : 'Loading laboratory history...'}
@@ -793,6 +856,7 @@ export default function LaboratoryDashboard({ lang }) {
                       <button
                         type="button"
                         className="btn btn-primary"
+                        disabled={collectingSample}
                         onClick={handleCollectSample}
                       >
                         {lang === 'ar' ? 'تأكيد جمع العينة' : 'Collect Sample'}
@@ -1025,7 +1089,7 @@ export default function LaboratoryDashboard({ lang }) {
                       <button
                         type="button"
                         className={`btn ${selectedOrder.status === 'COMPLETED' && !selectedOrder.releasedToPatientAt ? 'btn-primary' : 'btn-secondary'}`}
-                        disabled={selectedOrder.status !== 'COMPLETED' || Boolean(selectedOrder.releasedToPatientAt)}
+                        disabled={releasingResults || selectedOrder.status !== 'COMPLETED' || Boolean(selectedOrder.releasedToPatientAt)}
                         onClick={handleReleaseResults}
                       >
                         {lang === 'ar' ? 'الإفراج عن النتائج للمريض' : 'Release Results to Patient'}
@@ -1033,7 +1097,7 @@ export default function LaboratoryDashboard({ lang }) {
                       <button
                         type="button"
                         className={`btn ${selectedOrder.status === 'SAMPLE_COLLECTED' ? 'btn-primary' : 'btn-secondary'}`}
-                        disabled={selectedOrder.status !== 'SAMPLE_COLLECTED' || !hasUnsavedEntries}
+                        disabled={savingAllResults || selectedOrder.status !== 'SAMPLE_COLLECTED' || !hasUnsavedEntries}
                         onClick={handleSaveAllResults}
                       >
                         <Save size={18} strokeWidth={1.8} aria-hidden="true" />

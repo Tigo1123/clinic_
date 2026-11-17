@@ -113,6 +113,46 @@ function paymentRoleAllowed(role, invoiceType) {
   return role === ROLES.ADMIN || role === ROLES.RECEPTIONIST;
 }
 
+/**
+ * Advances a lab order from PENDING_BILLING to PAID once its invoice is settled.
+ */
+async function unlockLabOrderAfterSettlement(tx, labOrderId) {
+  const unlocked = await tx.labOrder.updateMany({
+    where: {
+      id: labOrderId,
+      status: 'PENDING_BILLING'
+    },
+    data: {
+      status: 'PAID'
+    }
+  });
+
+  if (unlocked.count === 0) {
+    const currentLabOrder = await tx.labOrder.findUnique({
+      where: { id: labOrderId },
+      select: { status: true }
+    });
+
+    if (!currentLabOrder) {
+      throw Object.assign(
+        new Error('Laboratory order linked to this invoice no longer exists.'),
+        { status: 409, code: 'LAB_ORDER_NOT_FOUND' }
+      );
+    }
+
+    if (
+      !['PAID', 'SAMPLE_COLLECTED', 'COMPLETED'].includes(
+        currentLabOrder.status
+      )
+    ) {
+      throw Object.assign(
+        new Error('Laboratory order could not be unlocked after payment.'),
+        { status: 409, code: 'LAB_PAYMENT_STATE_CONFLICT' }
+      );
+    }
+  }
+}
+
 function isUniqueViolationFor(error, fieldName, constraintName) {
   if (error?.code !== 'P2002') return false;
   const target = error.meta?.target;
@@ -577,12 +617,14 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
           const existingInvoice = await tx.invoice.findFirst({
             where: {
               appointmentId: resolvedAppointmentId,
-              invoiceType: 'CONSULTATION'
+              invoiceType: 'CONSULTATION',
+              paymentStatus: { notIn: ['REFUNDED', 'VOIDED'] }
             },
             include: {
               items: true,
               insuranceClaim: true
-            }
+            },
+            orderBy: { invoiceDate: 'desc' }
           });
 
           if (existingInvoice) {
@@ -662,6 +704,10 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
         let insuranceClaim = null;
         const patientShareSdg = insuranceAmounts.patientShareSdg;
 
+        // A zero patient share can never be settled by a payment (zero-amount
+        // payments are rejected), so such an invoice is created already PAID.
+        const settledAtCreation = patientShareSdg === 0;
+
         const invoice = await tx.invoice.create({
           data: {
             patientId,
@@ -672,7 +718,7 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
             totalAmountSdg: totalSdg,
             totalAmountUsd: totalUsd,
             invoiceExchangeRate: lockedExchangeRate,
-            paymentStatus: 'UNPAID',
+            paymentStatus: settledAtCreation ? 'PAID' : 'UNPAID',
             createdBy: req.user.id,
             items: {
               create: invoiceItemsData
@@ -698,6 +744,24 @@ router.post('/invoice', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
             where: { id: invoice.id },
             data: { insuranceClaimId: insuranceClaim.id }
           });
+        }
+
+        if (settledAtCreation) {
+          if (invoice.invoiceType === 'LABORATORY' && invoice.labOrderId) {
+            await unlockLabOrderAfterSettlement(tx, invoice.labOrderId);
+          }
+          await tx.tenantAuditLog.create({ data: {
+            userId: req.user.id,
+            action: 'INVOICE_SETTLED_ZERO_PATIENT_SHARE',
+            details: JSON.stringify({
+              invoiceId: invoice.id,
+              invoiceType: invoice.invoiceType,
+              grossTotalSdg: insuranceAmounts.grossTotalSdg,
+              insuranceCoverageSdg: insuranceAmounts.insuranceCoverageSdg,
+              patientShareSdg: 0
+            }),
+            ipAddress: req.ip || 'unknown'
+          } });
         }
 
         return {
@@ -928,40 +992,7 @@ router.post('/invoice/:id/payments', authenticate,
         invoice.labOrderId &&
         invoiceStatus === 'PAID'
       ) {
-        const unlocked = await tx.labOrder.updateMany({
-          where: {
-            id: invoice.labOrderId,
-            status: 'PENDING_BILLING'
-          },
-          data: {
-            status: 'PAID'
-          }
-        });
-
-        if (unlocked.count === 0) {
-          const currentLabOrder = await tx.labOrder.findUnique({
-            where: { id: invoice.labOrderId },
-            select: { status: true }
-          });
-
-          if (!currentLabOrder) {
-            throw Object.assign(
-              new Error('Laboratory order linked to this invoice no longer exists.'),
-              { status: 409, code: 'LAB_ORDER_NOT_FOUND' }
-            );
-          }
-
-          if (
-            !['PAID', 'SAMPLE_COLLECTED', 'COMPLETED'].includes(
-              currentLabOrder.status
-            )
-          ) {
-            throw Object.assign(
-              new Error('Laboratory order could not be unlocked after payment.'),
-              { status: 409, code: 'LAB_PAYMENT_STATE_CONFLICT' }
-            );
-          }
-        }
+        await unlockLabOrderAfterSettlement(tx, invoice.labOrderId);
       }
 
       return {

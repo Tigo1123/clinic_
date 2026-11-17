@@ -804,6 +804,17 @@ export class PharmacyService {
         );
       }
 
+      // Same advisory key as ensurePharmacyInvoiceInTransaction, so an invoice
+      // cannot be created concurrently and missed by the row lock below.
+      await tx.$queryRaw(Prisma.sql`
+        SELECT 1::int AS "locked"
+        FROM pg_advisory_xact_lock(
+          hashtextextended(${`pharmacy-invoice:${item.prescriptionId}`}, 0)
+        )
+      `);
+      // Lock candidate invoices so a concurrent payment commits before the read below.
+      await tx.$queryRaw`SELECT "id" FROM "Invoice" WHERE "prescriptionId" = ${item.prescriptionId} AND "invoiceType" = 'PHARMACY' ORDER BY "id" FOR UPDATE`;
+
       const invoices = await tx.invoice.findMany({
         where: {
           prescriptionId: item.prescriptionId,
@@ -830,7 +841,16 @@ export class PharmacyService {
       }
 
       if (invoice) {
-        await tx.invoice.update({ where: { id: invoice.id }, data: { paymentStatus: 'VOIDED' } });
+        const voided = await tx.invoice.updateMany({
+          where: { id: invoice.id, paymentStatus: 'UNPAID' },
+          data: { paymentStatus: 'VOIDED', ledgerVersion: { increment: 1 } },
+        });
+        if (voided.count !== 1) {
+          throw new HttpException(
+            { code: 'PHARMACY_UNAVAILABLE_PAID_REVIEW_REQUIRED', message: 'Paid medication cannot be marked unavailable without financial review.' },
+            HttpStatus.CONFLICT,
+          );
+        }
       }
 
       const note = body.note?.trim() || null;

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { patientApiRequest as apiRequest } from '../../../../services/apiClient';
+import { patientErrorMessage } from '../../../../services/patientErrors';
 import StatusBadge from '../../../../components/ui/StatusBadge';
 import Dialog from '../../../../components/ui/Dialog';
 import { EmptyState, ErrorState, Skeleton } from '../../../../components/feedback/States';
@@ -31,7 +32,7 @@ export function AppointmentDetails() {
       setConfirming(false);
       reload();
     } catch (requestError) {
-      setActionError(requestError.message);
+      setActionError(patientErrorMessage(requestError, t('cancelFailed')));
     } finally {
       setCancelling(false);
     }
@@ -87,7 +88,7 @@ export function AppointmentDetails() {
           <button
             type="button"
             className="patient-button patient-button--danger patient-appointment-details__resched-btn"
-            onClick={() => setConfirming(true)}
+            onClick={() => { setActionError(''); setConfirming(true); }}
           >
             {t('cancelAppointment')}
           </button>

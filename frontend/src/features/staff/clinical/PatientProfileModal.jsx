@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, Calendar, Check, Copy, FileText, MessageCircle, Pill, Printer, Receipt, Shield, TestTube, User, X } from 'lucide-react';
 import { fetchWithAuth } from '../../../services/staff/staffApi';
+import { apiErrorMessage } from '../../../services/staff/staffApi';
 import { useAuth } from '../../../app/auth/auth-context';
 import './patientFile.css';
 import { useFacilityBranding } from '../../../app/branding/FacilityBrandingContext.js';
@@ -80,7 +81,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
         if (apiError?.code === 'CLINICAL_DATA_UNREADABLE') {
           throw new Error(lang === 'ar' ? 'المعلومات السريرية غير متاحة حاليًا.' : 'Clinical information is unavailable.');
         }
-        throw new Error(apiError?.message || errData.error || `HTTP ${res.status}: Failed to load profile`);
+        throw new Error(apiErrorMessage(errData, lang === 'ar' ? 'تعذر تحميل ملف المريض.' : 'Failed to load patient profile.', lang));
       }
       const data = await res.json();
       if (profileRequestRef.current !== requestId) return;
@@ -185,16 +186,14 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
           return;
         }
 
-        const apiMessage =
-          typeof data?.error === 'string'
-            ? data.error
-            : data?.error?.message;
-
         throw new Error(
-          apiMessage ||
-            (lang === 'ar'
+          apiErrorMessage(
+            data,
+            lang === 'ar'
               ? 'تعذر إصدار رمز ربط الحساب.'
-              : 'Failed to generate a claim code.')
+              : 'Failed to generate a claim code.',
+            lang
+          )
         );
       }
 

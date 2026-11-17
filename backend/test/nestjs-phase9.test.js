@@ -249,9 +249,12 @@ test('PharmacyService: markMedicationUnavailable resolves item and voids invoice
         },
         invoice: {
           findMany: async () => [{ id: 'inv-1', paymentStatus: 'UNPAID', payments: [] }],
-          update: async () => {
+          updateMany: async ({ where, data }) => {
+            // Voids only while the invoice is still UNPAID (conditional update).
+            assert.equal(where.paymentStatus, 'UNPAID');
+            assert.equal(data.paymentStatus, 'VOIDED');
             voidedInvoice = true;
-            return { id: 'inv-1' };
+            return { count: 1 };
           },
         },
         prescription: {
@@ -261,6 +264,7 @@ test('PharmacyService: markMedicationUnavailable resolves item and voids invoice
           create: async () => ({ id: 'audit-1' }),
         },
       };
+      tx.$queryRaw = async () => [];
       return fn(tx);
     },
   };

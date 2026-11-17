@@ -10,7 +10,7 @@ import StaffShell from './components/StaffShell';
 import MfaCodeInput from './components/MfaCodeInput';
 import { clearStaffSession, readStaffSession, writeStaffSession } from '../../services/authStorage';
 import { completeStaffMfa, completeStaffMfaRecovery, isTerminalMfaError, startStaffLogin } from '../../services/staff/staffLogin';
-import { fetchWithAuth } from '../../services/staff/staffApi';
+import { apiErrorMessage, fetchWithAuth } from '../../services/staff/staffApi';
 import {
   configureStaffSocketSessionRevocation,
   connectStaffSocket,
@@ -165,14 +165,14 @@ export default function App({ initialView = 'login' }) {
         </div>
       )}
       {view === 'dashboard' && user && (user.mustChangePassword
-        ? <RequiredPasswordChange t={t} onComplete={handleLogout} />
+        ? <RequiredPasswordChange t={t} lang={lang} onComplete={handleLogout} />
         : <DashboardContainer user={user} lang={lang} t={t} />)}
       {securityOpen && user && <StaffSecurityDialog user={user} onUserChange={handleUserChange} onClose={() => setSecurityOpen(false)} t={t} />}
     </StaffShell>
   );
 }
 
-function RequiredPasswordChange({ t, onComplete }) {
+function RequiredPasswordChange({ t, lang, onComplete }) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -185,8 +185,8 @@ function RequiredPasswordChange({ t, onComplete }) {
     setSaving(true);
     try {
       const response = await fetchWithAuth('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body?.error?.message || body?.error || t('passwordChangeFailed'));
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(apiErrorMessage(body, lang === 'ar' ? 'تعذر تغيير كلمة المرور.' : (t('passwordChangeFailed') || 'Password change failed.'), lang));
       await onComplete();
     } catch (requestError) { setError(requestError.message); }
     finally { setSaving(false); }
@@ -262,7 +262,7 @@ function LoginView({ onLogin, t, lang, productName, productDescriptor, showProdu
           setMfaChallenge({ token: result.challengeToken, expiresAt: result.expiresAt });
         }
       } catch (err) {
-        setErrorMsg(err?.status ? err.message : 'Cannot connect to authorization service.');
+        setErrorMsg(err?.status ? err.message : (lang === 'ar' ? 'تعذر الاتصال بخدمة المصادقة.' : 'Cannot connect to authorization service.'));
       }
     });
   };

@@ -39,6 +39,7 @@ export function Prescriptions() {
                     const instructions = lang === 'ar'
                       ? m.instructionsAr || m.instructionsEn
                       : m.instructionsEn || m.instructionsAr;
+                    const qty = m.qtyPrescribed ?? m.quantity;
 
                     return (
                       <div key={m.id} className="patient-prescription-row__item">
@@ -46,9 +47,9 @@ export function Prescriptions() {
                           <strong>{name}</strong>
                           {' — '}
                           <span>{m.dosage}, {m.duration}</span>
-                          {m.quantity != null && (
+                          {qty != null && (
                             <span className="patient-prescription-row__qty">
-                              {lang === 'ar' ? ` · الكمية: ${m.quantity}` : ` · Qty: ${m.quantity}`}
+                              {lang === 'ar' ? ` · الكمية: ${qty}` : ` · Qty: ${qty}`}
                             </span>
                           )}
                         </p>

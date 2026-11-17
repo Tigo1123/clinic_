@@ -84,8 +84,12 @@ export default function PatientLayout() {
             onClick={async () => {
               if (loggingOut) return;
               setLoggingOut(true);
-              await logout();
-              navigate('/patient-login');
+              try {
+                await logout();
+                navigate('/patient-login');
+              } finally {
+                setLoggingOut(false);
+              }
             }}
             aria-label={t('logout')}
             title={t('logout')}

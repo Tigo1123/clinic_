@@ -98,7 +98,16 @@ export function MedicalRecords() {
             </div>
           ) : detailError ? (
             <div className="patient-alert error" role="alert">
-              {detailError}
+              <span>{detailError}</span>
+              {selectedRecord?.id && (
+                <button
+                  type="button"
+                  className="patient-button secondary"
+                  onClick={() => openRecord(selectedRecord.id)}
+                >
+                  {t('patientRetry')}
+                </button>
+              )}
             </div>
           ) : selectedRecord?.visitDate ? (
             <div className="medical-record-details patient-records__details">
