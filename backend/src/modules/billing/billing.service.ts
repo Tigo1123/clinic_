@@ -571,11 +571,13 @@ export class BillingService {
               where: {
                 appointmentId: resolvedAppointmentId,
                 invoiceType: 'CONSULTATION',
+                paymentStatus: { notIn: ['REFUNDED', 'VOIDED'] },
               },
               include: {
                 items: true,
                 insuranceClaim: true,
               },
+              orderBy: { invoiceDate: 'desc' },
             });
 
             if (existingInvoice) {
@@ -678,6 +680,10 @@ export class BillingService {
           let insuranceClaim: any = null;
           const patientShareSdg = insuranceAmounts.patientShareSdg;
 
+          // A zero patient share can never be settled by a payment (zero-amount
+          // payments are rejected), so such an invoice is created already PAID.
+          const settledAtCreation = patientShareSdg === 0;
+
           const invoice = await tx.invoice.create({
             data: {
               patientId,
@@ -688,7 +694,7 @@ export class BillingService {
               totalAmountSdg: totalSdg,
               totalAmountUsd: totalUsd,
               invoiceExchangeRate: LOCKED_EXCHANGE_RATE,
-              paymentStatus: 'UNPAID',
+              paymentStatus: settledAtCreation ? 'PAID' : 'UNPAID',
               createdBy: actorUser.id,
               items: { create: invoiceItemsData },
             },
@@ -709,6 +715,26 @@ export class BillingService {
             await tx.invoice.update({
               where: { id: invoice.id },
               data: { insuranceClaimId: insuranceClaim.id },
+            });
+          }
+
+          if (settledAtCreation) {
+            if (invoice.invoiceType === 'LABORATORY' && invoice.labOrderId) {
+              await this.unlockLabOrderAfterSettlement(tx, invoice.labOrderId);
+            }
+            await tx.tenantAuditLog.create({
+              data: {
+                userId: actorUser.id,
+                action: 'INVOICE_SETTLED_ZERO_PATIENT_SHARE',
+                details: JSON.stringify({
+                  invoiceId: invoice.id,
+                  invoiceType: invoice.invoiceType,
+                  grossTotalSdg: insuranceAmounts.grossTotalSdg,
+                  insuranceCoverageSdg: insuranceAmounts.insuranceCoverageSdg,
+                  patientShareSdg: 0,
+                }),
+                ipAddress,
+              },
             });
           }
 
@@ -740,6 +766,42 @@ export class BillingService {
     }
 
     return result;
+  }
+
+  /**
+   * Advances a lab order from PENDING_BILLING to PAID once its invoice is settled.
+   */
+  private async unlockLabOrderAfterSettlement(tx: any, labOrderId: string) {
+    const unlocked = await tx.labOrder.updateMany({
+      where: {
+        id: labOrderId,
+        status: 'PENDING_BILLING',
+      },
+      data: {
+        status: 'PAID',
+      },
+    });
+
+    if (unlocked.count === 0) {
+      const currentLabOrder = await tx.labOrder.findUnique({
+        where: { id: labOrderId },
+        select: { status: true },
+      });
+
+      if (!currentLabOrder) {
+        throw Object.assign(
+          new Error('Laboratory order linked to this invoice no longer exists.'),
+          { status: 409, code: 'LAB_ORDER_NOT_FOUND' },
+        );
+      }
+
+      if (!['PAID', 'SAMPLE_COLLECTED', 'COMPLETED'].includes(currentLabOrder.status)) {
+        throw Object.assign(
+          new Error('Laboratory order could not be unlocked after payment.'),
+          { status: 409, code: 'LAB_PAYMENT_STATE_CONFLICT' },
+        );
+      }
+    }
   }
 
   /**
@@ -1003,36 +1065,7 @@ export class BillingService {
             invoice.labOrderId &&
             invoiceStatus === 'PAID'
           ) {
-            const unlocked = await tx.labOrder.updateMany({
-              where: {
-                id: invoice.labOrderId,
-                status: 'PENDING_BILLING',
-              },
-              data: {
-                status: 'PAID',
-              },
-            });
-
-            if (unlocked.count === 0) {
-              const currentLabOrder = await tx.labOrder.findUnique({
-                where: { id: invoice.labOrderId },
-                select: { status: true },
-              });
-
-              if (!currentLabOrder) {
-                throw Object.assign(
-                  new Error('Laboratory order linked to this invoice no longer exists.'),
-                  { status: 409, code: 'LAB_ORDER_NOT_FOUND' },
-                );
-              }
-
-              if (!['PAID', 'SAMPLE_COLLECTED', 'COMPLETED'].includes(currentLabOrder.status)) {
-                throw Object.assign(
-                  new Error('Laboratory order could not be unlocked after payment.'),
-                  { status: 409, code: 'LAB_PAYMENT_STATE_CONFLICT' },
-                );
-              }
-            }
+            await this.unlockLabOrderAfterSettlement(tx, invoice.labOrderId);
           }
 
           return {

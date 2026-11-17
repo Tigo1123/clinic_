@@ -6,6 +6,7 @@ import { authenticate, checkRoles } from '../middleware/auth.js';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { sendError } from '../utils/apiError.js';
+import { Prisma } from '../generated/prisma/index.js';
 import { normalizeEmail, normalizePhone } from '../utils/identity.js';
 import { rateLimits } from '../config.js';
 import { logger } from '../utils/logger.js';
@@ -788,9 +789,18 @@ router.post('/users/:id/revoke-sessions', authenticate, checkRoles('ADMIN'), asy
  */
 router.put('/users/:id/status', authenticate, checkRoles('ADMIN'), validate(z.object({ status: z.enum(['ACTIVE', 'INACTIVE']) })), async (req, res) => {
   const { status } = req.body;
+  if (status === 'INACTIVE' && req.params.id === req.user.id) {
+    return sendError(res, 409, 'ADMIN_SELF_DEACTIVATION_UNSUPPORTED', 'You cannot deactivate your own account.');
+  }
   try {
     const updated = await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${req.params.id} FOR UPDATE`;
+      // Self-deactivation is refused above and the actor is verified ACTIVE under
+      // a row lock, so the actor is still an active admin after any successful
+      // deactivation. Two admins deactivating each other serialize on the locks
+      // (taken in id order) and the second fails the actor check.
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "User" WHERE "id" IN (${Prisma.join([req.params.id, req.user.id])}) ORDER BY "id" FOR UPDATE`);
+      const actor = await tx.user.findUnique({ where: { id: req.user.id }, select: { id: true, role: true, status: true } });
+      if (!actor || actor.role !== 'ADMIN' || actor.status !== 'ACTIVE') throw new Error('ADMIN_ACTOR_NOT_ACTIVE');
       const current = await tx.user.findUnique({
         where: { id: req.params.id },
         select: { id: true, username: true, role: true, status: true, preferredLanguage: true, createdAt: true }
@@ -829,6 +839,9 @@ router.put('/users/:id/status', authenticate, checkRoles('ADMIN'), validate(z.ob
 
     return res.json(updated);
   } catch (error) {
+    if (error?.message === 'ADMIN_ACTOR_NOT_ACTIVE') {
+      return sendError(res, 403, 'ADMIN_ACTOR_NOT_ACTIVE', 'Your administrator account is no longer active.');
+    }
     if (error?.message === 'STAFF_STATUS_UNSUPPORTED') {
       return sendError(res, 422, 'STAFF_STATUS_UNSUPPORTED', 'Status management through this endpoint is limited to staff accounts.');
     }

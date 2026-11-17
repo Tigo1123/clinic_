@@ -6,6 +6,7 @@ import {
 import bcrypt from 'bcryptjs';
 import { createRequire } from 'node:module';
 import { PrismaService } from '../../database/prisma.service.js';
+import { Prisma } from '../../generated/prisma/index.js';
 import { lockDoctorLifecycle, synchronizeDoctorAccount } from '../../services/doctorLifecycle.js';
 import { usdFromSdg, subtractMoney } from '../../common/utils/money.js';
 
@@ -934,8 +935,37 @@ export class AdminService {
     actorUserId: string,
     ip?: string,
   ) {
+    if (status === 'INACTIVE' && targetId === actorUserId) {
+      throw new HttpException(
+        {
+          code: 'ADMIN_SELF_DEACTIVATION_UNSUPPORTED',
+          message: 'You cannot deactivate your own account.',
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+
     return this.prisma.$transaction(async (tx: any) => {
-      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${targetId} FOR UPDATE`;
+      // Self-deactivation is refused above and the actor is verified ACTIVE under
+      // a row lock, so the actor is still an active admin after any successful
+      // deactivation. Two admins deactivating each other serialize on the locks
+      // (taken in id order) and the second fails the actor check.
+      await tx.$queryRaw(
+        Prisma.sql`SELECT "id" FROM "User" WHERE "id" IN (${Prisma.join([targetId, actorUserId])}) ORDER BY "id" FOR UPDATE`,
+      );
+      const actor = await tx.user.findUnique({
+        where: { id: actorUserId },
+        select: { id: true, role: true, status: true },
+      });
+      if (!actor || actor.role !== 'ADMIN' || actor.status !== 'ACTIVE') {
+        throw new HttpException(
+          {
+            code: 'ADMIN_ACTOR_NOT_ACTIVE',
+            message: 'Your administrator account is no longer active.',
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      }
       const current = await tx.user.findUnique({
         where: { id: targetId },
         select: {

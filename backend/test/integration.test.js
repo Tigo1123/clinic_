@@ -9383,3 +9383,70 @@ test('billing analytics handles absent medicine relations without merging custom
     prisma.prescribedDrug.findMany = original;
   }
 });
+
+test('an admin cannot deactivate their own account but can still manage other staff', async () => {
+  const admin = await prisma.user.findUnique({ where: { username: 'admin@cms.com' } });
+  const self = await api.put(`/api/auth/users/${admin.id}/status`).set(auth('admin')).send({ status: 'INACTIVE' });
+  assert.equal(self.status, 409);
+  assert.equal(self.body.error.code, 'ADMIN_SELF_DEACTIVATION_UNSUPPORTED');
+  assert.equal((await prisma.user.findUnique({ where: { id: admin.id } })).status, 'ACTIVE');
+
+  const target = await prisma.user.create({
+    data: { username: `self-guard-${Date.now()}@example.test`, passwordHash: await bcrypt.hash('SelfGuardPass1', 10), role: 'RECEPTIONIST', status: 'ACTIVE' }
+  });
+  const down = await api.put(`/api/auth/users/${target.id}/status`).set(auth('admin')).send({ status: 'INACTIVE' });
+  assert.equal(down.status, 200);
+  assert.equal(down.body.status, 'INACTIVE');
+  const up = await api.put(`/api/auth/users/${target.id}/status`).set(auth('admin')).send({ status: 'ACTIVE' });
+  assert.equal(up.status, 200);
+  assert.equal(up.body.status, 'ACTIVE');
+});
+
+test('a consultation invoice with a zero patient share is created PAID and the visit can start', async () => {
+  fixtureCounter += 1;
+  const insurer = await prisma.insuranceCompany.create({ data: {
+    labelAr: `تأمين كامل ${fixtureCounter}`, labelEn: `Full cover insurer ${fixtureCounter}`, copayPercentage: 0, billingCycleDays: 30
+  } });
+  const appointment = await prisma.appointment.create({ data: {
+    patientId: patient1.id, doctorId: doctor1.id,
+    appointmentDate: `2060-03-${String((fixtureCounter % 27) + 1).padStart(2, '0')}`,
+    appointmentTime: `${String(8 + (fixtureCounter % 10)).padStart(2, '0')}:20`, status: 'CHECKED_IN'
+  } });
+  const invoice = await api.post('/api/billing/invoice').set(auth('reception')).send({
+    patientId: patient1.id, appointmentId: appointment.id, invoiceType: 'CONSULTATION', insuranceCompanyId: insurer.id
+  });
+  assert.equal(invoice.status, 201);
+  assert.equal(invoice.body.patientShareSdg, 0);
+  assert.equal(invoice.body.invoice.paymentStatus, 'PAID');
+  assert.equal((await prisma.invoice.findUnique({ where: { id: invoice.body.invoice.id } })).paymentStatus, 'PAID');
+  assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'INVOICE_SETTLED_ZERO_PATIENT_SHARE', details: { contains: invoice.body.invoice.id } } }), 1);
+  const start = await api.put(`/api/appointments/${appointment.id}/status`).set(auth('doctor')).send({ status: 'IN_CONSULTATION' });
+  assert.equal(start.status, 200);
+});
+
+test('a fully refunded consultation invoice no longer blocks creating a new payable one', async () => {
+  fixtureCounter += 1;
+  const appointment = await prisma.appointment.create({ data: {
+    patientId: patient1.id, doctorId: doctor1.id,
+    appointmentDate: `2060-04-${String((fixtureCounter % 27) + 1).padStart(2, '0')}`,
+    appointmentTime: `${String(8 + (fixtureCounter % 10)).padStart(2, '0')}:25`, status: 'CHECKED_IN'
+  } });
+  const payload = { patientId: patient1.id, appointmentId: appointment.id, invoiceType: 'CONSULTATION' };
+  const first = await api.post('/api/billing/invoice').set(auth('reception')).send(payload);
+  assert.equal(first.status, 201);
+  const total = Number(first.body.invoice.totalAmountSdg);
+  assert.equal((await api.post(`/api/billing/invoice/${first.body.invoice.id}/payments`).set(paymentAuth('reception'))
+    .send({ payments: [{ amountSdg: total, paymentMethod: 'CASH' }] })).status, 200);
+  const refund = await api.post(`/api/billing/invoice/${first.body.invoice.id}/refund`).set(auth('reception'))
+    .send({ amountSdg: total, refundMethod: 'CASH', reason: 'Full refund before the visit' });
+  assert.equal(refund.status, 201);
+  assert.equal((await prisma.invoice.findUnique({ where: { id: first.body.invoice.id } })).paymentStatus, 'REFUNDED');
+
+  const second = await api.post('/api/billing/invoice').set(auth('reception')).send(payload);
+  assert.equal(second.status, 201);
+  assert.equal(second.body.existing, false);
+  assert.notEqual(second.body.invoice.id, first.body.invoice.id);
+  assert.equal(second.body.invoice.paymentStatus, 'UNPAID');
+  assert.equal((await api.post(`/api/billing/invoice/${second.body.invoice.id}/payments`).set(paymentAuth('reception'))
+    .send({ payments: [{ amountSdg: total, paymentMethod: 'CASH' }] })).status, 200);
+});
