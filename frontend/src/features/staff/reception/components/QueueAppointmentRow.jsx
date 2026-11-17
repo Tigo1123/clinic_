@@ -10,7 +10,8 @@ export default function QueueAppointmentRow({
   selectedDoctor,
   setViewingProfilePatientId,
   handleCheckIn,
-  handleQuickBill
+  handleQuickBill,
+  isActionPending = false
 }) {
   const isEmergency = app.emergencyOverride;
   const patient = app.patient || {};
@@ -106,6 +107,7 @@ export default function QueueAppointmentRow({
           <button
             type="button"
             className="btn btn-secondary reception-action-btn"
+            disabled={isActionPending}
             onClick={() => handleCheckIn(app.id)}
           >
             {lang === 'ar' ? 'تسجيل وصول' : 'Check In'}

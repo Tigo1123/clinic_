@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Mail, MessageCircle, Printer, X } from 'lucide-react';
 import { fetchWithAuth } from '../../../services/staff/staffApi';
+import { apiErrorMessage } from '../../../services/staff/staffApi';
 import './patientFile.css';
 import { useFacilityBranding } from '../../../app/branding/FacilityBrandingContext.js';
 import FacilityIdentityLine from '../components/FacilityIdentityLine';
@@ -22,7 +23,7 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = '
   const [loading, setLoading] = useState(true);
   const [errorDetails, setErrorDetails] = useState('');
   const [emailing, setEmailing] = useState(false);
-  const [emailMsg, setEmailMsg] = useState('');
+  const [emailStatus, setEmailStatus] = useState({ type: '', text: '' });
   const summaryRequestRef = useRef(0);
   const summaryLoading = loading || loadedSummaryId !== activeSummaryId;
 
@@ -35,7 +36,7 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = '
     setLoadedSummaryId(null);
     setLoading(true);
     setErrorDetails('');
-    setEmailMsg('');
+    setEmailStatus({ type: '', text: '' });
     setEmailing(false);
     try {
       const res = await fetchWithAuth(`/api/records/${idToFetch}/summary`);
@@ -132,35 +133,40 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = '
     if (!idToFetch || !summary || summaryLoading) return;
     const requestId = summaryRequestRef.current;
     setEmailing(true);
-    setEmailMsg('');
+    setEmailStatus({ type: '', text: '' });
     try {
       const res = await fetchWithAuth(`/api/records/${idToFetch}/send-summary`, {
         method: 'POST',
         body: JSON.stringify({})
       });
       if (summaryRequestRef.current !== requestId) return;
-      const contentType = res.headers.get('content-type') || '';
       if (!res.ok) {
-        if (contentType.includes('application/json')) {
-          const errData = await res.json();
-          if (summaryRequestRef.current !== requestId) return;
-          const apiError = typeof errData.error === 'object' ? errData.error : null;
-          setEmailMsg(apiError?.code === 'CLINICAL_DATA_UNREADABLE'
-            ? (lang === 'ar' ? 'المعلومات السريرية غير متاحة. لم يتم إرسال البريد الإلكتروني.' : 'Clinical information is unavailable. No email was sent.')
-            : (apiError?.message || errData.error ||
-            (lang === 'ar'
-              ? 'تعذر إرسال البريد الإلكتروني.'
-              : 'Failed to send email.')));
-        } else {
-          setEmailMsg(`Server returned status ${res.status}`);
-        }
+        const errData = await res.json().catch(() => ({}));
+        if (summaryRequestRef.current !== requestId) return;
+        const apiError = typeof errData.error === 'object' ? errData.error : null;
+        const text = apiError?.code === 'CLINICAL_DATA_UNREADABLE'
+          ? (lang === 'ar' ? 'المعلومات السريرية غير متاحة. لم يتم إرسال البريد الإلكتروني.' : 'Clinical information is unavailable. No email was sent.')
+          : apiErrorMessage(
+              errData,
+              lang === 'ar' ? 'تعذر إرسال البريد الإلكتروني.' : 'Failed to send email.',
+              lang
+            );
+        setEmailStatus({ type: 'error', text });
         return;
       }
-      await res.json();
+      await res.json().catch(() => ({}));
       if (summaryRequestRef.current !== requestId) return;
-      setEmailMsg(lang === 'ar' ? 'تم إرسال ملخص الزيارة إلى البريد بنجاح.' : 'Post-visit summary emailed successfully!');
+      setEmailStatus({
+        type: 'success',
+        text: lang === 'ar' ? 'تم إرسال ملخص الزيارة إلى البريد بنجاح.' : 'Post-visit summary emailed successfully!'
+      });
     } catch {
-      if (summaryRequestRef.current === requestId) setEmailMsg('Error connecting to mail server.');
+      if (summaryRequestRef.current === requestId) {
+        setEmailStatus({
+          type: 'error',
+          text: lang === 'ar' ? 'تعذر الاتصال بخادم البريد.' : 'Could not reach the mail server.'
+        });
+      }
     } finally {
       if (summaryRequestRef.current === requestId) setEmailing(false);
     }
@@ -343,7 +349,17 @@ export function PostVisitSummaryModal({ summaryId, onClose, lang, modalLayer = '
 
         {/* Email Controls & Print Buttons (Hidden on print) */}
         <div className="no-print-section visit-summary-footer">
-          {emailMsg && <div className="badge badge-success visit-summary-alert">{emailMsg}</div>}
+          {emailStatus.text && (
+            emailStatus.type === 'error' ? (
+              <div role="alert" className="patient-alert error visit-summary-alert">
+                {emailStatus.text}
+              </div>
+            ) : (
+              <div className="badge badge-success visit-summary-alert">
+                {emailStatus.text}
+              </div>
+            )
+          )}
 
           <div className="visit-summary-footer-row">
             <button className="btn btn-secondary" onClick={handleEmailSummary} disabled={emailing}>

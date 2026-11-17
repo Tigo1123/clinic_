@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft } from 'lucide-react';
 import { patientApiRequest as apiRequest } from '../../../../services/apiClient';
+import { patientErrorMessage } from '../../../../services/patientErrors';
 import { clinicCalendarDays } from '../../../../utils/clinicTime';
 
 export function BookAppointment() {
@@ -46,7 +47,17 @@ export function BookAppointment() {
       });
       setSuccessAppointmentId(appointment.id);
     } catch (requestError) {
-      setError(requestError.message);
+      setError(patientErrorMessage(requestError, t('bookingFailed')));
+      if (requestError?.code === 'APPOINTMENT_SLOT_UNAVAILABLE' || requestError?.code === 'INVALID_APPOINTMENT_SLOT') {
+        setTime('');
+        if (date) {
+          setSlotsLoading(true);
+          apiRequest(`/api/appointments/slots?doctorId=${doctorId}&date=${date}`)
+            .then((value) => setSlots(value))
+            .catch(() => {})
+            .finally(() => setSlotsLoading(false));
+        }
+      }
     } finally {
       setLoading(false);
     }

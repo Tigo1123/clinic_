@@ -105,7 +105,7 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
       const params = new URLSearchParams({ page: String(page), pageSize: '20' });
       if (submittedSearch) params.set('search', submittedSearch);
       if (selectedStatus) params.set('status', selectedStatus);
-      const data = await jsonRequest(`/api/pharmacy/formulary?${params}`, {}, 'Unable to load formulary.', lang);
+      const data = await jsonRequest(`/api/pharmacy/formulary?${params}`, {}, lang === 'ar' ? 'تعذر تحميل قائمة الأدوية.' : 'Unable to load formulary.', lang);
       if (requestId === formularyRequestRef.current) {
         setItems(data.items || []);
         setPagination(data.pagination || { page, totalPages: 1, total: 0 });
@@ -127,6 +127,7 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
   const closeDialog = useCallback((force = false) => {
     if (savingRef.current && force !== true) return;
     detailRequestRef.current += 1;
+    setFeedback((current) => (current.type === 'danger' ? { type: '', text: '' } : current));
     setDialog(null); setSelected(null); setMedicineForm(emptyMedicine); setBatchForm(emptyBatch); setBatchErrors({}); setBatches([]); setMovements([]); setBatchError(''); setMovementError('');
   }, []);
 
@@ -156,7 +157,7 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
     if (mode === 'batches') { loadBatches(medicine.id, 1); return; }
     if (mode === 'movements') { loadMovements(medicine.id, 1); return; }
     try {
-      const detail = await jsonRequest(`/api/pharmacy/formulary/${medicine.id}`, {}, 'Unable to load medicine.', lang);
+      const detail = await jsonRequest(`/api/pharmacy/formulary/${medicine.id}`, {}, lang === 'ar' ? 'تعذر تحميل بيانات الدواء.' : 'Unable to load medicine.', lang);
       if (requestId !== detailRequestRef.current) return;
       setSelected(detail);
       if (mode === 'edit') setMedicineForm(Object.fromEntries(['brandName', 'labelAr', 'labelEn', 'genericName', 'strength', 'dosageForm'].map((field) => [field, detail[field]])));
@@ -170,7 +171,7 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
     if (medicineForm.includeInitialBatch) { const errors = validateBatchForm(medicineForm, lang); setBatchErrors(errors); if (Object.keys(errors).length) return; }
     setSaving(true);
     try {
-      await jsonRequest('/api/pharmacy/formulary', { method: 'POST', body: JSON.stringify(buildMedicinePayload(medicineForm)) }, 'Unable to create medicine.', lang);
+      await jsonRequest('/api/pharmacy/formulary', { method: 'POST', body: JSON.stringify(buildMedicinePayload(medicineForm)) }, lang === 'ar' ? 'تعذر إنشاء الدواء.' : 'Unable to create medicine.', lang);
       closeDialog(true); setFeedback({ type: 'success', text: lang === 'ar' ? 'تم إنشاء الدواء بنجاح. سيظل غير نشط وبدون سعر حتى تقوم الإدارة بالتسعير والتفعيل.' : 'Medicine created successfully. It will remain inactive and unpriced until an Admin sets the official price and activates it.' }); await loadFormulary(1, search, status); onInventoryChanged();
     } catch (error) { setFeedback({ type: 'danger', text: error.message }); } finally { setSaving(false); }
   };
@@ -178,7 +179,7 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
   const submitMetadata = async (event) => {
     event.preventDefault(); setSaving(true);
     try {
-      await jsonRequest(`/api/pharmacy/formulary/${selected.id}/metadata`, { method: 'PATCH', body: JSON.stringify(buildMetadataPayload(medicineForm)) }, 'Unable to update medicine.', lang);
+      await jsonRequest(`/api/pharmacy/formulary/${selected.id}/metadata`, { method: 'PATCH', body: JSON.stringify(buildMetadataPayload(medicineForm)) }, lang === 'ar' ? 'تعذر تحديث بيانات الدواء.' : 'Unable to update medicine.', lang);
       closeDialog(true); setFeedback({ type: 'success', text: lang === 'ar' ? 'تم تحديث بيانات الدواء.' : 'Medicine metadata updated.' }); await loadFormulary(pagination.page, search, status); onInventoryChanged();
     } catch (error) { setFeedback({ type: 'danger', text: error.message }); } finally { setSaving(false); }
   };
@@ -186,7 +187,7 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
   const submitBatch = async (event) => {
     event.preventDefault(); const errors = validateBatchForm(batchForm, lang); setBatchErrors(errors); if (Object.keys(errors).length) return; setSaving(true);
     try {
-      await jsonRequest(`/api/pharmacy/formulary/${selected.id}/batches`, { method: 'POST', body: JSON.stringify(buildBatchPayload(batchForm)) }, 'Unable to receive batch.', lang);
+      await jsonRequest(`/api/pharmacy/formulary/${selected.id}/batches`, { method: 'POST', body: JSON.stringify(buildBatchPayload(batchForm)) }, lang === 'ar' ? 'تعذر استلام دفعة المخزون.' : 'Unable to receive batch.', lang);
       setBatchForm(emptyBatch); setBatchErrors({}); setFeedback({ type: 'success', text: lang === 'ar' ? 'تم استلام دفعة المخزون.' : 'Inventory batch received.' }); await loadFormulary(pagination.page, search, status); onInventoryChanged();
     } catch (error) { setFeedback({ type: 'danger', text: error.message }); } finally { setSaving(false); }
   };

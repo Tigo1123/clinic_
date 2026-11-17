@@ -17,7 +17,7 @@ const blank = { labelAr: '', labelEn: '', code: '', priceSdg: '', specialtyId: '
 async function request(url, options) {
   const response = await fetchWithAuth(url, options);
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw Object.assign(new Error(payload?.error?.message || ''), { code: payload?.error?.code });
+  if (!response.ok) throw Object.assign(new Error(payload?.error?.message || payload?.message || ''), { code: payload?.error?.code || payload?.code });
   return payload;
 }
 
@@ -127,6 +127,6 @@ export default function ClinicSetupPanel({ lang = 'en', t, initialTab = 'doctors
         {resource === 'doctors' && <Typography variant="body2">{copy.scheduleHelp}</Typography>}
       </Stack></DialogContent><DialogActions><Button onClick={close} disabled={saving}>{copy.cancel}</Button><Button type="submit" variant="contained" disabled={saving}>{copy.save}</Button></DialogActions></Box>
     </Dialog>
-    <Dialog open={confirm} onClose={() => setConfirm(false)} fullWidth maxWidth="xs" dir={direction} aria-labelledby="clinic-confirm-title"><DialogTitle id="clinic-confirm-title">{copy.confirm}</DialogTitle><DialogContent><Typography>{copy.confirmText}</Typography></DialogContent><DialogActions><Button onClick={() => setConfirm(false)}>{copy.cancel}</Button><Button onClick={save} variant="contained">{copy.save}</Button></DialogActions></Dialog>
+    <Dialog open={confirm} onClose={() => setConfirm(false)} fullWidth maxWidth="xs" dir={direction} aria-labelledby="clinic-confirm-title"><DialogTitle id="clinic-confirm-title">{copy.confirm}</DialogTitle><DialogContent><Typography>{copy.confirmText}</Typography></DialogContent><DialogActions><Button onClick={() => setConfirm(false)}>{copy.cancel}</Button><Button onClick={save} variant="contained" disabled={saving}>{copy.save}</Button></DialogActions></Dialog>
   </ThemeProvider></CacheProvider>;
 }

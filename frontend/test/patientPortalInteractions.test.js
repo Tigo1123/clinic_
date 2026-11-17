@@ -27,6 +27,7 @@ const mockPageSource = (source) => source
   .replace(/import Dialog[^;]+;/, 'const Dialog = ({open, children, onClose}) => open ? <section role="dialog">{children}<button onClick={onClose}>Close dialog</button></section> : null;')
   .replace(/import \{ ([^}]+) \} from '[^']*components\/feedback\/States';/, (_, names) => names.split(',').map(name => stateMocks[name.trim()]).join(' '))
   .replace(/from '(?:\.\.\/)+utils\/([^']+)'/g, "from '../src/utils/$1.js'")
+  .replace(/from '(?:\.\.\/)+services\/patientErrors'/g, "from '../src/services/patientErrors.js'")
   .replace(/from '\.\.\/(patientGreeting|patientRecord|doctorSpecialty)'/g, "from '../src/features/patient/portal/$1.js'")
   .replace("from './shared.jsx'", `from './${tempPrefix}-shared.mjs'`);
 const pageModules = {};
@@ -54,7 +55,8 @@ rescheduleSource = rescheduleSource
   .replace(/import \{ useTranslation \}[^;]+;/, "const useTranslation = () => ({ t: key => key });")
   .replace(/import \{ patientApiRequest as apiRequest \}[^;]+;/, 'const apiRequest = (...args) => globalThis.portalTestApi(...args);')
   .replace(/import \{ ErrorState, Skeleton \}[^;]+;/, 'const Skeleton = () => <div role="status">Loading</div>; const ErrorState = ({message}) => <div role="alert">{message}</div>;')
-  .replace("from '../../../utils/clinicTime'", "from '../src/utils/clinicTime.js'");
+  .replace("from '../../../utils/clinicTime'", "from '../src/utils/clinicTime.js'")
+  .replace(/from '(?:\.\.\/)+services\/patientErrors'/g, "from '../src/services/patientErrors.js'");
 const rescheduleFile = new URL(`.portal-reschedule-${process.pid}.mjs`, import.meta.url);
 await writeFile(rescheduleFile, (await transformWithOxc(rescheduleSource, 'RescheduleAppointment.jsx', { jsx: { runtime: 'automatic' } })).code);
 let RescheduleAppointment;

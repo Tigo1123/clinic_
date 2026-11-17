@@ -36,6 +36,7 @@ async function compileComponent(relativePath, replacements, siblings = {}) {
 
 const clinicalModalReplacements = [
   [/import \{ fetchWithAuth \} from '\.\.\/\.\.\/\.\.\/services\/staff\/staffApi';/, 'const fetchWithAuth = (...args) => globalThis.modalFetch(...args);'],
+  [/import \{ apiErrorMessage \} from '\.\.\/\.\.\/\.\.\/services\/staff\/staffApi';/, 'const apiErrorMessage = (data, fallback) => data?.error?.message || data?.error || fallback;'],
   [/import \{ useAuth \} from '\.\.\/\.\.\/\.\.\/app\/auth\/auth-context';/, 'const useAuth = () => ({ user: globalThis.modalUser });'],
   [/import \{ useFacilityBranding \} from '\.\.\/\.\.\/\.\.\/app\/branding\/FacilityBrandingContext\.js';/, "const useFacilityBranding = () => ({ displayNameAr: 'شفاء', displayNameEn: 'Shifa', facilityNameAr: null, facilityNameEn: null, productNameAr: 'شفاء', productNameEn: 'Shifa', productDescriptorAr: 'نظام إدارة المنشآت الصحية', productDescriptorEn: 'Healthcare Facility Management System' });"],
   [/import FacilityIdentityLine from '\.\.\/components\/FacilityIdentityLine';/, 'const FacilityIdentityLine = () => null;'],

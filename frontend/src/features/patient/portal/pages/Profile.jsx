@@ -4,6 +4,7 @@ import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, Link2, Lock, MapPin, Phone } from 'lucide-react';
 import { patientApiRequest as apiRequest } from '../../../../services/apiClient';
+import { patientErrorMessage } from '../../../../services/patientErrors';
 import { GoogleIdentityButton } from '../../auth/GoogleIdentityButton.jsx';
 import PasswordField from '../../../../components/PasswordField.jsx';
 import { useApi, State } from './shared.jsx';
@@ -75,18 +76,19 @@ export function Profile() {
           currentPassword: googleLinkPassword
         })
       });
-      setGoogleLinkMessage(t('googleLinkedSuccess'));
+      setMessage(t('googleLinkedSuccess'));
       setPendingGoogleCredential(null);
       setGoogleLinkPassword('');
       setGoogleLinkOpen(false);
       await reload();
     } catch (requestError) {
-      let msg = t('genericLinkingFailed');
+      let msg = '';
       if (requestError?.code === 'REAUTHENTICATION_FAILED') msg = t('reauthenticationFailed');
       else if (requestError?.code === 'GOOGLE_EMAIL_MISMATCH') msg = t('googleEmailMismatch');
       else if (requestError?.code === 'GOOGLE_IDENTITY_ALREADY_LINKED') msg = t('identityAlreadyLinked');
       else if (requestError?.code === 'GOOGLE_ALREADY_LINKED') msg = t('googleAlreadyLinked');
       else if (requestError?.code === 'GOOGLE_CREDENTIAL_INVALID') msg = t('googleCredentialInvalid');
+      else msg = patientErrorMessage(requestError, t('genericLinkingFailed'));
       setGoogleLinkError(msg);
     } finally {
       setGoogleLinking(false);
@@ -111,8 +113,9 @@ export function Profile() {
       setMessage(t('googleUnlinkedSuccess'));
       await reload();
     } catch (requestError) {
-      let msg = t('genericUnlinkingFailed');
+      let msg = '';
       if (requestError?.code === 'REAUTHENTICATION_FAILED') msg = t('reauthenticationFailed');
+      else msg = patientErrorMessage(requestError, t('genericUnlinkingFailed'));
       setGoogleUnlinkError(msg);
     } finally {
       setGoogleUnlinking(false);
@@ -167,12 +170,12 @@ export function Profile() {
       console.error('Patient profile save error:', requestError);
 
       setSaveError(
-        requestError?.message ||
-          (
-            lang === 'ar'
-              ? 'تعذر حفظ التغييرات. يرجى المحاولة مرة أخرى.'
-              : 'Unable to save profile changes. Please try again.'
-          )
+        patientErrorMessage(
+          requestError,
+          lang === 'ar'
+            ? 'تعذر حفظ التغييرات. يرجى المحاولة مرة أخرى.'
+            : 'Unable to save profile changes. Please try again.'
+        )
       );
     } finally {
       setSaving(false);
@@ -189,7 +192,7 @@ export function Profile() {
       clearPatientSession();
       window.location.replace('/patient-login');
     } catch (requestError) {
-      setPasswordChangeError(requestError?.message || t('passwordChangeFailed'));
+      setPasswordChangeError(patientErrorMessage(requestError, t('passwordChangeFailed')));
     } finally { setPasswordChanging(false); }
   }
 
@@ -220,12 +223,12 @@ export function Profile() {
       );
     } catch (requestError) {
       setEmailChangeError(
-        requestError?.message ||
-          (
-            lang === 'ar'
-              ? 'تعذر إرسال رمز التحقق.'
-              : 'Unable to send verification code.'
-          )
+        patientErrorMessage(
+          requestError,
+          lang === 'ar'
+            ? 'تعذر إرسال رمز التحقق.'
+            : 'Unable to send verification code.'
+        )
       );
     } finally {
       setEmailChanging(false);
@@ -262,16 +265,19 @@ export function Profile() {
       setNewEmail('');
 
       setCurrentPassword('');
+      try {
+        sessionStorage.setItem('patientLoginNotice', t('patientLoginNotice'));
+      } catch {}
       clearPatientSession();
       window.location.replace('/patient-login');
     } catch (requestError) {
       setEmailChangeError(
-        requestError?.message ||
-          (
-            lang === 'ar'
-              ? 'تعذر التحقق من رمز البريد الإلكتروني.'
-              : 'Unable to verify the email change code.'
-          )
+        patientErrorMessage(
+          requestError,
+          lang === 'ar'
+            ? 'تعذر التحقق من رمز البريد الإلكتروني.'
+            : 'Unable to verify the email change code.'
+        )
       );
     } finally {
       setEmailChanging(false);
@@ -305,12 +311,12 @@ export function Profile() {
       );
     } catch (requestError) {
       setPhoneChangeError(
-        requestError?.message ||
-          (
-            lang === 'ar'
-              ? 'تعذر بدء عملية تغيير رقم الهاتف.'
-              : 'Unable to start the phone number change.'
-          )
+        patientErrorMessage(
+          requestError,
+          lang === 'ar'
+            ? 'تعذر بدء عملية تغيير رقم الهاتف.'
+            : 'Unable to start the phone number change.'
+        )
       );
     } finally {
       setPhoneChanging(false);
@@ -346,16 +352,19 @@ export function Profile() {
       setPhoneCode('');
       setNewPhone('');
 
+      try {
+        sessionStorage.setItem('patientLoginNotice', t('patientLoginNotice'));
+      } catch {}
       clearPatientSession();
       window.location.replace('/patient-login');
     } catch (requestError) {
       setPhoneChangeError(
-        requestError?.message ||
-          (
-            lang === 'ar'
-              ? 'تعذر التحقق من رمز تغيير رقم الهاتف.'
-              : 'Unable to verify the phone change code.'
-          )
+        patientErrorMessage(
+          requestError,
+          lang === 'ar'
+            ? 'تعذر التحقق من رمز تغيير رقم الهاتف.'
+            : 'Unable to verify the phone change code.'
+        )
       );
     } finally {
       setPhoneChanging(false);

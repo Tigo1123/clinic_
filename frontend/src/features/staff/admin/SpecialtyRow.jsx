@@ -3,6 +3,18 @@ import SpecialtyDeleteButton from './SpecialtyDeleteButton.js';
 
 export default function SpecialtyRow({ specialty, lang, onSave, isAdmin, request, onDeleted, onFeedback }) {
   const [draft, setDraft] = useState(specialty);
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await onSave(draft);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <tr>
       <td>
@@ -38,8 +50,8 @@ export default function SpecialtyRow({ specialty, lang, onSave, isAdmin, request
       </td>
       <td>
         <div className="specialty-row-actions">
-          <button type="button" className="btn btn-secondary" onClick={() => onSave(draft)}>
-            {lang === 'ar' ? 'حفظ' : 'Save'}
+          <button type="button" className="btn btn-secondary" disabled={saving} onClick={handleSave}>
+            {saving ? (lang === 'ar' ? 'جارٍ الحفظ…' : 'Saving…') : (lang === 'ar' ? 'حفظ' : 'Save')}
           </button>
           {isAdmin && <SpecialtyDeleteButton specialty={specialty} lang={lang} request={request} onDeleted={onDeleted} onFeedback={onFeedback}/>}
         </div>

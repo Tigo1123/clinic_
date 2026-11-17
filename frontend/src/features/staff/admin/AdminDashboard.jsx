@@ -1,7 +1,7 @@
 import './clinicSetup.css';
 import './adminDashboard.css';
 import ClinicSetupPanel from './ClinicSetupPanel';
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   Building,
@@ -32,6 +32,7 @@ const AnalyticsPanel = lazy(() => import('./AnalyticsPanel'));
 export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }) {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [users, setUsers] = useState([]);
+  const [usersLoadError, setUsersLoadError] = useState(false);
   const [analyticsData, setAnalyticsData] = useState(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [analyticsError, setAnalyticsError] = useState('');
@@ -44,6 +45,11 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
   const [roleFilter, setRoleFilter] = useState('');
   const [showAddStaffModal, setShowAddStaffModal] = useState(false);
   const [manageTarget, setManageTarget] = useState(null);
+  const [manageError, setManageError] = useState('');
+  const [statusUpdatePending, setStatusUpdatePending] = useState(false);
+  const [specialtiesLoadError, setSpecialtiesLoadError] = useState(false);
+  const [creatingSpecialty, setCreatingSpecialty] = useState(false);
+  const [savingSpecialtyId, setSavingSpecialtyId] = useState(null);
   const [showAddSpecialtyModal, setShowAddSpecialtyModal] = useState(false);
 
   // User form states
@@ -96,23 +102,95 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
     roleLabel: lang === 'ar' ? 'إدارة النظام' : 'Administration'
   });
 
-  useEffect(() => {
-    fetchWithAuth('/api/specialties').then((response) => response.ok ? response.json() : []).then(setSpecialties).catch(() => setSpecialties([]));
+  const reloadSpecialties = useCallback(async () => {
+    try {
+      const response = await fetchWithAuth('/api/specialties');
+      if (!response.ok) throw new Error('Specialties load failed');
+      const data = await response.json().catch(() => []);
+      setSpecialties(Array.isArray(data) ? data : []);
+      setSpecialtiesLoadError(false);
+    } catch (err) {
+      console.error(err);
+      setSpecialtiesLoadError(true);
+    }
   }, []);
-  const reloadSpecialties = () => fetchWithAuth('/api/specialties').then((response) => response.ok ? response.json() : []).then(setSpecialties);
+
+  useEffect(() => {
+    reloadSpecialties();
+  }, [reloadSpecialties]);
+
   const createSpecialty = async (event) => {
-    event.preventDefault(); setSpecialtyError(''); setSpecialtyFeedback(null);
-    const response = await fetchWithAuth('/api/specialties', { method: 'POST', body: JSON.stringify({ ...specialtyDraft, active: true }) });
-    if (!response.ok) { setSpecialtyError(apiErrorMessage(await response.json().catch(() => ({})), lang === 'ar' ? 'تعذر إنشاء التخصص.' : 'Unable to create specialty.')); return; }
-    setSpecialtyDraft({ code: '', nameAr: '', nameEn: '' });
-    setShowAddSpecialtyModal(false);
-    await reloadSpecialties();
+    event.preventDefault();
+    if (creatingSpecialty) return;
+    setCreatingSpecialty(true);
+    setSpecialtyError('');
+    setSpecialtyFeedback(null);
+    try {
+      const response = await fetchWithAuth('/api/specialties', {
+        method: 'POST',
+        body: JSON.stringify({ ...specialtyDraft, active: true })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setSpecialtyError(
+          apiErrorMessage(
+            data,
+            lang === 'ar' ? 'تعذر إنشاء التخصص.' : 'Unable to create specialty.'
+          )
+        );
+        return;
+      }
+      setSpecialtyDraft({ code: '', nameAr: '', nameEn: '' });
+      setShowAddSpecialtyModal(false);
+      await reloadSpecialties();
+    } catch (err) {
+      console.error(err);
+      setSpecialtyError(
+        lang === 'ar'
+          ? 'حدث خطأ أثناء الاتصال بالخادم.'
+          : 'A network error occurred while connecting to the server.'
+      );
+    } finally {
+      setCreatingSpecialty(false);
+    }
   };
+
   const saveSpecialty = async (specialty) => {
-    setSpecialtyError(''); setSpecialtyFeedback(null);
-    const response = await fetchWithAuth(`/api/specialties/${specialty.id}`, { method: 'PATCH', body: JSON.stringify({ code: specialty.code, nameAr: specialty.nameAr, nameEn: specialty.nameEn, active: specialty.active }) });
-    if (!response.ok) { setSpecialtyError(apiErrorMessage(await response.json().catch(() => ({})), lang === 'ar' ? 'تعذر حفظ التخصص.' : 'Unable to save specialty.')); return; }
-    await reloadSpecialties();
+    if (savingSpecialtyId) return;
+    setSavingSpecialtyId(specialty.id);
+    setSpecialtyError('');
+    setSpecialtyFeedback(null);
+    try {
+      const response = await fetchWithAuth(`/api/specialties/${specialty.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          code: specialty.code,
+          nameAr: specialty.nameAr,
+          nameEn: specialty.nameEn,
+          active: specialty.active
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setSpecialtyError(
+          apiErrorMessage(
+            data,
+            lang === 'ar' ? 'تعذر حفظ التخصص.' : 'Unable to save specialty.'
+          )
+        );
+        return;
+      }
+      await reloadSpecialties();
+    } catch (err) {
+      console.error(err);
+      setSpecialtyError(
+        lang === 'ar'
+          ? 'حدث خطأ أثناء الاتصال بالخادم.'
+          : 'A network error occurred while connecting to the server.'
+      );
+    } finally {
+      setSavingSpecialtyId(null);
+    }
   };
 
   const roleLabels = {
@@ -143,16 +221,25 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
       : status?.replaceAll('_', ' ') || '-';
   };
 
+  const fetchUsers = useCallback(() => {
+    fetchWithAuth('/api/auth/users')
+      .then((res) => {
+        if (!res.ok) throw new Error('Failed to load users');
+        return res.json();
+      })
+      .then((data) => {
+        setUsersLoadError(false);
+        setUsers(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        setUsersLoadError(true);
+      });
+  }, []);
+
   // Fetch users & logs on tab switch
   useEffect(() => {
     if (activeTab === 'users') {
-      fetchWithAuth('/api/auth/users')
-        .then((res) => res.ok ? res.json() : [])
-        .then((data) => setUsers(Array.isArray(data) ? data : []))
-        .catch((err) => {
-          console.error(err);
-          setUsers([]);
-        });
+      fetchUsers();
     }
     if (activeTab === 'analytics') {
       setLoadingAnalytics(true);
@@ -189,7 +276,7 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
         .catch((err) => setErrorMsg(err.message))
         .finally(() => setPricingLoading(false));
     }
-  }, [activeTab, lang]);
+  }, [activeTab, lang, fetchUsers]);
 
   const saveOfficialPrice = async (kind, item) => {
     const key = `${kind}:${item.id}`;
@@ -218,16 +305,24 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
         method: 'PATCH',
         body: JSON.stringify({ priceSdg, status: draft.status || item.status })
       });
-      const updated = await res.json();
-      if (!res.ok) throw new Error(apiErrorMessage(updated, 'Failed to update pricing.'));
+      const updated = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErrorMsg(
+          apiErrorMessage(
+            updated,
+            lang === 'ar' ? 'تعذر تحديث السعر الرسمي.' : 'Could not update the official price.'
+          )
+        );
+        return;
+      }
       setPricing((current) => ({
         ...current,
         [kind]: current[kind].map((entry) => entry.id === item.id ? updated : entry)
       }));
       setPricingDrafts((current) => ({ ...current, [key]: undefined }));
       setSuccessMsg(lang === 'ar' ? 'تم تحديث السعر الرسمي.' : 'Official price updated.');
-    } catch (error) {
-      setErrorMsg(error.message);
+    } catch {
+      setErrorMsg(lang === 'ar' ? 'حدث خطأ أثناء حفظ السعر.' : 'Error saving price.');
     }
   };
 
@@ -265,9 +360,7 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
         setNewConsultationFee('');
         setShowAddStaffModal(false);
         // Reload list
-        fetchWithAuth('/api/auth/users')
-          .then((r) => r.json())
-          .then((d) => setUsers(d));
+        fetchUsers();
       } else {
         const validationDetails = Array.isArray(data?.error?.details)
           ? data.error.details.map((detail) => {
@@ -295,19 +388,36 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
   };
 
   const handleToggleUserStatus = async (userId, currentStatus) => {
+    if (statusUpdatePending) return;
     const nextStatus = currentStatus === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    setStatusUpdatePending(true);
+    setManageError('');
     try {
       const res = await fetchWithAuth(`/api/auth/users/${userId}/status`, {
         method: 'PUT',
         body: JSON.stringify({ status: nextStatus })
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setUsers(
           users.map((u) => (u.id === userId ? { ...u, status: nextStatus } : u))
         );
+        setManageTarget((prev) => (prev && prev.id === userId ? { ...prev, status: nextStatus } : prev));
+      } else {
+        setManageError(
+          apiErrorMessage(
+            data,
+            lang === 'ar' ? 'تعذر تغيير حالة المستخدم.' : 'Failed to update user status.'
+          )
+        );
       }
     } catch (err) {
       console.error(err);
+      setManageError(
+        lang === 'ar' ? 'تعذر الاتصال بالخادم. حاول مرة أخرى.' : 'Could not reach server. Please try again.'
+      );
+    } finally {
+      setStatusUpdatePending(false);
     }
   };
 
@@ -480,6 +590,11 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
           </div>
 
           <div className="admin-table-panel ui-panel">
+            {usersLoadError && (
+              <div role="alert" className="patient-alert error">
+                {lang === 'ar' ? 'تعذر تحميل القائمة. تحقق من الاتصال وحاول مرة أخرى.' : 'Could not load this list. Check the connection and try again.'} <button type="button" onClick={fetchUsers}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button>
+              </div>
+            )}
             <div className="admin-staff-table-scroll">
               <div className="admin-staff-header-grid">
                 <span>{lang === 'ar' ? 'الاسم' : 'Name'}</span>
@@ -508,7 +623,10 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
                           <button
                             type="button"
                             className="btn btn-secondary"
-                            onClick={() => setManageTarget(u)}
+                            onClick={() => {
+                              setManageTarget(u);
+                              setManageError('');
+                            }}
                           >
                             {lang === 'ar' ? 'إدارة' : 'Manage'}
                           </button>
@@ -637,15 +755,16 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
             const u = manageTarget;
             const staffName = (lang === 'ar' ? u.fullNameAr : u.fullNameEn) || (lang === 'ar' ? u.fullNameEn : u.fullNameAr) || u.username;
             return (
-              <div className="modal-overlay" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setManageTarget(null); }}>
+              <div className="modal-overlay" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) { setManageTarget(null); setManageError(''); } }}>
                 <div className="modal-content-panel admin-manage-modal" role="dialog" aria-modal="true" aria-labelledby="manage-staff-title">
                   <div className="admin-modal-header">
                     <div>
                       <span className="ui-section-label">{lang === 'ar' ? 'إدارة الموظف' : 'Manage Staff Member'}</span>
                       <h3 id="manage-staff-title">{staffName}</h3>
                     </div>
-                    <button type="button" className="btn btn-secondary" onClick={() => setManageTarget(null)} aria-label={lang === 'ar' ? 'إغلاق' : 'Close'}><X size={18} aria-hidden="true" /></button>
+                    <button type="button" className="btn btn-secondary" onClick={() => { setManageTarget(null); setManageError(''); }} aria-label={lang === 'ar' ? 'إغلاق' : 'Close'}><X size={18} aria-hidden="true" /></button>
                   </div>
+                  {manageError && <div role="alert" className="badge badge-danger admin-modal-alert">{manageError}</div>}
                   <div className="admin-manage-info">
                     <div>
                       <span className="ui-section-label">{lang === 'ar' ? 'اسم المستخدم' : 'Username'}</span>
@@ -667,9 +786,9 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
                       <button
                         type="button"
                         className={`btn ${u.status === 'ACTIVE' ? 'btn-danger' : 'btn-primary'}`}
+                        disabled={statusUpdatePending}
                         onClick={() => {
                           handleToggleUserStatus(u.id, u.status);
-                          setManageTarget((prev) => prev ? { ...prev, status: prev.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' } : null);
                         }}
                       >
                         {u.status === 'ACTIVE' ? (lang === 'ar' ? 'تعطيل الحساب' : 'Deactivate') : (lang === 'ar' ? 'تفعيل الحساب' : 'Activate')}
@@ -683,6 +802,7 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
                           setResetTarget(u);
                           setResetError('');
                           setManageTarget(null);
+                          setManageError('');
                         }}
                       >
                         {lang === 'ar' ? 'إعادة تعيين كلمة المرور' : 'Reset Password'}
@@ -696,6 +816,7 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
                           setRevokeTarget(u);
                           setRevokeError('');
                           setManageTarget(null);
+                          setManageError('');
                         }}
                       >
                         {lang === 'ar' ? 'إنهاء الجلسات' : 'Sign out of all devices'}
@@ -809,6 +930,15 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
             </button>
           </header>
 
+          {specialtiesLoadError && (
+            <div role="alert" className="patient-alert error">
+              {lang === 'ar' ? 'تعذر تحميل القائمة. تحقق من الاتصال وحاول مرة أخرى.' : 'Could not load this list. Check the connection and try again.'}{' '}
+              <button type="button" onClick={reloadSpecialties}>
+                {lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}
+              </button>
+            </div>
+          )}
+
           {specialtyError && <div role="alert" className="badge badge-danger">{specialtyError}</div>}
           {specialtyFeedback && <div role={specialtyFeedback.type === 'error' ? 'alert' : 'status'} className={`badge ${specialtyFeedback.type === 'error' ? 'badge-danger' : 'badge-success'}`}>{specialtyFeedback.message}</div>}
 
@@ -875,7 +1005,9 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
                     <button type="button" className="btn btn-secondary" onClick={() => setShowAddSpecialtyModal(false)}>
                       {lang === 'ar' ? 'إلغاء' : 'Cancel'}
                     </button>
-                    <button type="submit" className="btn btn-primary">{lang === 'ar' ? 'إضافة' : 'Add'}</button>
+                    <button type="submit" className="btn btn-primary" disabled={creatingSpecialty}>
+                      {creatingSpecialty ? (lang === 'ar' ? 'جارٍ الإضافة…' : 'Adding…') : (lang === 'ar' ? 'إضافة' : 'Add')}
+                    </button>
                   </div>
                 </form>
               </div>

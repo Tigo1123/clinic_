@@ -10,6 +10,7 @@ const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffec
 export default function NotificationDropdown({ userId, lang = 'ar' }) {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [loadError, setLoadError] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [panelStyle, setPanelStyle] = useState({});
   const dropdownRef = useRef(null);
@@ -22,8 +23,10 @@ export default function NotificationDropdown({ userId, lang = 'ar' }) {
       const data = await apiRequest('/api/notifications');
       setNotifications(data.notifications || []);
       setUnreadCount(data.unreadCount || 0);
+      setLoadError(false);
     } catch (err) {
       console.error('Failed to fetch notifications:', err);
+      setLoadError(true);
     }
   }, []);
 
@@ -112,8 +115,10 @@ export default function NotificationDropdown({ userId, lang = 'ar' }) {
         prev.map((item) => (item.id === id ? { ...item, isRead: true } : item))
       );
       setUnreadCount((prev) => Math.max(0, prev - 1));
+      setLoadError(false);
     } catch (err) {
       console.error('Failed to mark notification as read:', err);
+      setLoadError(true);
     }
   };
 
@@ -123,8 +128,10 @@ export default function NotificationDropdown({ userId, lang = 'ar' }) {
       await apiRequest('/api/notifications/read-all', { method: 'PATCH' });
       setNotifications((prev) => prev.map((item) => ({ ...item, isRead: true })));
       setUnreadCount(0);
+      setLoadError(false);
     } catch (err) {
       console.error('Failed to mark all notifications as read:', err);
+      setLoadError(true);
     }
   };
 
@@ -166,6 +173,19 @@ export default function NotificationDropdown({ userId, lang = 'ar' }) {
               </button>
             )}
           </div>
+
+          {loadError && (
+            <div role="alert" className="patient-alert error" style={{ margin: '8px 12px', padding: '6px 10px', fontSize: '12px' }}>
+              <span>{lang === 'ar' ? 'تعذر تحميل الإشعارات.' : 'Could not load notifications.'}</span>{' '}
+              <button
+                type="button"
+                onClick={fetchNotifications}
+                style={{ background: 'none', border: 'none', color: 'inherit', textDecoration: 'underline', cursor: 'pointer', padding: 0, font: 'inherit' }}
+              >
+                {lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}
+              </button>
+            </div>
+          )}
 
           {/* List */}
           <div className="notification-dropdown__list">

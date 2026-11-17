@@ -14,9 +14,12 @@ import { useFacilityBranding } from '../../../app/branding/FacilityBrandingConte
 import FacilityIdentityLine from '../components/FacilityIdentityLine';
 import { useStaffNav } from '../staffShellContext';
 
+const DEFAULT_VITALS = { blood_pressure: '120/80', heart_rate: '75', temperature: '37.0', weight: '70' };
+
 export default function DoctorDashboard({ user, lang, t }) {
   const branding = useFacilityBranding();
   const [queue, setQueue] = useState([]);
+  const [queueLoadError, setQueueLoadError] = useState(false);
   const [filterDate, setFilterDate] = useState(clinicDateString());
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [selectedAppointmentId, setSelectedAppointmentId] = useState('');
@@ -24,6 +27,7 @@ export default function DoctorDashboard({ user, lang, t }) {
 
   // EMR Details & Previous Visits
   const [historyData, setHistoryData] = useState([]);
+  const [historyLoadError, setHistoryLoadError] = useState(false);
   const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
   const [activeSummaryId, setActiveSummaryId] = useState(null);
   const [viewingProfilePatientId, setViewingProfilePatientId] = useState(null);
@@ -45,10 +49,11 @@ export default function DoctorDashboard({ user, lang, t }) {
   const [diagnosis, setDiagnosis] = useState('');
   const [treatment, setTreatment] = useState('');
   const [clinicalNotes, setClinicalNotes] = useState('');
-  const [vitals, setVitals] = useState({ blood_pressure: '120/80', heart_rate: '75', temperature: '37.0', weight: '70' });
+  const [vitals, setVitals] = useState(DEFAULT_VITALS);
 
   // Prescription builder
   const [drugs, setDrugs] = useState([]);
+  const [catalogLoadError, setCatalogLoadError] = useState(false);
   const [selectedDrug, setSelectedDrug] = useState('');
   const [customDrugName, setCustomDrugName] = useState('');
   const [dosage, setDosage] = useState('');
@@ -178,18 +183,20 @@ export default function DoctorDashboard({ user, lang, t }) {
   const fetchDoctorQueue = useCallback(() => {
     if (user.doctorId) {
       fetchWithAuth(`/api/appointments/queue/${user.doctorId}?date=${filterDate}`)
-        .then((res) => res.json())
+        .then((res) => {
+          if (!res.ok) throw new Error('Failed to load doctor queue');
+          return res.json();
+        })
         .then((data) => {
           if (Array.isArray(data)) {
+            setQueueLoadError(false);
             setQueue(data);
           } else {
-            setQueue([]);
-            console.error('Queue response is not an array:', data);
+            throw new Error('Queue response is not an array');
           }
         })
-        .catch((err) => {
-          console.error(err);
-          setQueue([]);
+        .catch(() => {
+          setQueueLoadError(true);
         });
     }
   }, [user.doctorId, filterDate]);
@@ -211,33 +218,55 @@ export default function DoctorDashboard({ user, lang, t }) {
     };
   }, [fetchDoctorQueue, user.doctorId]);
 
-  useEffect(() => {
-    fetchWithAuth('/api/records/drugs')
-      .then((res) => res.ok ? res.json() : [])
-      .then((data) => setDrugs(Array.isArray(data) ? data : []))
-      .catch((err) => {
-        console.error(err);
-        setDrugs([]);
-      });
+  const loadCatalogs = useCallback(async () => {
+    let hasError = false;
+    try {
+      const res = await fetchWithAuth('/api/records/drugs');
+      if (res.ok) {
+        const data = await res.json();
+        setDrugs(Array.isArray(data) ? data : []);
+      } else {
+        hasError = true;
+      }
+    } catch (err) {
+      console.error(err);
+      hasError = true;
+    }
 
-    apiRequest('/api/billing/services')
-      .then((data) => setClinicalServices(Array.isArray(data) ? data : []))
-      .catch((err) => {
-        console.error(err);
-        setClinicalServices([]);
-      });
+    try {
+      const data = await apiRequest('/api/billing/services');
+      setClinicalServices(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error(err);
+      hasError = true;
+    }
+
+    setCatalogLoadError(hasError);
   }, []);
 
-  const fetchPatientHistory = (patientId, selectionRequestId) => {
+  useEffect(() => {
+    loadCatalogs();
+  }, [loadCatalogs]);
+
+  const fetchPatientHistory = (patientId, selectionRequestId = patientSelectionRequestRef.current) => {
+    if (!patientId) return;
     fetchWithAuth(`/api/patients/${patientId}/history`)
-      .then((res) => res.ok ? res.json() : {})
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error('History load failed');
+        }
+        return res.json();
+      })
       .then((data) => {
-        if (patientSelectionRequestRef.current === selectionRequestId) setHistoryData(data.history || []);
+        if (patientSelectionRequestRef.current === selectionRequestId) {
+          setHistoryLoadError(false);
+          setHistoryData(data.history || []);
+        }
       })
       .catch((err) => {
         if (patientSelectionRequestRef.current === selectionRequestId) {
           console.error(err);
-          setHistoryData([]);
+          setHistoryLoadError(true);
         }
       });
   };
@@ -246,6 +275,7 @@ export default function DoctorDashboard({ user, lang, t }) {
     const selectionRequestId = ++patientSelectionRequestRef.current;
     setErrorMsg('');
     setSuccessMsg('');
+    setHistoryLoadError(false);
 
     if (appt.status === 'CONFIRMED' || appt.status === 'SCHEDULED') {
       setErrorMsg(
@@ -285,12 +315,14 @@ export default function DoctorDashboard({ user, lang, t }) {
           existingSummary = await summaryRes.json();
           if (patientSelectionRequestRef.current !== selectionRequestId) return;
         } else if (summaryRes.status === 404) {
-          throw new Error('The existing clinical record could not be loaded. This visit was not opened for editing.');
+          throw new Error(lang === 'ar'
+            ? 'تعذر تحميل السجل الطبي الحالي. لم يتم فتح الزيارة للتعديل.'
+            : 'The existing clinical record could not be loaded. This visit was not opened for editing.');
         } else if (summaryRes.status !== 404) {
           const summaryError = await summaryRes.json().catch(() => ({}));
           if (patientSelectionRequestRef.current !== selectionRequestId) return;
           const apiError = typeof summaryError.error === 'object' ? summaryError.error : null;
-          const error = new Error(apiError?.message || summaryError.error || 'Failed to load consultation.');
+          const error = new Error(apiErrorMessage(summaryError, lang === 'ar' ? 'تعذر تحميل الكشف الطبي.' : 'Failed to load consultation.'));
           error.code = apiError?.code;
           throw error;
         }
@@ -307,16 +339,13 @@ export default function DoctorDashboard({ user, lang, t }) {
         if (patientSelectionRequestRef.current !== selectionRequestId) return;
 
         if (!statusRes.ok) {
-          const message =
-            typeof statusData.error === 'object'
-              ? statusData.error.message
-              : statusData.error;
-
           setErrorMsg(
-            message ||
-              (lang === 'ar'
+            apiErrorMessage(
+              statusData,
+              lang === 'ar'
                 ? 'تعذر بدء الكشف الطبي لهذا الموعد.'
-                : 'Unable to start consultation for this appointment.')
+                : 'Unable to start consultation for this appointment.'
+            )
           );
           return;
         }
@@ -347,6 +376,8 @@ export default function DoctorDashboard({ user, lang, t }) {
             temperature: existingSummary.vitals.temperature || '',
             weight: existingSummary.vitals.weight || ''
           });
+        } else {
+          setVitals(DEFAULT_VITALS);
         }
 
         setPrescribedItems([]);
@@ -363,6 +394,22 @@ export default function DoctorDashboard({ user, lang, t }) {
         setCurrentLabResults([]);
         setHistoricalPrescriptions([]);
         setHistoricalLabOrders([]);
+        setSymptoms('');
+        setDiagnosis('');
+        setTreatment('');
+        setClinicalNotes('');
+        setVitals(DEFAULT_VITALS);
+        setPrescribedItems([]);
+        setOrderedTests([]);
+        setCustomTests([]);
+        setCustomTestName('');
+        setSelectedDrug('');
+        setCustomDrugName('');
+        setDosage('');
+        setDuration('');
+        setQuantity('');
+        setInstrAr('');
+        setInstrEn('');
       }
 
       fetchDoctorQueue();
@@ -711,6 +758,11 @@ export default function DoctorDashboard({ user, lang, t }) {
             </div>
 
             <div className="doctor-queue-list">
+              {queueLoadError && (
+                <div role="alert" className="patient-alert error">
+                  {lang === 'ar' ? 'تعذر تحميل القائمة. تحقق من الاتصال وحاول مرة أخرى.' : 'Could not load this list. Check the connection and try again.'} <button type="button" onClick={fetchDoctorQueue}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button>
+                </div>
+              )}
               {queue.length === 0 && (
                 <div className="doctor-queue-empty" role="status">
                   <Stethoscope size={28} aria-hidden="true" />
@@ -880,6 +932,14 @@ export default function DoctorDashboard({ user, lang, t }) {
                   </button>
                   {isHistoryExpanded && (
                     <div className="emr-timeline">
+                      {historyLoadError && (
+                        <div role="alert" className="patient-alert error">
+                          {lang === 'ar' ? 'تعذر تحميل القائمة. تحقق من الاتصال وحاول مرة أخرى.' : 'Could not load this list. Check the connection and try again.'}{' '}
+                          <button type="button" onClick={() => fetchPatientHistory(selectedPatient?.id, patientSelectionRequestRef.current)}>
+                            {lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}
+                          </button>
+                        </div>
+                      )}
                       {historyData.length === 0 ? (
                         <p className="doctor-history-empty">{lang === 'ar' ? 'لا يوجد زيارات سابقة مسجلة.' : 'No historical visits logged.'}</p>
                       ) : (
@@ -1067,6 +1127,14 @@ export default function DoctorDashboard({ user, lang, t }) {
                   {/* STEP 3: Prescription */}
                   <div className={`doctor-step-pane ${!isReadOnlyVisit && consultationStep !== 3 ? 'is-hidden' : ''}`}>
                     <section className="doctor-clinical-section doctor-prescription-section" aria-labelledby="doctor-prescription-title">
+                      {catalogLoadError && (
+                        <div role="alert" className="patient-alert error">
+                          {lang === 'ar' ? 'تعذر تحميل القائمة. تحقق من الاتصال وحاول مرة أخرى.' : 'Could not load this list. Check the connection and try again.'}{' '}
+                          <button type="button" onClick={loadCatalogs}>
+                            {lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}
+                          </button>
+                        </div>
+                      )}
                       <FacilityIdentityLine language={lang} />
                       <div className="doctor-prescription-heading">
                         <h3 className="doctor-clinical-section__title" id="doctor-prescription-title">
@@ -1178,6 +1246,14 @@ export default function DoctorDashboard({ user, lang, t }) {
                   {/* STEP 4: Lab tests */}
                   <div className={`doctor-step-pane ${!isReadOnlyVisit && consultationStep !== 4 ? 'is-hidden' : ''}`}>
                     <section className="doctor-lab-order-card" aria-labelledby="doctor-lab-order-title">
+                      {catalogLoadError && (
+                        <div role="alert" className="patient-alert error">
+                          {lang === 'ar' ? 'تعذر تحميل القائمة. تحقق من الاتصال وحاول مرة أخرى.' : 'Could not load this list. Check the connection and try again.'}{' '}
+                          <button type="button" onClick={loadCatalogs}>
+                            {lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}
+                          </button>
+                        </div>
+                      )}
                       <div className="doctor-lab-order-header">
                         <div>
                           <h4 id="doctor-lab-order-title"><FlaskConical size={17} aria-hidden="true" />{lang === 'ar' ? 'طلب الفحوصات' : 'Order investigations'}</h4>

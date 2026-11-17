@@ -106,31 +106,46 @@ export default function ReceptionDashboard({ lang, t }) {
   const [physicalCash, setPhysicalCash] = useState('');
   const [expectedCash, setExpectedCash] = useState('');
   const [reconcileResult, setReconcileResult] = useState(null);
+  const [reconcileSubmitting, setReconcileSubmitting] = useState(false);
   const [filterDate, setFilterDate] = useState(clinicDateString());
   const [viewingProfilePatientId, setViewingProfilePatientId] = useState(null);
 
   // Pending Approvals State
   const [pendingAppointments, setPendingAppointments] = useState([]);
+  const [pendingAppointmentsLoadError, setPendingAppointmentsLoadError] = useState(false);
   const [billingAppointment, setBillingAppointment] = useState(null);
 
   // Laboratory billing queue
   const [labBillingOrders, setLabBillingOrders] = useState([]);
   const [selectedLabBillingOrder, setSelectedLabBillingOrder] = useState(null);
   const [labBillingLoading, setLabBillingLoading] = useState(false);
+  const [labBillingLoadError, setLabBillingLoadError] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false);
+  const pendingActionIdsRef = useRef(new Set());
+  const [pendingActionIds, setPendingActionIds] = useState(new Set());
   const billingSearchSchedulerRef = useRef(null);
   const directorySearchSchedulerRef = useRef(null);
   const walkInSearchSchedulerRef = useRef(null);
   const directoryLoadRequestRef = useRef(0);
   const insurancePreviewRequestRef = useRef(0);
+  const paymentAttemptRef = useRef(null);
   if (!billingSearchSchedulerRef.current) billingSearchSchedulerRef.current = createLatestSearchScheduler();
   if (!directorySearchSchedulerRef.current) directorySearchSchedulerRef.current = createLatestSearchScheduler();
   if (!walkInSearchSchedulerRef.current) walkInSearchSchedulerRef.current = createLatestSearchScheduler();
 
   const fetchPendingAppointments = () => {
     fetchWithAuth('/api/appointments/pending')
-      .then((res) => res.ok ? res.json() : [])
-      .then((data) => setPendingAppointments(Array.isArray(data) ? data : []))
-      .catch((err) => console.error('Pending fetch error:', err));
+      .then((res) => {
+        if (!res.ok) throw new Error('Failed to load pending appointments');
+        return res.json();
+      })
+      .then((data) => {
+        setPendingAppointmentsLoadError(false);
+        setPendingAppointments(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        setPendingAppointmentsLoadError(true);
+      });
   };
 
   const refreshLabBillingQueue = async () => {
@@ -142,12 +157,13 @@ export default function ReceptionDashboard({ lang, t }) {
 
       if (!res.ok) {
         console.error('Laboratory billing queue failed:', data);
-        setLabBillingOrders([]);
+        setLabBillingLoadError(true);
         return;
       }
 
       const queue = Array.isArray(data) ? data : [];
       setLabBillingOrders(queue);
+      setLabBillingLoadError(false);
 
       setSelectedLabBillingOrder((current) => {
         if (!current) return null;
@@ -160,7 +176,7 @@ export default function ReceptionDashboard({ lang, t }) {
       });
     } catch (err) {
       console.error('Laboratory billing queue error:', err);
-      setLabBillingOrders([]);
+      setLabBillingLoadError(true);
     } finally {
       setLabBillingLoading(false);
     }
@@ -170,6 +186,7 @@ export default function ReceptionDashboard({ lang, t }) {
     setErrorMsg('');
     setSuccessMsg('');
 
+    paymentAttemptRef.current = null;
     setSelectedLabBillingOrder(order);
     setIssuedBillingInvoice(null);
     setBillingPatient(order.patient);
@@ -212,6 +229,7 @@ export default function ReceptionDashboard({ lang, t }) {
   };
 
   const handleApproveAppointment = async (appId) => {
+    if (pendingActionIdsRef.current.has(appId)) return;
     const confirmed = window.confirm(
       lang === 'ar'
         ? 'هل أنت متأكد أنك تريد تأكيد هذا الموعد؟'
@@ -220,12 +238,15 @@ export default function ReceptionDashboard({ lang, t }) {
 
     if (!confirmed) return;
 
+    pendingActionIdsRef.current.add(appId);
+    setPendingActionIds(new Set(pendingActionIdsRef.current));
+
     try {
       const res = await fetchWithAuth(`/api/appointments/${appId}/status`, {
         method: 'PUT',
         body: JSON.stringify({ status: 'CONFIRMED' })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setSuccessMsg(lang === 'ar' ? 'تم تأكيد الموعد بنجاح.' : 'Appointment confirmed successfully.');
         fetchPendingAppointments();
@@ -250,10 +271,14 @@ export default function ReceptionDashboard({ lang, t }) {
           ? 'تعذر تأكيد الموعد. يرجى المحاولة مرة أخرى.'
           : 'Failed to confirm the appointment. Please try again.'
       );
+    } finally {
+      pendingActionIdsRef.current.delete(appId);
+      setPendingActionIds(new Set(pendingActionIdsRef.current));
     }
   };
 
   const handleCancelAppointment = async (appId) => {
+    if (pendingActionIdsRef.current.has(appId)) return;
     const confirmed = window.confirm(
       lang === 'ar'
         ? 'هل أنت متأكد أنك تريد إلغاء هذا الموعد؟'
@@ -262,15 +287,28 @@ export default function ReceptionDashboard({ lang, t }) {
 
     if (!confirmed) return;
 
+    pendingActionIdsRef.current.add(appId);
+    setPendingActionIds(new Set(pendingActionIdsRef.current));
+
     try {
       const res = await fetchWithAuth(`/api/appointments/${appId}/status`, {
         method: 'PUT',
         body: JSON.stringify({ status: 'CANCELLED' })
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setSuccessMsg(lang === 'ar' ? 'تم إلغاء الموعد.' : 'Appointment cancelled.');
         fetchPendingAppointments();
         refreshDoctorQueue();
+      } else {
+        setErrorMsg(
+          apiErrorMessage(
+            data,
+            lang === 'ar'
+              ? 'تعذر إلغاء الموعد.'
+              : 'Failed to cancel the appointment.'
+          )
+        );
       }
     } catch (err) {
       console.error(err);
@@ -279,6 +317,9 @@ export default function ReceptionDashboard({ lang, t }) {
           ? 'تعذر إلغاء الموعد. يرجى المحاولة مرة أخرى.'
           : 'Failed to cancel the appointment. Please try again.'
       );
+    } finally {
+      pendingActionIdsRef.current.delete(appId);
+      setPendingActionIds(new Set(pendingActionIdsRef.current));
     }
   };
 
@@ -522,8 +563,10 @@ export default function ReceptionDashboard({ lang, t }) {
 
   const handleRegisterPatient = async (e) => {
     e.preventDefault();
+    if (isRegistering) return;
     setErrorMsg('');
     setSuccessMsg('');
+    setIsRegistering(true);
     try {
       const res = await fetchWithAuth('/api/patients', {
         method: 'POST',
@@ -538,7 +581,7 @@ export default function ReceptionDashboard({ lang, t }) {
           emergencyContact: emergencyContact || 'Self'
         })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setSuccessMsg(lang === 'ar' ? 'تم تسجيل المريض بنجاح.' : 'Patient registered successfully.');
         setBillingPatient(data);
@@ -567,6 +610,8 @@ export default function ReceptionDashboard({ lang, t }) {
           ? 'تعذر الاتصال بالخادم. تحقق من الاتصال وحاول مرة أخرى.'
           : 'Unable to connect to the server. Please try again.'
       );
+    } finally {
+      setIsRegistering(false);
     }
   };
 
@@ -677,6 +722,9 @@ export default function ReceptionDashboard({ lang, t }) {
   };
 
   const handleCheckIn = async (appointmentId) => {
+    if (pendingActionIdsRef.current.has(appointmentId)) return;
+    pendingActionIdsRef.current.add(appointmentId);
+    setPendingActionIds(new Set(pendingActionIdsRef.current));
     try {
       const res = await fetchWithAuth(`/api/appointments/${appointmentId}/status`, {
         method: 'PUT',
@@ -708,12 +756,16 @@ export default function ReceptionDashboard({ lang, t }) {
           ? 'حدث خطأ أثناء تسجيل وصول المريض.'
           : 'An error occurred while checking in the patient.'
       );
+    } finally {
+      pendingActionIdsRef.current.delete(appointmentId);
+      setPendingActionIds(new Set(pendingActionIdsRef.current));
     }
   };
 
   const handleQuickBill = (app) => {
     if (!app.patient || app.status !== 'CHECKED_IN') return;
 
+    paymentAttemptRef.current = null;
     setSelectedLabBillingOrder(null);
     setIssuedBillingInvoice(null);
     setBillingPatient(app.patient);
@@ -759,6 +811,7 @@ export default function ReceptionDashboard({ lang, t }) {
   const handleCreateInvoice = async () => {
     if (billingSubmitting) return;
 
+    let paymentRequestSent = false;
     setErrorMsg('');
     setSuccessMsg('');
 
@@ -899,6 +952,7 @@ export default function ReceptionDashboard({ lang, t }) {
       const authoritativePatientShare = Number(data.patientShareSdg);
       const requestedPaymentTotal = validPayments.reduce((sum, payment) => sum + payment.amountSdg, 0);
       if (!Number.isSafeInteger(authoritativePatientShare) || requestedPaymentTotal > authoritativePatientShare) {
+        paymentAttemptRef.current = null;
         setPaymentRows([{ amountSdg: Number.isSafeInteger(authoritativePatientShare) ? String(authoritativePatientShare) : '', paymentMethod: 'CASH', transactionReference: '' }]);
         setInsurancePreview({
           status: Number.isSafeInteger(authoritativePatientShare) ? 'ready' : 'error',
@@ -916,20 +970,38 @@ export default function ReceptionDashboard({ lang, t }) {
         return;
       }
 
+      const invoiceId = data.invoice.id;
+      const normalizedPayments = validPayments.map((payment) => ({
+        amountSdg: payment.amountSdg,
+        paymentMethod: payment.paymentMethod,
+        transactionReference:
+          payment.transactionReference || undefined
+      }));
+      const fingerprint = JSON.stringify({ invoiceId, payments: normalizedPayments });
+
+      if (
+        !paymentAttemptRef.current ||
+        paymentAttemptRef.current.invoiceId !== invoiceId ||
+        paymentAttemptRef.current.fingerprint !== fingerprint
+      ) {
+        paymentAttemptRef.current = {
+          invoiceId,
+          fingerprint,
+          idempotencyKey: crypto.randomUUID()
+        };
+      }
+      const idempotencyKey = paymentAttemptRef.current.idempotencyKey;
+
+      paymentRequestSent = true;
       const paymentRes = await fetchWithAuth(
         `/api/billing/invoice/${data.invoice.id}/payments`,
         {
           method: 'POST',
           headers: {
-            'Idempotency-Key': crypto.randomUUID()
+            'Idempotency-Key': idempotencyKey
           },
           body: JSON.stringify({
-            payments: validPayments.map((payment) => ({
-              amountSdg: payment.amountSdg,
-              paymentMethod: payment.paymentMethod,
-              transactionReference:
-                payment.transactionReference || undefined
-            }))
+            payments: normalizedPayments
           })
         }
       );
@@ -948,6 +1020,8 @@ export default function ReceptionDashboard({ lang, t }) {
         );
         return;
       }
+
+      paymentAttemptRef.current = null;
 
       refreshDoctorQueue();
       await refreshLabBillingQueue();
@@ -1002,11 +1076,19 @@ export default function ReceptionDashboard({ lang, t }) {
     } catch (err) {
       console.error(err);
 
-      setErrorMsg(
-        lang === 'ar'
-          ? 'حدث خطأ أثناء معالجة الفاتورة والدفع.'
-          : 'An error occurred while processing billing and payment.'
-      );
+      if (paymentRequestSent) {
+        setErrorMsg(
+          lang === 'ar'
+            ? 'تعذر تأكيد نتيجة الدفع. يمكنك إعادة المحاولة بنفس المبلغ بأمان، أو تحديث الفاتورة للتحقق.'
+            : 'The payment outcome could not be confirmed. Retrying the same payment is safe, or refresh the invoice to check.'
+        );
+      } else {
+        setErrorMsg(
+          lang === 'ar'
+            ? 'حدث خطأ أثناء معالجة الفاتورة والدفع.'
+            : 'An error occurred while processing billing and payment.'
+        );
+      }
     } finally {
       setBillingSubmitting(false);
     }
@@ -1014,12 +1096,31 @@ export default function ReceptionDashboard({ lang, t }) {
 
   const handleReconcileShift = async (e) => {
     e.preventDefault();
+    if (reconcileSubmitting) return;
+
+    setErrorMsg('');
+    setSuccessMsg('');
+    setReconcileResult(null);
+
+    const expected = Number(expectedCash);
+    const actual = Number(physicalCash);
+
+    if (!Number.isSafeInteger(expected) || expected < 0 || !Number.isSafeInteger(actual) || actual < 0) {
+      setErrorMsg(
+        lang === 'ar'
+          ? 'أدخل مبالغ صحيحة بالجنيه بدون كسور.'
+          : 'Enter whole SDG amounts with no decimals.'
+      );
+      return;
+    }
+
+    setReconcileSubmitting(true);
     try {
       const res = await fetchWithAuth('/api/billing/shift/reconcile', {
         method: 'POST',
         body: JSON.stringify({
-          expectedAmountSdg: parseFloat(expectedCash),
-          actualAmountSdg: parseFloat(physicalCash),
+          expectedAmountSdg: expected,
+          actualAmountSdg: actual,
           note: 'Daily receptionist shift reconciliation close'
         })
       });
@@ -1049,6 +1150,8 @@ export default function ReceptionDashboard({ lang, t }) {
           ? 'حدث خطأ أثناء مطابقة الوردية.'
           : 'An error occurred while reconciling the shift.'
       );
+    } finally {
+      setReconcileSubmitting(false);
     }
   };
 
@@ -1281,6 +1384,7 @@ export default function ReceptionDashboard({ lang, t }) {
                           setViewingProfilePatientId={setViewingProfilePatientId}
                           handleCheckIn={handleCheckIn}
                           handleQuickBill={handleQuickBill}
+                          isActionPending={pendingActionIds.has(app.id)}
                         />
                       ))}
                     </div>
@@ -1302,6 +1406,12 @@ export default function ReceptionDashboard({ lang, t }) {
                       : `Booking requests · ${pendingRequestsCount}`}
                   </h3>
 
+                  {pendingAppointmentsLoadError && (
+                    <div role="alert" className="patient-alert error">
+                      {lang === 'ar' ? 'تعذر تحميل القائمة. تحقق من الاتصال وحاول مرة أخرى.' : 'Could not load this list. Check the connection and try again.'} <button type="button" onClick={fetchPendingAppointments}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button>
+                    </div>
+                  )}
+
                   {pendingRequestsCount === 0 ? (
                     <div className="reception-card-empty">
                       <span>{lang === 'ar' ? 'لا توجد طلبات مواعيد معلقة حالياً.' : 'No pending appointment requests.'}</span>
@@ -1317,6 +1427,7 @@ export default function ReceptionDashboard({ lang, t }) {
                           setViewingProfilePatientId={setViewingProfilePatientId}
                           handleApproveAppointment={handleApproveAppointment}
                           handleCancelAppointment={handleCancelAppointment}
+                          isActionPending={pendingActionIds.has(app.id)}
                         />
                       ))}
                     </div>
@@ -1709,8 +1820,10 @@ export default function ReceptionDashboard({ lang, t }) {
                 >
                   {lang === 'ar' ? 'إلغاء' : 'Cancel'}
                 </button>
-                <button type="submit" className="btn btn-primary reception-action-btn">
-                  {lang === 'ar' ? 'حفظ ملف المريض' : 'Save Patient Profile'}
+                <button type="submit" className="btn btn-primary reception-action-btn" disabled={isRegistering}>
+                  {isRegistering
+                    ? (lang === 'ar' ? 'جارٍ الحفظ…' : 'Saving…')
+                    : (lang === 'ar' ? 'حفظ ملف المريض' : 'Save Patient Profile')}
                 </button>
               </div>
             </form>
@@ -1778,6 +1891,7 @@ export default function ReceptionDashboard({ lang, t }) {
                         type="button"
                         className="reception-search-result-btn"
                         onClick={() => {
+                          paymentAttemptRef.current = null;
                           setSelectedLabBillingOrder(null);
                           setBillingAppointment(null);
                           setAddedServices([]);
@@ -2050,14 +2164,21 @@ export default function ReceptionDashboard({ lang, t }) {
 
         {/* ── 5. LAB BILLING VIEW (Full View) ──────────────────────── */}
         {activeTab === 'lab-billing' && (
-          <LabBillingQueue
-            lang={lang}
-            labBillingLoading={labBillingLoading}
-            labBillingOrders={labBillingOrders}
-            selectedLabBillingOrder={selectedLabBillingOrder}
-            refreshLabBillingQueue={refreshLabBillingQueue}
-            handleSelectLabBillingOrder={handleSelectLabBillingOrder}
-          />
+          <>
+            {labBillingLoadError && (
+              <div role="alert" className="patient-alert error">
+                {lang === 'ar' ? 'تعذر تحميل القائمة. تحقق من الاتصال وحاول مرة أخرى.' : 'Could not load this list. Check the connection and try again.'} <button type="button" onClick={refreshLabBillingQueue}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button>
+              </div>
+            )}
+            <LabBillingQueue
+              lang={lang}
+              labBillingLoading={labBillingLoading}
+              labBillingOrders={labBillingOrders}
+              selectedLabBillingOrder={selectedLabBillingOrder}
+              refreshLabBillingQueue={refreshLabBillingQueue}
+              handleSelectLabBillingOrder={handleSelectLabBillingOrder}
+            />
+          </>
         )}
 
         {/* ── 6. SHIFT CLOSE / RECONCILE VIEW ──────────────────────── */}
@@ -2081,7 +2202,7 @@ export default function ReceptionDashboard({ lang, t }) {
                   <input
                     type="number"
                     min="0"
-                    step="0.01"
+                    step="1"
                     inputMode="numeric"
                     required
                     className="form-input ui-mono"
@@ -2101,7 +2222,7 @@ export default function ReceptionDashboard({ lang, t }) {
                   <input
                     type="number"
                     min="0"
-                    step="0.01"
+                    step="1"
                     inputMode="numeric"
                     required
                     className="form-input ui-mono"
@@ -2114,7 +2235,7 @@ export default function ReceptionDashboard({ lang, t }) {
               </div>
 
               <div>
-                <button type="submit" className="btn btn-primary reception-reconcile-submit-btn">
+                <button type="submit" disabled={reconcileSubmitting} className="btn btn-primary reception-reconcile-submit-btn">
                   <Calculator size={18} aria-hidden="true" />
                   <span>{t('reconcile') || (lang === 'ar' ? 'مطابقة الوردية' : 'Reconcile shift')}</span>
                 </button>

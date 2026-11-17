@@ -89,12 +89,39 @@ async function request(path, options = {}, auth = null) {
   return payload;
 }
 
-export function staffApiRequest(path, options = {}) {
-  return request(path, options, 'staff');
+export const PATIENT_REQUEST_TIMEOUT_MS = 30000;
+export const STAFF_REQUEST_TIMEOUT_MS = 30000;
+
+export async function staffApiRequest(path, options = {}) {
+  if (options.signal || typeof AbortController === 'undefined') return request(path, options, 'staff');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), STAFF_REQUEST_TIMEOUT_MS);
+  try {
+    return await request(path, { ...options, signal: controller.signal }, 'staff');
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new ApiClientError(0, 'REQUEST_TIMEOUT', 'The server took too long to respond.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-export function patientApiRequest(path, options = {}) {
-  return request(path, options, 'patient');
+export async function patientApiRequest(path, options = {}) {
+  if (options.signal || typeof AbortController === 'undefined') return request(path, options, 'patient');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PATIENT_REQUEST_TIMEOUT_MS);
+  try {
+    return await request(path, { ...options, signal: controller.signal }, 'patient');
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new ApiClientError(0, 'REQUEST_TIMEOUT', 'The server took too long to respond.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export const PUBLIC_REQUEST_TIMEOUT_MS = 45000;

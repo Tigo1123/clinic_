@@ -15,7 +15,9 @@ import './pharmacyDashboard.css';
 
 export default function PharmacyDashboard({ lang, t: _t }) {
   const [prescriptions, setPrescriptions] = useState([]);
+  const [prescriptionsLoadError, setPrescriptionsLoadError] = useState(false);
   const [prescriptionHistory, setPrescriptionHistory] = useState([]);
+  const [historyLoadError, setHistoryLoadError] = useState(false);
   const [queueView, setQueueView] = useState('active');
   const [selectedRx, setSelectedRx] = useState(null);
   const [successMsg, setSuccessMsg] = useState('');
@@ -46,6 +48,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
   const [unavailableReason, setUnavailableReason] = useState('OUT_OF_STOCK');
   const [unavailableNote, setUnavailableNote] = useState('');
   const [unavailableSaving, setUnavailableSaving] = useState(false);
+  const [unavailableError, setUnavailableError] = useState('');
   const alertRequestRef = useRef(0);
 
   const loadAlertInventory = useCallback(async () => {
@@ -109,8 +112,12 @@ export default function PharmacyDashboard({ lang, t: _t }) {
 
   const fetchPendingRx = useCallback(() => {
     fetchWithAuth('/api/records/prescriptions/pending')
-      .then((res) => res.ok ? res.json() : [])
+      .then((res) => {
+        if (!res.ok) throw new Error('Failed to load prescriptions');
+        return res.json();
+      })
       .then((data) => {
+        setPrescriptionsLoadError(false);
         const queue = Array.isArray(data) ? data : [];
         setPrescriptions(queue);
 
@@ -125,15 +132,21 @@ export default function PharmacyDashboard({ lang, t: _t }) {
         });
       })
       .catch(() => {
-        setPrescriptions([]);
+        setPrescriptionsLoadError(true);
       });
   }, []);
 
   const fetchPrescriptionHistory = useCallback(() => {
     fetchWithAuth('/api/records/prescriptions/history')
-      .then((res) => res.ok ? res.json() : [])
-      .then((data) => setPrescriptionHistory(Array.isArray(data) ? data : []))
-      .catch(() => setPrescriptionHistory([]));
+      .then((res) => {
+        if (!res.ok) throw new Error('History load failed');
+        return res.json();
+      })
+      .then((data) => {
+        setHistoryLoadError(false);
+        setPrescriptionHistory(Array.isArray(data) ? data : []);
+      })
+      .catch(() => setHistoryLoadError(true));
   }, []);
 
   useEffect(() => {
@@ -467,11 +480,11 @@ export default function PharmacyDashboard({ lang, t: _t }) {
         fetchPendingRx();
         fetchPrescriptionHistory();
       } else {
-        const err = await res.json();
-        setErrorMsg(apiErrorMessage(err, 'Dispense failed.'));
+        const err = await res.json().catch(() => ({}));
+        setErrorMsg(apiErrorMessage(err, lang === 'ar' ? 'تعذر صرف الوصفة الطبية.' : 'Dispense failed.'));
       }
     } catch {
-      setErrorMsg('Dispensing transaction failed.');
+      setErrorMsg(lang === 'ar' ? 'فشلت معاملة الصرف. تحقق من الاتصال وحاول مرة أخرى.' : 'Dispensing transaction failed.');
     } finally {
       setDispensing(false);
     }
@@ -481,6 +494,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
     setUnavailableItem(item);
     setUnavailableReason(defaultReason);
     setUnavailableNote('');
+    setUnavailableError('');
     setErrorMsg('');
   };
 
@@ -488,15 +502,17 @@ export default function PharmacyDashboard({ lang, t: _t }) {
     if (!unavailableItem) return;
     try {
       setUnavailableSaving(true);
+      setUnavailableError('');
       const response = await fetchWithAuth(`/api/records/prescribed-drugs/${unavailableItem.id}/unavailable`, {
         method: 'POST',
         body: JSON.stringify({ reason: unavailableReason, note: unavailableNote.trim() || null })
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        setErrorMsg(apiErrorMessage(payload, lang === 'ar' ? 'تعذر تسجيل تعذر الصرف.' : 'Unable to resolve the medication.'));
+        setUnavailableError(apiErrorMessage(payload, lang === 'ar' ? 'تعذر تسجيل تعذر الصرف.' : 'Unable to resolve the medication.'));
         return;
       }
+      setUnavailableError('');
       setUnavailableItem(null);
       setSelectedRx(null);
       setPaymentState(null);
@@ -505,7 +521,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
       fetchPendingRx();
       fetchPrescriptionHistory();
     } catch {
-      setErrorMsg(lang === 'ar' ? 'تعذر إكمال الإجراء.' : 'Unable to complete the action.');
+      setUnavailableError(lang === 'ar' ? 'تعذر إكمال الإجراء.' : 'Unable to complete the action.');
     } finally {
       setUnavailableSaving(false);
     }
@@ -614,6 +630,16 @@ export default function PharmacyDashboard({ lang, t: _t }) {
             </div>
 
             <div className="pharmacy-list-items">
+              {queueView === 'active' && prescriptionsLoadError && (
+                <div role="alert" className="patient-alert error">
+                  {lang === 'ar' ? 'تعذر تحميل القائمة. تحقق من الاتصال وحاول مرة أخرى.' : 'Could not load this list. Check the connection and try again.'} <button type="button" onClick={fetchPendingRx}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button>
+                </div>
+              )}
+              {queueView === 'history' && historyLoadError && (
+                <div role="alert" className="patient-alert error">
+                  {lang === 'ar' ? 'تعذر تحميل القائمة. تحقق من الاتصال وحاول مرة أخرى.' : 'Could not load this list. Check the connection and try again.'} <button type="button" onClick={fetchPrescriptionHistory}>{lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}</button>
+                </div>
+              )}
               {(queueView === 'active' ? prescriptions : prescriptionHistory).length === 0 ? (
                 <div className="pharmacy-compact-empty">
                   <p className="pharmacy-empty-text">
@@ -910,7 +936,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
         open={Boolean(unavailableItem)}
         title={lang === 'ar' ? 'تعذر الصرف' : 'Unable to Dispense'}
         description={unavailableItem ? (unavailableItem.drug ? (lang === 'ar' ? unavailableItem.drug.labelAr : unavailableItem.drug.labelEn) : unavailableItem.customDrugName) : ''}
-        onClose={() => !unavailableSaving && setUnavailableItem(null)}
+        onClose={() => { if (!unavailableSaving) { setUnavailableItem(null); setUnavailableError(''); } }}
       >
         <div className="pharmacy-unavailable-form">
           <label className="form-group">
@@ -931,11 +957,12 @@ export default function PharmacyDashboard({ lang, t: _t }) {
               ? 'لن يُسجل الدواء كمصروف، ولن يُخصم من المخزون أو تُحصّل قيمته.'
               : 'The item will not be marked dispensed, deducted from stock, or charged.'}
           </p>
+          {unavailableError && <div role="alert" className="patient-alert error">{unavailableError}</div>}
           <div className="dialog-actions">
             <button type="button" className="btn btn-danger" disabled={unavailableSaving} onClick={resolveUnavailable}>
               {unavailableSaving ? (lang === 'ar' ? 'جارٍ الحفظ…' : 'Saving…') : (lang === 'ar' ? 'تأكيد تعذر الصرف' : 'Confirm Unable to Dispense')}
             </button>
-            <button type="button" className="btn btn-secondary" disabled={unavailableSaving} onClick={() => setUnavailableItem(null)}>
+            <button type="button" className="btn btn-secondary" disabled={unavailableSaving} onClick={() => { setUnavailableItem(null); setUnavailableError(''); }}>
               {lang === 'ar' ? 'إلغاء' : 'Cancel'}
             </button>
           </div>

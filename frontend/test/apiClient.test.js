@@ -199,3 +199,68 @@ test('401 without a recognizable code still ends the session', async () => {
   const { session } = await sessionAfter(401, {});
   assert.equal(session, null);
 });
+
+const { patientApiRequest, staffApiRequest } = await import('../src/services/apiClient.js');
+
+test('patientApiRequest aborts after timeout with ApiClientError(0, "REQUEST_TIMEOUT")', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  globalThis.fetch = (url, options) => new Promise((resolve, reject) => {
+    options.signal?.addEventListener('abort', () => {
+      const err = new Error('The operation was aborted');
+      err.name = 'AbortError';
+      reject(err);
+    });
+  });
+
+  const promise = patientApiRequest('/api/patient/test');
+  t.mock.timers.tick(30000);
+
+  await assert.rejects(
+    promise,
+    (err) => {
+      assert.ok(err instanceof ApiClientError);
+      assert.equal(err.status, 0);
+      assert.equal(err.code, 'REQUEST_TIMEOUT');
+      assert.equal(err.message, 'The server took too long to respond.');
+      return true;
+    }
+  );
+});
+
+test('staffApiRequest aborts after timeout with ApiClientError(0, "REQUEST_TIMEOUT")', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  globalThis.fetch = (url, options) => new Promise((resolve, reject) => {
+    options.signal?.addEventListener('abort', () => {
+      const err = new Error('The operation was aborted');
+      err.name = 'AbortError';
+      reject(err);
+    });
+  });
+
+  const promise = staffApiRequest('/api/staff/test');
+  t.mock.timers.tick(30000);
+
+  await assert.rejects(
+    promise,
+    (err) => {
+      assert.ok(err instanceof ApiClientError);
+      assert.equal(err.status, 0);
+      assert.equal(err.code, 'REQUEST_TIMEOUT');
+      assert.equal(err.message, 'The server took too long to respond.');
+      return true;
+    }
+  );
+});
+
+test('patientApiRequest and staffApiRequest respect caller-provided signal', async () => {
+  const controller = new AbortController();
+  globalThis.fetch = async (url, options) => {
+    assert.equal(options.signal, controller.signal);
+    return mockResponse(200, { ok: true });
+  };
+  const patientRes = await patientApiRequest('/api/patient/test', { signal: controller.signal });
+  assert.deepEqual(patientRes, { ok: true });
+
+  const staffRes = await staffApiRequest('/api/staff/test', { signal: controller.signal });
+  assert.deepEqual(staffRes, { ok: true });
+});

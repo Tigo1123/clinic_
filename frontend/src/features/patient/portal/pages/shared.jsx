@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { patientApiRequest as apiRequest } from '../../../../services/apiClient';
 import { ErrorState, Skeleton } from '../../../../components/feedback/States';
@@ -6,14 +6,39 @@ import { ErrorState, Skeleton } from '../../../../components/feedback/States';
 export function useApi(path,{pollWhen=null,pollInterval=45000}={}){
   const [result,setResult]=useState({path:null,data:null,error:null,loading:true});
   const [reloadToken,setReloadToken]=useState(0);
-  const reload=useCallback(()=>{setResult(current=>({...current,error:null,loading:true}));setReloadToken(token=>token+1)},[]);
+  const isPollingRef = useRef(false);
+  const reload=useCallback(()=>{
+    isPollingRef.current = false;
+    setResult(current=>({...current,error:null,loading:true}));
+    setReloadToken(token=>token+1);
+  },[]);
   useEffect(()=>{
     let current=true;
     let pollTimer;
     setResult((currentResult)=>currentResult.path===path?currentResult:{path,data:null,error:null,loading:true});
     apiRequest(path)
-      .then(data=>{if(current){setResult({path,data,error:null,loading:false});if(pollWhen?.(data))pollTimer=setTimeout(()=>setReloadToken(token=>token+1),pollInterval)}})
-      .catch(error=>{if(current)setResult({path,data:null,error,loading:false})});
+      .then(data=>{
+        isPollingRef.current = false;
+        if(current){
+          setResult({path,data,error:null,loading:false});
+          if(pollWhen?.(data))pollTimer=setTimeout(()=>{
+            isPollingRef.current = true;
+            setReloadToken(token=>token+1);
+          },pollInterval);
+        }
+      })
+      .catch(error=>{
+        const wasPolling = isPollingRef.current;
+        isPollingRef.current = false;
+        if(current){
+          setResult(currentResult => {
+            if (wasPolling && currentResult.path === path && currentResult.data !== null) {
+              return { ...currentResult, loading: false };
+            }
+            return { path, data: null, error, loading: false };
+          });
+        }
+      });
     return()=>{current=false;clearTimeout(pollTimer)};
   },[path,reloadToken,pollWhen,pollInterval]);
   const isCurrent=result.path===path;

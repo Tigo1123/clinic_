@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { patientApiRequest as apiRequest } from '../../../services/apiClient';
 import { clinicDateString } from '../../../utils/clinicTime';
 import { ErrorState, Skeleton } from '../../../components/feedback/States';
+import { patientErrorMessage } from '../../../services/patientErrors';
 
 export default function RescheduleAppointment() {
   const { id } = useParams();
@@ -18,6 +19,17 @@ export default function RescheduleAppointment() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  const loadAppointment = () => {
+    setLoading(true);
+    setAppointment(null);
+    setDate('');
+    setError('');
+    apiRequest(`/api/patient/appointments/${id}`)
+      .then((value) => { setAppointment(value); setDate(value.appointmentDate); })
+      .catch((requestError) => { setError(patientErrorMessage(requestError, t('patientLoadError'))); })
+      .finally(() => { setLoading(false); });
+  };
+
   useEffect(() => {
     let current = true;
     setLoading(true);
@@ -26,10 +38,21 @@ export default function RescheduleAppointment() {
     setError('');
     apiRequest(`/api/patient/appointments/${id}`)
       .then((value) => { if (current) { setAppointment(value); setDate(value.appointmentDate); } })
-      .catch((requestError) => { if (current) setError(requestError.message); })
+      .catch((requestError) => { if (current) setError(patientErrorMessage(requestError, t('patientLoadError'))); })
       .finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
+    // `t` is intentionally omitted: refetching on every translation-function change would reset the form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  function reloadSlots() {
+    if (!appointment || !date) return;
+    setSlotsLoading(true);
+    apiRequest(`/api/appointments/slots?doctorId=${appointment.doctor.id}&date=${date}`)
+      .then((value) => setSlots(value))
+      .catch(() => {})
+      .finally(() => setSlotsLoading(false));
+  }
 
   useEffect(() => {
     let current = true;
@@ -60,14 +83,18 @@ export default function RescheduleAppointment() {
       });
       navigate(`/patient/appointments/${id}`);
     } catch (requestError) {
-      setError(requestError.message);
+      setError(patientErrorMessage(requestError, t('rescheduleFailed')));
+      if (requestError?.code === 'APPOINTMENT_SLOT_UNAVAILABLE' || requestError?.code === 'INVALID_APPOINTMENT_SLOT') {
+        setTime('');
+        reloadSlots();
+      }
     } finally {
       setSaving(false);
     }
   }
 
   if (loading) return <div className="patient-card"><Skeleton/></div>;
-  if (error && !appointment) return <ErrorState message={error}/>;
+  if (error && !appointment) return <ErrorState message={error} onRetry={loadAppointment}/>;
 
   return (
     <section className="patient-reschedule">
