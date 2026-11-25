@@ -13,5 +13,5 @@ ADD COLUMN "dedupeKey" TEXT;
 -- CreateIndex
 CREATE UNIQUE INDEX "Notification_userId_dedupeKey_key" ON "Notification"("userId", "dedupeKey");
 
--- CreateIndex
-CREATE INDEX "Notification_userId_createdAt_id_idx" ON "Notification"("userId", "createdAt", "id");
+-- The historical durable workflow migration created this same index on Neon.
+CREATE INDEX IF NOT EXISTS "Notification_userId_createdAt_id_idx" ON "Notification"("userId", "createdAt", "id");
