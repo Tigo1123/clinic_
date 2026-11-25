@@ -1,3 +1,4 @@
+import { guardFormSubmit } from '../../../utils/guardFormSubmit.js';
 import { latestBirthDate } from '../../../utils/patientIdentityValidation.js';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, Navigate } from 'react-router-dom';
@@ -6,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { patientApiRequest, publicApiRequest as apiRequest } from '../../../services/apiClient';
 import { patientErrorMessage } from '../../../services/patientErrors.js';
 import { useAuth } from '../../../app/auth/auth-context';
-import { INITIAL_ONBOARDING_FORM, NAME_FIELDS, ONBOARDING_STEPS, googleRegistrationPayload, onboardingErrorMessage, passwordChecks, registrationPayload, RESEND_COOLDOWN_SECONDS, resendSecondsRemaining, validateOnboardingStep } from './onboarding';
+import { INITIAL_ONBOARDING_FORM, NAME_FIELDS, ONBOARDING_STEPS, googleRegistrationPayload, onboardingErrorMessage, registrationVerificationOutcome, passwordChecks, registrationPayload, RESEND_COOLDOWN_SECONDS, resendSecondsRemaining, validateOnboardingStep } from './onboarding';
 import { callingCode, countryFlag, countryName, normalisePatientPhone, PATIENT_PHONE_COUNTRIES, splitInternationalPhone } from './phoneCountries';
 import { SUDANESE_STATES } from '../../../utils/clinicData';
 import './patientAuth.css';
@@ -138,12 +139,15 @@ export function PatientLogin(){
 
       let verificationMessage = t('verificationSuccessLogin');
 
+      const outcome = registrationVerificationOutcome(data?.state);
+      if (!outcome) {
+        setError(t('verificationFailed'));
+        return;
+      }
+
       if(data.state === 'CLAIMED'){
         verificationMessage = t('accountLinked');
-      }else if(
-        data.state === 'MANUAL_REVIEW_REQUIRED' ||
-        data.state === 'AMBIGUOUS_MATCH'
-      ){
+      }else if(outcome === 'record-link-pending'){
         verificationMessage = t('manualReviewRequired');
       }
 
@@ -161,7 +165,7 @@ export function PatientLogin(){
   if(challenge){
     return (
       <AuthShell title={t('patientLogin')}>
-        <form onSubmit={verify}>
+        <form onSubmit={event => guardFormSubmit(event, verify)}>
           <p>{t('enterVerificationCode')}</p>
 
           {message&&
@@ -212,7 +216,7 @@ export function PatientLogin(){
         </div>
       }
 
-      <form onSubmit={submit} aria-busy={loading}>
+      <form onSubmit={event => guardFormSubmit(event, submit)} aria-busy={loading}>
         <Field
           label={t('phoneOrEmail')}
           value={form.username}
@@ -363,7 +367,7 @@ export function PatientForgotPassword(){
   return (
     <AuthShell title={t('forgotPassword')}>
       {step === 'request' ? (
-        <form onSubmit={requestReset}>
+        <form onSubmit={event => guardFormSubmit(event, requestReset)}>
           <p>{t('forgotPasswordInstructions')}</p>
 
           <Field
@@ -396,7 +400,7 @@ export function PatientForgotPassword(){
           </div>
         </form>
       ) : (
-        <form onSubmit={resetPassword}>
+        <form onSubmit={event => guardFormSubmit(event, resetPassword)}>
           <p>{t('resetPasswordInstructions')}</p>
 
           {developmentCode && (
@@ -477,13 +481,14 @@ export function PatientRegister() {
   const stepPanel = useRef(null);
   useEffect(() => { if (step > 0) stepPanel.current?.querySelector('h2')?.focus(); }, [step]);
   const [challenge, setChallenge] = useState(null); const [code, setCode] = useState(''); const [identity, setIdentity] = useState(null);
-  const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [fieldErrors, setFieldErrors] = useState({}); const [loading, setLoading] = useState(false); const [resending, setResending] = useState(false); const [verified, setVerified] = useState(false); const [googleReviewState, setGoogleReviewState] = useState(''); const [googleExpired, setGoogleExpired] = useState(false); const [resendAvailableAt, setResendAvailableAt] = useState(0); const [now, setNow] = useState(Date.now());
+  const [verificationOutcome, setVerificationOutcome] = useState(null);
+  const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [fieldErrors, setFieldErrors] = useState({}); const [loading, setLoading] = useState(false); const [resending, setResending] = useState(false); const [googleReviewState, setGoogleReviewState] = useState(''); const [googleExpired, setGoogleExpired] = useState(false); const [resendAvailableAt, setResendAvailableAt] = useState(0); const [now, setNow] = useState(Date.now());
   const googleOnboardingToken = getGoogleOnboardingToken();
   const googleOnboarding = Boolean(googleOnboardingToken || location.state?.googleOnboarding || googleExpired);
   const handleGoogleAuthenticated = useCallback((data) => { login(data.user, data.token); navigate(destination); }, [destination, login, navigate]);
   const handleGoogleOnboarding = useCallback(() => navigate('/register', { replace: true, state: { afterSignIn: destination, googleOnboarding: true } }), [destination, navigate]);
   const googleAuth = useGooglePatientAuth({ onAuthenticated: handleGoogleAuthenticated, onOnboarding: handleGoogleOnboarding });
-  const messages = { required:t('requiredField'), nameInvalid:t('onboardingNameInvalid'), nameRepeated:t('patientNameRepeated'), dateInvalid:t('onboardingDobInvalid'), phoneInvalid:t('phoneInvalid'), emailInvalid:t('emailInvalid'), passwordInvalid:t('passwordRequirementsMissing'), passwordMismatch:t('passwordMismatch'), rateLimited:t('onboardingRateLimited'), addressStateInvalid:t('onboardingAddressStateInvalid'), emailDuplicate:t('onboardingEmailDuplicate'), phoneDuplicate:t('onboardingPhoneDuplicate'), manualReview:t('manualReviewRequired'), verificationFailed:t('onboardingVerificationFailed'), verificationUnavailable:t('onboardingVerificationUnavailable'), requestTimeout:t('onboardingRequestTimeout'), requestFailed:t('onboardingRequestFailed') };
+  const messages = { required:t('requiredField'), nameInvalid:t('onboardingNameInvalid'), nameRepeated:t('patientNameRepeated'), dateInvalid:t('onboardingDobInvalid'), phoneInvalid:t('phoneInvalid'), emailInvalid:t('emailInvalid'), passwordInvalid:t('passwordRequirementsMissing'), passwordMismatch:t('passwordMismatch'), rateLimited:t('onboardingRateLimited'), addressStateInvalid:t('onboardingAddressStateInvalid'), emailDuplicate:t('onboardingEmailDuplicate'), phoneDuplicate:t('onboardingPhoneDuplicate'), manualReview:t('manualReviewRequired'), verificationFailed:t('onboardingVerificationFailed'), verificationUnavailable:t('onboardingVerificationUnavailable'), verificationDeliveryFailed:t('onboardingVerificationDeliveryFailed'), requestTimeout:t('onboardingRequestTimeout'), requestFailed:t('onboardingRequestFailed') };
   const resendRemaining = resendSecondsRemaining(resendAvailableAt, now);
   useEffect(() => {
     if (!challenge || resendRemaining === 0) return undefined;
@@ -545,16 +550,50 @@ export function PatientRegister() {
       else setError(onboardingErrorMessage(requestError, messages));
     } finally { setLoading(false); }
   }
-  async function verify(event) { event.preventDefault(); if (loading) return; setLoading(true); setError(''); try { const data = await apiRequest('/api/patient-auth/verify', { method:'POST', body:JSON.stringify({ challengeId:challenge.challengeId, code }) }); if (data.state === 'CLAIMED' || data.state === 'VERIFIED') { setIdentity(data.patient || identity); setVerified(true); } else setError(messages.manualReview); } catch (requestError) { setError(onboardingErrorMessage(requestError, messages)); } finally { setLoading(false); } }
+  async function verify(event) {
+    event.preventDefault();
+    if (loading) return;
+    setLoading(true);
+    setError('');
+    try {
+      const data = await apiRequest('/api/patient-auth/verify', {
+        method: 'POST',
+        body: JSON.stringify({ challengeId: challenge.challengeId, code })
+      });
+      const outcome = registrationVerificationOutcome(data?.state);
+      if (!outcome) {
+        setError(messages.verificationFailed);
+        return;
+      }
+      setVerificationOutcome(outcome);
+      setIdentity(data.patient || identity);
+      setChallenge(null);
+      setCode('');
+    } catch (requestError) {
+      setError(onboardingErrorMessage(requestError, messages));
+    } finally {
+      setLoading(false);
+    }
+  }
   async function resendVerification() { if (resending || resendRemaining > 0 || !challenge) return; setResending(true); setError(''); setNotice(''); try { const data = await apiRequest('/api/patient-auth/verification/resend', { method:'POST', body:JSON.stringify({ challengeId:challenge.challengeId }) }); setChallenge(data); setCode(''); setNow(Date.now()); setResendAvailableAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000); setNotice(t('onboardingResendSuccess')); } catch (requestError) { setError(onboardingErrorMessage(requestError, messages)); } finally { setResending(false); } }
   async function continueToDashboard() { if (loading) return; setLoading(true); setError(''); try { const data = await apiRequest('/api/auth/login', { method:'POST', body:JSON.stringify({ username:form.email, password:form.password }) }); if (data.user?.role !== 'PATIENT') throw new Error(); login(data.user, data.token); navigate(destination); } catch { setError(t('onboardingContinueFailed')); } finally { setLoading(false); } }
   const title = (key) => t(`onboarding${key[0].toUpperCase()}${key.slice(1)}`);
   const reviewPhone = normalisePatientPhone(form.phone, form.phoneCountry) || form.phone;
   if (googleReviewState) return <AuthShell title={t('createPatientAccount')} onboarding><section className="onboarding-success" aria-live="polite"><h2>{t('googleManualReviewTitle')}</h2><p>{t(googleReviewState === 'AMBIGUOUS_MATCH' ? 'googleAmbiguousReview' : 'googleManualReview')}</p><button className="patient-button" onClick={() => navigate('/patient-login', { state: { afterSignIn: destination } })}>{t('signIn')}</button></section></AuthShell>;
-  if (verified) return <AuthShell title={t('onboardingSuccessTitle')} onboarding><section className="onboarding-success" aria-live="polite"><Check size={44}/><p>{t('onboardingSuccessText')}</p><strong>{identity?.fullNameAr || identity?.fullNameEn}</strong>{identity?.fileNumber && <p className="onboarding-mrn">{t('onboardingMrn')}: {identity.fileNumber}</p>}{error&&<Alert>{error}</Alert>}<button className="patient-button" disabled={loading} onClick={continueToDashboard}>{loading?t('loading'):t('onboardingContinueDashboard')}</button></section></AuthShell>;
-  if (challenge) return <AuthShell title={t('verificationCode')} onboarding><form className="onboarding-verification" onSubmit={verify} aria-live="polite"><p className="onboarding-caption">{t('onboardingVerificationIntro')}</p>{challenge.developmentCode && <div className="patient-alert success">{t('developmentCode')}: <strong>{challenge.developmentCode}</strong></div>}<Field label={t('verificationCode')} value={code} onChange={setCode} autoComplete="one-time-code" inputMode="numeric" maxLength={6} dir="ltr"/>{notice&&<div className="patient-alert success" role="status">{notice}</div>}{error&&<Alert>{error}</Alert>}<button className="patient-button" disabled={loading || resending}>{loading?t('loading'):t('verify')}</button><section className="onboarding-resend" aria-live="polite"><p>{t('onboardingResendPrompt')}</p><button type="button" className="onboarding-resend-button" disabled={resending || loading || resendRemaining > 0} onClick={resendVerification}>{resending ? t('loading') : resendRemaining > 0 ? t('onboardingResendAvailableIn', { seconds:resendRemaining }) : t('onboardingResendAction')}</button></section></form></AuthShell>;
+  if (verificationOutcome === 'record-link-pending') return (
+    <AuthShell title={t('onboardingAccountActive')} onboarding>
+      <section className="onboarding-success">
+        <p role="status">{t('manualReviewRequired')}</p>
+        <button className="patient-button" onClick={() => navigate('/patient-login', { state: { afterSignIn: destination } })}>
+          {t('signIn')}
+        </button>
+      </section>
+    </AuthShell>
+  );
+  if (verificationOutcome === 'record-linked') return <AuthShell title={t('onboardingSuccessTitle')} onboarding><section className="onboarding-success" aria-live="polite"><Check size={44}/><p>{t('onboardingSuccessText')}</p><strong>{identity?.fullNameAr || identity?.fullNameEn}</strong>{identity?.fileNumber && <p className="onboarding-mrn">{t('onboardingMrn')}: {identity.fileNumber}</p>}{error&&<Alert>{error}</Alert>}<button className="patient-button" disabled={loading} onClick={continueToDashboard}>{loading?t('loading'):t('onboardingContinueDashboard')}</button></section></AuthShell>;
+  if (challenge) return <AuthShell title={t('verificationCode')} onboarding><form className="onboarding-verification" onSubmit={event => guardFormSubmit(event, verify)} aria-live="polite"><p className="onboarding-caption">{t('onboardingVerificationIntro')}</p>{challenge.developmentCode && <div className="patient-alert success">{t('developmentCode')}: <strong>{challenge.developmentCode}</strong></div>}<Field label={t('verificationCode')} value={code} onChange={setCode} autoComplete="one-time-code" inputMode="numeric" maxLength={6} dir="ltr"/>{notice&&<div className="patient-alert success" role="status">{notice}</div>}{error&&<Alert>{error}</Alert>}<button className="patient-button" disabled={loading || resending}>{loading?t('loading'):t('verify')}</button><section className="onboarding-resend" aria-live="polite"><p>{t('onboardingResendPrompt')}</p><button type="button" className="onboarding-resend-button" disabled={resending || loading || resendRemaining > 0} onClick={resendVerification}>{resending ? t('loading') : resendRemaining > 0 ? t('onboardingResendAvailableIn', { seconds:resendRemaining }) : t('onboardingResendAction')}</button></section><Link className="patient-auth-secondary-button" to="/patient-login" state={{ afterSignIn: destination }}>{t('signIn')}</Link></form></AuthShell>;
   const nameFields = step === 0 ? NAME_FIELDS.slice(0, 4) : NAME_FIELDS.slice(4);
-  return <AuthShell title={t('createPatientAccount')} onboarding><form className="onboarding-form" onSubmit={submit}>
+  return <AuthShell title={t('createPatientAccount')} onboarding><form className="onboarding-form" onSubmit={event => guardFormSubmit(event, submit)}>
     <div className="onboarding-progress-meta" aria-live="polite">{t('onboardingStepOf', { current:step + 1, total:ONBOARDING_STEPS.length })}</div>
     <ol className="onboarding-progress" aria-label={t('onboardingProgress')}>
       {ONBOARDING_STEPS.map((key, index) => <li key={key} className={index === step ? 'active' : index < step ? 'complete' : ''}>
@@ -751,7 +790,7 @@ export function PatientClaim() {
             </p>
           </div>
 
-          <form onSubmit={submit}>
+          <form onSubmit={event => guardFormSubmit(event, submit)}>
             <Field
               label={
                 lang === 'ar'
@@ -836,7 +875,7 @@ function OfflineActivation(){
   const { t } = useTranslation(); const navigate = useNavigate();
   const [form,setForm]=useState({code:'',dateOfBirth:'',email:'',password:'',confirmPassword:''}); const [error,setError]=useState(''); const [loading,setLoading]=useState(false);
   async function submit(event){event.preventDefault();if(form.password!==form.confirmPassword){setError(t('passwordMismatch'));return;}setLoading(true);setError('');try{await apiRequest('/api/patient-auth/offline-activation',{method:'POST',body:JSON.stringify({code:form.code.trim(),dateOfBirth:form.dateOfBirth,email:form.email.trim()||undefined,password:form.password})});navigate('/patient-login',{state:{message:t('offlineActivationSuccess')}});}catch(e){setError(e.code==='CLAIM_VERIFICATION_FAILED'?t('claimCredentialInvalid'):e.message);}finally{setLoading(false);}}
-  return <AuthShell title={t('offlineActivation')}><p>{t('offlineActivationInstructions')}</p><form onSubmit={submit}><Field label={t('claimCode')} value={form.code} onChange={code=>setForm({...form,code})} autoComplete="one-time-code"/><Field label={t('dateOfBirth')} type="date" value={form.dateOfBirth} onChange={dateOfBirth=>setForm({...form,dateOfBirth})}/><Field label={t('emailOptional')} type="email" value={form.email} onChange={email=>setForm({...form,email})}/><Field label={t('newPassword')} type="password" value={form.password} onChange={password=>setForm({...form,password})} autoComplete="new-password" helperText={t('passwordRequirementsSummary')}/><Field label={t('confirmPassword')} type="password" value={form.confirmPassword} onChange={confirmPassword=>setForm({...form,confirmPassword})} autoComplete="new-password" error={Boolean(form.confirmPassword && form.password !== form.confirmPassword)} helperText={form.confirmPassword && form.password !== form.confirmPassword ? t('passwordMismatch') : undefined}/>{error&&<Alert>{error}</Alert>}<button className="patient-button" disabled={loading}>{loading?t('loading'):t('activatePatientAccount')}</button></form></AuthShell>;
+  return <AuthShell title={t('offlineActivation')}><p>{t('offlineActivationInstructions')}</p><form onSubmit={event => guardFormSubmit(event, submit)}><Field label={t('claimCode')} value={form.code} onChange={code=>setForm({...form,code})} autoComplete="one-time-code"/><Field label={t('dateOfBirth')} type="date" value={form.dateOfBirth} onChange={dateOfBirth=>setForm({...form,dateOfBirth})}/><Field label={t('emailOptional')} type="email" value={form.email} onChange={email=>setForm({...form,email})}/><Field label={t('newPassword')} type="password" value={form.password} onChange={password=>setForm({...form,password})} autoComplete="new-password" helperText={t('passwordRequirementsSummary')}/><Field label={t('confirmPassword')} type="password" value={form.confirmPassword} onChange={confirmPassword=>setForm({...form,confirmPassword})} autoComplete="new-password" error={Boolean(form.confirmPassword && form.password !== form.confirmPassword)} helperText={form.confirmPassword && form.password !== form.confirmPassword ? t('passwordMismatch') : undefined}/>{error&&<Alert>{error}</Alert>}<button className="patient-button" disabled={loading}>{loading?t('loading'):t('activatePatientAccount')}</button></form></AuthShell>;
 }
 
 function AuthShell({ title, children, onboarding = false }) {

@@ -1,3 +1,4 @@
+import { guardFormSubmit } from '../../../../utils/guardFormSubmit.js';
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -19,25 +20,29 @@ export function BookAppointment() {
   const [successAppointmentId, setSuccessAppointmentId] = useState('');
   const days = clinicCalendarDays(7);
 
+  const [slotRevision, setSlotRevision] = useState(0);
+  const [slotError, setSlotError] = useState(false);
+
   useEffect(() => {
     let current = true;
     setSlots([]);
     setTime('');
-    setError('');
+    setSlotError(false);
     if (date) {
       setSlotsLoading(true);
       apiRequest(`/api/appointments/slots?doctorId=${doctorId}&date=${date}`)
         .then((value) => { if (current) setSlots(value); })
-        .catch((requestError) => { if (current) setError(requestError.message); })
+        .catch(() => { if (current) setSlotError(true); })
         .finally(() => { if (current) setSlotsLoading(false); });
     } else {
       setSlotsLoading(false);
     }
     return () => { current = false; };
-  }, [doctorId, date]);
+  }, [doctorId, date, slotRevision]);
 
   async function submit(event) {
     event.preventDefault();
+    if (!date || !slots.includes(time) || slotsLoading) return;
     setLoading(true);
     setError('');
     try {
@@ -50,13 +55,8 @@ export function BookAppointment() {
       setError(patientErrorMessage(requestError, t('bookingFailed')));
       if (requestError?.code === 'APPOINTMENT_SLOT_UNAVAILABLE' || requestError?.code === 'INVALID_APPOINTMENT_SLOT') {
         setTime('');
-        if (date) {
-          setSlotsLoading(true);
-          apiRequest(`/api/appointments/slots?doctorId=${doctorId}&date=${date}`)
-            .then((value) => setSlots(value))
-            .catch(() => {})
-            .finally(() => setSlotsLoading(false));
-        }
+        setSlotsLoading(true);
+        setSlotRevision(value => value + 1);
       }
     } finally {
       setLoading(false);
@@ -92,7 +92,7 @@ export function BookAppointment() {
         </h1>
       </header>
 
-      <form onSubmit={submit} className="patient-book__form">
+      <form onSubmit={event => guardFormSubmit(event, submit)} className="patient-book__form">
         <section aria-labelledby="day-title" className="patient-book__field-title">
           <h2 id="day-title" className="ui-section-label">{t('selectDate')}</h2>
           <div className="date-strip">
@@ -104,7 +104,8 @@ export function BookAppointment() {
                   type="button"
                   className={`date-chip ${isSelected ? 'selected' : ''}`}
                   key={value}
-                  onClick={() => { setDate(value); setTime(''); }}
+                  disabled={loading}
+                  onClick={() => { setDate(value); setTime(''); setError(''); }}
                   aria-pressed={isSelected}
                   aria-label={day.calendarDate.toLocaleDateString(i18n.language, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })}
                 >
@@ -126,7 +127,8 @@ export function BookAppointment() {
                   type="button"
                   className={`slot-chip ui-mono ${time === slot ? 'selected' : ''}`}
                   key={slot}
-                  onClick={() => setTime(slot)}
+                  disabled={loading}
+                  onClick={() => { setTime(slot); setError(''); }}
                   aria-pressed={time === slot}
                 >
                   {slot}
@@ -135,12 +137,15 @@ export function BookAppointment() {
             </div>
             {slotsLoading ? (
               <p role="status" className="patient-reschedule__loading-text">{t('loading')}</p>
-            ) : !slots.length && !error && (
+            ) : !slots.length && !error && !slotError && (
               <p className="patient-reschedule__empty-text">{t('noSlots')}</p>
             )}
           </fieldset>
         )}
 
+        {slotError && <div role="alert" className="patient-alert error">
+          {t('patientLoadError')} <button type="button" className="patient-button secondary" onClick={() => setSlotRevision(value => value + 1)}>{t('patientRetry')}</button>
+        </div>}
         {error && <div className="patient-alert error" role="alert">{error}</div>}
 
         <button

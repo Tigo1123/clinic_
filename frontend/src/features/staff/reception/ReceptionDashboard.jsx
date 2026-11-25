@@ -1,3 +1,4 @@
+import { guardFormSubmit } from '../../../utils/guardFormSubmit.js';
 import { NAME_FIELDS, patientNameErrors, isValidPastDate } from '../../../utils/patientIdentityValidation.js';
 import PatientIdentityField from './components/PatientIdentityField';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -178,6 +179,7 @@ export default function ReceptionDashboard({ lang, t, notificationIntent = null,
   issuedBillingInvoiceRef.current = issuedBillingInvoice;
   selectedLabBillingOrderRef.current = selectedLabBillingOrder;
   const paymentAttemptRef = useRef(null);
+  const billingInFlight = useRef(false);
   if (!billingSearchSchedulerRef.current) billingSearchSchedulerRef.current = createLatestSearchScheduler();
   if (!directorySearchSchedulerRef.current) directorySearchSchedulerRef.current = createLatestSearchScheduler();
   if (!walkInSearchSchedulerRef.current) walkInSearchSchedulerRef.current = createLatestSearchScheduler();
@@ -1054,6 +1056,7 @@ export default function ReceptionDashboard({ lang, t, notificationIntent = null,
   };
 
   const handleCreateInvoice = async () => {
+    if (billingInFlight.current) return;
     if (billingSubmitting || paymentLocked) return;
 
     let paymentRequestSent = false;
@@ -1136,6 +1139,7 @@ export default function ReceptionDashboard({ lang, t, notificationIntent = null,
       return;
     }
 
+    billingInFlight.current = true;
     setBillingSubmitting(true);
 
     try {
@@ -1350,6 +1354,7 @@ export default function ReceptionDashboard({ lang, t, notificationIntent = null,
         );
       }
     } finally {
+      billingInFlight.current = false;
       setBillingSubmitting(false);
     }
   };
@@ -1365,7 +1370,7 @@ export default function ReceptionDashboard({ lang, t, notificationIntent = null,
     const expected = Number(expectedCash);
     const actual = Number(physicalCash);
 
-    if (!Number.isSafeInteger(expected) || expected < 0 || !Number.isSafeInteger(actual) || actual < 0) {
+    if (String(expectedCash).trim() === '' || String(physicalCash).trim() === '' || !Number.isSafeInteger(expected) || expected < 0 || !Number.isSafeInteger(actual) || actual < 0) {
       setErrorMsg(
         lang === 'ar'
           ? 'أدخل مبالغ صحيحة بالجنيه بدون كسور.'
@@ -1741,7 +1746,7 @@ export default function ReceptionDashboard({ lang, t, notificationIntent = null,
               <h1 className="ui-page-title">{lang === 'ar' ? 'إدخال مريض مباشر' : 'Check in walk-in'}</h1>
             </header>
 
-            <form onSubmit={handleWalkInSubmit} className="reception-focused-form">
+            <form onSubmit={event => guardFormSubmit(event, handleWalkInSubmit)} className="reception-focused-form">
               <section aria-label="Walk-in details" className="ui-panel reception-focused-panel">
                 {/* Segmented Mode Selector */}
                 <div role="tablist" aria-label={lang === 'ar' ? 'نوع المريض' : 'Patient type'} className="ui-segmented">
@@ -1960,7 +1965,7 @@ export default function ReceptionDashboard({ lang, t, notificationIntent = null,
               <h1 className="ui-page-title">{lang === 'ar' ? 'تسجيل مريض' : 'Register patient'}</h1>
             </header>
 
-            <form onSubmit={handleRegisterPatient} className="reception-focused-form">
+            <form onSubmit={event => guardFormSubmit(event, handleRegisterPatient)} className="reception-focused-form">
               <section aria-label="Registration details" className="ui-panel reception-focused-panel">
                 <div className="reception-name-grid">
                   {nameInputs}
@@ -2450,7 +2455,7 @@ export default function ReceptionDashboard({ lang, t, notificationIntent = null,
               </div>
             </header>
 
-            <form onSubmit={handleReconcileShift} className="ui-panel reception-shiftclose-form">
+            <form onSubmit={event => guardFormSubmit(event, handleReconcileShift)} className="ui-panel reception-shiftclose-form">
               <div className="reception-form-field">
                 <label className="reception-form-label">
                   <span className="ui-section-label">

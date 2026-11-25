@@ -1,3 +1,4 @@
+import { guardFormSubmit } from '../../../../utils/guardFormSubmit.js';
 import { clearPatientSession } from '../../../../services/authStorage.js';
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
@@ -448,7 +449,7 @@ export function Profile() {
                   {phoneChangeOpen && (
                     <div className="patient-profile__subform">
                       {!phoneChallengeId ? (
-                        <form onSubmit={requestPhoneChange} className="patient-profile__form">
+                        <form onSubmit={event => guardFormSubmit(event, requestPhoneChange)} className="patient-profile__form">
                           <label className="patient-field">
                             {lang === 'ar' ? 'رقم الهاتف الجديد' : 'New phone number'}
                             <input
@@ -466,7 +467,7 @@ export function Profile() {
                           </button>
                         </form>
                       ) : (
-                        <form onSubmit={verifyPhoneChange} className="patient-profile__form">
+                        <form onSubmit={event => guardFormSubmit(event, verifyPhoneChange)} className="patient-profile__form">
                           <label className="patient-field">
                             {lang === 'ar' ? 'رمز التأكيد المرسل إلى بريدك' : 'Authorization code sent to your email'}
                             <input
@@ -529,7 +530,7 @@ export function Profile() {
                   {emailChangeOpen && (
                     <div className="patient-profile__subform">
                       {!emailChallengeId ? (
-                        <form onSubmit={requestEmailChange} className="patient-profile__form">
+                        <form onSubmit={event => guardFormSubmit(event, requestEmailChange)} className="patient-profile__form">
                           <PasswordField
                             label={t('currentPassword')}
                             autoComplete="current-password"
@@ -551,7 +552,7 @@ export function Profile() {
                           </button>
                         </form>
                       ) : (
-                        <form onSubmit={verifyEmailChange} className="patient-profile__form">
+                        <form onSubmit={event => guardFormSubmit(event, verifyEmailChange)} className="patient-profile__form">
                           <label className="patient-field">
                             {lang === 'ar' ? 'رمز التحقق' : 'Verification code'}
                             <input
@@ -592,7 +593,7 @@ export function Profile() {
                   expanded={openSection === 'address'}
                   onToggle={() => setOpenSection(openSection === 'address' ? null : 'address')}
                 >
-                  <form onSubmit={save} className="patient-profile__form">
+                  <form onSubmit={event => guardFormSubmit(event, save)} className="patient-profile__form">
                     <label className="patient-field">
                       {t('addressState')}
 
@@ -728,7 +729,7 @@ export function Profile() {
                   onToggle={() => setOpenSection(openSection === 'password' ? null : 'password')}
                 >
                   <p className="patient-help-text">{t('passwordChangeSignInAgain')}</p>
-                  <form onSubmit={changePassword} className="patient-profile__form">
+                  <form onSubmit={event => guardFormSubmit(event, changePassword)} className="patient-profile__form">
                     <PasswordField
                       label={t('currentPassword')}
                       autoComplete="current-password"
@@ -831,7 +832,7 @@ export function Profile() {
                           />
                         </div>
                       ) : (
-                        <form onSubmit={handleConfirmGoogleLink} className="patient-profile__form">
+                        <form onSubmit={event => guardFormSubmit(event, handleConfirmGoogleLink)} className="patient-profile__form">
                           <p className="patient-help-text">
                             {t('enterPasswordToLink')}
                           </p>
@@ -874,7 +875,7 @@ export function Profile() {
 
                   {googleUnlinkOpen && data.googleAccount?.linked && (
                     <div className="patient-profile__subform">
-                      <form onSubmit={handleConfirmGoogleUnlink} className="patient-profile__form">
+                      <form onSubmit={event => guardFormSubmit(event, handleConfirmGoogleUnlink)} className="patient-profile__form">
                         <p className="patient-help-text">
                           {t('disconnectGoogleConfirm')}
                         </p>

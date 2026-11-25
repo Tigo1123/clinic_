@@ -1,3 +1,4 @@
+import { guardFormSubmit } from '../../../utils/guardFormSubmit.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PackagePlus, RefreshCw, Search } from 'lucide-react';
 import Dialog from '../../../components/ui/Dialog';
@@ -500,7 +501,7 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
 
       <Dialog open={dialog === 'create'} title={lang === 'ar' ? 'إضافة دواء' : 'Add Medicine'} description={lang === 'ar' ? 'سيتم إنشاء الدواء بحالة غير نشطة وبدون سعر. يجب على المدير تحديد السعر وتفعيل الدواء.' : 'The medicine will be created inactive and without a price. An administrator must price and activate it.'} onClose={closeDialog}>
         <DialogFeedback feedback={feedback} />
-        <form onSubmit={submitMedicine}>
+        <form onSubmit={event => guardFormSubmit(event, submitMedicine)}>
           <MedicineFields form={medicineForm} setForm={setMedicineForm} lang={lang} />
           <label className="pharmacy-checkbox" htmlFor="medicine-includeInitialBatch">
             <input
@@ -534,7 +535,7 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
             {lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}
           </button>
         )}
-        {editReady && <form onSubmit={submitMetadata}>
+        {editReady && <form onSubmit={event => guardFormSubmit(event, submitMetadata)}>
           <MedicineFields form={medicineForm} setForm={setMedicineForm} lang={lang} medicine={selected} disabled={saving} />
           <p className="form-help">
             {selected.identityLocked
@@ -582,7 +583,7 @@ export default function PharmacyManagement({ lang, refreshToken = 0, onInventory
 
       <Dialog open={dialog === 'receive'} title={`${lang === 'ar' ? 'إضافة دفعة' : 'Receive batch'} — ${selected?.brandName || ''}`} onClose={closeDialog}>
         <DialogFeedback feedback={feedback} />
-        <form onSubmit={submitBatch}>
+        <form onSubmit={event => guardFormSubmit(event, submitBatch)}>
           <BatchFields form={batchForm} setForm={setBatchForm} lang={lang} errors={batchErrors} />
           <div className="dialog-actions">
             <button type="button" className="btn btn-secondary" onClick={() => closeDialog()}>

@@ -27,7 +27,7 @@ const mockPageSource = (source) => source
   .replace(/import \{ GoogleIdentityButton \}[^;]+;/, 'const GoogleIdentityButton = () => null;')
   .replace(/import Dialog[^;]+;/, 'const Dialog = ({open, children, onClose}) => open ? <section role="dialog">{children}<button onClick={onClose}>Close dialog</button></section> : null;')
   .replace(/import \{ ([^}]+) \} from '[^']*components\/feedback\/States';/, (_, names) => names.split(',').map(name => stateMocks[name.trim()]).join(' '))
-  .replace(/from '(?:\.\.\/)+utils\/([^']+)'/g, "from '../src/utils/$1.js'")
+  .replace(/from '(?:\.\.\/)+utils\/([^'.]+)(?:\.js)?'/g, "from '../src/utils/$1.js'")
   .replace(/from '(?:\.\.\/)+services\/patientErrors'/g, "from '../src/services/patientErrors.js'")
   .replace(/from '\.\.\/(patientGreeting|patientRecord|doctorSpecialty)'/g, "from '../src/features/patient/portal/$1.js'")
   .replace("from './shared.jsx'", `from './${tempPrefix}-shared.mjs'`);
@@ -53,6 +53,7 @@ try {
 }
 let rescheduleSource = await readFile(new URL('../src/features/patient/portal/RescheduleAppointment.jsx', import.meta.url), 'utf8');
 rescheduleSource = rescheduleSource
+  .replace("from '../../../utils/guardFormSubmit.js'", "from '../src/utils/guardFormSubmit.js'")
   .replace(/import \{ useTranslation \}[^;]+;/, "const useTranslation = () => ({ t: key => key });")
   .replace(/import \{ patientApiRequest as apiRequest \}[^;]+;/, 'const apiRequest = (...args) => globalThis.portalTestApi(...args);')
   .replace(/import \{ ErrorState, Skeleton \}[^;]+;/, 'const Skeleton = () => <div role="status">Loading</div>; const ErrorState = ({message}) => <div role="alert">{message}</div>;')
@@ -87,8 +88,12 @@ test('booking discards late slot responses, clears old selections, and blocks su
   assert.equal(document.querySelector('form>button').disabled, true);
   assert.equal(document.querySelectorAll('.slot-chip').length, 0);
   await act(async () => requests[2].reject(new Error('Slots unavailable')));
-  assert.equal(document.querySelector('[role=alert]').textContent, 'Slots unavailable');
+  const alert = document.querySelector('[role=alert]');
+  assert.match(alert.textContent, /patientLoadError/);
   assert.equal(document.querySelector('form>button').disabled, true);
+  await click(alert.querySelector('button'));
+  await act(async () => requests[3].resolve(['11:00']));
+  assert.equal(document.querySelector('.slot-chip').textContent, '11:00');
 });
 
 test('closing a loading record does not reopen it when its response arrives', async () => {
