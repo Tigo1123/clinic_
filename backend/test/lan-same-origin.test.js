@@ -13,6 +13,7 @@ const lanEnvironment = read('deploy/lan/env.example');
 const apiClient = read('frontend/src/services/apiClient.js');
 const staffApi = read('frontend/src/services/staff/staffApi.js');
 const staffSocket = read('frontend/src/services/staff/staffSocket.js');
+const socketLifecycle = read('frontend/src/services/socketLifecycle.js');
 const frontendEnvironment = read('frontend/.env.example');
 const backendServer = read('backend/src/server.js');
 const uploadRoutes = read('backend/src/routes/upload.js');
@@ -34,8 +35,8 @@ test('LAN browser API configuration defaults to relative same-origin paths', () 
 });
 
 test('production Socket.IO falls back to the browser origin and standard path', () => {
-  assert.match(staffSocket, /VITE_STAFF_SOCKET_URL/);
-  assert.match(staffSocket, /environment\.DEV\s*\?\s*['"]http:\/\/localhost:5000['"]\s*:\s*globalThis\.window\?\.location\?\.origin/);
+  assert.match(staffSocket, /resolveSocketUrl\(environment\.VITE_STAFF_SOCKET_URL\)/);
+  assert.match(socketLifecycle, /environment\.DEV\s*\?\s*['"]http:\/\/localhost:5000['"]\s*:\s*globalThis\.window\?\.location\?\.origin/);
   assert.doesNotMatch(lanEnvironment, /^VITE_STAFF_SOCKET_URL=.+$/m);
   assert.match(nginx, /location \/socket\.io\/ \{/);
   assert.match(nginx, /proxy_http_version 1\.1;/);
@@ -70,7 +71,7 @@ test('upload and patient attachment responses remain relative to the LAN origin'
 
 test('LAN browser and deployment configuration has no Render endpoint or published private port', () => {
   const browserAndLanConfiguration = [
-    apiClient, staffApi, staffSocket, frontendEnvironment,
+    apiClient, staffApi, staffSocket, socketLifecycle, frontendEnvironment,
     compose, nginx, lanEnvironment, read('deploy/lan/README.md')
   ].join('\n');
   assert.doesNotMatch(browserAndLanConfiguration, /(?:^|[./-])render\.com\b|onrender\.com\b/i);

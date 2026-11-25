@@ -6,7 +6,7 @@ import { formatQueueDateLabel, shiftQueueDate } from '../receptionHelpers';
 import QueueAppointmentRow from './QueueAppointmentRow';
 
 export default function AppointmentQueue({
-  lang, doctor, date, onDateChange, revision, onRetry, pendingActionIds, ...rowProps
+  lang, doctor, date, onDateChange, revision, onRetry, pendingActionIds, highlightedAppointmentId = null, ...rowProps
 }) {
   const ar = lang === 'ar';
   const today = clinicDateString();
@@ -69,7 +69,8 @@ export default function AppointmentQueue({
         </p>
         : <div className="reception-queue-rows-container">
           {appointments.map((app, index) => <QueueAppointmentRow key={app.id} app={app} index={index}
-            lang={lang} selectedDoctor={doctor} isActionPending={pendingActionIds.has(app.id)} {...rowProps} />)}
+            lang={lang} selectedDoctor={doctor} isActionPending={pendingActionIds.has(app.id)}
+            isHighlighted={highlightedAppointmentId === app.id} {...rowProps} />)}
         </div>}
     </section>
   );

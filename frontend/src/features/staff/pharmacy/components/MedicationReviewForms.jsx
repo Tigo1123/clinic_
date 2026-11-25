@@ -14,7 +14,7 @@ export function LinkExistingForm({ lang, form, drugCatalog, selectedExistingDrug
         <select
           id="review-link-select"
           className="form-input"
-          value={form.drugId || ''}
+          value={selectedExistingDrug?.id || ''}
           onChange={(event) => onFieldChange('drugId', event.target.value)}
         >
           <option value="">
@@ -27,7 +27,7 @@ export function LinkExistingForm({ lang, form, drugCatalog, selectedExistingDrug
             )
             .map((drug) => (
               <option key={drug.id} value={drug.id}>
-                {drug.labelEn}
+                {lang === 'ar' ? drug.labelAr : drug.labelEn}
                 {' — '}
                 {drug.strength}
                 {' — '}
@@ -76,7 +76,7 @@ export function LinkExistingForm({ lang, form, drugCatalog, selectedExistingDrug
       <button
         type="button"
         className="btn btn-primary"
-        disabled={saving}
+        disabled={saving || !selectedExistingDrug}
         onClick={() => onSubmit('LINK_EXISTING')}
       >
         {saving

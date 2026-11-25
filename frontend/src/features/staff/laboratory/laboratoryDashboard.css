@@ -95,12 +95,18 @@
 }
 
 .laboratory-order-card:hover {
-  background: var(--color-surface-muted);
+  background: var(--color-surface-subtle, var(--color-surface-muted));
+  border-color: var(--color-divider);
 }
 
 .laboratory-order-card.selected {
   background: var(--color-primary-soft);
-  border-color: transparent;
+  border-color: var(--color-primary-soft-border, var(--color-primary));
+  box-shadow: inset 3px 0 0 var(--color-primary);
+}
+
+[dir='rtl'] .laboratory-order-card.selected {
+  box-shadow: inset -3px 0 0 var(--color-primary);
 }
 
 .laboratory-order-card__start {
@@ -228,7 +234,7 @@
   background: var(--color-surface);
   list-style: none;
   gap: 8px;
-  box-shadow: none;
+  box-shadow: var(--shadow-sm);
 }
 
 .laboratory-workflow li {
@@ -247,7 +253,7 @@
   width: calc(100% - 30px);
   height: 1px;
   content: '';
-  background: var(--color-divider);
+  background: var(--color-border);
 }
 
 .laboratory-workflow li > span {
@@ -256,12 +262,12 @@
   width: 26px;
   height: 26px;
   place-items: center;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-control-border);
   border-radius: 50%;
   background: var(--color-surface);
   font-size: 0.75rem;
   font-weight: 600;
-  color: var(--color-text-muted);
+  color: var(--color-text-secondary);
 }
 
 .laboratory-workflow li small {
@@ -347,11 +353,11 @@
   align-items: center;
   gap: 12px;
   padding: 16px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-primary-soft-border, var(--color-success));
   border-radius: var(--radius-lg);
   color: var(--color-success);
   background: var(--color-success-soft);
-  box-shadow: none;
+  box-shadow: var(--shadow-sm);
 }
 
 .laboratory-released-banner > div {
@@ -382,7 +388,7 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   overflow-x: auto;
-  box-shadow: none;
+  box-shadow: var(--shadow-sm);
 }
 
 .laboratory-table-inner {
@@ -398,8 +404,9 @@
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--color-text-muted);
-  border-bottom: 1px solid var(--color-divider);
+  color: var(--color-text-secondary);
+  background: var(--color-surface-subtle, var(--color-surface-muted));
+  border-bottom: 1px solid var(--color-border);
 }
 
 .laboratory-table-row {
@@ -565,7 +572,6 @@
 
 .laboratory-no-selection svg {
   color: var(--color-text-muted);
-  opacity: 0.6;
 }
 
 /* Alert banners */
@@ -689,7 +695,7 @@
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  box-shadow: none;
+  box-shadow: var(--shadow-sm);
 }
 
 .laboratory-review-panel-heading h3 {

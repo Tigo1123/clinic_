@@ -1,11 +1,14 @@
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/auth-context';
+import { PATIENT_BOOKING_PATH } from './patientBooking.js';
 
 export default function PatientRoute() {
   const { user } = useAuth();
+  const { pathname } = useLocation();
+  const state = pathname === PATIENT_BOOKING_PATH ? { afterSignIn: PATIENT_BOOKING_PATH } : undefined;
 
   if (!user) {
-    return <Navigate to="/patient-login" replace />;
+    return <Navigate to="/patient-login" state={state} replace />;
   }
 
   if (user.role !== 'PATIENT') {
@@ -22,7 +25,7 @@ export default function PatientRoute() {
    * sessions created before patientLinked was added to the login response.
    */
   if (user.patientLinked === false) {
-    return <Navigate to="/patient/claim" replace />;
+    return <Navigate to="/patient/claim" state={state} replace />;
   }
 
   return <Outlet />;

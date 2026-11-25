@@ -12,13 +12,19 @@ export const AUDIT_EVENT_PRESENTATION = Object.freeze({
   MEDICINE_SELLING_PRICE_UPDATED: ['auditEventPriceUpdated', 'info'],
   FORMULARY_MEDICINE_CREATED: ['auditEventMedicineCreated', 'success'],
   FORMULARY_METADATA_UPDATED: ['auditEventMedicineUpdated', 'info'],
+  FORMULARY_MEDICINE_DEACTIVATED: ['auditEventMedicineDeactivated', 'warning'],
   INVENTORY_BATCH_RECEIVED: ['auditEventBatchReceived', 'success'],
+  PRESCRIPTION_DISPENSED: ['auditEventPrescriptionDispensed', 'success'],
+  PHARMACY_INVOICE_AUTOMATICALLY_CREATED: ['auditEventPharmacyInvoiceCreated', 'info'],
+  PHARMACY_INVOICE_PAYMENT_RECORDED: ['auditEventPharmacyPaymentRecorded', 'success'],
   LAB_RESULTS_LOGGED: ['auditEventLabResultLogged', 'info'],
   LAB_RESULTS_RELEASED_TO_PATIENT: ['auditEventLabResultReleased', 'warning'],
   LAB_SAMPLE_COLLECTED: ['auditEventLabSampleCollected', 'info'],
   APPOINTMENT_STATUS_UPDATED: ['auditEventAppointmentUpdated', 'info'],
   INVOICE_REFUND: ['auditEventInvoiceRefund', 'warning'],
-  SHIFT_RECONCILIATION: ['auditEventShiftReconciliation', 'neutral']
+  SHIFT_RECONCILIATION: ['auditEventShiftReconciliation', 'neutral'],
+  INSURANCE_COMPANY_CREATED: ['auditEventInsuranceCreated', 'success'],
+  INSURANCE_COMPANY_UPDATED: ['auditEventInsuranceUpdated', 'info']
 });
 
 export function auditEventPresentation(action = '') {

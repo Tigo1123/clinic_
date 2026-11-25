@@ -1,36 +1,55 @@
 export const clinicCopy = {
   en: {
-    title: 'Clinic setup', doctors: 'Doctors', specialties: 'Specialties', services: 'Medical services', labs: 'Laboratory tests', payments: 'Payment methods',
+    title: 'Clinic setup', doctors: 'Doctors', specialties: 'Specialties', services: 'Medical services', labs: 'Laboratory tests', payments: 'Payment methods', insurance: 'Insurance providers',
     add: 'Add', edit: 'Edit', save: 'Save', cancel: 'Cancel', search: 'Search by name or code', empty: 'No entries yet. Add the clinic’s actual information to get started.',
     failed: 'Unable to load clinic configuration. Please retry.', saveFailed: 'Unable to save. Check the fields and try again.', retry: 'Retry', saved: 'Changes saved.',
     labelAr: 'Arabic name', labelEn: 'English name', code: 'Code', price: 'Official price (whole SDG)', category: 'Category', status: 'Status', active: 'Active', inactive: 'Inactive',
+    copay: 'Patient copay (%)', billingCycle: 'Billing cycle (days)', days: 'days',
+    copayHelp: 'Patient contribution percentage from 0 to 100 (up to 2 decimals).',
+    billingCycleHelp: 'Claim billing cycle in whole days (1–365).',
     username: 'Account email', password: 'Temporary password', specialty: 'Specialty', choose: 'Choose a specialty', schedule: 'Working schedule', noSchedule: 'Schedule required',
     scheduleHelp: 'New doctors have no working hours. Set an explicit schedule before accepting bookings. Deactivation preserves existing appointments and records.',
     passwordHelp: '10–200 characters with an uppercase letter, a lowercase letter and a number. The doctor must change it at first sign-in.',
     confirm: 'Confirm configuration change', confirmText: 'This updates future availability or catalog selection. Historical appointments, invoices and results are preserved.',
     paymentHelp: 'Manual payment records only. Never enter card numbers, CVV, PINs or payment secrets. Insurance uses the existing claim and patient-share flow, not a payment method.',
+    insuranceHelp: 'Configure actual bilingual insurance providers, patient copay percentages (0–100%), and billing cycles in days. Deactivating a provider hides it from new billing while preserving historical invoices and claims.',
     catalogHelp: 'Categories cannot change after creation. Archive entries instead of deleting them. Existing invoice lines keep their original prices and descriptions.',
-    invalid: 'Complete the required fields. Prices must be whole SDG between 1 and 1,000,000,000.', account: 'Account', all: 'All statuses', previous: 'Previous', next: 'Next',
+    invalid: 'Complete the required fields. Prices must be whole SDG between 1 and 1,000,000,000.',
+    insuranceInvalid: 'Complete Arabic and English names, a copay percentage between 0 and 100 (up to 2 decimals), and a billing cycle between 1 and 365 days.',
+    account: 'Account', all: 'All statuses', previous: 'Previous', next: 'Next',
     CONSULTATION: 'Consultation', LABORATORY: 'Laboratory', RADIOLOGY: 'Radiology', CLINICAL_PROCEDURE: 'Clinical procedure',
   },
   ar: {
-    title: 'إعداد العيادة', doctors: 'الأطباء', specialties: 'التخصصات', services: 'الخدمات الطبية', labs: 'فحوص المختبر', payments: 'طرق الدفع',
+    title: 'إعداد العيادة', doctors: 'الأطباء', specialties: 'التخصصات', services: 'الخدمات الطبية', labs: 'فحوص المختبر', payments: 'طرق الدفع', insurance: 'شركات التأمين',
     add: 'إضافة', edit: 'تعديل', save: 'حفظ', cancel: 'إلغاء', search: 'البحث بالاسم أو الرمز', empty: 'لا توجد بيانات بعد. أضف البيانات الفعلية للعيادة للبدء.',
     failed: 'تعذر تحميل إعدادات العيادة. يرجى إعادة المحاولة.', saveFailed: 'تعذر الحفظ. تحقق من الحقول وحاول مجدداً.', retry: 'إعادة المحاولة', saved: 'تم حفظ التغييرات.',
     labelAr: 'الاسم بالعربية', labelEn: 'الاسم بالإنجليزية', code: 'الرمز', price: 'السعر الرسمي (جنيه سوداني كامل)', category: 'الفئة', status: 'الحالة', active: 'نشط', inactive: 'غير نشط',
+    copay: 'نسبة مساهمة المريض (%)', billingCycle: 'دورة الفوترة (بالأيام)', days: 'يوم',
+    copayHelp: 'نسبة مساهمة المريض من 0 إلى 100 (بحد أقصى منزلتين عشريتين).',
+    billingCycleHelp: 'دورة المطالبة بالأيام الصحيحة (1–365).',
     username: 'البريد الإلكتروني للحساب', password: 'كلمة مرور مؤقتة', specialty: 'التخصص', choose: 'اختر التخصص', schedule: 'جدول العمل', noSchedule: 'يلزم تحديد جدول',
     scheduleHelp: 'لا تُحدَّد ساعات عمل تلقائية للطبيب الجديد. أضف جدولاً صريحاً قبل الحجز. التعطيل يحفظ المواعيد والسجلات الموجودة.',
     passwordHelp: 'من 10 إلى 200 حرف، تتضمن حرفاً إنجليزياً كبيراً وصغيراً ورقماً. يجب تغييرها عند أول دخول.',
     confirm: 'تأكيد تغيير الإعدادات', confirmText: 'يؤثر التعديل على الإتاحة والاختيارات الجديدة. تبقى المواعيد والفواتير والنتائج السابقة محفوظة.',
     paymentHelp: 'سجلات دفع يدوية فقط. لا تُدخل أرقام البطاقات أو رموز الأمان أو الأرقام السرية. التأمين يستخدم المطالبات وحصة المريض الحالية وليس طريقة دفع.',
+    insuranceHelp: 'أدخل شركات التأمين الفعلية باللغتين ونسبة مساهمة المريض (0–100٪) ودورة الفوترة بالأيام. تعطيل الشركة يخفيها عن الفواتير الجديدة مع حفظ الفواتير والمطالبات السابقة.',
     catalogHelp: 'لا تتغير الفئة بعد الإنشاء. عطّل المدخل بدلاً من حذفه. تحتفظ بنود الفواتير السابقة بأسعارها وأوصافها الأصلية.',
-    invalid: 'أكمل الحقول المطلوبة. يجب أن يكون السعر بالجنيه الكامل من ١ إلى ١٬٠٠٠٬٠٠٠٬٠٠٠.', account: 'الحساب', all: 'كل الحالات', previous: 'السابق', next: 'التالي',
+    invalid: 'أكمل الحقول المطلوبة. يجب أن يكون السعر بالجنيه الكامل من ١ إلى ١٬٠٠٠٬٠٠٠٬٠٠٠.',
+    insuranceInvalid: 'أكمل الاسم العربي والإنجليزي، ونسبة مساهمة بين 0 و100 (بحد أقصى منزلتين عشريتين)، ودورة فوترة من 1 إلى 365 يوماً.',
+    account: 'الحساب', all: 'كل الحالات', previous: 'السابق', next: 'التالي',
     CONSULTATION: 'استشارة', LABORATORY: 'مختبر', RADIOLOGY: 'أشعة', CLINICAL_PROCEDURE: 'إجراء سريري',
   },
 };
 
 export function setupPayload(resource, draft, editing) {
   if (resource === 'payments') return { labelAr: draft.labelAr.trim(), labelEn: draft.labelEn.trim(), active: draft.active };
+  if (resource === 'insurance') return {
+    labelAr: draft.labelAr.trim(),
+    labelEn: draft.labelEn.trim(),
+    copayPercentage: String(draft.copayPercentage).trim(),
+    billingCycleDays: Number(String(draft.billingCycleDays).trim()),
+    active: draft.active
+  };
   if (resource === 'specialties') return { code: draft.code.trim(), nameAr: draft.labelAr.trim(), nameEn: draft.labelEn.trim(), active: draft.active };
   if (resource === 'doctors') {
     const profile = { fullNameAr: draft.labelAr.trim(), fullNameEn: draft.labelEn.trim(), specialtyId: draft.specialtyId, consultationFee: Number(draft.priceSdg) };

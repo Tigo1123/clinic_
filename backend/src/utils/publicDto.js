@@ -61,5 +61,6 @@ export const staffInsuranceCompanySelect = Object.freeze({
   id: true,
   labelAr: true,
   labelEn: true,
-  copayPercentage: true
+  copayPercentage: true,
+  billingCycleDays: true
 });

@@ -250,7 +250,8 @@
   outline-offset: 2px;
 }
 
-.staff-shell__footer-actions button[aria-label="Notifications"] {
+.staff-shell__footer-actions button[aria-label="Notifications"],
+.staff-shell__footer-actions .notification-dropdown__trigger {
   min-height: 44px !important;
   min-width: 44px !important;
   padding: 0 8px !important;
@@ -260,7 +261,8 @@
   box-sizing: border-box;
 }
 
-.staff-shell__footer-actions button[aria-label="Notifications"]:hover {
+.staff-shell__footer-actions button[aria-label="Notifications"]:hover,
+.staff-shell__footer-actions .notification-dropdown__trigger:hover {
   background: var(--color-rail-active, #2C3A35) !important;
   color: #FFFFFF !important;
 }

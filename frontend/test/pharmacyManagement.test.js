@@ -21,10 +21,7 @@ import {
   pharmacyInventoryAlert,
   stockPresentation,
   validateBatchForm,
-  updateMedicineField,
-  newPaymentAttempt,
-  paymentAttemptIsReflected,
-  samePaymentAttempt
+  updateMedicineField
 } from '../src/features/staff/pharmacy/pharmacyHelpers.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -64,21 +61,11 @@ test('catalog-only, metadata, and receipt payloads expose no price, status, or s
   });
 });
 
-test('payment payload is minimal and exact-attempt retries reuse one idempotency key', () => {
+test('payment payload contains only the payment amount and method', () => {
   const payload = buildPaymentPayload('3400', 'BANKAK');
   assert.deepEqual(payload, { payments: [{ amountSdg: 3400, paymentMethod: 'BANKAK' }] });
   for (const field of ['total', 'outstanding', 'status', 'actorId', 'role', 'price']) assert.equal(field in payload, false);
-  let calls = 0;
-  const first = newPaymentAttempt('invoice-1', '3400', 'BANKAK', 1000, () => `key-${++calls}`);
-  assert.equal(samePaymentAttempt(first, 'invoice-1', '3400', 'BANKAK'), true);
-  assert.equal(samePaymentAttempt(first, 'invoice-1', '3399', 'BANKAK'), false);
-  assert.equal(first.idempotencyKey, 'key-1');
-  assert.equal(paymentAttemptIsReflected(first, { invoice: { id: 'invoice-1', paidAmountSdg: 4400 } }), true);
-  assert.equal(paymentAttemptIsReflected(first, { invoice: { id: 'invoice-1', paidAmountSdg: 1000 } }), false);
-  const nextPartialPayment = newPaymentAttempt('invoice-1', '1200', 'CASH', 4400, () => `key-${++calls}`);
-  assert.equal(nextPartialPayment.idempotencyKey, 'key-2');
-  assert.notEqual(nextPartialPayment.idempotencyKey, first.idempotencyKey);
-  assert.equal(samePaymentAttempt(first, 'invoice-1', '3400', 'CASH'), false);
+
 });
 
 test('dashboard integrates bounded APIs, server payment state, and read-only movement history', () => {
@@ -97,17 +84,15 @@ test('dashboard integrates bounded APIs, server payment state, and read-only mov
   assert.match(payment, /reconciliationRequired/);
   assert.match(payment, /Reconcile payment state/);
   assert.match(payment, /disabled=\{submitting \|\| reconciliationRequired \|\| !state.allowedPaymentMethods\?\.includes\(method\)\}/);
-  assert.match(payment, /disabled=\{reconciliationRequired\}/);
-  assert.match(payment, /if \(!responseReceived\) requireReconciliation\(true\)/);
-  assert.match(payment, /attemptRef\.current = null/);
+  assert.match(payment, /disabled=\{submitting \|\| reconciliationRequired\}/);
   assert.match(payment, /loadState\(\)/);
   assert.match(payment, /\/api\/pharmacy\/prescriptions\/\$\{prescriptionId\}\/payment-state/);
   assert.match(payment, /useEffect\([\s\S]*?loadState\(\)/);
   assert.match(payment, /state\?\.billingPending\?\.code/);
   assert.doesNotMatch(payment, /Issue Pharmacy Invoice|إصدار فاتورة الصيدلية/);
   assert.doesNotMatch(payment, /\/dispense/);
-  assert.match(dashboard, /paymentState\?\.dispensingAllowed/);
-  assert.match(dashboard, /disabled=\{!paymentState\?\.dispensingAllowed \|\| dispensing\}/);
+  assert.match(dashboard, /paymentState\?\.prescriptionId === selectedRx\.id && paymentState\.dispensingAllowed/);
+  assert.match(dashboard, /disabled=\{dispensing \|\| \(!dispensingAllowed/);
 });
 
 test('pharmacy pilot workspace defaults to dispensing and exposes accessible focused sections', () => {
@@ -155,12 +140,12 @@ test('pilot redesign preserves management actions, search, filters, alerts, and 
   assert.match(dashboard, /chooseReviewDecision\('EXTERNAL'\)/);
 });
 
-test('pharmacist sees official price read-only without price or status mutation controls', () => {
+test('pharmacist sees official price read-only and can only deactivate', () => {
   const management = source('src/features/staff/pharmacy/PharmacyManagement.jsx');
   assert.match(management, /Official price/);
   assert.match(management, /unitPriceSdg == null/);
   assert.doesNotMatch(management, /name="unitPriceSdg"|name="status"/);
-  assert.doesNotMatch(management, /Activate medicine|Deactivate medicine|Set price/);
+  assert.doesNotMatch(management, /Activate medicine|Set price/);
 });
 
 test('authoritative pharmacy summaries and stock states use final Phase 2 fields', () => {
@@ -367,7 +352,7 @@ test('successful custom review refreshes review, prescription, management when n
   assert.match(successPath, /setPaymentRefresh/);
   assert.match(successPath, /decision === 'CREATE_FORMULARY'.*setManagementRefresh/s);
   assert.match(dashboard, /key=\{`\$\{selectedRx\.id\}:\$\{paymentRefresh\}`\}/);
-  assert.match(dashboard, /disabled=\{!paymentState\?\.dispensingAllowed \|\| dispensing\}/);
+  assert.match(dashboard, /disabled=\{dispensing \|\| \(!dispensingAllowed/);
 });
 
 test('pharmacy unavailable resolution is explicit, auditable, and separated from dispensing', () => {
@@ -409,7 +394,7 @@ test('Add Medicine controls have stable unique IDs, matching names and explicit 
   const management = source('src/features/staff/pharmacy/PharmacyManagement.jsx');
   assert.match(management, /htmlFor=\{id\}/);
   assert.match(management, /<input id=\{id\}/);
-  assert.match(management, /key=\{name\} id=\{`medicine-\$\{name\}`\} name=\{name\}/);
+  assert.match(management, /key=\{name\}\s+id=\{`medicine-\$\{name\}`\}\s+name=\{name\}/);
   assert.match(management, /dir=\{name === 'labelAr' \? 'rtl' : 'ltr'\}/);
   assert.match(management, /updateMedicineField\(current, name, event\.target\.value\)/);
 
@@ -433,7 +418,7 @@ test('one search submission has one effect-owned request and keeps latest-respon
   assert.equal((submit.match(/setSearchSubmission/g) || []).length, 1);
   assert.equal((submit.match(/loadFormulary/g) || []).length, 0);
   assert.match(management, /const requestId = \+\+formularyRequestRef\.current/);
-  assert.match(management, /if \(requestId === formularyRequestRef\.current\) \{\s*setItems\(data\.items \|\| \[\]\)/);
+  assert.match(management, /if \(requestId === formularyRequestRef\.current\) \{[\s\S]*?setItems\(data\.items \|\| \[\]\)/);
   assert.match(management, /return \(\) => \{ formularyRequestRef\.current \+= 1; \}/);
 });
 

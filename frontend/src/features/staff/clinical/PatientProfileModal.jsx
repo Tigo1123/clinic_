@@ -253,6 +253,9 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
     ? (lang === 'ar' ? profile.fullNameAr || profile.fullNameEn : profile.fullNameEn || profile.fullNameAr)
     : (lang === 'ar' ? 'ملف المريض' : 'Patient File');
   const age = patientAge(profile?.dateOfBirth);
+  const coverageRate = profile?.insurance?.coverageRate;
+  const hasRecordedCoverage = Number.isFinite(coverageRate);
+  const invoiceCoverageLabel = lang === 'ar' ? 'التغطية في الفاتورة' : 'Coverage on invoice';
   const formattedDateOfBirth = profile?.dateOfBirth
     ? new Date(`${String(profile.dateOfBirth).slice(0, 10)}T00:00:00`).toLocaleDateString(lang === 'ar' ? 'ar' : 'en', {
         day: 'numeric', month: 'short', year: 'numeric'
@@ -380,7 +383,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
                     <div className="patient-file-field patient-file-field--insurance">
                       <span className="patient-file-field-label"><Shield size={14} aria-hidden="true" />{lang === 'ar' ? 'التأمين' : 'Insurance'}</span>
                       <strong>{profile.insurance?.providerName || (lang === 'ar' ? 'غير متوفر' : 'Not available')}</strong>
-                      {profile.insurance && <small>{lang === 'ar' ? 'نسبة التغطية' : 'Coverage'}: <bdi>{profile.insurance.coverageRate}%</bdi></small>}
+                      {hasRecordedCoverage && <small>{invoiceCoverageLabel} <bdi>{coverageRate}%</bdi></small>}
                     </div>
                   </div>
                 </section>
@@ -551,7 +554,7 @@ export function PatientProfileModal({ patientId, onClose, lang, onSelectSummary,
                   <div className="patient-file-overview-grid">
                     <div><span>{lang === 'ar' ? 'الحالة الحالية' : 'Current status'}</span><strong>{localizedStatus(profile.status, lang)}</strong></div>
                     <div><span>{lang === 'ar' ? 'آخر موعد مسجل' : 'Latest appointment'}</span><strong>{profile.appointments?.[0]?.appointmentDate || '—'}</strong></div>
-                    <div><span>{lang === 'ar' ? 'التغطية التأمينية' : 'Insurance coverage'}</span><strong>{profile.insurance ? `${profile.insurance.coverageRate}%` : '—'}</strong></div>
+                    <div><span>{invoiceCoverageLabel}</span><strong>{hasRecordedCoverage ? `${coverageRate}%` : '—'}</strong></div>
                   </div>
                 </section>
               )}

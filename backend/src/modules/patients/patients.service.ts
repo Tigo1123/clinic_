@@ -17,6 +17,7 @@ const {
 const { structuredPatientName } = require('../../utils/patientName.js');
 const { lockPatientIdentity, patientIdentitySummary } = require('../../utils/patientOnboarding.js');
 const { getClinicDateString } = require('../../utils/clinicTime.js');
+const { insuranceProfileClaimSelect, insuranceProfileSnapshot } = require('../../utils/insuranceProfile.js');
 const { doctorHasPatientAccess, getDoctorMedicalRecordAccess } = require('../../middleware/policies.js');
 import { CryptoService } from '../crypto/crypto.service.js';
 
@@ -416,12 +417,7 @@ export class PatientsService {
             insuranceClaims: {
               take: 1,
               orderBy: [{ submissionDate: 'desc' }, { paymentDate: 'desc' }],
-              select: {
-                claimStatus: true,
-                insuranceCompany: {
-                  select: { labelAr: true, labelEn: true, copayPercentage: true },
-                },
-              },
+              select: insuranceProfileClaimSelect,
             },
           }
         : {}),
@@ -569,7 +565,6 @@ export class PatientsService {
       .sort((a: any, b: any) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime())
       .slice(0, 50);
 
-    const activeClaim = patient.insuranceClaims?.[0];
 
     return {
       id: patient.id,
@@ -590,18 +585,7 @@ export class PatientsService {
             labelEn: patient.addressState.labelEn,
           }
         : null,
-      insurance: activeClaim
-        ? {
-            providerName:
-              activeClaim.insuranceCompany?.labelAr ||
-              activeClaim.insuranceCompany?.labelEn ||
-              'Insurance',
-            claimStatus: activeClaim.claimStatus,
-            coverageRate: activeClaim.insuranceCompany?.copayPercentage
-              ? Number(activeClaim.insuranceCompany.copayPercentage)
-              : 0,
-          }
-        : null,
+      insurance: insuranceProfileSnapshot(patient.insuranceClaims?.[0], patient.id),
       visitsCount: visits.length,
       visits,
       prescriptions,

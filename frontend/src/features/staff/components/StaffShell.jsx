@@ -26,6 +26,7 @@ export default function StaffShell({
   onToggleLanguage,
   onLogout,
   onOpenSecurity,
+  onSelectNotification,
   children,
 }) {
   const [nav, setNav] = useState(null);
@@ -110,7 +111,13 @@ export default function StaffShell({
             <div className="staff-shell__footer-actions">
               {/* Notifications */}
               {user && !user.mustChangePassword && (
-                <NotificationDropdown userId={user.id} lang={lang} />
+                <NotificationDropdown
+                  userId={user.id}
+                  userRole={user.role}
+                  doctorId={user.doctorId}
+                  lang={lang}
+                  onSelectNotification={onSelectNotification}
+                />
               )}
 
               {/* Security settings */}

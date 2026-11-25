@@ -8,7 +8,8 @@ export default function PendingAppointmentRow({
   setViewingProfilePatientId,
   handleApproveAppointment,
   handleCancelAppointment,
-  isActionPending = false
+  isActionPending = false,
+  isHighlighted = false
 }) {
   const patient = app.patient || {};
   const patientName = lang === 'ar'
@@ -19,7 +20,15 @@ export default function PendingAppointmentRow({
     : app.doctor?.fullNameEn || '—';
 
   return (
-    <article className="reception-pending-item">
+    <article
+      data-appointment-id={app.id}
+      ref={(node) => {
+        if (isHighlighted && node) {
+          node.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+        }
+      }}
+      className={`reception-pending-item${isHighlighted ? ' staff-notification-highlight' : ''}`}
+    >
       <div className="reception-pending-header">
         <button
           type="button"

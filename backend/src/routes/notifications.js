@@ -1,60 +1,38 @@
-import express from 'express';
 import { asyncRouter } from '../utils/asyncRouter.js';
 import prisma from '../db.js';
 import { authenticate } from '../middleware/auth.js';
+import { markSensitiveResponse } from '../utils/edgeSecurity.js';
+import {
+  getUserNotifications,
+  markAllNotificationsAsRead,
+  markNotificationAsRead,
+} from '../services/actionableNotifications.js';
 
 const router = asyncRouter();
+
+function createSocketEmitter(io) {
+  return (userId, notification) => {
+    if (io && userId) {
+      io.to(`user_${userId}`).emit('notification', notification);
+    }
+  };
+}
 
 /**
  * GET /api/notifications
  * Fetches notifications for the authenticated user (sorted newest first).
  */
 router.get('/', authenticate, async (req, res) => {
+  markSensitiveResponse(res);
   try {
-    const userId = req.user.id;
-    const notifications = await prisma.notification.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      take: 50
+    const result = await getUserNotifications(prisma, req.user.id, {
+      limit: req.query.limit,
+      unreadOnly: req.query.unreadOnly,
     });
-
-    const unreadCount = await prisma.notification.count({
-      where: { userId, isRead: false }
-    });
-
-    return res.json({ notifications, unreadCount });
+    return res.json(result);
   } catch (error) {
     console.error('Fetch notifications error:', error);
     return res.status(500).json({ error: 'Failed to fetch notifications.' });
-  }
-});
-
-/**
- * PATCH /api/notifications/:id/read
- * Marks a single notification as read for the authenticated user.
- */
-router.patch('/:id/read', authenticate, async (req, res) => {
-  const { id } = req.params;
-  const userId = req.user.id;
-
-  try {
-    const notification = await prisma.notification.findFirst({
-      where: { id, userId }
-    });
-
-    if (!notification) {
-      return res.status(404).json({ error: 'Notification not found.' });
-    }
-
-    const updated = await prisma.notification.update({
-      where: { id },
-      data: { isRead: true }
-    });
-
-    return res.json({ success: true, notification: updated });
-  } catch (error) {
-    console.error('Mark notification as read error:', error);
-    return res.status(500).json({ error: 'Failed to update notification status.' });
   }
 });
 
@@ -63,15 +41,10 @@ router.patch('/:id/read', authenticate, async (req, res) => {
  * Marks all notifications as read for the authenticated user.
  */
 router.patch('/read-all', authenticate, async (req, res) => {
-  const userId = req.user.id;
-
+  markSensitiveResponse(res);
   try {
-    await prisma.notification.updateMany({
-      where: { userId, isRead: false },
-      data: { isRead: true }
-    });
-
-    return res.json({ success: true });
+    const result = await markAllNotificationsAsRead(prisma, req.user.id);
+    return res.json(result);
   } catch (error) {
     console.error('Mark all notifications read error:', error);
     return res.status(500).json({ error: 'Failed to mark all as read.' });
@@ -79,30 +52,28 @@ router.patch('/read-all', authenticate, async (req, res) => {
 });
 
 /**
- * Helper function to create a notification in DB and emit in real-time via Socket.io
- * @param {Object} io - Socket.io server instance
- * @param {Object} payload - { userId, title, message }
+ * PATCH /api/notifications/:id/read
+ * Marks a single notification as read for the authenticated user.
  */
-export async function sendNotification(io, { userId, title, message }) {
+router.patch('/:id/read', authenticate, async (req, res) => {
+  markSensitiveResponse(res);
+  const { id } = req.params;
+  const userId = req.user.id;
+
   try {
-    const notification = await prisma.notification.create({
-      data: {
-        userId,
-        title,
-        message,
-        isRead: false
-      }
-    });
-
-    if (io) {
-      io.to(`user_${userId}`).emit('notification', notification);
+    const result = await markNotificationAsRead(prisma, id, userId);
+    if (!result) {
+      return res.status(404).json({ error: 'Notification not found.' });
     }
-
-    return notification;
+    return res.json(result);
   } catch (error) {
-    console.error('Send notification error:', error);
-    throw error;
+    console.error('Mark notification as read error:', error);
+    return res.status(500).json({ error: 'Failed to update notification status.' });
   }
+});
+
+export function deliverNotification(req, producer, input) {
+  return producer(prisma, createSocketEmitter(req.app.get('io')), input);
 }
 
 export default router;

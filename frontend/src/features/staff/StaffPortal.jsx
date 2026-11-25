@@ -46,6 +46,17 @@ export default function App({ initialView = 'login' }) {
   const [securityOpen, setSecurityOpen] = useState(false);
   const [recoveryLoginNotice, setRecoveryLoginNotice] = useState(false);
   const [sessionRevokedNotice, setSessionRevokedNotice] = useState(false);
+  const [notificationIntent, setNotificationIntent] = useState(null);
+  const notificationIntentSeqRef = useRef(0);
+
+  const handleSelectNotification = useCallback((intent) => {
+    notificationIntentSeqRef.current += 1;
+    setNotificationIntent({ ...intent, requestKey: notificationIntentSeqRef.current });
+  }, []);
+
+  const clearNotificationIntent = useCallback(() => {
+    setNotificationIntent(null);
+  }, []);
 
   // Load state on mount
   useEffect(() => {
@@ -74,6 +85,7 @@ export default function App({ initialView = 'login' }) {
     await logoutAccount('staff');
     setSecurityOpen(false);
     setRecoveryLoginNotice(false);
+    setNotificationIntent(null);
     clearStaffSession();
     setUser(null);
     setView(initialView);
@@ -95,6 +107,7 @@ export default function App({ initialView = 'login' }) {
   useEffect(() => configureStaffSocketSessionRevocation(() => {
     setSecurityOpen(false);
     setRecoveryLoginNotice(false);
+    setNotificationIntent(null);
     clearStaffSession();
     setUser(null);
     setView('login');
@@ -153,6 +166,7 @@ export default function App({ initialView = 'login' }) {
       onToggleLanguage={toggleLanguage}
       onLogout={handleLogout}
       onOpenSecurity={() => setSecurityOpen(true)}
+      onSelectNotification={handleSelectNotification}
     >
       {recoveryLoginNotice && user && (
         <div role="status" className="staff-shell__notice staff-shell__notice--warning">
@@ -166,7 +180,7 @@ export default function App({ initialView = 'login' }) {
       )}
       {view === 'dashboard' && user && (user.mustChangePassword
         ? <RequiredPasswordChange t={t} lang={lang} onComplete={handleLogout} />
-        : <DashboardContainer user={user} lang={lang} t={t} />)}
+        : <DashboardContainer user={user} lang={lang} t={t} notificationIntent={notificationIntent} onNotificationIntentHandled={clearNotificationIntent} />)}
       {securityOpen && user && <StaffSecurityDialog user={user} onUserChange={handleUserChange} onClose={() => setSecurityOpen(false)} t={t} />}
     </StaffShell>
   );
@@ -431,22 +445,22 @@ function LoginView({ onLogin, t, lang, productName, productDescriptor, showProdu
 /* ==========================================
    ROLE DASHBOARDS CONTAINER
    ========================================== */
-function DashboardContainer({ user, lang, t }) {
+function DashboardContainer({ user, lang, t, notificationIntent, onNotificationIntentHandled }) {
   let dashboard;
   if (user.role === 'ADMIN') {
-    dashboard = <AdminDashboard user={user} lang={lang} t={t} />;
+    dashboard = <AdminDashboard user={user} lang={lang} t={t} notificationIntent={notificationIntent} onNotificationIntentHandled={onNotificationIntentHandled} />;
   }
   else if (user.role === 'RECEPTIONIST') {
-    dashboard = <ReceptionDashboard lang={lang} t={t} />;
+    dashboard = <ReceptionDashboard lang={lang} t={t} notificationIntent={notificationIntent} onNotificationIntentHandled={onNotificationIntentHandled} />;
   }
   else if (user.role === 'DOCTOR') {
-    dashboard = <DoctorDashboard user={user} lang={lang} t={t} />;
+    dashboard = <DoctorDashboard user={user} lang={lang} t={t} notificationIntent={notificationIntent} onNotificationIntentHandled={onNotificationIntentHandled} />;
   }
   else if (user.role === 'PHARMACIST') {
-    dashboard = <PharmacyDashboard lang={lang} t={t} />;
+    dashboard = <PharmacyDashboard lang={lang} t={t} notificationIntent={notificationIntent} onNotificationIntentHandled={onNotificationIntentHandled} />;
   }
   else if (user.role === 'LAB_TECH') {
-    dashboard = <LaboratoryDashboard lang={lang} />;
+    dashboard = <LaboratoryDashboard lang={lang} notificationIntent={notificationIntent} onNotificationIntentHandled={onNotificationIntentHandled} />;
   }
   else return (
     <div className="staff-unknown-role">

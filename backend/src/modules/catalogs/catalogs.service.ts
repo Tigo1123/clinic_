@@ -51,6 +51,33 @@ export interface UpdatePaymentMethodDto {
   active?: boolean;
 }
 
+export interface InsuranceCompanyDto {
+  id: string;
+  labelAr: string;
+  labelEn: string;
+  copayPercentage: number;
+  billingCycleDays: number;
+  active: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateInsuranceCompanyDto {
+  labelAr: string;
+  labelEn: string;
+  copayPercentage: string;
+  billingCycleDays: number;
+  active: boolean;
+}
+
+export interface UpdateInsuranceCompanyDto {
+  labelAr?: string;
+  labelEn?: string;
+  copayPercentage?: string;
+  billingCycleDays?: number;
+  active?: boolean;
+}
+
 @Injectable()
 export class CatalogsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -66,6 +93,55 @@ export class CatalogsService {
       priceSdg: service.baseFeeSdg?.toString() ?? null,
       updatedAt: service.updatedAt,
     };
+  }
+
+  private insuranceDto(company: any): InsuranceCompanyDto {
+    return {
+      id: company.id,
+      labelAr: company.labelAr,
+      labelEn: company.labelEn,
+      copayPercentage: Number(company.copayPercentage),
+      billingCycleDays: company.billingCycleDays,
+      active: company.active,
+      createdAt: company.createdAt,
+      updatedAt: company.updatedAt,
+    };
+  }
+
+  private async uniqueInsuranceCompany(
+    tx: any,
+    data: { labelAr: string; labelEn: string },
+    exceptId?: string,
+  ) {
+    const keys = [
+      `insurance-company:ar:${normalize(data.labelAr)}`,
+      `insurance-company:en:${normalize(data.labelEn)}`,
+    ].sort();
+
+    for (const key of [...new Set(keys)]) {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${key})) IS NULL AS locked`;
+    }
+
+    const candidates = await tx.insuranceCompany.findMany({
+      where: exceptId ? { id: { not: exceptId } } : {},
+      select: { labelAr: true, labelEn: true },
+    });
+
+    if (
+      candidates.some(
+        (item: any) =>
+          normalize(item.labelAr) === normalize(data.labelAr) ||
+          normalize(item.labelEn) === normalize(data.labelEn),
+      )
+    ) {
+      throw new HttpException(
+        {
+          code: 'INSURANCE_COMPANY_DUPLICATE',
+          message: 'An insurance provider with one of these names already exists.',
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
   }
 
   private async audit(
@@ -315,6 +391,102 @@ export class CatalogsService {
         return updated;
       });
       return result;
+    } catch (error) {
+      this.handleError(error);
+    }
+  }
+
+  async listInsuranceCompanies() {
+    const companies = await this.prisma.insuranceCompany.findMany({
+      orderBy: [{ labelEn: 'asc' }, { id: 'asc' }],
+    });
+    return companies.map((company: any) => this.insuranceDto(company));
+  }
+
+  async createInsuranceCompany(
+    data: CreateInsuranceCompanyDto,
+    userId: string,
+    ip?: string,
+  ) {
+    try {
+      const created = await this.prisma.$transaction(async (tx: any) => {
+        await this.uniqueInsuranceCompany(tx, data);
+        const company = await tx.insuranceCompany.create({
+          data: {
+            labelAr: data.labelAr,
+            labelEn: data.labelEn,
+            copayPercentage: money(data.copayPercentage),
+            billingCycleDays: data.billingCycleDays,
+            active: data.active,
+          },
+        });
+        await this.audit(tx, userId, ip, 'INSURANCE_COMPANY_CREATED', {
+          insuranceCompanyId: company.id,
+          labelAr: company.labelAr,
+          labelEn: company.labelEn,
+          copayPercentage: Number(company.copayPercentage),
+          billingCycleDays: company.billingCycleDays,
+          active: company.active,
+        });
+        return company;
+      });
+      return this.insuranceDto(created);
+    } catch (error) {
+      this.handleError(error);
+    }
+  }
+
+  async updateInsuranceCompany(
+    id: string,
+    data: UpdateInsuranceCompanyDto,
+    userId: string,
+    ip?: string,
+  ) {
+    try {
+      const updated = await this.prisma.$transaction(async (tx: any) => {
+        await tx.$queryRaw`SELECT "id" FROM "InsuranceCompany" WHERE "id" = ${id} FOR UPDATE`;
+        const existing = await tx.insuranceCompany.findUnique({ where: { id } });
+        if (!existing) {
+          throw new HttpException(
+            {
+              code: 'INSURANCE_COMPANY_NOT_FOUND',
+              message: 'Insurance provider not found.',
+            },
+            HttpStatus.NOT_FOUND,
+          );
+        }
+
+        const identity = {
+          labelAr: data.labelAr ?? existing.labelAr,
+          labelEn: data.labelEn ?? existing.labelEn,
+        };
+        await this.uniqueInsuranceCompany(tx, identity, existing.id);
+
+        const { copayPercentage, ...rest } = data;
+        const company = await tx.insuranceCompany.update({
+          where: { id: existing.id },
+          data: {
+            ...rest,
+            ...(copayPercentage !== undefined
+              ? { copayPercentage: money(copayPercentage) }
+              : {}),
+          },
+        });
+
+        await this.audit(tx, userId, ip, 'INSURANCE_COMPANY_UPDATED', {
+          insuranceCompanyId: company.id,
+          changedFields: Object.keys(data),
+          previousActive: existing.active,
+          active: company.active,
+          previousCopayPercentage: Number(existing.copayPercentage),
+          copayPercentage: Number(company.copayPercentage),
+          previousBillingCycleDays: existing.billingCycleDays,
+          billingCycleDays: company.billingCycleDays,
+        });
+
+        return company;
+      });
+      return this.insuranceDto(updated);
     } catch (error) {
       this.handleError(error);
     }

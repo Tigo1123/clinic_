@@ -44,8 +44,14 @@ test('clinical workflow retains vitals, assessment, prescription, lab, and compl
   }
   assert.match(dashboard, /<MedicineCombobox medicines=\{drugs\}/);
   assert.match(dashboard, /doctor-custom-medicine/);
-  assert.match(dashboard, /doctor-lab-order-card/);
-  assert.match(dashboard, /handleToggleTest\(svc\.id\)/);
+  const picker = source('src/features/staff/doctor/ClinicalOrderPicker.jsx');
+  assert.ok(dashboard.indexOf('<ClinicalOrderPicker') < dashboard.indexOf('<MedicineCombobox'));
+  assert.match(picker, /doctor-lab-order-card/);
+  assert.match(picker, /onToggle\(service.id, category\)/);
+  assert.match(picker, /LABORATORY[\s\S]*RADIOLOGY[\s\S]*CLINICAL_PROCEDURE/);
+  assert.match(dashboard, /orderedServices: orderedTests/);
+  assert.match(dashboard, /serviceOrders: serviceOrders.map/);
+  assert.doesNotMatch(dashboard + picker, /customTests|Custom test name/);
   assert.match(dashboard, /onClick=\{handleSaveConsultation\}/);
   assert.match(dashboard, /disabled=\{isSavingConsultation \|\| isReadOnlyVisit\}/);
 });

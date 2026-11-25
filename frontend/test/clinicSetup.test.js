@@ -42,13 +42,20 @@ async function submit() { await act(async () => document.querySelector('form').d
 afterEach(async () => { if (root) await act(async () => root.unmount()); root = null; delete globalThis.setupTestRequest; delete globalThis.setupTestMode; });
 
 test('payloads preserve decimal strings, immutable categories and staff authority boundaries', () => {
-  const draft = { labelAr: ' اختبار ', labelEn: ' Test ', code: 'test', priceSdg: '17001', active: false, category: 'CONSULTATION', specialtyId: 'specialty', username: 'doctor@example.test', password: 'Temporary@123' };
+  const draft = { labelAr: ' اختبار ', labelEn: ' Test ', code: 'test', priceSdg: '17001', copayPercentage: ' 12.5 ', billingCycleDays: ' 45 ', active: false, category: 'CONSULTATION', specialtyId: 'specialty', username: 'doctor@example.test', password: 'Temporary@123' };
   assert.equal(setupPayload('services', draft, false).priceSdg, '17001');
   assert.equal(setupPayload('labs', draft, false).category, 'LABORATORY');
   assert.equal(setupPayload('labs', draft, true).category, undefined);
   assert.equal(setupPayload('doctors', draft, true).password, undefined);
   assert.equal(setupPayload('doctors', draft, false).role, 'DOCTOR');
   assert.deepEqual(Object.keys(setupPayload('payments', draft, true)).sort(), ['active', 'labelAr', 'labelEn']);
+  assert.deepEqual(setupPayload('insurance', draft, false), {
+    labelAr: 'اختبار',
+    labelEn: 'Test',
+    copayPercentage: '12.5',
+    billingCycleDays: 45,
+    active: false
+  });
 });
 
 for (const lang of ['ar', 'en']) for (const mode of ['light', 'dark']) test(`${lang}/${mode}: MUI controls, localized empty state and direction remain coherent`, async () => {
@@ -59,7 +66,7 @@ for (const lang of ['ar', 'en']) for (const mode of ['light', 'dark']) test(`${l
   assert.ok(document.querySelector('.MuiTabs-root'));
   assert.ok(document.querySelector('.MuiCard-root'));
   assert.match(document.body.textContent, new RegExp(copy.empty));
-  assert.equal(document.querySelectorAll('[role=tab]').length, 5);
+  assert.equal(document.querySelectorAll('[role=tab]').length, 6);
   const theme = createPatientMuiTheme(mode, lang === 'ar' ? 'rtl' : 'ltr');
   assert.equal(theme.palette.mode, mode); assert.equal(theme.direction, lang === 'ar' ? 'rtl' : 'ltr');
   await clickText(`${copy.add} ${copy.doctors}`);
@@ -136,4 +143,71 @@ test('doctor edit uses the profile API, preserves account secrets, and opens tha
   assert.equal(writes[0].payload.specialtyId, 'specialty-fixture');
   assert.equal(writes[0].payload.password, undefined);
   assert.equal(writes[0].payload.username, undefined);
+});
+
+test('insurance configuration validates copay and billing cycle, confirms creation, handles duplicates, and supports editing', async () => {
+  const writes = [];
+  let providers = [];
+  let duplicate = false;
+  await mount('en', 'insurance', (url, options) => {
+    if (!options) return reply(providers);
+    const payload = JSON.parse(options.body);
+    writes.push({ url, method: options.method, payload });
+    if (duplicate) return reply({ error: { code: 'INSURANCE_COMPANY_DUPLICATE' } }, false);
+    if (options.method === 'POST') {
+      const created = { id: 'ins-1', ...payload };
+      providers = [created];
+      return reply(created);
+    }
+    providers = providers.map((entry) => entry.id === 'ins-1' ? { ...entry, ...payload } : entry);
+    return reply(providers[0]);
+  });
+
+  await clickText('Add Insurance providers');
+  for (const [name, value] of [['labelAr', 'شركة اختبار'], ['labelEn', 'Test Insurance'], ['copayPercentage', '100.01'], ['billingCycleDays', '30']]) await fill(name, value);
+  await submit();
+  assert.equal(writes.length, 0);
+  assert.match(document.body.textContent, /copay percentage between 0 and 100/);
+
+  await fill('copayPercentage', '15.5');
+  await fill('billingCycleDays', '400');
+  await submit();
+  assert.equal(writes.length, 0);
+  assert.match(document.body.textContent, /billing cycle between 1 and 365 days/);
+
+  duplicate = true;
+  await fill('billingCycleDays', '45');
+  await submit();
+  await clickText('Save', document.querySelectorAll('[role=dialog]')[1]);
+  assert.equal(writes.length, 1);
+  assert.match(document.body.textContent, /already exists/);
+
+  duplicate = false;
+  await submit();
+  await clickText('Save', document.querySelectorAll('[role=dialog]')[1]);
+  assert.equal(writes.length, 2);
+  assert.equal(writes[1].url, '/api/admin/catalog/insurance-companies');
+  assert.equal(writes[1].method, 'POST');
+  assert.deepEqual(writes[1].payload, {
+    labelAr: 'شركة اختبار',
+    labelEn: 'Test Insurance',
+    copayPercentage: '15.5',
+    billingCycleDays: 45,
+    active: true
+  });
+  assert.match(document.querySelector('.clinic-setup-panel article').textContent, /Test Insurance/);
+  assert.match(document.querySelector('.clinic-setup-panel article').textContent, /15\.5%/);
+  assert.match(document.querySelector('.clinic-setup-panel article').textContent, /45 days/);
+
+  await clickText('Edit');
+  await fill('copayPercentage', '25');
+  await fill('billingCycleDays', '60');
+  await submit();
+  await clickText('Save', document.querySelectorAll('[role=dialog]')[1]);
+  assert.equal(writes[2].url, '/api/admin/catalog/insurance-companies/ins-1');
+  assert.equal(writes[2].method, 'PATCH');
+  assert.equal(writes[2].payload.copayPercentage, '25');
+  assert.equal(writes[2].payload.billingCycleDays, 60);
+  assert.match(document.querySelector('.clinic-setup-panel article').textContent, /25%/);
+  assert.match(document.querySelector('.clinic-setup-panel article').textContent, /60 days/);
 });

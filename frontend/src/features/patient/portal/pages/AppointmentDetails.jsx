@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { patientApiRequest as apiRequest } from '../../../../services/apiClient';
+import { patientSocket } from '../../../../services/patient/patientSocket';
 import { patientErrorMessage } from '../../../../services/patientErrors';
 import StatusBadge from '../../../../components/ui/StatusBadge';
 import Dialog from '../../../../components/ui/Dialog';
@@ -23,6 +24,18 @@ export function AppointmentDetails() {
     setConfirming(false);
     setCancelling(false);
   }, [id]);
+
+  useEffect(() => {
+    const handleNotification = (notif) => {
+      if (notif?.targetId === id || notif?.targetType === 'appointment') {
+        reload();
+      }
+    };
+    patientSocket.on('notification', handleNotification);
+    return () => {
+      patientSocket.off('notification', handleNotification);
+    };
+  }, [id, reload]);
 
   async function cancel() {
     setCancelling(true);

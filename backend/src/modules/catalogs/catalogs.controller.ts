@@ -56,6 +56,67 @@ const pageSchema = z
 
 const idSchema = z.object({ id: z.string().uuid() });
 
+function isValidCopayPercentage(value: unknown): boolean {
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return false;
+  } else if (typeof value !== 'string') {
+    return false;
+  }
+  const normalized = String(value).trim();
+  if (!/^(?:0|[1-9]\d{0,2})(?:\.\d{1,2})?$/.test(normalized)) return false;
+  const [whole, fraction = ''] = normalized.split('.');
+  const basisPoints = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+  return Number.isSafeInteger(basisPoints) && basisPoints >= 0 && basisPoints <= 10_000;
+}
+
+function isValidBillingCycleDays(value: unknown): boolean {
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value >= 1 && value <= 365;
+  }
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim();
+  if (!/^[1-9]\d{0,2}$/.test(normalized)) return false;
+  const days = Number(normalized);
+  return Number.isSafeInteger(days) && days >= 1 && days <= 365;
+}
+
+const copayPercentageSchema = z
+  .union([z.string(), z.number()])
+  .refine(
+    isValidCopayPercentage,
+    'Copay percentage must be between 0 and 100 with up to 2 decimal places.',
+  )
+  .transform((value) => String(value).trim());
+
+const billingCycleDaysSchema = z
+  .union([z.string(), z.number()])
+  .refine(
+    isValidBillingCycleDays,
+    'Billing cycle must be a whole number of days between 1 and 365.',
+  )
+  .transform((value) => Number(String(value).trim()));
+
+const insuranceCreateSchema = z
+  .object({
+    labelAr: label,
+    labelEn: label,
+    copayPercentage: copayPercentageSchema,
+    billingCycleDays: billingCycleDaysSchema,
+    active: z.boolean().default(true),
+  })
+  .strict();
+
+const insuranceUpdateSchema = z
+  .object({
+    labelAr: label.optional(),
+    labelEn: label.optional(),
+    copayPercentage: copayPercentageSchema.optional(),
+    billingCycleDays: billingCycleDaysSchema.optional(),
+    active: z.boolean().optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, 'No changes supplied.');
+
 const paymentMethodParamsSchema = z.object({
   code: z.enum(['CASH', 'CARD', 'BANKAK', 'FAWRY']),
 });
@@ -119,5 +180,34 @@ export class CatalogsController {
     @Req() req: Request,
   ) {
     return this.catalogsService.updatePaymentMethod(params.code, body, user.id, req.ip);
+  }
+
+  @Get('insurance-companies')
+  @HttpCode(HttpStatus.OK)
+  async listInsuranceCompanies() {
+    return this.catalogsService.listInsuranceCompanies();
+  }
+
+  @Post('insurance-companies')
+  @HttpCode(HttpStatus.CREATED)
+  async createInsuranceCompany(
+    @Body(new ZodValidationPipe(insuranceCreateSchema))
+    body: z.infer<typeof insuranceCreateSchema>,
+    @CurrentUser() user: any,
+    @Req() req: Request,
+  ) {
+    return this.catalogsService.createInsuranceCompany(body, user.id, req.ip);
+  }
+
+  @Patch('insurance-companies/:id')
+  @HttpCode(HttpStatus.OK)
+  async updateInsuranceCompany(
+    @Param(new ZodValidationPipe(idSchema)) params: { id: string },
+    @Body(new ZodValidationPipe(insuranceUpdateSchema))
+    body: z.infer<typeof insuranceUpdateSchema>,
+    @CurrentUser() user: any,
+    @Req() req: Request,
+  ) {
+    return this.catalogsService.updateInsuranceCompany(params.id, body, user.id, req.ip);
   }
 }

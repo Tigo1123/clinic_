@@ -128,18 +128,19 @@ test('staff realtime notifications use one shared authenticated socket', () => {
   const notifications = source('src/features/staff/components/NotificationDropdown.jsx');
   assert.equal((service.match(/\bio\s*\(/g) || []).length, 1);
   assert.doesNotMatch(notifications, /from ['"]socket\.io-client['"]/);
-  assert.match(notifications, /staffSocket as socket/);
-  assert.match(notifications, /socket\.off\('notification', handleNotification\)/);
-  assert.doesNotMatch(notifications, /socket\.off\('notification'\)/);
+  const hook = source('src/features/notifications/useNotifications.js');
+  assert.match(notifications, /socket=\{staffSocket\}/);
+  assert.match(hook, /socket\.off\('notification', handleNotification\)/);
+  assert.doesNotMatch(hook, /socket\.off\('notification'\)/);
 });
 
 test('terminal socket security errors stop reconnection and invoke central session handling', () => {
-  const service = source('src/services/staff/staffSocket.js');
+  const service = source('src/services/socketLifecycle.js');
   const app = source('src/features/staff/StaffPortal.jsx');
   assert.match(service, /sessionRevoked/);
   assert.match(service, /SESSION_REVOKED/);
   assert.match(service, /INVALID_TOKEN/);
-  assert.match(service, /reconnection\(false\)/);
+  assert.match(service, /reconnection\?\.\(false\)/);
   assert.match(service, /terminalSessionHandler\?\.\(\)/);
   assert.match(app, /configureStaffSocketSessionRevocation/);
   assert.match(app, /clearStaffSession\(\)/);

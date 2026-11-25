@@ -10,6 +10,7 @@ import { validate } from '../middleware/validate.js';
 import { getClinicDateString } from '../utils/clinicTime.js';
 import { findPossiblePatientDuplicates, normalizeFileNumber, normalizeNationalId, normalizePatientPhone, safeDuplicateCandidates } from '../utils/patientIdentity.js';
 import { newPatientSchema, STRUCTURED_PATIENT_NAME_FIELDS, structuredPatientName, structuredPatientNameSchema } from '../utils/patientName.js';
+import { insuranceProfileClaimSelect, insuranceProfileSnapshot } from '../utils/insuranceProfile.js';
 
 import { lockPatientIdentity, patientDateOfBirthSchema, patientIdentitySummary } from '../utils/patientOnboarding.js';
 
@@ -390,10 +391,7 @@ router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTION
         ...(canViewBilling ? { insuranceClaims: {
           take: 1,
           orderBy: [{ submissionDate: 'desc' }, { paymentDate: 'desc' }],
-          select: {
-            claimStatus: true,
-            insuranceCompany: { select: { labelAr: true, labelEn: true, copayPercentage: true } }
-          }
+          select: insuranceProfileClaimSelect
         } } : {}),
         ...(isDoctor ? { medicalRecords: {
           where: recordAccess?.where,
@@ -507,8 +505,6 @@ router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTION
       }))
     ).sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate)).slice(0, 50);
 
-    const activeClaim = patient.insuranceClaims?.[0];
-
     const profileData = {
       id: patient.id,
       fileNumber: patient.fileNumber,
@@ -526,11 +522,7 @@ router.get('/:id/profile', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTION
         labelAr: patient.addressState.labelAr,
         labelEn: patient.addressState.labelEn
       } : null,
-      insurance: activeClaim ? {
-        providerName: activeClaim.insuranceCompany?.labelAr || activeClaim.insuranceCompany?.labelEn || 'Insurance',
-        claimStatus: activeClaim.claimStatus,
-        coverageRate: activeClaim.insuranceCompany?.copayPercentage ? Number(activeClaim.insuranceCompany.copayPercentage) : 0
-      } : null,
+      insurance: insuranceProfileSnapshot(patient.insuranceClaims?.[0], patient.id),
       visitsCount: visits.length,
       visits,
       prescriptions,

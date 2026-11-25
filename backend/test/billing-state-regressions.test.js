@@ -217,7 +217,7 @@ test('toggleStaffStatus keeps the Express-parity plain Error for a missing targe
 
 function billingHarness({ copayPercentage, existingByType = {}, labOrderStatus = 'PENDING_BILLING' } = {}) {
   const state = { invoices: [], audits: [], labOrder: { id: 'lab-1', status: labOrderStatus }, findFirstWheres: [] };
-  const company = copayPercentage === undefined ? null : { id: 'ins-1', copayPercentage: String(copayPercentage) };
+  const company = copayPercentage === undefined ? null : { id: 'ins-1', active: true, copayPercentage: String(copayPercentage) };
   const tx = {
     $queryRaw: async () => [],
     invoice: {
@@ -230,7 +230,7 @@ function billingHarness({ copayPercentage, existingByType = {}, labOrderStatus =
           .filter((row) => !where.appointmentId || row.appointmentId === where.appointmentId)
           .filter((row) => !excluded.includes(row.paymentStatus))
           .filter((row) => !where.paymentStatus?.not || row.paymentStatus !== where.paymentStatus.not);
-        return rows.at(-1) ? { ...rows.at(-1), items: [], insuranceClaim: null } : null;
+        return rows.at(-1) ? { ...rows.at(-1), items: [], insuranceClaim: null, payments: [], refunds: [] } : null;
       },
       create: async ({ data }) => {
         const row = { id: `inv-${state.invoices.length + 1}`, ...data, items: [] };
@@ -272,6 +272,7 @@ function billingHarness({ copayPercentage, existingByType = {}, labOrderStatus =
         id: 'lab-1',
         patientId: 'patient-1',
         status: state.labOrder.status,
+        invoices: [],
         medicalRecord: { appointmentId: 'appt-1' },
         items: [
           {

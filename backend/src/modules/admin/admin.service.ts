@@ -2,10 +2,12 @@ import {
   Injectable,
   HttpException,
   HttpStatus,
+  Optional,
 } from '@nestjs/common';
 import bcrypt from 'bcryptjs';
 import { createRequire } from 'node:module';
 import { PrismaService } from '../../database/prisma.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 import { Prisma } from '../../generated/prisma/index.js';
 import { lockDoctorLifecycle, synchronizeDoctorAccount } from '../../services/doctorLifecycle.js';
 import { usdFromSdg, subtractMoney } from '../../common/utils/money.js';
@@ -38,7 +40,7 @@ const AUDIT_TARGET_FIELDS: ReadonlyArray<readonly [string, string]> = Object.fre
   ['patientId', 'PATIENT'], ['appointmentId', 'APPOINTMENT'], ['doctorId', 'DOCTOR'],
   ['labOrderId', 'LAB_ORDER'], ['labOrderItemId', 'LAB_ORDER_ITEM'], ['invoiceId', 'INVOICE'],
   ['prescriptionId', 'PRESCRIPTION'], ['drugId', 'MEDICINE'], ['batchId', 'INVENTORY_BATCH'],
-  ['userId', 'USER'], ['entityId', 'ENTITY'],
+  ['userId', 'USER'], ['entityId', 'ENTITY'], ['insuranceCompanyId', 'INSURANCE_COMPANY'],
 ]);
 
 function safeStructuredAuditDetails(details: string | null): { summary: any; target: { type: string; id: any } | null } {
@@ -84,7 +86,10 @@ const normalizeEmail = (val: string) => (val || '').trim().toLowerCase();
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly notificationsService?: NotificationsService,
+  ) {}
 
   // ===================== PRICING =====================
 
@@ -267,7 +272,7 @@ export class AdminService {
     }
   }
 
-  async updateMedicinePrice(id: string, body: { priceSdg: number; status?: 'ACTIVE' | 'INACTIVE' }, userId: string, ip?: string) {
+  async updateMedicinePrice(id: string, body: { priceSdg?: number; status?: 'ACTIVE' | 'INACTIVE' }, userId: string, ip?: string) {
     try {
       const medicine = await this.prisma.$transaction(async (tx: any) => {
         await tx.$queryRaw`SELECT "id" FROM "DrugFormulary" WHERE "id" = ${id} FOR UPDATE`;
@@ -278,10 +283,22 @@ export class AdminService {
             HttpStatus.NOT_FOUND,
           );
         }
+        const nextStatus = body.status ?? existing.status;
+        const existingPrice = existing.unitPriceSdg == null ? null : Number(existing.unitPriceSdg);
+        const nextPrice = body.priceSdg ?? existingPrice;
+        if (nextStatus === 'ACTIVE' && (nextPrice === null || !Number.isSafeInteger(nextPrice) || nextPrice <= 0)) {
+          throw new HttpException(
+            {
+              code: 'PHARMACY_PRICE_REQUIRED',
+              message: 'An active medicine must have a valid positive price in SDG.',
+            },
+            HttpStatus.UNPROCESSABLE_ENTITY,
+          );
+        }
         const updated = await tx.drugFormulary.update({
           where: { id: existing.id },
           data: {
-            unitPriceSdg: body.priceSdg,
+            ...(body.priceSdg !== undefined && { unitPriceSdg: body.priceSdg }),
             ...(body.status && { status: body.status }),
           },
         });
@@ -289,18 +306,21 @@ export class AdminService {
           data: {
             userId,
             action: 'MEDICINE_SELLING_PRICE_UPDATED',
-            details: auditDetails(
-              'MEDICINE',
-              existing.id,
-              existing.unitPriceSdg == null ? null : Number(existing.unitPriceSdg),
-              body.priceSdg,
-              existing.status,
-              updated.status,
-            ),
+            details: JSON.stringify({
+              resourceType: 'MEDICINE',
+              resourceId: existing.id,
+              drugId: existing.id,
+              previousPriceSdg: existingPrice,
+              newPriceSdg: updated.unitPriceSdg == null ? null : Number(updated.unitPriceSdg),
+              previousStatus: existing.status,
+              newStatus: updated.status,
+              status: updated.status,
+            }),
             ipAddress: ip || 'unknown',
           },
         });
 
+        const createdPharmacyInvoices: Array<{ prescriptionId: string; invoiceId: string }> = [];
         if (updated.status === 'ACTIVE') {
           const affectedPrescriptions = await tx.prescribedDrug.findMany({
             where: {
@@ -332,19 +352,32 @@ export class AdminService {
           }
 
           for (const { prescriptionId } of affectedPrescriptions) {
-            await ensurePharmacyInvoiceInTransaction(tx, {
+            const invoiceResult = await ensurePharmacyInvoiceInTransaction(tx, {
               prescriptionId,
               actorUserId: userId,
               ipAddress: ip || 'unknown',
               trigger: 'MEDICINE_PRICED_AND_ACTIVATED',
             });
+            if (invoiceResult?.invoice && !invoiceResult.existing) {
+              createdPharmacyInvoices.push({
+                prescriptionId,
+                invoiceId: invoiceResult.invoice.id,
+              });
+            }
           }
         }
 
-        return updated;
+        return { updated, createdPharmacyInvoices };
       });
 
-      return { ...medicine, unitPriceSdg: Number(medicine.unitPriceSdg) };
+      for (const item of medicine.createdPharmacyInvoices) {
+        await this.notificationsService?.notifyPharmacyInvoiceReady({
+          prescriptionId: item.prescriptionId,
+          invoiceId: item.invoiceId,
+        });
+      }
+
+      return { ...medicine.updated, unitPriceSdg: medicine.updated.unitPriceSdg == null ? null : Number(medicine.updated.unitPriceSdg) };
     } catch (error: any) {
       if (error instanceof HttpException) throw error;
       if (error.status && error.code) {

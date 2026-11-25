@@ -10,10 +10,23 @@ import { clinicCopy, setupPayload } from './clinicSetup.js';
 import AdminSchedulePanel from './AdminSchedulePanel';
 import PasswordField from '../../../components/PasswordField.jsx';
 
-const resources = ['doctors', 'specialties', 'services', 'labs', 'payments'];
+const resources = ['doctors', 'specialties', 'services', 'labs', 'payments', 'insurance'];
 const categories = ['CONSULTATION', 'CLINICAL_PROCEDURE', 'RADIOLOGY'];
-const endpoints = { doctors: '/api/admin/doctors', specialties: '/api/specialties', services: '/api/admin/catalog/services', labs: '/api/admin/catalog/services', payments: '/api/admin/catalog/payment-methods' };
-const blank = { labelAr: '', labelEn: '', code: '', priceSdg: '', specialtyId: '', username: '', password: '', category: 'CONSULTATION', active: false };
+const endpoints = { doctors: '/api/admin/doctors', specialties: '/api/specialties', services: '/api/admin/catalog/services', labs: '/api/admin/catalog/services', payments: '/api/admin/catalog/payment-methods', insurance: '/api/admin/catalog/insurance-companies' };
+const blank = { labelAr: '', labelEn: '', code: '', priceSdg: '', copayPercentage: '', billingCycleDays: '', specialtyId: '', username: '', password: '', category: 'CONSULTATION', active: false };
+function isValidCopayPercentage(value) {
+  const normalized = String(value ?? '').trim();
+  if (!/^(?:0|[1-9]\d{0,2})(?:\.\d{1,2})?$/.test(normalized)) return false;
+  const [whole, fraction = ''] = normalized.split('.');
+  const basisPoints = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+  return Number.isSafeInteger(basisPoints) && basisPoints >= 0 && basisPoints <= 10_000;
+}
+function isValidBillingCycleDays(value) {
+  const normalized = String(value ?? '').trim();
+  if (!/^[1-9]\d{0,2}$/.test(normalized)) return false;
+  const days = Number(normalized);
+  return Number.isSafeInteger(days) && days >= 1 && days <= 365;
+}
 async function request(url, options) {
   const response = await fetchWithAuth(url, options);
   const payload = await response.json().catch(() => ({}));
@@ -65,7 +78,7 @@ export default function ClinicSetupPanel({ lang = 'en', t, initialTab = 'doctors
   }, [resource, search, status, page, version, copy.failed]);
   const open = item => {
     setEditor({ item, resource }); setFormError(''); setSuccess('');
-    setDraft(item ? { ...blank, labelAr: item.fullNameAr || item.nameAr || item.labelAr, labelEn: item.fullNameEn || item.nameEn || item.labelEn, code: item.code || '', priceSdg: String(item.consultationFee ?? item.priceSdg ?? ''), specialtyId: item.specialtyId || '', category: item.category || 'CONSULTATION', active: resource === 'doctors' ? item.status === 'ACTIVE' && item.account?.status === 'ACTIVE' : item.active ?? item.status === 'ACTIVE' } : { ...blank, active: resource === 'specialties' });
+    setDraft(item ? { ...blank, labelAr: item.fullNameAr || item.nameAr || item.labelAr, labelEn: item.fullNameEn || item.nameEn || item.labelEn, code: item.code || '', priceSdg: String(item.consultationFee ?? item.priceSdg ?? ''), copayPercentage: item.copayPercentage != null ? String(item.copayPercentage) : '', billingCycleDays: item.billingCycleDays != null ? String(item.billingCycleDays) : '', specialtyId: item.specialtyId || '', category: item.category || 'CONSULTATION', active: resource === 'doctors' ? item.status === 'ACTIVE' && item.account?.status === 'ACTIVE' : item.active ?? item.status === 'ACTIVE' } : { ...blank, active: resource === 'specialties' || resource === 'insurance' });
   };
   const close = () => { if (!saving) { setEditor(null); setDraft(blank); setFormError(''); setConfirm(false); } };
   const field = (name, label, options = {}) => {
@@ -75,6 +88,14 @@ export default function ClinicSetupPanel({ lang = 'en', t, initialTab = 'doctors
   const submit = event => {
     event.preventDefault();
     if (saving) return;
+    if (resource === 'insurance') {
+      if (!draft.labelAr.trim() || !draft.labelEn.trim() || !isValidCopayPercentage(draft.copayPercentage) || !isValidBillingCycleDays(draft.billingCycleDays)) {
+        setFormError(copy.insuranceInvalid);
+        return;
+      }
+      setFormError(''); setConfirm(true);
+      return;
+    }
     const needsPrice = ['doctors', 'services', 'labs'].includes(resource);
     if (!draft.labelAr.trim() || !draft.labelEn.trim() || (needsPrice && (!/^[1-9]\d*$/.test(draft.priceSdg) || Number(draft.priceSdg) > 1_000_000_000)) || (resource === 'doctors' && (!draft.specialtyId || (!editor.item && !isStaffPasswordValid(draft.password))))) { setFormError(copy.invalid); return; }
     setFormError(''); setConfirm(true);
@@ -87,14 +108,14 @@ export default function ClinicSetupPanel({ lang = 'en', t, initialTab = 'doctors
       await request(url, { method: editing ? 'PATCH' : 'POST', body: JSON.stringify(setupPayload(resource, draft, editing)) });
       setEditor(null); setDraft(blank); setSuccess(copy.saved); setVersion(value => value + 1);
     } catch (failure) {
-      setFormError(['CATALOG_DUPLICATE', 'SPECIALTY_NAME_EXISTS', 'SPECIALTY_CODE_EXISTS', 'USERNAME_ALREADY_REGISTERED'].includes(failure.code) ? (lang === 'ar' ? 'يوجد مدخل بهذا الرمز أو الاسم. عدّل البيانات وحاول مجدداً.' : 'An entry with this code or name already exists. Update the fields and retry.') : copy.saveFailed);
+      setFormError(['CATALOG_DUPLICATE', 'SPECIALTY_NAME_EXISTS', 'SPECIALTY_CODE_EXISTS', 'USERNAME_ALREADY_REGISTERED', 'INSURANCE_COMPANY_DUPLICATE'].includes(failure.code) ? (lang === 'ar' ? 'يوجد مدخل بهذا الرمز أو الاسم. عدّل البيانات وحاول مجدداً.' : 'An entry with this code or name already exists. Update the fields and retry.') : copy.saveFailed);
     } finally { setSaving(false); }
   };
   return <CacheProvider value={patientStyleCaches[direction]}><ThemeProvider theme={theme}>
     <Stack dir={direction} spacing={4} className="clinic-setup-panel">
       <Typography component="h2" variant="h1">{copy.title}</Typography>
       <Tabs value={resource} variant="scrollable" scrollButtons="auto" aria-label={copy.title} onChange={(_, value) => { setResource(value); setPage(1); setSearch(''); setStatus(''); setSuccess(''); setScheduleDoctor(null); }}>{resources.map(value => <Tab key={value} value={value} label={copy[value]}/>)}</Tabs>
-      <Alert severity="info" role="note">{resource === 'doctors' ? copy.scheduleHelp : resource === 'payments' ? copy.paymentHelp : copy.catalogHelp}</Alert>
+      <Alert severity="info" role="note">{resource === 'doctors' ? copy.scheduleHelp : resource === 'payments' ? copy.paymentHelp : resource === 'insurance' ? copy.insuranceHelp : copy.catalogHelp}</Alert>
       {success && <Alert severity="success">{success}</Alert>}
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3}>
         <TextField label={copy.search} value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} fullWidth/>
@@ -104,8 +125,10 @@ export default function ClinicSetupPanel({ lang = 'en', t, initialTab = 'doctors
       {loading ? <Box role="status" aria-label={lang === 'ar' ? 'جارٍ التحميل' : 'Loading'}><CircularProgress size={26}/></Box> : error ? <Alert severity="error" action={<Button onClick={() => setVersion(value => value + 1)}>{copy.retry}</Button>}>{error}</Alert> : !items.length ? <Card sx={{ p: 6 }}><Typography>{copy.empty}</Typography></Card> : <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr)', md: 'repeat(2,minmax(0,1fr))' }, gap: 3 }}>{items.map(item => <Card component="article" key={item.id || item.code} sx={{ p: 4, minWidth: 0 }}>
         <Stack spacing={2}>
           <Typography component="h3" variant="h2" sx={{ overflowWrap: 'anywhere' }}>{lang === 'ar' ? item.fullNameAr || item.nameAr || item.labelAr : item.fullNameEn || item.nameEn || item.labelEn}</Typography>
+          {resource === 'insurance' && <Typography variant="body2" dir={lang === 'ar' ? 'ltr' : 'rtl'} sx={{ overflowWrap: 'anywhere' }}>{lang === 'ar' ? item.labelEn : item.labelAr}</Typography>}
           <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap', gap: 1 }}><Chip size="small" label={(resource === 'doctors' ? item.status === 'ACTIVE' && item.account?.status === 'ACTIVE' : item.active ?? item.status === 'ACTIVE') ? copy.active : copy.inactive}/>{item.code && <Typography variant="body2"><bdi>{item.code}</bdi></Typography>}{resource === 'doctors' && !item.hasSchedule && <Chip size="small" label={copy.noSchedule}/>}</Stack>
           {item.priceSdg != null && <Typography variant="body2">{copy.price}: <bdi>{item.priceSdg}</bdi></Typography>}
+          {resource === 'insurance' && <><Typography variant="body2">{copy.copay}: <bdi>{item.copayPercentage}%</bdi></Typography><Typography variant="body2">{copy.billingCycle}: <bdi>{item.billingCycleDays} {copy.days}</bdi></Typography></>}
           {resource === 'doctors' && <Typography variant="body2">{copy.account}: {item.account?.status === 'ACTIVE' ? copy.active : copy.inactive}</Typography>}
           <Stack direction="row" spacing={2}><Button onClick={() => open(item)}>{copy.edit}</Button>{resource === 'doctors' && <Button onClick={() => setScheduleDoctor(item.id)}>{copy.schedule}</Button>}</Stack>
         </Stack>
@@ -118,7 +141,8 @@ export default function ClinicSetupPanel({ lang = 'en', t, initialTab = 'doctors
         {formError && <Alert severity="error">{formError}</Alert>}
         {field('labelAr', copy.labelAr, { slotProps: { htmlInput: { dir: 'rtl', maxLength: resource === 'specialties' ? 100 : 150 } } })}
         {field('labelEn', copy.labelEn, { slotProps: { htmlInput: { dir: 'ltr', maxLength: resource === 'specialties' ? 100 : 150 } } })}
-        {resource !== 'doctors' && resource !== 'payments' && field('code', copy.code, { slotProps: { htmlInput: { dir: 'ltr', maxLength: 60, pattern: '[a-z0-9]+(-[a-z0-9]+)*' } } })}
+        {resource !== 'doctors' && resource !== 'payments' && resource !== 'insurance' && field('code', copy.code, { slotProps: { htmlInput: { dir: 'ltr', maxLength: 60, pattern: '[a-z0-9]+(-[a-z0-9]+)*' } } })}
+        {resource === 'insurance' && <>{field('copayPercentage', copy.copay, { helperText: copy.copayHelp, slotProps: { htmlInput: { inputMode: 'decimal', dir: 'ltr' } } })}{field('billingCycleDays', copy.billingCycle, { helperText: copy.billingCycleHelp, slotProps: { htmlInput: { inputMode: 'numeric', pattern: '[1-9][0-9]*', dir: 'ltr' } } })}</>}
         {resource === 'doctors' && <TextField select label={copy.specialty} value={draft.specialtyId} onChange={event => setDraft(current => ({ ...current, specialtyId: event.target.value }))} fullWidth required disabled={saving} slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}><option value="">{copy.choose}</option>{specialties.filter(item => item.active || item.id === draft.specialtyId).map(item => <option key={item.id} value={item.id} disabled={!item.active}>{lang === 'ar' ? item.nameAr : item.nameEn}</option>)}</TextField>}
         {['doctors', 'services', 'labs'].includes(resource) && field('priceSdg', copy.price, { slotProps: { htmlInput: { inputMode: 'numeric', pattern: '[1-9][0-9]*', dir: 'ltr' } } })}
         {resource === 'services' && <TextField select label={copy.category} value={draft.category} onChange={event => setDraft(current => ({ ...current, category: event.target.value }))} disabled={saving || Boolean(editor?.item)} slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}>{[...categories, ...(draft.category === 'LABORATORY' ? ['LABORATORY'] : [])].map(value => <option key={value} value={value}>{copy[value]}</option>)}</TextField>}

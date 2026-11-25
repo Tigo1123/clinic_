@@ -60,11 +60,16 @@ export class RealtimeGateway
   }
 
   handleConnection(socket: Socket & { user?: AuthenticatedSocketUser }) {
-    logger.info('socket.connected', { socketId: socket.id, userId: socket.user?.id });
+    if (!socket.user?.id || !socket.user?.role) {
+      socket.disconnect(true);
+      return;
+    }
 
-    socket.join(`user_${socket.user!.id}`);
-    socket.join(`role_${socket.user!.role}`);
-    if (socket.user!.doctorId) socket.join(`doctor_${socket.user!.doctorId}`);
+    logger.info('socket.connected', { socketId: socket.id, userId: socket.user.id });
+
+    socket.join(`user_${socket.user.id}`);
+    socket.join(`role_${socket.user.role}`);
+    if (socket.user.doctorId) socket.join(`doctor_${socket.user.doctorId}`);
   }
 
   handleDisconnect(socket: Socket & { user?: AuthenticatedSocketUser }) {
@@ -88,7 +93,7 @@ export class RealtimeGateway
   }
 
   emitNotification(userId: string, notification: any) {
-    if (!this.server) return;
+    if (!this.server || !userId) return;
     this.server.to(`user_${userId}`).emit('notification', notification);
   }
 }

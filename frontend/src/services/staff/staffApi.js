@@ -134,6 +134,18 @@ export const STAFF_ERROR_MESSAGES = {
     ar: 'بيانات شركة التأمين غير صالحة أو غير نشطة.',
     en: 'Insurance configuration is invalid or inactive.'
   },
+  INSURANCE_COMPANY_INVALID: {
+    ar: 'شركة التأمين المحددة غير متاحة أو غير نشطة. حدّث القائمة واختر شركة متاحة.',
+    en: 'The selected insurance provider is unavailable or inactive. Refresh the list and choose an active provider.'
+  },
+  INSURANCE_COMPANY_DUPLICATE: {
+    ar: 'توجد شركة تأمين مسجلة بنفس الاسم العربي أو الإنجليزي بالفعل.',
+    en: 'An insurance provider with this Arabic or English name already exists.'
+  },
+  INSURANCE_COMPANY_NOT_FOUND: {
+    ar: 'شركة التأمين غير موجودة.',
+    en: 'Insurance provider not found.'
+  },
   LAB_PAYMENT_REQUIRED: {
     ar: 'يجب سداد رسوم الفحوصات المختبرية أولاً.',
     en: 'Payment is required before laboratory processing.'

@@ -1,23 +1,49 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../../app/auth/auth-context';
-import { ArrowLeft, Bell, CalendarDays, FileHeart, FlaskConical, HeartPulse, House, Languages, LogOut, Pill, Stethoscope, UserRound } from 'lucide-react';
-import Dialog from '../../../components/ui/Dialog';
+import { ArrowLeft, CalendarDays, FileHeart, FlaskConical, HeartPulse, House, Languages, LogOut, Pill, Stethoscope, UserRound } from 'lucide-react';
 import ThemeToggle from '../../../components/ui/ThemeToggle';
+import NotificationBell from '../../notifications/NotificationBell';
+import { patientApiRequest } from '../../../services/apiClient';
+import { readPatientSession } from '../../../services/authStorage';
+import {
+  configurePatientSocketSessionRevocation,
+  connectPatientSocket,
+  disconnectPatientSocket,
+  patientSocket
+} from '../../../services/patient/patientSocket';
 import './patient.css';
 import { useFacilityBranding } from '../../../app/branding/FacilityBrandingContext.js';
 import { brandingSubline } from '../../../app/branding/brandingConfig';
+
+const hasPatientSession = () => Boolean(readPatientSession()?.token);
 
 export default function PatientLayout() {
   const { t, i18n } = useTranslation();
   const branding = useFacilityBranding();
   const language = (i18n.resolvedLanguage || i18n.language || 'ar').startsWith('ar') ? 'ar' : 'en';
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const [updatesOpen, setUpdatesOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+
+  useEffect(() => {
+    if (user?.role === 'PATIENT' && hasPatientSession()) {
+      connectPatientSocket();
+    }
+    return () => disconnectPatientSocket();
+  }, [user]);
+
+  useEffect(() => configurePatientSocketSessionRevocation(() => {
+    logout().finally(() => navigate('/patient-login'));
+  }), [logout, navigate]);
+
+  const handleOpenNotification = useCallback((intent) => {
+    if (intent?.route) {
+      navigate(intent.route);
+    }
+  }, [navigate]);
 
   const links = [
     ['/patient', 'patientHome', House],
@@ -57,16 +83,16 @@ export default function PatientLayout() {
         </NavLink>
 
         <div className="patient-header__actions">
-          <button
-            type="button"
-            className="patient-icon-button patient-header__btn"
-            aria-label={t('notifications')}
-            aria-haspopup="dialog"
-            aria-expanded={updatesOpen}
-            onClick={() => setUpdatesOpen(true)}
-          >
-            <Bell size={18} strokeWidth={1.8} aria-hidden="true" />
-          </button>
+          <NotificationBell
+            variant="patient"
+            userId={user?.id}
+            userRole={user?.role || 'PATIENT'}
+            lang={language}
+            socket={patientSocket}
+            request={patientApiRequest}
+            hasSession={hasPatientSession}
+            onOpenIntent={handleOpenNotification}
+          />
           <ThemeToggle className="patient-icon-button patient-header__btn" size={18} />
           <button
             type="button"
@@ -85,6 +111,7 @@ export default function PatientLayout() {
               if (loggingOut) return;
               setLoggingOut(true);
               try {
+                disconnectPatientSocket();
                 await logout();
                 navigate('/patient-login');
               } finally {
@@ -126,15 +153,6 @@ export default function PatientLayout() {
         )}
         <Outlet />
       </main>
-
-      <Dialog open={updatesOpen} onClose={() => setUpdatesOpen(false)} title={t('notifications')} description={t('patientUpdatesDescription')}>
-        <div className="patient-list">
-          {[['/patient/appointments', 'myAppointments'], ['/patient/lab-results', 'labResults']].map(([to, key]) => (
-            <Link key={to} to={to} className="patient-button secondary" onClick={() => setUpdatesOpen(false)}>{t(key)}</Link>
-          ))}
-          <button type="button" className="patient-button secondary" onClick={() => setUpdatesOpen(false)}>{t('close')}</button>
-        </div>
-      </Dialog>
     </div>
   );
 }

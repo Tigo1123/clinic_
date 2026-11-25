@@ -1,9 +1,10 @@
+import { deliverNotification } from './notifications.js';
+import { notifyAppointmentBooked, notifyAppointmentConfirmed, notifyPatientCheckedIn, notifyConsultationStarted, notifyConsultationCompleted, notifyAppointmentCancelled } from '../services/actionableNotifications.js';
 import express from 'express';
 import { asyncRouter } from '../utils/asyncRouter.js';
 import prisma from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { sendSMS, sendBookingConfirmation, sendStatusUpdateNotification } from '../utils/notifications.js';
-import { sendNotification } from './notifications.js';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { allowRoles, ROLES } from '../middleware/policies.js';
@@ -272,31 +273,7 @@ router.post('/book', validate(structuredPatientNameSchema.extend({
     const io = req.app.get('io');
     emitQueueUpdate(io, { type: 'BOOKING_PENDING', appointmentId: appointment.id, doctorId }, [doctorId]);
 
-    // Query receptionists and admin users to send target notifications
-    try {
-      const receptionists = await prisma.user.findMany({
-        where: {
-          role: { in: ['RECEPTIONIST', 'ADMIN'] },
-          status: 'ACTIVE'
-        },
-        select: { id: true }
-      });
-
-      const patientName = patient.fullNameAr || patient.fullNameEn;
-      const doctorName = appointment.doctor?.fullNameAr || appointment.doctor?.fullNameEn || 'الطبيب';
-      const notifTitle = 'طلب موعد جديد بانتظار التأكيد';
-      const notifMsg = `تم استلام طلب موعد جديد للمريض (${patientName}) مع (${doctorName}) بتاريخ ${appointmentDate} الساعة ${appointmentTime}.`;
-
-      for (const recep of receptionists) {
-        await sendNotification(io, {
-          userId: recep.id,
-          title: notifTitle,
-          message: notifMsg
-        });
-      }
-    } catch (notifErr) {
-      console.error('Failed to dispatch receptionist notifications:', notifErr);
-    }
+    await deliverNotification(req, notifyAppointmentBooked, { appointment });
 
     return res.status(201).json(toPublicBookingConfirmation(appointment));
 
@@ -447,6 +424,7 @@ router.post('/walk-in', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONIST
     });
 
     const notifResult = await sendStatusUpdateNotification(appointment, 'CHECKED_IN');
+    await deliverNotification(req, notifyPatientCheckedIn, { appointment });
     emitQueueUpdate(req.app.get('io'), { type: 'STATUS_UPDATE', appointmentId: appointment.id, status: 'CHECKED_IN', doctorId }, [doctorId]);
     return res.status(201).json({ ...appointment, whatsAppLinkAr: notifResult?.whatsAppLinkAr, whatsAppLinkEn: notifResult?.whatsAppLinkEn });
   } catch (error) {
@@ -569,7 +547,8 @@ router.put('/:id/status', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONI
     }
     // A checked-in patient cannot enter consultation until the
     // appointment's consultation invoice has been fully paid.
-    if (current.status === 'CHECKED_IN' && status === 'IN_CONSULTATION') {
+    const isStartingConsultation = current.status === 'CHECKED_IN' && status === 'IN_CONSULTATION';
+    if (isStartingConsultation) {
       const paidConsultationInvoice = await prisma.invoice.findFirst({
         where: {
           appointmentId: current.id,
@@ -595,6 +574,16 @@ router.put('/:id/status', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONI
         data: { status }
       });
       if (claimed.count !== 1) throw appointmentStateConflict();
+      // The appointment update owns the same row lock used by consultation refunds.
+      if (isStartingConsultation && !await tx.invoice.findFirst({
+        where: { appointmentId: current.id, invoiceType: 'CONSULTATION', paymentStatus: 'PAID' },
+        select: { id: true }
+      })) {
+        throw Object.assign(new Error('Consultation fee must be paid at reception before the consultation can start.'), {
+          status: 409,
+          code: 'CONSULTATION_PAYMENT_REQUIRED'
+        });
+      }
       await tx.tenantAuditLog.create({ data: {
         userId: req.user.id,
         action: 'APPOINTMENT_STATUS_UPDATED',
@@ -606,6 +595,20 @@ router.put('/:id/status', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONI
         include: { patient: true, doctor: true }
       });
     });
+
+    if (status === 'CONFIRMED') {
+      await deliverNotification(req, notifyAppointmentConfirmed, { appointment });
+    } else if (status === 'CHECKED_IN') {
+      await deliverNotification(req, notifyPatientCheckedIn, { appointment });
+    } else if (status === 'IN_CONSULTATION' && current.status === 'CHECKED_IN') {
+      await deliverNotification(req, notifyConsultationStarted, { appointment });
+    } else if (status === 'COMPLETED') {
+      await deliverNotification(req, notifyConsultationCompleted, { ...appointment, appointmentId: appointment.id });
+    } else if (status === 'CANCELLED') {
+      await deliverNotification(req, notifyAppointmentCancelled, {
+        appointment, previousStatus: current.status, actorUserId: req.user.id, actorRole: req.user.role,
+      });
+    }
 
     // Trigger status update notification (SMS/Email) & get WhatsApp links
     const notifResult = await sendStatusUpdateNotification(appointment, status);
@@ -620,7 +623,7 @@ router.put('/:id/status', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTIONI
       whatsAppLinkEn: notifResult?.whatsAppLinkEn
     });
   } catch (error) {
-    if (error.status === 409 && error.code === 'APPOINTMENT_STATE_CONFLICT') {
+    if (error.status === 409 && ['APPOINTMENT_STATE_CONFLICT', 'CONSULTATION_PAYMENT_REQUIRED'].includes(error.code)) {
       return sendError(res, 409, error.code, error.message);
     }
     console.error('Update status error:', error);
@@ -682,6 +685,9 @@ router.post('/:id/override', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTI
     const io = req.app.get('io');
     emitQueueUpdate(io, { type: 'OVERRIDE', appointmentId: req.params.id, doctorId: appointment.doctorId }, [appointment.doctorId]);
 
+    await deliverNotification(req, notifyPatientCheckedIn, {
+      appointment, emergencyOverride: true, overrideOnlyDoctor: true,
+    });
     return res.json({ success: true, message: 'Emergency queue override applied successfully.' });
   } catch (error) {
     if (error.status === 409 && error.code === 'APPOINTMENT_STATE_CONFLICT') return sendError(res, 409, error.code, error.message);
@@ -751,6 +757,9 @@ router.post('/:id/transfer', authenticate, allowRoles(ROLES.ADMIN, ROLES.RECEPTI
     const io = req.app.get('io');
     emitQueueUpdate(io, { type: 'TRANSFER', appointmentId: req.params.id, targetDoctorId }, [appointment.doctorId, targetDoctorId]);
 
+    await deliverNotification(req, notifyPatientCheckedIn, {
+      appointment: { ...appointment, doctorId: targetDoctorId }, transferred: true,
+    });
     return res.json({ success: true, message: 'Patient transferred internally successfully.' });
   } catch (error) {
     if (error instanceof ApiError) return sendError(res, error.status, error.code, error.message);

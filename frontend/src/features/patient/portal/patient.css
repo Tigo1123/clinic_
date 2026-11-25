@@ -2019,3 +2019,32 @@
 .patient-doctor-details__book-btn {
   margin-top: 8px;
 }
+
+/* ── Notification drill-down highlight & stale notice ───── */
+.patient-lab-row--highlighted,
+.patient-prescription-row--highlighted {
+  background: var(--color-primary-soft);
+  border-inline-start: 3px solid var(--color-primary);
+  padding-inline-start: 12px;
+  border-radius: 8px;
+}
+
+.patient-stale-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.patient-stale-notice__dismiss {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  padding: 4px;
+  min-width: 32px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}

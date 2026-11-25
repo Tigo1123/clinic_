@@ -1,3 +1,5 @@
+import { deliverNotification } from './notifications.js';
+import { notifyAppointmentBooked, notifyAppointmentCancelled, notifyAppointmentRescheduled } from '../services/actionableNotifications.js';
 import express from 'express';
 import { asyncRouter } from '../utils/asyncRouter.js';
 import bcrypt from 'bcryptjs';
@@ -286,6 +288,7 @@ router.post('/appointments', validate(bookingSchema), async (req, res, next) => 
       await audit(req, 'PATIENT_APPOINTMENT_BOOKED', `Patient booked appointment ${created.id}.`, tx);
       return created;
     });
+    await deliverNotification(req, notifyAppointmentBooked, { appointment, source: 'PATIENT_PORTAL' });
     return res.status(201).json(appointment);
   } catch (error) {
     if (error instanceof ApiError) return sendError(res, error.status, error.code, error.message);
@@ -315,6 +318,10 @@ router.post('/appointments/:id/cancel', async (req, res, next) => {
       });
       if (claimed.count !== 1) throw stateConflict();
       await audit(req, 'PATIENT_APPOINTMENT_CANCELLED', `Patient cancelled appointment ${appointment.id}.`, tx);
+    });
+    await deliverNotification(req, notifyAppointmentCancelled, {
+      appointment: { ...appointment, status: 'CANCELLED' },
+      previousStatus: appointment.status, actorUserId: req.user.id, actorRole: 'PATIENT',
     });
     return res.json({ success: true });
   } catch (error) {
@@ -351,6 +358,10 @@ router.put('/appointments/:id/reschedule', validate(bookingSchema), async (req, 
       if (claimed.count !== 1) throw stateConflict();
       await audit(req, 'PATIENT_APPOINTMENT_RESCHEDULED', `Patient rescheduled appointment ${appointment.id}.`, tx);
       return tx.appointment.findUnique({ where: { id: appointment.id }, include: { doctor: { select: doctorSelect } } });
+    });
+    await deliverNotification(req, notifyAppointmentRescheduled, {
+      appointment: updated, previousDoctorId: appointment.doctorId,
+      previousStatus: appointment.status, actorUserId: req.user.id,
     });
     return res.json(updated);
   } catch (error) {

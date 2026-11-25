@@ -94,6 +94,7 @@
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   overflow-x: auto;
 }
 
@@ -111,7 +112,9 @@
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--color-text-muted);
+  color: var(--color-text-secondary);
+  background: var(--color-surface-subtle, var(--color-surface-muted));
+  border-block-end: 1px solid var(--color-border);
 }
 
 .admin-staff-row-grid {
@@ -126,7 +129,7 @@
 }
 
 .admin-staff-row-grid:hover {
-  background: var(--color-surface-muted);
+  background: var(--color-surface-subtle, var(--color-surface-muted));
 }
 
 .admin-staff-name {
@@ -166,6 +169,8 @@
   justify-content: space-between;
   gap: 16px;
   margin-block-end: 20px;
+  padding-block-end: 14px;
+  border-block-end: 1px solid var(--color-divider);
 }
 
 .admin-modal-header h3 {
@@ -199,7 +204,8 @@
   grid-template-columns: 1fr 1fr;
   gap: 16px;
   padding: 16px;
-  background: var(--color-surface-muted);
+  background: var(--color-surface-subtle, var(--color-surface-muted));
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   margin-block-end: 20px;
 }
@@ -222,6 +228,7 @@
 .admin-alert {
   width: 100%;
   padding: 10px 14px;
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md) !important;
   font-size: 13px;
   font-weight: 500;
@@ -232,10 +239,21 @@
   width: 100%;
   margin-block-end: 1rem;
   padding: 10px 14px;
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md) !important;
   font-size: 13px;
   font-weight: 500;
   box-sizing: border-box;
+}
+
+.admin-alert.badge-danger,
+.admin-modal-alert.badge-danger {
+  border-color: var(--color-danger-soft-border, var(--color-danger));
+}
+
+.admin-alert.badge-success,
+.admin-modal-alert.badge-success {
+  border-color: var(--color-primary-soft-border, var(--color-success));
 }
 
 .admin-form {
@@ -263,7 +281,7 @@
 }
 
 .admin-modal-description {
-  opacity: 0.8;
+  color: var(--color-text-secondary);
   margin-block: 0.5rem;
 }
 
@@ -271,7 +289,7 @@
   padding-block: 2rem;
   padding-inline: 1rem;
   text-align: center;
-  opacity: 0.75;
+  color: var(--color-text-muted);
 }
 
 .admin-pricing-section {

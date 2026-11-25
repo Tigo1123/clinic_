@@ -1,4 +1,4 @@
-export default function PrescriptionQueueCard({ rx, lang, queueView, selected, onSelect }) {
+export default function PrescriptionQueueCard({ rx, lang, queueView, selected, isHighlighted = false, onSelect }) {
   const isPaid = rx.billingStatus === 'PAID';
   const isPartial = rx.billingStatus === 'PARTIALLY_PAID' || rx.billingStatus === 'PARTIAL';
   const isUnpaid = rx.billingStatus === 'UNPAID';
@@ -30,7 +30,13 @@ export default function PrescriptionQueueCard({ rx, lang, queueView, selected, o
   return (
     <button
       type="button"
-      className={`pharmacy-queue-item ${selected ? 'is-selected selected' : ''}`}
+      data-prescription-id={rx.id}
+      ref={(node) => {
+        if (isHighlighted && node) {
+          node.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+        }
+      }}
+      className={`pharmacy-queue-item ${selected ? 'is-selected selected' : ''}${isHighlighted ? ' staff-notification-highlight' : ''}`}
       onClick={onSelect}
     >
       <span className="pharmacy-queue-item__info">

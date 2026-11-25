@@ -22,6 +22,17 @@ const priceUpdateSchema = z
   })
   .strict();
 
+const medicinePriceUpdateSchema = z
+  .object({
+    priceSdg: z.number().int().positive().max(1_000_000_000).optional(),
+    status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+  })
+  .strict()
+  .refine(
+    (value) => value.priceSdg !== undefined || value.status !== undefined,
+    'At least one medicine price or status field is required.',
+  );
+
 @Controller('admin')
 @Roles('ADMIN')
 export class AdminController {
@@ -59,7 +70,7 @@ export class AdminController {
   @HttpCode(HttpStatus.OK)
   async updateMedicinePrice(
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(priceUpdateSchema)) body: any,
+    @Body(new ZodValidationPipe(medicinePriceUpdateSchema)) body: any,
     @CurrentUser() user: any,
     @Req() req: Request,
   ) {

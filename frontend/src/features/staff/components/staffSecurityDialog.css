@@ -102,9 +102,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 0;
-  border-top: 1px solid var(--color-divider);
-  border-bottom: 1px solid var(--color-divider);
+  padding: 14px 16px;
+  background: var(--color-surface-subtle, var(--color-surface-muted));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
 }
 
 .security-status-card strong {
@@ -324,4 +325,12 @@
 .staff-login-form .form-input {
   min-height: var(--control-height, 44px);
   box-sizing: border-box;
+}
+
+.security-dialog .btn:focus-visible,
+.security-manual summary:focus-visible,
+.security-proof-options input:focus-visible,
+.security-ack input:focus-visible {
+  outline: 3px solid var(--color-primary-strong);
+  outline-offset: 2px;
 }

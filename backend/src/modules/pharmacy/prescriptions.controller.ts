@@ -75,7 +75,13 @@ export class PrescriptionsController {
     @CurrentUser() user: any,
     @Req() req: Request,
   ) {
-    return this.pharmacyService.dispensePrescription(id, body, user, req.ip);
+    return this.pharmacyService.dispensePrescription(
+      id,
+      body,
+      user,
+      req.ip,
+      req.get('Idempotency-Key'),
+    );
   }
 
   @Get('medication-reviews/pending')

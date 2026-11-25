@@ -3103,8 +3103,8 @@ test('public directory and catalog responses use allowlisted DTOs', async () => 
   const companies = await api.get('/api/billing/insurance-companies').set(auth('reception'));
   assert.equal(companies.status, 200);
   const returnedCompany = companies.body.find((item) => item.id === insuranceCompany.id);
-  assert.deepEqual(Object.keys(returnedCompany).sort(), ['copayPercentage', 'id', 'labelAr', 'labelEn']);
-  assert.equal(Object.hasOwn(returnedCompany, 'billingCycleDays'), false);
+  assert.deepEqual(Object.keys(returnedCompany).sort(), ['billingCycleDays', 'copayPercentage', 'id', 'labelAr', 'labelEn']);
+  assert.equal(returnedCompany.billingCycleDays, insuranceCompany.billingCycleDays);
 
   const slots = await api.get('/api/appointments/slots').query({ doctorId: doctor1.id, date: getClinicDateString() });
   assert.equal(slots.status, 200);
@@ -5016,7 +5016,7 @@ test('laboratory history is lab-only, bounded to released completed orders, and 
   assert.ok(persisted.releasedToPatientAt);
 });
 
-test('doctor free-text laboratory requests are created pending review without a price', async () => {
+test('doctor free-text laboratory requests are rejected without creating an order or encounter', async () => {
   fixtureCounter += 1;
   const appointment = await prisma.appointment.create({
     data: {
@@ -5032,12 +5032,154 @@ test('doctor free-text laboratory requests are created pending review without a 
     appointmentId: appointment.id,
     customTests: [`Doctor Custom Test ${fixtureCounter}`]
   });
-  assert.equal(response.status, 201);
-  const item = await prisma.labOrderItem.findFirst({
-    where: { labOrder: { medicalRecord: { appointmentId: appointment.id } } }
+  assert.equal(response.status, 422);
+  assert.equal(response.body.error.code, 'CUSTOM_LAB_TESTS_NOT_ALLOWED');
+  assert.equal(await prisma.medicalRecord.count({ where: { appointmentId: appointment.id } }), 0);
+  assert.equal((await prisma.appointment.findUnique({ where: { id: appointment.id } })).status, 'IN_CONSULTATION');
+});
+
+async function createProcedureOrderFixture() {
+  const suffix = `${Date.now()}-${++fixtureCounter}`;
+  const [procedure, radiology, appointment] = await Promise.all([
+    prisma.clinicalService.create({ data: { labelAr: `إجراء ${suffix}`, labelEn: `Procedure ${suffix}`, category: 'CLINICAL_PROCEDURE', status: 'ACTIVE', baseFeeSdg: 4000 } }),
+    prisma.clinicalService.create({ data: { labelAr: `أشعة ${suffix}`, labelEn: `Radiology ${suffix}`, category: 'RADIOLOGY', status: 'ACTIVE', baseFeeSdg: 3000 } }),
+    prisma.appointment.create({ data: { patientId: patient1.id, doctorId: doctor1.id,
+      appointmentDate: `2084-09-${String((fixtureCounter % 27) + 1).padStart(2, '0')}`,
+      appointmentTime: `10:${String(fixtureCounter % 60).padStart(2, '0')}`, status: 'IN_CONSULTATION' } })
+  ]);
+  const encounter = await api.post('/api/records').set(auth('doctor')).send({
+    patientId: patient1.id, appointmentId: appointment.id, diagnosis: 'Procedure required',
+    serviceOrders: [
+      { serviceId: procedure.id, quantity: 2 },
+      { serviceId: radiology.id, quantity: 1 }
+    ]
   });
-  assert.equal(item.serviceId, null);
-  assert.equal(item.labReviewStatus, 'PENDING_REVIEW');
+  assert.equal(encounter.status, 201, JSON.stringify(encounter.body));
+  const order = encounter.body.data.serviceOrder;
+  assert.equal(order.status, 'PENDING_BILLING');
+  return { order, procedure, radiology, appointment };
+}
+
+test('reception bills only ordered procedures and can remove specific draft charges with an audit record', async () => {
+  const { order, procedure, radiology, appointment } = await createProcedureOrderFixture();
+  const payload = { patientId: patient1.id, invoiceType: 'GENERAL', serviceOrderId: order.id };
+  const preview = () => api.post('/api/billing/insurance-preview').set(auth('reception')).send(payload);
+  const queueUrl = `/api/billing/service-orders/pending/${patient1.id}`;
+  const issue = () => api.post('/api/billing/invoice').set(auth('reception')).send(payload);
+  const procedureLine = order.items.find((item) => item.serviceId === procedure.id);
+  const radiologyLine = order.items.find((item) => item.serviceId === radiology.id);
+  const exclusion = (line) => `/api/billing/service-orders/${order.id}/items/${line.id}/exclude`;
+  assert.equal((await api.get(queueUrl).set(auth('doctor'))).status, 403);
+  const listed = (await api.get(queueUrl).set(auth('reception')).expect(200)).body.find((item) => item.id === order.id);
+  assert.equal(listed.items.length, 2);
+  assert.equal(listed.issuedInvoice, null);
+  assert.equal((await preview().expect(200)).body.grossTotalSdg, 11000);
+  await api.post('/api/billing/invoice').set(auth('reception')).send({ ...payload, patientId: patient2.id }).expect(409);
+  await api.post('/api/billing/invoice').set(auth('reception')).send({ ...payload, items: [{ serviceId: radiology.id, quantity: 1 }] }).expect(422);
+  await api.post('/api/billing/invoice').set(auth('reception')).send({ ...payload, invoiceType: 'CONSULTATION', appointmentId: appointment.id }).expect(422);
+  await api.post('/api/billing/insurance-preview').set(auth('reception')).send({ patientId: patient1.id, invoiceType: 'GENERAL', items: [{ serviceId: procedure.id, quantity: 1 }] }).expect(403);
+  await api.post(exclusion(procedureLine)).set(auth('doctor')).send({ reason: 'Ordered in error' }).expect(403);
+  await api.post(exclusion(procedureLine)).set(auth('reception')).send({ reason: '  ' }).expect(422);
+  await api.post(exclusion(procedureLine)).set(auth('reception')).send({ reason: 'Ordered in error' }).expect(200);
+  await api.post(exclusion(procedureLine)).set(auth('reception')).send({ reason: 'Retry' }).expect(200);
+  assert.equal(await prisma.serviceOrderItem.count({ where: { serviceOrderId: order.id } }), 2);
+  assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'SERVICE_ORDER_CHARGE_EXCLUDED', details: { contains: procedureLine.id } } }), 1);
+  assert.equal((await prisma.serviceOrderItem.findUnique({ where: { id: procedureLine.id } })).billingExclusionReason, 'Ordered in error');
+  assert.equal((await preview().expect(200)).body.grossTotalSdg, 3000);
+  const issued = await Promise.all([issue(), issue()]);
+  assert.deepEqual(issued.map((response) => response.status).sort(), [200, 201]);
+  const { invoice } = issued[0].body;
+  assert.equal(issued[1].body.invoice.id, invoice.id);
+  assert.equal(invoice.items.length, 1);
+  assert.equal(Number(invoice.items[0].unitPriceSdg), 3000);
+  assert.equal(invoice.items[0].descriptionEn, radiology.labelEn);
+  const locked = await api.post(exclusion(radiologyLine)).set(auth('reception')).send({ reason: 'Too late' }).expect(409);
+  assert.equal(locked.body.error.code, 'SERVICE_ORDER_INVOICE_LOCKED');
+  const pay = (amountSdg) => api.post(`/api/billing/invoice/${invoice.id}/payments`).set(paymentAuth('reception')).send({ payments: [{ amountSdg, paymentMethod: 'CASH' }] });
+  assert.equal((await pay(1000).expect(200)).body.paymentStatus, 'PARTIALLY_PAID');
+  const resumed = (await api.get(queueUrl).set(auth('reception')).expect(200)).body.find((item) => item.id === order.id);
+  assert.equal(resumed.issuedInvoice.remainingBalanceSdg, 2000);
+  assert.equal((await pay(2000).expect(200)).body.paymentStatus, 'PAID');
+  const settled = await prisma.serviceOrder.findUnique({ where: { id: order.id } });
+  assert.equal(settled.status, 'PAID');
+  assert.ok(settled.paidAt);
+  assert.equal((await api.get(queueUrl).set(auth('reception')).expect(200)).body.some((item) => item.id === order.id), false);
+});
+
+test('a doctor order with all charges removed cannot be invoiced; a zero patient share settles the order', async () => {
+  const { order: emptyOrder } = await createProcedureOrderFixture();
+  for (const item of emptyOrder.items) {
+    await api.post(`/api/billing/service-orders/${emptyOrder.id}/items/${item.id}/exclude`).set(auth('reception')).send({ reason: 'Patient will not receive the service' }).expect(200);
+  }
+  const blocked = await api.post('/api/billing/invoice').set(auth('reception')).send({
+    patientId: patient1.id, invoiceType: 'GENERAL', serviceOrderId: emptyOrder.id
+  }).expect(409);
+  assert.equal(blocked.body.error.code, 'SERVICE_ORDER_NO_CHARGES');
+  assert.equal(await prisma.invoice.count({ where: { serviceOrderId: emptyOrder.id } }), 0);
+
+  const { order: coveredOrder } = await createProcedureOrderFixture();
+  const insurer = await prisma.insuranceCompany.create({ data: {
+    labelAr: `تغطية كاملة ${fixtureCounter}`, labelEn: `Full coverage ${fixtureCounter}`, copayPercentage: 0, billingCycleDays: 30
+  } });
+  const result = await api.post('/api/billing/invoice').set(auth('reception')).send({
+    patientId: patient1.id, invoiceType: 'GENERAL', serviceOrderId: coveredOrder.id, insuranceCompanyId: insurer.id
+  }).expect(201);
+  assert.equal(result.body.invoice.paymentStatus, 'PAID');
+  assert.equal(result.body.patientShareSdg, 0);
+  assert.equal((await prisma.serviceOrder.findUnique({ where: { id: coveredOrder.id } })).status, 'PAID');
+});
+
+test('catalogue laboratory orders bill the insurer-selected patient share and unlock only after settlement', async () => {
+  for (const copayPercentage of [20, 0]) {
+    const suffix = `${Date.now()}-${++fixtureCounter}`;
+    const [appointment, insurer] = await Promise.all([
+      prisma.appointment.create({ data: {
+        patientId: patient1.id, doctorId: doctor1.id,
+        appointmentDate: `2084-10-${String((fixtureCounter % 27) + 1).padStart(2, '0')}`,
+        appointmentTime: '10:00', status: 'IN_CONSULTATION'
+      } }),
+      prisma.insuranceCompany.create({ data: {
+        labelAr: `تغطية الفحص ${suffix}`, labelEn: `Lab insurer ${suffix}`, copayPercentage, billingCycleDays: 30
+      } })
+    ]);
+    const visit = await api.post('/api/records').set(auth('doctor')).send({
+      patientId: patient1.id, appointmentId: appointment.id, orderedServices: [service.id]
+    }).expect(201);
+    const orderId = visit.body.data.labOrder.id;
+    const payload = { patientId: patient1.id, invoiceType: 'LABORATORY', labOrderId: orderId, insuranceCompanyId: insurer.id };
+    const preview = await api.post('/api/billing/insurance-preview').set(auth('reception')).send(payload).expect(200);
+    const gross = Number(service.baseFeeSdg);
+    const patientShare = Math.round(gross * copayPercentage / 100);
+    assert.equal(preview.body.grossTotalSdg, gross);
+    assert.equal(preview.body.patientShareSdg, patientShare);
+    assert.equal(preview.body.insuranceCoverageSdg, gross - patientShare);
+    const { body: issued } = await api.post('/api/billing/invoice').set(auth('reception')).send(payload).expect(201);
+    assert.equal(Number(issued.invoice.items[0].unitPriceSdg), gross);
+    assert.equal(issued.insuranceClaim.insuranceCompanyId, insurer.id);
+    assert.equal(Number(issued.insuranceClaim.claimAmountSdg), gross - patientShare);
+    const persistedOrder = () => prisma.labOrder.findUnique({ where: { id: orderId } });
+    const queueOrder = async () => (await api.get('/api/billing/lab-orders/pending').set(auth('reception')).expect(200)).body.find((order) => order.id === orderId);
+    assert.equal((await queueOrder()).invoice.remainingBalanceSdg, patientShare);
+    if (patientShare > 0) {
+      assert.equal((await persistedOrder()).status, 'PENDING_BILLING');
+      const pay = (amountSdg) => api.post(`/api/billing/invoice/${issued.invoice.id}/payments`)
+        .set(paymentAuth('reception')).send({ payments: [{ amountSdg, paymentMethod: 'CASH' }] });
+      assert.equal((await pay(1).expect(200)).body.paymentStatus, 'PARTIALLY_PAID');
+      assert.equal((await persistedOrder()).status, 'PENDING_BILLING');
+      assert.equal((await queueOrder()).invoice.remainingBalanceSdg, patientShare - 1);
+      const resumed = await api.post('/api/billing/insurance-preview').set(auth('reception')).send({ ...payload, insuranceCompanyId: null }).expect(200);
+      assert.equal(resumed.body.invoice.id, issued.invoice.id);
+      assert.equal(resumed.body.remainingBalanceSdg, patientShare - 1);
+      assert.equal(resumed.body.insuranceClaim.insuranceCompanyId, insurer.id);
+      await pay(patientShare - 1).expect(200);
+    } else {
+      assert.equal(issued.invoice.paymentStatus, 'PAID');
+      assert.equal(await prisma.payment.count({ where: { invoiceId: issued.invoice.id } }), 0);
+    }
+    assert.equal((await persistedOrder()).status, 'PAID');
+    assert.equal((await queueOrder()).invoice.remainingBalanceSdg, 0);
+    assert.equal((await prisma.appointment.findUnique({ where: { id: appointment.id } })).status, 'WAITING_LAB');
+  }
 });
 
 test('custom lab tests wait for lab review and block reception billing until linked', async () => {
@@ -6371,7 +6513,10 @@ test('consultation payment gate blocks the doctor until the server-priced consul
 
 test('billing is restricted and split payments set partial then paid', async () => {
   assert.equal((await api.post('/api/billing/invoice').set(auth('pharmacy')).send({ patientId: patient1.id, items: [{ serviceId: service.id, quantity: 1 }] })).status, 403);
-  const invoiceResponse = await api.post('/api/billing/invoice').set(auth('reception')).send({ patientId: patient1.id, items: [{ serviceId: service.id, quantity: 1 }] });
+  const deniedGeneral = await api.post('/api/billing/invoice').set(auth('reception')).send({ patientId: patient1.id, items: [{ serviceId: service.id, quantity: 1 }] });
+  assert.equal(deniedGeneral.status, 403);
+  assert.equal(deniedGeneral.body.error.code, 'RECEPTION_SERVICE_SELECTION_FORBIDDEN');
+  const invoiceResponse = await api.post('/api/billing/invoice').set(auth('admin')).send({ patientId: patient1.id, items: [{ serviceId: service.id, quantity: 1 }] });
   assert.equal(invoiceResponse.status, 201);
   const id = invoiceResponse.body.invoice.id;
   const total = Number(invoiceResponse.body.invoice.totalAmountSdg);
@@ -6606,7 +6751,7 @@ test('GENERAL billing is catalog-authoritative and admin price changes preserve 
     }
   });
   try {
-    const legitimate = await api.post('/api/billing/invoice').set(auth('reception')).send({
+    const legitimate = await api.post('/api/billing/invoice').set(auth('admin')).send({
       patientId: patient1.id,
       invoiceType: 'GENERAL',
       items: [{ serviceId: catalogService.id, quantity: 1 }]
@@ -6627,7 +6772,7 @@ test('GENERAL billing is catalog-authoritative and admin price changes preserve 
       { serviceId: catalogService.id, quantity: 1, status: 'PAID' }
     ]) {
       const invoiceCountBefore = await prisma.invoice.count({ where: { patientId: patient1.id } });
-      const response = await api.post('/api/billing/invoice').set(auth('reception')).send({
+      const response = await api.post('/api/billing/invoice').set(auth('admin')).send({
         patientId: patient1.id, invoiceType: 'GENERAL', items: [forged]
       });
       assert.equal(response.status, 422);
@@ -6636,7 +6781,7 @@ test('GENERAL billing is catalog-authoritative and admin price changes preserve 
     }
 
     for (const quantity of [0, -1, 1.5, '1', 101]) {
-      const response = await api.post('/api/billing/invoice').set(auth('reception')).send({
+      const response = await api.post('/api/billing/invoice').set(auth('admin')).send({
         patientId: patient1.id,
         invoiceType: 'GENERAL',
         items: [{ serviceId: catalogService.id, quantity }]
@@ -6654,7 +6799,7 @@ test('GENERAL billing is catalog-authoritative and admin price changes preserve 
     const maxPrice = await api.patch(`/api/admin/pricing/services/${catalogService.id}`)
       .set(auth('admin')).send({ priceSdg: 1_000_000_000 });
     assert.equal(maxPrice.status, 200);
-    const maxLine = await api.post('/api/billing/invoice').set(auth('reception')).send({
+    const maxLine = await api.post('/api/billing/invoice').set(auth('admin')).send({
       patientId: patient1.id, invoiceType: 'GENERAL',
       items: [{ serviceId: catalogService.id, quantity: 100 }]
     });
@@ -6662,12 +6807,12 @@ test('GENERAL billing is catalog-authoritative and admin price changes preserve 
     assert.equal(Number(maxLine.body.invoice.totalAmountSdg), 100_000_000_000);
 
     const maximumItems = Array.from({ length: 100 }, () => ({ serviceId: catalogService.id, quantity: 100 }));
-    const maximumAggregate = await api.post('/api/billing/invoice').set(auth('reception')).send({
+    const maximumAggregate = await api.post('/api/billing/invoice').set(auth('admin')).send({
       patientId: patient1.id, invoiceType: 'GENERAL', items: maximumItems
     });
     assert.equal(maximumAggregate.status, 201);
     assert.equal(Number(maximumAggregate.body.invoice.totalAmountSdg), 10_000_000_000_000);
-    const aboveMaximum = await api.post('/api/billing/invoice').set(auth('reception')).send({
+    const aboveMaximum = await api.post('/api/billing/invoice').set(auth('admin')).send({
       patientId: patient1.id, invoiceType: 'GENERAL', items: [...maximumItems, maximumItems[0]]
     });
     assert.equal(aboveMaximum.status, 422);
@@ -6680,7 +6825,7 @@ test('GENERAL billing is catalog-authoritative and admin price changes preserve 
     assert.equal(Number(historical.totalAmountSdg), 20000);
     assert.equal(Number(historical.items[0].unitPriceSdg), 20000);
 
-    const future = await api.post('/api/billing/invoice').set(auth('reception')).send({
+    const future = await api.post('/api/billing/invoice').set(auth('admin')).send({
       patientId: patient1.id,
       invoiceType: 'GENERAL',
       items: [{ serviceId: catalogService.id, quantity: 1 }]
@@ -6689,7 +6834,7 @@ test('GENERAL billing is catalog-authoritative and admin price changes preserve 
     assert.equal(Number(future.body.invoice.totalAmountSdg), 25000);
 
     await api.patch(`/api/admin/pricing/services/${catalogService.id}`).set(auth('admin')).send({ priceSdg: 25000, status: 'INACTIVE' });
-    const inactive = await api.post('/api/billing/invoice').set(auth('reception')).send({
+    const inactive = await api.post('/api/billing/invoice').set(auth('admin')).send({
       patientId: patient1.id, invoiceType: 'GENERAL', items: [{ serviceId: catalogService.id, quantity: 1 }]
     });
     assert.equal(inactive.status, 404);
@@ -6723,7 +6868,7 @@ test('insurance copay is server-authoritative and caps patient payment responsib
     })
   ]);
 
-  const selfPayPreview = await api.post('/api/billing/insurance-preview').set(auth('reception')).send({
+  const selfPayPreview = await api.post('/api/billing/insurance-preview').set(auth('admin')).send({
     patientId: patient1.id,
     insuranceCompanyId: null,
     invoiceType: 'GENERAL',
@@ -6736,7 +6881,7 @@ test('insurance copay is server-authoritative and caps patient payment responsib
     patient: selfPayPreview.body.patientShareSdg
   }, { gross: 20000, coverage: 0, patient: 20000 });
 
-  const preview = await api.post('/api/billing/insurance-preview').set(auth('reception')).send({
+  const preview = await api.post('/api/billing/insurance-preview').set(auth('admin')).send({
     patientId: patient1.id,
     insuranceCompanyId: company.id,
     invoiceType: 'GENERAL',
@@ -6748,7 +6893,7 @@ test('insurance copay is server-authoritative and caps patient payment responsib
   assert.equal(preview.body.insuranceCoverageSdg, 16000);
   assert.equal(preview.body.patientShareSdg, 4000);
 
-  const forged = await api.post('/api/billing/invoice').set(auth('reception')).send({
+  const forged = await api.post('/api/billing/invoice').set(auth('admin')).send({
     patientId: patient1.id,
     insuranceCompanyId: company.id,
     invoiceType: 'GENERAL',
@@ -6758,7 +6903,7 @@ test('insurance copay is server-authoritative and caps patient payment responsib
   assert.equal(forged.status, 422);
   assert.equal(forged.body.error.code, 'INVOICE_FIELDS_INVALID');
 
-  const issued = await api.post('/api/billing/invoice').set(auth('reception')).send({
+  const issued = await api.post('/api/billing/invoice').set(auth('admin')).send({
     patientId: patient1.id,
     insuranceCompanyId: company.id,
     invoiceType: 'GENERAL',
@@ -6798,7 +6943,7 @@ test('insurance copay is server-authoritative and caps patient payment responsib
   assert.equal(split.body.patientShareSdg, 4000);
   assert.equal(split.body.remainingBalanceSdg, 0);
 
-  const invalidCompany = await api.post('/api/billing/invoice').set(auth('reception')).send({
+  const invalidCompany = await api.post('/api/billing/invoice').set(auth('admin')).send({
     patientId: patient1.id,
     insuranceCompanyId: crypto.randomUUID(),
     invoiceType: 'GENERAL',
@@ -7602,6 +7747,72 @@ test('mixed prescription completes after clinic item is dispensed and custom ite
   assert.equal(preservedCustom.qtyDispensed, 0);
   assert.equal(preservedCustom.pharmacyReviewStatus, 'EXTERNAL');
   assert.equal(preservedCustom.customDrugName, 'Original doctor free-text medicine');
+});
+
+test('issued pharmacy prescription remains payable and dispenses once after medicine deactivation', async () => {
+  const fixture = await createPrescriptionFixture({ paid: false, qtyPrescribed: 2 });
+  const authorized = auth('pharmacy');
+  const detailUrl = `/api/pharmacy/formulary/${fixture.drug.id}`;
+  const checkoutUrl = `/api/pharmacy/prescriptions/${fixture.rx.id}/payment-state`;
+  const dispenseUrl = `/api/records/prescriptions/${fixture.rx.id}/dispense`;
+  const invoiceResult = await requestPharmacyInvoiceForFixture(fixture);
+  assert.equal(invoiceResult.status, 201);
+  const invoiceId = invoiceResult.body.invoice.id;
+  const paymentUrl = `/api/billing/invoice/${invoiceId}/payments`;
+
+  const detail = await api.get(detailUrl).set(authorized);
+  assert.equal(detail.body.identityLocked, true);
+  const identityChange = await api.patch(`${detailUrl}/metadata`).set(authorized).send({ strength: '2mg' });
+  assert.equal(identityChange.status, 409);
+  assert.equal(identityChange.body.error.code, 'FORMULARY_IDENTITY_IMMUTABLE');
+  const labelChange = await api.patch(`${detailUrl}/metadata`).set(authorized).send({ labelEn: 'Corrected fixture label' });
+  assert.equal(labelChange.status, 200);
+  assert.equal((await api.get(detailUrl).set(authorized)).body.labelEn, 'Corrected fixture label');
+
+  assert.equal((await api.post(`${detailUrl}/deactivate`).set(auth('doctor')).send({})).status, 403);
+  const deactivated = await api.post(`${detailUrl}/deactivate`).set(authorized).send({});
+  assert.equal(deactivated.status, 200);
+  assert.equal(deactivated.body.medicine.status, 'INACTIVE');
+  assert.equal(deactivated.body.medicine.unitPriceSdg, fixture.unitPriceSdg);
+  assert.equal(deactivated.body.medicine.stock.totalOnHand, fixture.early.qtyOnHand + fixture.late.qtyOnHand);
+  const replayDeactivation = await api.post(`${detailUrl}/deactivate`).set(authorized).send({});
+  assert.equal(replayDeactivation.body.alreadyInactive, true);
+  assert.equal(await prisma.tenantAuditLog.count({ where: {
+    action: 'FORMULARY_MEDICINE_DEACTIVATED', details: { contains: fixture.drug.id }
+  } }), 1);
+  for (const role of ['doctor', 'pharmacy']) {
+    const catalog = await api.get('/api/records/drugs').set(auth(role));
+    assert.equal(catalog.status, 200);
+    assert.equal(catalog.body.some((medicine) => medicine.id === fixture.drug.id), false);
+  }
+
+  const pay = (amountSdg, key) => api.post(paymentUrl)
+    .set(paymentAuth('pharmacy')).set('Idempotency-Key', key)
+    .send({ payments: [{ amountSdg, paymentMethod: 'CASH' }] });
+  const dispense = (quantity, key) => api.post(dispenseUrl)
+    .set(authorized).set('Idempotency-Key', key)
+    .send({ items: [{ prescribedDrugId: fixture.item.id, qtyToDispense: quantity }] });
+  const paymentKey = crypto.randomUUID();
+  const dispenseKey = crypto.randomUUID();
+  assert.equal((await pay(1000, paymentKey)).status, 200);
+  assert.equal((await pay(1000, paymentKey)).body.idempotentReplay, true);
+  assert.equal((await pay(999, paymentKey)).body.error.code, 'IDEMPOTENCY_KEY_REUSED');
+  const partial = await api.get(checkoutUrl).set(authorized);
+  assert.equal(partial.body.invoice.paidAmountSdg, 1000);
+  assert.equal(partial.body.dispensingAllowed, false);
+  assert.equal((await dispense(2, dispenseKey)).body.error.code, 'PHARMACY_PAYMENT_REQUIRED');
+  assert.equal((await pay(fixture.unitPriceSdg * 2 - 1000, crypto.randomUUID())).status, 200);
+  assert.equal((await api.get(checkoutUrl).set(authorized)).body.dispensingAllowed, true);
+  const simultaneous = await Promise.all([dispense(2, dispenseKey), dispense(2, dispenseKey)]);
+  assert.deepEqual(simultaneous.map((response) => response.status), [200, 200]);
+  assert.equal(simultaneous.filter((response) => response.body.idempotentReplay).length, 1);
+  assert.equal((await dispense(1, dispenseKey)).body.error.code, 'IDEMPOTENCY_KEY_REUSED');
+  assert.equal(await prisma.payment.count({ where: { invoiceId } }), 2);
+  assert.equal(await prisma.stockMovement.count({ where: { drugId: fixture.drug.id, movementType: 'DISPENSE' } }), 1);
+  assert.equal((await prisma.inventoryBatch.findUnique({ where: { id: fixture.early.id } })).qtyOnHand, fixture.early.qtyOnHand - 2);
+  const history = await api.get('/api/records/prescriptions/history').set(authorized);
+  assert.ok(history.body.some((prescription) => prescription.id === fixture.rx.id));
+  assert.equal((await prisma.invoiceItem.findFirst({ where: { invoiceId } })).descriptionEn, fixture.drug.labelEn);
 });
 
 test('paid pharmacy invoices cannot be changed by unavailable-item resolution', async () => {
@@ -9422,6 +9633,38 @@ test('a consultation invoice with a zero patient share is created PAID and the v
   assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'INVOICE_SETTLED_ZERO_PATIENT_SHARE', details: { contains: invoice.body.invoice.id } } }), 1);
   const start = await api.put(`/api/appointments/${appointment.id}/status`).set(auth('doctor')).send({ status: 'IN_CONSULTATION' });
   assert.equal(start.status, 200);
+});
+
+test('consultation start and refund cannot both succeed for the same paid invoice', async () => {
+  const appointment = await prisma.appointment.create({ data: {
+    patientId: patient1.id, doctorId: doctor1.id,
+    appointmentDate: `2089-04-${String((++fixtureCounter % 27) + 1).padStart(2, '0')}`,
+    appointmentTime: '09:25', status: 'CHECKED_IN'
+  } });
+  const result = await api.post('/api/billing/invoice').set(auth('reception')).send({
+    patientId: patient1.id, appointmentId: appointment.id, invoiceType: 'CONSULTATION'
+  }).expect(201);
+  const invoice = result.body.invoice;
+  const amountSdg = Number(invoice.totalAmountSdg);
+  await api.post(`/api/billing/invoice/${invoice.id}/payments`).set(paymentAuth('reception'))
+    .send({ payments: [{ amountSdg, paymentMethod: 'CASH' }] }).expect(200);
+  const view = await api.post('/api/billing/insurance-preview').set(auth('reception')).send({
+    patientId: patient1.id, appointmentId: appointment.id, invoiceType: 'CONSULTATION'
+  }).expect(200);
+  assert.equal(view.body.invoice.id, invoice.id);
+  assert.equal(view.body.refundableSdg, amountSdg);
+  const [start, refund] = await Promise.all([
+    api.put(`/api/appointments/${appointment.id}/status`).set(auth('doctor')).send({ status: 'IN_CONSULTATION' }),
+    api.post(`/api/billing/invoice/${invoice.id}/refund`).set(auth('reception')).send({ amountSdg, refundMethod: 'CASH', reason: 'Visit correction' })
+  ]);
+  if (start.status === 200) {
+    assert.equal(refund.status, 403);
+    assert.equal((await prisma.invoice.findUnique({ where: { id: invoice.id } })).paymentStatus, 'PAID');
+  } else {
+    assert.equal(start.status, 409);
+    assert.equal(refund.status, 201);
+    assert.equal((await prisma.appointment.findUnique({ where: { id: appointment.id } })).status, 'CHECKED_IN');
+  }
 });
 
 test('a fully refunded consultation invoice no longer blocks creating a new payable one', async () => {

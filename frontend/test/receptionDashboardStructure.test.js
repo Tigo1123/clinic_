@@ -56,6 +56,9 @@ test('insurance billing preview is server-authoritative and exposes patient resp
   assert.match(source, /Patient amount due/);
   assert.match(source, /requestedPaymentTotal > authoritativePatientShare/);
   assert.match(source, /issuedBillingInvoice/);
-  assert.match(source, /selectedLabBillingOrder \|\| issuedBillingInvoice/);
+  assert.match(source, /selectedLabBillingOrder \? \{ labOrderId: selectedLabBillingOrder.id \}/);
+  assert.match(source, /insuranceCompanyId: insuranceCompanyId \|\| undefined/);
+  assert.match(source, /issuedBillingInvoice \|\| selectedLabBillingOrder\?\.pricingRequired/);
+  assert.match(source, /isZeroPatientShare = Number\(insurancePreview.data\?\.patientShareSdg\) === 0/);
   assert.match(styles, /\.reception-billing-summary/);
 });

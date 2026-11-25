@@ -16,16 +16,15 @@ const pharmacyDashboardSource = () => [
     .map((name) => source(`src/features/staff/pharmacy/components/${name}`))
 ].join('\n');
 
-test('GENERAL invoice requests send catalog identity and quantity without browser pricing', () => {
+test('reception invoices use doctor-order identity without browser-supplied service lines or prices', () => {
   const reception = source('src/features/staff/reception/ReceptionDashboard.jsx');
-  assert.match(reception, /invoiceType === 'GENERAL'/);
-  assert.match(reception, /serviceId: service\.id/);
-  assert.match(reception, /quantity: service\.qty/);
-  const generalPayload = reception.slice(
-    reception.indexOf("if (invoiceType === 'GENERAL')"),
+  const payload = reception.slice(
+    reception.indexOf('const invoicePayload ='),
     reception.indexOf("const res = await fetchWithAuth('/api/billing/invoice'")
   );
-  assert.doesNotMatch(generalPayload, /unitPriceSdg|subtotal|total:/);
+  assert.match(payload, /serviceOrderId: billingServiceOrder\?\.id/);
+  assert.doesNotMatch(payload, /items|serviceId|quantity|unitPriceSdg|subtotal|total:/);
+  assert.doesNotMatch(reception, /Select a clinical service|handleAddBillingService/);
 });
 
 test('admin pricing management covers consultations, services, laboratory, and pharmacy catalogues', () => {
