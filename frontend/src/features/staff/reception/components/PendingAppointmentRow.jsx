@@ -41,7 +41,7 @@ export default function PendingAppointmentRow({
           type="button"
           className="btn reception-btn-confirm"
           disabled={isActionPending}
-          onClick={() => handleApproveAppointment(app.id)}
+          onClick={() => handleApproveAppointment(app)}
         >
           {lang === 'ar' ? 'تأكيد' : 'Confirm'}
         </button>

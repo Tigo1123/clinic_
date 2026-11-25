@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Calculator,
-  ChevronLeft,
-  ChevronRight,
   ClipboardList,
   DollarSign,
   FlaskConical,
@@ -31,20 +29,28 @@ import ReceptionToolbar from './components/ReceptionToolbar';
 import PatientDirectoryPanel from './components/PatientDirectoryPanel';
 import LabBillingQueue from './components/LabBillingQueue';
 import PendingAppointmentRow from './components/PendingAppointmentRow';
-import QueueAppointmentRow from './components/QueueAppointmentRow';
+import AppointmentQueue from './components/AppointmentQueue';
+import ConfirmAppointmentDialog from './components/ConfirmAppointmentDialog';
 import {
   calculateInvoiceTotals,
   createEmptyPatientName,
-  formatQueueDateLabel,
-  PATIENT_NAME_FIELDS,
-  shiftQueueDate
+  PATIENT_NAME_FIELDS
 } from './receptionHelpers';
 
 export default function ReceptionDashboard({ lang, t }) {
   const branding = useFacilityBranding();
   const [doctors, setDoctors] = useState([]);
   const [selectedDoctor, setSelectedDoctor] = useState(null);
-  const [appointments, setAppointments] = useState([]);
+  const [queueRevision, setQueueRevision] = useState(0);
+  const [confirming, setConfirming] = useState(null);
+  const [confirmation, setConfirmation] = useState(null);
+  const confirmationNoticeRef = useRef(null);
+  const refreshDoctorQueue = useCallback(() => setQueueRevision(value => value + 1), []);
+  const closeConfirmation = useCallback(() => setConfirming(null), []);
+
+  useEffect(() => {
+    if (confirmation) confirmationNoticeRef.current?.focus();
+  }, [confirmation]);
   const [activeTab, setActiveTab] = useState('front-desk'); // 'front-desk', 'walkin', 'register', 'patients', 'billing', 'lab-billing', 'reconcile'
 
   // Billing patient search states
@@ -133,18 +139,21 @@ export default function ReceptionDashboard({ lang, t }) {
   if (!directorySearchSchedulerRef.current) directorySearchSchedulerRef.current = createLatestSearchScheduler();
   if (!walkInSearchSchedulerRef.current) walkInSearchSchedulerRef.current = createLatestSearchScheduler();
 
+  const pendingRequestRef = useRef(0);
   const fetchPendingAppointments = () => {
+    const requestId = ++pendingRequestRef.current;
     fetchWithAuth('/api/appointments/pending')
       .then((res) => {
         if (!res.ok) throw new Error('Failed to load pending appointments');
         return res.json();
       })
       .then((data) => {
+        if (requestId !== pendingRequestRef.current) return;
         setPendingAppointmentsLoadError(false);
         setPendingAppointments(Array.isArray(data) ? data : []);
       })
       .catch(() => {
-        setPendingAppointmentsLoadError(true);
+        if (requestId === pendingRequestRef.current) setPendingAppointmentsLoadError(true);
       });
   };
 
@@ -228,54 +237,18 @@ export default function ReceptionDashboard({ lang, t }) {
     setActiveTab('billing');
   };
 
-  const handleApproveAppointment = async (appId) => {
-    if (pendingActionIdsRef.current.has(appId)) return;
-    const confirmed = window.confirm(
-      lang === 'ar'
-        ? 'هل أنت متأكد أنك تريد تأكيد هذا الموعد؟'
-        : 'Are you sure you want to confirm this appointment?'
-    );
+  function handleApproveAppointment(appointment) {
+    setConfirmation(null);
+    setConfirming(appointment);
+  }
 
-    if (!confirmed) return;
-
-    pendingActionIdsRef.current.add(appId);
-    setPendingActionIds(new Set(pendingActionIdsRef.current));
-
-    try {
-      const res = await fetchWithAuth(`/api/appointments/${appId}/status`, {
-        method: 'PUT',
-        body: JSON.stringify({ status: 'CONFIRMED' })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        setSuccessMsg(lang === 'ar' ? 'تم تأكيد الموعد بنجاح.' : 'Appointment confirmed successfully.');
-        fetchPendingAppointments();
-        refreshDoctorQueue();
-        if (data.whatsAppLinkAr) {
-          window.open(data.whatsAppLinkAr, '_blank', 'noopener,noreferrer');
-        }
-      } else {
-        setErrorMsg(
-          apiErrorMessage(
-            data,
-            lang === 'ar'
-              ? 'تعذر تأكيد الموعد.'
-              : 'Failed to confirm the appointment.'
-          )
-        );
-      }
-    } catch (err) {
-      console.error(err);
-      setErrorMsg(
-        lang === 'ar'
-          ? 'تعذر تأكيد الموعد. يرجى المحاولة مرة أخرى.'
-          : 'Failed to confirm the appointment. Please try again.'
-      );
-    } finally {
-      pendingActionIdsRef.current.delete(appId);
-      setPendingActionIds(new Set(pendingActionIdsRef.current));
-    }
-  };
+  function handleConfirmed(appointment, data) {
+    setConfirming(null);
+    setConfirmation({ patient: appointment.patient, ar: data.whatsAppLinkAr, en: data.whatsAppLinkEn });
+    setPendingAppointments(list => list.filter(item => item.id !== appointment.id));
+    fetchPendingAppointments();
+    refreshDoctorQueue();
+  }
 
   const handleCancelAppointment = async (appId) => {
     if (pendingActionIdsRef.current.has(appId)) return;
@@ -402,30 +375,6 @@ export default function ReceptionDashboard({ lang, t }) {
 
     return () => window.clearTimeout(timer);
   }, [addedServices, billingAppointment, billingPatient, insuranceCompanyId, issuedBillingInvoice, lang, selectedLabBillingOrder]);
-
-  // Fetch queue when doctor or date changes
-  const refreshDoctorQueue = useCallback(() => {
-    if (selectedDoctor) {
-      fetchWithAuth(`/api/appointments/queue/${selectedDoctor.id}?date=${filterDate}`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (Array.isArray(data)) {
-            setAppointments(data);
-          } else {
-            setAppointments([]);
-            console.error('Queue response is not an array:', data);
-          }
-        })
-        .catch((err) => {
-          console.error(err);
-          setAppointments([]);
-        });
-    }
-  }, [selectedDoctor, filterDate]);
-
-  useEffect(() => {
-    refreshDoctorQueue();
-  }, [refreshDoctorQueue]);
 
   useEffect(() => {
     if (!selectedDoctor && doctors.length) {
@@ -701,9 +650,8 @@ export default function ReceptionDashboard({ lang, t }) {
       const doctor = doctors.find((item) => item.id === walkInDoctorId);
       if (doctor) {
         setSelectedDoctor(doctor);
-        const queueRes = await fetchWithAuth(`/api/appointments/queue/${doctor.id}?date=${clinicDateString()}`);
-        const queueData = await queueRes.json().catch(() => []);
-        if (queueRes.ok && Array.isArray(queueData)) setAppointments(queueData);
+        setFilterDate(clinicDateString());
+        refreshDoctorQueue();
       }
       setWalkInPatient(null);
       setWalkInPatientQuery('');
@@ -1155,11 +1103,6 @@ export default function ReceptionDashboard({ lang, t }) {
     }
   };
 
-  const changeQueueDate = (days) => {
-    const nextDate = shiftQueueDate(filterDate, days);
-    if (nextDate) setFilterDate(nextDate);
-  };
-
   // Registered left-rail items
   const labAwaitingPaymentCount = useMemo(() => {
     return labBillingOrders.filter((order) => order.status !== 'PAID' && !order.pricingRequired).length;
@@ -1220,9 +1163,6 @@ export default function ReceptionDashboard({ lang, t }) {
     ? patientDirectoryError
     : patientDirectoryLoadError;
 
-  const todayIso = clinicDateString();
-  const stepperDateLabel = formatQueueDateLabel(filterDate, lang, todayIso);
-  const waitingCount = appointments.filter((appointment) => appointment.status === 'CHECKED_IN').length;
   const pendingRequestsCount = pendingAppointments.length;
   const labBillsToCollect = labBillingOrders.filter((order) => order.status !== 'PAID');
 
@@ -1233,6 +1173,8 @@ export default function ReceptionDashboard({ lang, t }) {
         <RoleHero role="reception" lang={lang} />
       </div>
 
+      {confirming && <ConfirmAppointmentDialog appointment={confirming} lang={lang}
+        onClose={closeConfirmation} onConfirmed={handleConfirmed} />}
       <div className="workspace-panel reception-workspace">
         {/* Alerts */}
         {errorMsg && (
@@ -1255,28 +1197,21 @@ export default function ReceptionDashboard({ lang, t }) {
         {/* ── 1. FRONT DESK VIEW ────────────────────────────────────── */}
         {activeTab === 'front-desk' && (
           <div className="reception-frontdesk-view">
+            {confirmation && (
+              <div ref={confirmationNoticeRef} tabIndex={-1} role="status" className="reception-alert-banner is-success">
+                <span>{lang === 'ar' ? 'تم تأكيد الموعد' : 'Appointment confirmed'} · {lang === 'ar'
+                  ? confirmation.patient?.fullNameAr || confirmation.patient?.fullNameEn
+                  : confirmation.patient?.fullNameEn || confirmation.patient?.fullNameAr}</span>
+                {confirmation[lang] && <a href={confirmation[lang]} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
+                  {lang === 'ar' ? 'إرسال عبر واتساب' : 'Send WhatsApp message'}
+                </a>}
+                <button type="button" className="reception-alert-dismiss" onClick={() => setConfirmation(null)}
+                  aria-label={lang === 'ar' ? 'إغلاق' : 'Dismiss'}><X size={14} /></button>
+              </div>
+            )}
             <header className="ui-page-header reception-header">
               <div className="reception-header-title-block">
                 <h1 className="ui-page-title">{lang === 'ar' ? 'الاستقبال' : 'Front desk'}</h1>
-                <div className="reception-day-stepper">
-                  <button
-                    type="button"
-                    aria-label={lang === 'ar' ? 'اليوم السابق' : 'Previous day'}
-                    onClick={() => changeQueueDate(-1)}
-                    className="reception-stepper-btn"
-                  >
-                    <ChevronLeft size={18} />
-                  </button>
-                  <span className="reception-stepper-label">{stepperDateLabel}</span>
-                  <button
-                    type="button"
-                    aria-label={lang === 'ar' ? 'اليوم التالي' : 'Next day'}
-                    onClick={() => changeQueueDate(1)}
-                    className="reception-stepper-btn"
-                  >
-                    <ChevronRight size={18} />
-                  </button>
-                </div>
               </div>
 
               <div className="reception-header-actions">
@@ -1353,43 +1288,13 @@ export default function ReceptionDashboard({ lang, t }) {
                   </div>
                 </div>
 
-                <div className="ui-panel reception-queue-table-panel">
-                  <div className="reception-table-header-row">
-                    <h2 id="reception-queue-title" className="reception-panel-title">
-                      {lang === 'ar' ? 'مواعيد اليوم' : 'Today’s queue'}
-                    </h2>
-                    <span className="reception-panel-count">
-                      {appointments.length} {lang === 'ar' ? 'مرضى' : 'patients'} · {waitingCount} {lang === 'ar' ? 'بانتظار الطبيب' : 'waiting'}
-                    </span>
-                  </div>
-
-                  {appointments.length === 0 ? (
-                    <div className="reception-panel-empty">
-                      <span>
-                        {selectedDoctor
-                          ? (lang === 'ar' ? 'لا توجد مواعيد مسجلة لهذا الطبيب اليوم.' : 'No appointments scheduled for this doctor today.')
-                          : (lang === 'ar' ? 'يرجى اختيار طبيب من القائمة لعرض طابور الانتظار.' : 'Please select a doctor to view today’s queue.')}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="reception-queue-rows-container">
-                      {appointments.map((app, index) => (
-                        <QueueAppointmentRow
-                          key={app.id}
-                          index={index}
-                          lang={lang}
-                          app={app}
-                          branding={branding}
-                          selectedDoctor={selectedDoctor}
-                          setViewingProfilePatientId={setViewingProfilePatientId}
-                          handleCheckIn={handleCheckIn}
-                          handleQuickBill={handleQuickBill}
-                          isActionPending={pendingActionIds.has(app.id)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <AppointmentQueue
+                  lang={lang} doctor={selectedDoctor} date={filterDate} onDateChange={setFilterDate}
+                  revision={queueRevision} onRetry={refreshDoctorQueue}
+                  branding={branding} pendingActionIds={pendingActionIds}
+                  setViewingProfilePatientId={setViewingProfilePatientId}
+                  handleCheckIn={handleCheckIn} handleQuickBill={handleQuickBill}
+                />
               </section>
 
               {/* Needs Your Attention Column */}
