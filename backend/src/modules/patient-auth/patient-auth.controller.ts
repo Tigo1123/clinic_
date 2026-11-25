@@ -23,7 +23,7 @@ import { passwordSchema } from '../../utils/passwordPolicy.js';
 import { rateLimits } from '../../config.js';
 
 const require = createRequire(import.meta.url);
-const { structuredPatientNameSchema } = require('../../utils/patientName.js');
+const { newPatientSchema } = require('../../utils/patientName.js');
 const { patientDateOfBirthSchema } = require('../../utils/patientOnboarding.js');
 const { sendError } = require('../../utils/apiError.js');
 
@@ -48,27 +48,23 @@ const claimRateLimitGuard = ExpressMiddlewareGuard(claimLimiter);
 const CLAIM_CREDENTIAL_PATTERN = /^[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{32}$/;
 const claimCredentialSchema = z.string().regex(CLAIM_CREDENTIAL_PATTERN);
 
-const patientRegistrationFieldsSchema = structuredPatientNameSchema
-  .extend({
-    phone: z.string().trim().min(7).max(30),
-    email: z.string().trim().email().max(254),
-    dateOfBirth: patientDateOfBirthSchema,
-    gender: z.enum(['MALE', 'FEMALE']),
-    password: passwordSchema,
-    addressStateId: z.coerce.number().int().min(1).max(18).optional(),
-  })
-  .strict();
+const patientRegistrationFieldsSchema = newPatientSchema({
+  phone: z.string().trim().min(7).max(30),
+  email: z.string().trim().email().max(254),
+  dateOfBirth: patientDateOfBirthSchema,
+  gender: z.enum(['MALE', 'FEMALE']),
+  password: passwordSchema,
+  addressStateId: z.coerce.number().int().min(1).max(18).optional(),
+});
 
-const googlePatientCompletionSchema = structuredPatientNameSchema
-  .extend({
-    onboardingToken: z.string().trim().min(1).max(200),
-    phone: z.string().trim().min(7).max(30),
-    dateOfBirth: patientDateOfBirthSchema,
-    gender: z.enum(['MALE', 'FEMALE']),
-    password: passwordSchema,
-    addressStateId: z.coerce.number().int().min(1).max(18).optional(),
-  })
-  .strict();
+const googlePatientCompletionSchema = newPatientSchema({
+  onboardingToken: z.string().trim().min(1).max(200),
+  phone: z.string().trim().min(7).max(30),
+  dateOfBirth: patientDateOfBirthSchema,
+  gender: z.enum(['MALE', 'FEMALE']),
+  password: passwordSchema,
+  addressStateId: z.coerce.number().int().min(1).max(18).optional(),
+});
 
 const verifySchema = z
   .object({

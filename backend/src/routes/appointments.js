@@ -16,7 +16,7 @@ import { markSensitiveResponse } from '../utils/edgeSecurity.js';
 import { getAvailableSlots, getConfiguredSlots, lockDoctorScheduleRows, validateBookableSlot, DATE_PATTERN, TIME_PATTERN, todayString } from '../utils/scheduling.js';
 import { findPossiblePatientDuplicates, normalizeNationalId, normalizePatientPhone, safeDuplicateCandidates } from '../utils/patientIdentity.js';
 import { publicDoctorSelect, toPublicBookingConfirmation, toPublicDoctor } from '../utils/publicDto.js';
-import { structuredPatientName, structuredPatientNameSchema } from '../utils/patientName.js';
+import { newPatientSchema, structuredPatientName, structuredPatientNameSchema } from '../utils/patientName.js';
 import { finishAppointmentOtp, issueAppointmentOtp, reserveAppointmentOtp } from '../services/appointmentOtp.js';
 
 import { lockPatientIdentity, patientDateOfBirthSchema } from '../utils/patientOnboarding.js';
@@ -72,7 +72,7 @@ function isEmergencyOverrideConflict(error) {
     && String(error.message || '').includes('EmergencyOverride_appointmentId_key');
 }
 
-const walkInPatientSchema = structuredPatientNameSchema.extend({
+const walkInPatientSchema = newPatientSchema({
   gender: z.enum(['MALE', 'FEMALE']),
   dateOfBirth: patientDateOfBirthSchema,
   nationalId: z.string().trim().max(30).optional(),
@@ -80,7 +80,7 @@ const walkInPatientSchema = structuredPatientNameSchema.extend({
   addressStateId: z.coerce.number().int().min(1).max(18),
   addressDetails: z.string().trim().max(300).optional(),
   emergencyContact: z.string().trim().max(150).optional()
-}).strict();
+});
 
 const walkInSchema = z.object({
   mode: z.enum(['EXISTING', 'NEW']),

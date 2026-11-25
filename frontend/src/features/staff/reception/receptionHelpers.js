@@ -63,8 +63,6 @@ export function queueRowStatusStyles(status) {
   }
 }
 
-export const PATIENT_NAME_FIELDS = ['firstNameAr', 'fatherNameAr', 'grandfatherNameAr', 'familyNameAr', 'firstNameEn', 'fatherNameEn', 'grandfatherNameEn', 'familyNameEn'];
-
 export function createEmptyPatientName() {
   return { firstNameAr: '', fatherNameAr: '', grandfatherNameAr: '', familyNameAr: '', firstNameEn: '', fatherNameEn: '', grandfatherNameEn: '', familyNameEn: '' };
 }

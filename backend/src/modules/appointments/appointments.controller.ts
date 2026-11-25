@@ -27,7 +27,7 @@ const {
   DATE_PATTERN,
   TIME_PATTERN,
 } = require('../../utils/scheduling.js');
-const { structuredPatientNameSchema } = require('../../utils/patientName.js');
+const { newPatientSchema, structuredPatientNameSchema } = require('../../utils/patientName.js');
 const { patientDateOfBirthSchema } = require('../../utils/patientOnboarding.js');
 
 const appointmentStatuses = [
@@ -63,17 +63,15 @@ const bookingSchema = structuredPatientNameSchema
   })
   .strict();
 
-const walkInPatientSchema = structuredPatientNameSchema
-  .extend({
-    gender: z.enum(['MALE', 'FEMALE']),
-    dateOfBirth: patientDateOfBirthSchema,
-    nationalId: z.string().trim().max(30).optional(),
-    phone: z.string().trim().min(7).max(30),
-    addressStateId: z.coerce.number().int().min(1).max(18),
-    addressDetails: z.string().trim().max(300).optional(),
-    emergencyContact: z.string().trim().max(150).optional(),
-  })
-  .strict();
+const walkInPatientSchema = newPatientSchema({
+  gender: z.enum(['MALE', 'FEMALE']),
+  dateOfBirth: patientDateOfBirthSchema,
+  nationalId: z.string().trim().max(30).optional(),
+  phone: z.string().trim().min(7).max(30),
+  addressStateId: z.coerce.number().int().min(1).max(18),
+  addressDetails: z.string().trim().max(300).optional(),
+  emergencyContact: z.string().trim().max(150).optional(),
+});
 
 const walkInSchema = z
   .object({

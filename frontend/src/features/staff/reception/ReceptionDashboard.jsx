@@ -1,3 +1,5 @@
+import { NAME_FIELDS, patientNameErrors, isValidPastDate } from '../../../utils/patientIdentityValidation.js';
+import PatientIdentityField from './components/PatientIdentityField';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
@@ -33,8 +35,7 @@ import AppointmentQueue from './components/AppointmentQueue';
 import ConfirmAppointmentDialog from './components/ConfirmAppointmentDialog';
 import {
   calculateInvoiceTotals,
-  createEmptyPatientName,
-  PATIENT_NAME_FIELDS
+  createEmptyPatientName
 } from './receptionHelpers';
 
 export default function ReceptionDashboard({ lang, t }) {
@@ -71,6 +72,13 @@ export default function ReceptionDashboard({ lang, t }) {
   const [patientName, setPatientName] = useState(createEmptyPatientName());
   const [gender, setGender] = useState('MALE');
   const [dob, setDob] = useState('');
+  const nameErrors = patientNameErrors(patientName);
+  const birthDateError = isValidPastDate(dob) ? undefined : 'onboardingDobInvalid';
+  const nameInputs = NAME_FIELDS.map(field => (
+    <PatientIdentityField key={field} field={field} value={patientName[field]} t={t} error={nameErrors[field]}
+      onChange={value => setPatientName(current => ({ ...current, [field]: value }))} />
+  ));
+  const birthDateInput = <PatientIdentityField field="dateOfBirth" value={dob} onChange={setDob} t={t} error={birthDateError} />;
   const [phone, setPhone] = useState('');
   const [nationalId, setNationalId] = useState('');
   const [addressStateId, setAddressStateId] = useState('1');
@@ -1477,20 +1485,7 @@ export default function ReceptionDashboard({ lang, t }) {
                 ) : (
                   <div className="reception-new-patient-fields">
                     <div className="reception-name-grid">
-                      {PATIENT_NAME_FIELDS.map((field) => (
-                        <div key={field} className="reception-form-field">
-                          <label className="reception-form-label">
-                            <span className="ui-section-label">{t(field)} *</span>
-                            <input
-                              type="text"
-                              required
-                              className="form-input"
-                              value={patientName[field]}
-                              onChange={(e) => setPatientName((current) => ({ ...current, [field]: e.target.value }))}
-                            />
-                          </label>
-                        </div>
-                      ))}
+                      {nameInputs}
                     </div>
 
                     <div className="reception-details-grid">
@@ -1508,19 +1503,7 @@ export default function ReceptionDashboard({ lang, t }) {
                         </label>
                       </div>
 
-                      <div className="reception-form-field">
-                        <label className="reception-form-label">
-                          <span className="ui-section-label">{lang === 'ar' ? 'تاريخ الميلاد' : 'Date of Birth'} *</span>
-                          <input
-                            type="date"
-                            required
-                            className="form-input ui-mono"
-                            dir="ltr"
-                            value={dob}
-                            onChange={(e) => setDob(e.target.value)}
-                          />
-                        </label>
-                      </div>
+                      {birthDateInput}
 
                       <div className="reception-form-field">
                         <label className="reception-form-label">
@@ -1647,20 +1630,7 @@ export default function ReceptionDashboard({ lang, t }) {
             <form onSubmit={handleRegisterPatient} className="reception-focused-form">
               <section aria-label="Registration details" className="ui-panel reception-focused-panel">
                 <div className="reception-name-grid">
-                  {PATIENT_NAME_FIELDS.map((field) => (
-                    <div key={field} className="reception-form-field">
-                      <label className="reception-form-label">
-                        <span className="ui-section-label">{t(field)} *</span>
-                        <input
-                          type="text"
-                          required
-                          className="form-input"
-                          value={patientName[field]}
-                          onChange={(e) => setPatientName((current) => ({ ...current, [field]: e.target.value }))}
-                        />
-                      </label>
-                    </div>
-                  ))}
+                  {nameInputs}
                 </div>
 
                 <div className="reception-details-grid">
@@ -1678,19 +1648,7 @@ export default function ReceptionDashboard({ lang, t }) {
                     </label>
                   </div>
 
-                  <div className="reception-form-field">
-                    <label className="reception-form-label">
-                      <span className="ui-section-label">{lang === 'ar' ? 'تاريخ الميلاد' : 'Date of Birth'} *</span>
-                      <input
-                        type="date"
-                        required
-                        className="form-input ui-mono"
-                        dir="ltr"
-                        value={dob}
-                        onChange={(e) => setDob(e.target.value)}
-                      />
-                    </label>
-                  </div>
+                  {birthDateInput}
 
                   <div className="reception-form-field">
                     <label className="reception-form-label">

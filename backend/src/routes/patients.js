@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { getClinicDateString } from '../utils/clinicTime.js';
 import { findPossiblePatientDuplicates, normalizeFileNumber, normalizeNationalId, normalizePatientPhone, safeDuplicateCandidates } from '../utils/patientIdentity.js';
-import { STRUCTURED_PATIENT_NAME_FIELDS, structuredPatientName, structuredPatientNameSchema } from '../utils/patientName.js';
+import { newPatientSchema, STRUCTURED_PATIENT_NAME_FIELDS, structuredPatientName, structuredPatientNameSchema } from '../utils/patientName.js';
 
 import { lockPatientIdentity, patientDateOfBirthSchema, patientIdentitySummary } from '../utils/patientOnboarding.js';
 
@@ -132,13 +132,13 @@ router.post('/', authenticate, checkRoles('ADMIN', 'RECEPTIONIST'), (req, res, n
     return sendError(res, 422, 'PATIENT_IDENTITY_FIELD_FORBIDDEN', 'Patient file identity fields cannot be supplied by the client.');
   }
   return next();
-}, validate(structuredPatientNameSchema.extend({
+}, validate(newPatientSchema({
   gender: z.enum(['MALE', 'FEMALE']), dateOfBirth: patientDateOfBirthSchema,
   nationalId: z.string().trim().max(30).optional(), phone: z.string().trim().min(7).max(30),
   addressStateId: z.coerce.number().int().min(1).max(18), addressDetails: z.string().trim().max(300).optional(),
   emergencyContact: z.string().trim().max(150).optional(), nationalIdAttachmentPath: z.string().max(300).optional(),
   insuranceAttachmentPath: z.string().max(300).optional()
-}).strict()), async (req, res) => {
+})), async (req, res) => {
   const {
     gender,
     dateOfBirth,

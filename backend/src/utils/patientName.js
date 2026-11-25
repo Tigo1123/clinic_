@@ -25,10 +25,11 @@ export function hasStructuredPatientName(patient) {
   return Boolean(structuredPatientName(patient));
 }
 
-const namePartSchema = z.string().max(NAME_PART_MAX_LENGTH)
+const namePartSchema = z.string()
+  .refine((value) => !/\p{Cc}/u.test(value), 'Name part cannot contain control characters.')
   .transform(normalizeNamePart)
   .refine((value) => value.length > 0, 'Name part cannot be blank.')
-  .refine((value) => !/[\u0000-\u001F\u007F]/u.test(value), 'Name part cannot contain control characters.');
+  .refine((value) => value.length <= NAME_PART_MAX_LENGTH, 'Name part exceeds 80 characters.');
 
 // One shared schema ensures every new-patient path accepts precisely the
 // components that `structuredPatientName` can canonically derive.
@@ -42,3 +43,23 @@ export const structuredPatientNameSchema = z.object({
   grandfatherNameEn: namePartSchema,
   familyNameEn: namePartSchema
 });
+
+export function newPatientSchema(fields) {
+  return structuredPatientNameSchema.extend(fields).strict().superRefine((patient, context) => {
+    const seen = new Map();
+    const repeated = new Set();
+    for (const field of STRUCTURED_PATIENT_NAME_FIELDS) {
+      const name = patient[field];
+      if (!name.includes(' ')) continue;
+      const key = field.slice(-2) + ':' + name.toLowerCase();
+      if (seen.has(key)) {
+        repeated.add(seen.get(key));
+        repeated.add(field);
+      }
+      seen.set(key, field);
+    }
+    for (const field of repeated) {
+      context.addIssue({ code: 'custom', path: [field], message: 'Enter each part of the name in its own field.' });
+    }
+  });
+}
