@@ -60,6 +60,11 @@ io.use((socket, next) => {
 app.set('io', io);
 
 io.on('connection', (socket) => {
+  if (!socket.user?.id || !socket.user?.role) {
+    socket.disconnect(true);
+    return;
+  }
+
   logger.info('socket.connected', { socketId: socket.id, userId: socket.user.id });
 
   socket.join(`user_${socket.user.id}`);

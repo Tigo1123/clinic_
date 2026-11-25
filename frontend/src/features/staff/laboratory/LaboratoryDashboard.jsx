@@ -7,14 +7,15 @@ import {
   HelpCircle,
   History,
   Lock,
-  Save
+  Save,
+  X
 } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../../services/staff/staffApi';
 import { useStaffNav } from '../staffShellContext';
 import { createLatestRequestGate, mergeLabOrdersMonotonically } from './labOrderVersions';
 import './laboratoryDashboard.css';
 
-export default function LaboratoryDashboard({ lang }) {
+export default function LaboratoryDashboard({ lang, notificationIntent = null, onNotificationIntentHandled }) {
   const [orders, setOrders] = useState([]);
   const [ordersLoadError, setOrdersLoadError] = useState(false);
   const [historyOrders, setHistoryOrders] = useState([]);
@@ -34,6 +35,11 @@ export default function LaboratoryDashboard({ lang }) {
   const [reviewForms, setReviewForms] = useState({});
   const [reviewingId, setReviewingId] = useState(null);
   const [selectedReviewId, setSelectedReviewId] = useState(null);
+  const [highlightedOrderId, setHighlightedOrderId] = useState(null);
+  const [staleNotificationMsg, setStaleNotificationMsg] = useState('');
+  const lastHandledIntentKeyRef = useRef(null);
+  const onIntentHandledRef = useRef(onNotificationIntentHandled);
+  onIntentHandledRef.current = onNotificationIntentHandled;
 
   const queueRequestGateRef = useRef(null);
   if (queueRequestGateRef.current === null) queueRequestGateRef.current = createLatestRequestGate();
@@ -144,6 +150,108 @@ export default function LaboratoryDashboard({ lang }) {
       setHistoryLoading(false);
     }
   };
+
+  useEffect(() => {
+    const requestKey = notificationIntent?.requestKey;
+    if (!requestKey || lastHandledIntentKeyRef.current === requestKey) return;
+    lastHandledIntentKeyRef.current = requestKey;
+    let active = true;
+
+    async function handleDrillDown() {
+      setErrorMsg('');
+      setSuccessMsg('');
+      setStaleNotificationMsg('');
+      setHighlightedOrderId(null);
+
+      const labOrderId = notificationIntent.targetId || notificationIntent.context?.labOrderId;
+      const labOrderItemId = notificationIntent.context?.labOrderItemId;
+
+      try {
+        const [pendingRes, reviewsRes, historyRes] = await Promise.all([
+          fetchWithAuth('/api/records/lab-orders/pending'),
+          fetchWithAuth('/api/records/lab-order-items/pending-review'),
+          fetchWithAuth('/api/records/lab-orders/history')
+        ]);
+        const [pendingData, reviewsData, historyData] = await Promise.all([
+          pendingRes.ok ? pendingRes.json().catch(() => []) : [],
+          reviewsRes.ok ? reviewsRes.json().catch(() => []) : [],
+          historyRes.ok ? historyRes.json().catch(() => []) : []
+        ]);
+        if (!active) return;
+
+        const nextPending = Array.isArray(pendingData) ? pendingData : [];
+        const nextReviews = Array.isArray(reviewsData) ? reviewsData : [];
+        const nextHistory = Array.isArray(historyData) ? historyData : [];
+
+        if (pendingRes.ok) {
+          setOrdersLoadError(false);
+          setOrders((current) => mergeLabOrdersMonotonically(current, nextPending));
+        }
+        if (reviewsRes.ok) {
+          setReviewLoadError(false);
+          setReviewRequests(nextReviews);
+        }
+        if (historyRes.ok) {
+          setHistoryLoadError(false);
+          setHistoryOrders(nextHistory);
+        }
+
+        if (labOrderItemId && nextReviews.some((item) => item.id === labOrderItemId)) {
+          setOrderView('custom');
+          setSelectedReviewId(labOrderItemId);
+          setHighlightedOrderId(labOrderItemId);
+          onIntentHandledRef.current?.();
+          return;
+        }
+
+        if (labOrderId && nextPending.some((ord) => ord.id === labOrderId)) {
+          setOrderView('work');
+          setSelectedOrderId(labOrderId);
+          setHighlightedOrderId(labOrderId);
+          onIntentHandledRef.current?.();
+          return;
+        }
+
+        if (labOrderId && nextHistory.some((ord) => ord.id === labOrderId)) {
+          setOrderView('history');
+          setSelectedOrderId(labOrderId);
+          setHighlightedOrderId(labOrderId);
+          onIntentHandledRef.current?.();
+          return;
+        }
+
+        const reviewByOrder = labOrderId
+          ? nextReviews.find((item) => item.labOrder?.id === labOrderId)
+          : null;
+        if (reviewByOrder) {
+          setOrderView('custom');
+          setSelectedReviewId(reviewByOrder.id);
+          setHighlightedOrderId(reviewByOrder.id);
+          onIntentHandledRef.current?.();
+          return;
+        }
+
+        setStaleNotificationMsg(
+          lang === 'ar'
+            ? 'طلب المختبر المشار إليه غير موجود أو لم يعد متاحاً.'
+            : 'The referenced laboratory order could not be found or is no longer available.'
+        );
+      } catch {
+        if (active) {
+          setStaleNotificationMsg(
+            lang === 'ar'
+              ? 'تعذر تحميل طلب المختبر المشار إليه.'
+              : 'Unable to load the referenced laboratory order.'
+          );
+        }
+      } finally {
+        onIntentHandledRef.current?.();
+      }
+    }
+
+    handleDrillDown();
+    return () => { active = false; };
+  }, [notificationIntent, lang]);
 
   // Auto-select first order when none is selected or current selection is not visible
   useEffect(() => {
@@ -457,6 +565,19 @@ export default function LaboratoryDashboard({ lang }) {
   return (
     <div className="dashboard-wrapper laboratory-dashboard" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
       <div className="workspace-panel laboratory-workspace">
+        {staleNotificationMsg && (
+          <div role="status" className="staff-notification-banner">
+            <span>{staleNotificationMsg}</span>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setStaleNotificationMsg('')}
+              aria-label={lang === 'ar' ? 'إغلاق' : 'Dismiss'}
+            >
+              <X size={14} aria-hidden="true" />
+            </button>
+          </div>
+        )}
         {orderView === 'custom' ? (
           /* ── CUSTOM TEST REVIEW SPLIT VIEW ───────────────────── */
           <section className={`laboratory-review-section ${reviewRequests.length === 0 ? 'is-empty' : ''}`} aria-labelledby="laboratory-review-title">
@@ -509,7 +630,13 @@ export default function LaboratoryDashboard({ lang }) {
                         <button
                           type="button"
                           key={request.id}
-                          className={`laboratory-order-card ${isSelected ? 'selected' : ''}`}
+                          data-review-id={request.id}
+                          ref={(node) => {
+                            if (highlightedOrderId === request.id && node) {
+                              node.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+                            }
+                          }}
+                          className={`laboratory-order-card ${isSelected ? 'selected' : ''}${highlightedOrderId === request.id ? ' staff-notification-highlight' : ''}`}
                           onClick={() => setSelectedReviewId(request.id)}
                           aria-pressed={isSelected}
                         >
@@ -755,7 +882,13 @@ export default function LaboratoryDashboard({ lang }) {
                       <button
                         type="button"
                         key={ord.id}
-                        className={`laboratory-order-card ${isSelected ? 'selected' : ''}`}
+                        data-lab-order-id={ord.id}
+                        ref={(node) => {
+                          if (highlightedOrderId === ord.id && node) {
+                            node.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+                          }
+                        }}
+                        className={`laboratory-order-card ${isSelected ? 'selected' : ''}${highlightedOrderId === ord.id ? ' staff-notification-highlight' : ''}`}
                         onClick={() => setSelectedOrderId(ord.id)}
                         aria-pressed={isSelected}
                       >

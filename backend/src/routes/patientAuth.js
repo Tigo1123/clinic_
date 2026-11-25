@@ -15,7 +15,7 @@ import { rateLimits } from '../config.js';
 import { getClinicDateString } from '../utils/clinicTime.js';
 import { passwordSchema } from '../utils/passwordPolicy.js';
 import { markSensitiveResponse } from '../utils/edgeSecurity.js';
-import { structuredPatientName, structuredPatientNameSchema } from '../utils/patientName.js';
+import { newPatientSchema, structuredPatientName } from '../utils/patientName.js';
 
 import { normalizePatientPhone } from '../utils/patientIdentity.js';
 import { lockPatientIdentity, patientDateOfBirthSchema, patientIdentitySummary } from '../utils/patientOnboarding.js';
@@ -30,18 +30,18 @@ const verificationLimiter = limiter(rateLimits.verification);
 const claimLimiter = limiter(rateLimits.claim);
 const bcryptRounds = Number(process.env.BCRYPT_ROUNDS || 12);
 const verificationResendCooldownMs = 60 * 1000;
-const patientRegistrationFieldsSchema = structuredPatientNameSchema.extend({
+const patientRegistrationFieldsSchema = newPatientSchema({
   phone: z.string().trim().min(7).max(30),
   email: z.string().trim().email().max(254), dateOfBirth: patientDateOfBirthSchema,
   gender: z.enum(['MALE', 'FEMALE']), password: passwordSchema, addressStateId: z.coerce.number().int().min(1).max(18).optional()
 });
-const googlePatientCompletionSchema = structuredPatientNameSchema.extend({
+const googlePatientCompletionSchema = newPatientSchema({
   onboardingToken: z.string().trim().min(1).max(200),
   phone: z.string().trim().min(7).max(30),
   dateOfBirth: patientDateOfBirthSchema,
   gender: z.enum(['MALE', 'FEMALE']), password: passwordSchema,
   addressStateId: z.coerce.number().int().min(1).max(18).optional()
-}).strict();
+});
 
 async function audit(userId, action, details, req, db = prisma) {
   await db.tenantAuditLog.create({ data: { userId, action, details, ipAddress: req.ip || 'unknown' } });
@@ -97,7 +97,7 @@ async function consumeClaimCredential(tx, { credential, patientId, dateOfBirth }
   return consumed.count === 1 ? { claim } : { error: claimFailure() };
 }
 
-router.post('/register', registrationLimiter, validate(patientRegistrationFieldsSchema.strict()), async (req, res, next) => {
+router.post('/register', registrationLimiter, validate(patientRegistrationFieldsSchema), async (req, res, next) => {
   let createdUserId;
   try {
     if (offlineVerificationDisabled()) throw verificationUnavailable();

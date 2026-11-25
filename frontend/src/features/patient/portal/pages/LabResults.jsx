@@ -1,15 +1,57 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, ChevronDown, ChevronRight, FileText } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronRight, FileText, X } from 'lucide-react';
 import { formatPatientDateTime } from '../patientRecord';
+import { patientSocket } from '../../../../services/patient/patientSocket';
 import { useApi, State, Empty, doctorName } from './shared.jsx';
 
 export function LabResults() {
   const { t, i18n } = useTranslation();
   const lang = i18n.language?.startsWith('ar') ? 'ar' : 'en';
+  const [searchParams, setSearchParams] = useSearchParams();
+  const targetOrderId = searchParams.get('orderId');
   const { data, error, loading, reload } = useApi('/api/patient/lab-results');
   const [expandedId, setExpandedId] = useState(null);
+  const [highlightedOrderId, setHighlightedOrderId] = useState(null);
+  const [staleNotice, setStaleNotice] = useState(false);
+  const rowRefs = useRef(new Map());
+
+  useEffect(() => {
+    const handleNotification = (notif) => {
+      if (notif?.eventType === 'LAB_RESULT_READY' || notif?.targetType === 'labOrder') {
+        reload();
+      }
+    };
+    patientSocket.on('notification', handleNotification);
+    return () => {
+      patientSocket.off('notification', handleNotification);
+    };
+  }, [reload]);
+
+  useEffect(() => {
+    if (!targetOrderId || loading || error || !Array.isArray(data)) return;
+    const match = data.find((item) => item.id === targetOrderId);
+    if (match) {
+      setStaleNotice(false);
+      setExpandedId(match.id);
+      setHighlightedOrderId(match.id);
+      const node = rowRefs.current.get(match.id);
+      node?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+    } else {
+      setHighlightedOrderId(null);
+      setStaleNotice(true);
+    }
+  }, [data, error, loading, targetOrderId]);
+
+  const dismissStaleNotice = () => {
+    setStaleNotice(false);
+    if (targetOrderId) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('orderId');
+      setSearchParams(next, { replace: true });
+    }
+  };
 
   const getTestName = (test) => {
     if (test?.service) {
@@ -54,19 +96,45 @@ export function LabResults() {
 
         <h1 className="patient-page-title ui-page-title">{t('labResults')}</h1>
 
+        {staleNotice && (
+          <div role="status" className="patient-alert warning patient-stale-notice">
+            <span>
+              {lang === 'ar'
+                ? 'نتيجة المختبر المشار إليها لم تعد متاحة أو لم يتم الإفراج عنها بعد.'
+                : 'The referenced laboratory report is no longer available or has not been released yet.'}
+            </span>
+            <button
+              type="button"
+              className="patient-stale-notice__dismiss"
+              onClick={dismissStaleNotice}
+              aria-label={t('close')}
+            >
+              <X size={16} aria-hidden="true" />
+            </button>
+          </div>
+        )}
+
         {!data?.length ? (
           <Empty>{t('noRecords')}</Empty>
         ) : (
           <div className="patient-panel">
             {data.map((item) => {
               const isExpanded = expandedId === item.id;
+              const isHighlighted = highlightedOrderId === item.id;
               const doctor = item?.doctor;
               const doctorDisplayName = doctor ? doctorName(doctor, lang) : t('notAvailable');
               const testsSummary = (item.tests || []).map(getTestName).join(', ') || t('laboratoryReport');
               const hasAbnormal = (item.tests || []).some((test) => Boolean(test.isOutOfRange));
 
               return (
-                <div key={item.id} className="patient-lab-row">
+                <div
+                  key={item.id}
+                  ref={(node) => {
+                    if (node) rowRefs.current.set(item.id, node);
+                    else rowRefs.current.delete(item.id);
+                  }}
+                  className={`patient-lab-row${isHighlighted ? ' patient-lab-row--highlighted' : ''}`}
+                >
                   <button
                     type="button"
                     onClick={() => toggleExpand(item.id)}

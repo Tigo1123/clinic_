@@ -1,3 +1,4 @@
+import { latestBirthDate } from '../src/utils/patientIdentityValidation.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import i18n from '../src/i18n.js';
@@ -96,7 +97,10 @@ test('OTP resend cooldown is deterministic and localized in both languages', asy
 test('registration page renders the stepper, keeps RTL/LTR inputs explicit, and continues verified patients safely', () => {
   const page = readFileSync(new URL('../src/features/patient/auth/PatientAuthPages.jsx', import.meta.url), 'utf8');
   assert.match(page, /onboarding-progress/);
-  assert.match(page, /autoComplete="name" dir=\{step === 0 \? 'rtl' : 'ltr'\}/);
+  assert.match(page, /'given-name'/);
+  assert.match(page, /'family-name'/);
+  assert.doesNotMatch(page, /autoComplete="name"/);
+  assert.match(page, /dir=\{step === 0 \? 'rtl' : 'ltr'\}/);
   assert.match(page, /patient-phone-control/);
   assert.match(page, /splitInternationalPhone/);
   assert.match(page, /inputMode="tel" dir="ltr"/);
@@ -169,4 +173,20 @@ test('patient login identifier uses explicit visible LTR text styling without ch
   assert.match(styles, /\.patient-auth \.patient-auth-identifier:-webkit-autofill/);
   assert.match(page, /type==='password'\)return <PasswordField/);
   assert.match(passwordField, /t\('showPassword'\)/);
+});
+
+test('duplicate full names are flagged in the same language while compound and repeated single names pass', () => {
+  const form = { ...complete, firstNameEn: 'Mary Jane', familyNameEn: '  MARY   JANE  ' };
+  const feedback = { ...messages, nameRepeated: 'repeated' };
+  assert.deepEqual(validateOnboardingStep(form, 1, feedback), { firstNameEn: 'repeated', familyNameEn: 'repeated' });
+  assert.deepEqual(validateOnboardingStep({ ...form, familyNameEn: 'O’Neill', fatherNameEn: 'Ali' }, 1, feedback), {});
+});
+
+test('birth date limits use the previous clinic calendar day across leap days and year boundaries', () => {
+  assert.equal(latestBirthDate('2024-03-01'), '2024-02-29');
+  assert.equal(latestBirthDate('2026-01-01'), '2025-12-31');
+  for (const dateOfBirth of ['2024-03-01', '2024-03-02', '2024-02-30']) {
+    assert.equal(validateOnboardingStep({ ...complete, dateOfBirth }, 2, messages, '2024-03-01').dateOfBirth, 'dob');
+  }
+  assert.deepEqual(validateOnboardingStep({ ...complete, dateOfBirth: '2024-02-29' }, 2, messages, '2024-03-01'), {});
 });

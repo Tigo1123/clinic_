@@ -100,7 +100,7 @@ for (const category of ['CONSULTATION', 'CLINICAL_PROCEDURE', 'RADIOLOGY', 'LABO
   await api.patch(`/api/admin/catalog/services/${stored.id}`).set(auth('admin')).send({ labelEn: `Edited ${payload.labelEn}`, priceSdg: '19001', status: 'INACTIVE' }).expect(200);
   assert.ok(!(await api.get('/api/billing/services')).body.some(item => item.id === stored.id));
   assert.deepEqual((await prisma.invoice.findUnique({ where: { id: invoice.id }, include: { items: true } })).items, invoice.items);
-  await api.post('/api/billing/invoice').set(auth('reception')).send({ patientId: patient.id, invoiceType: 'GENERAL', items: [{ serviceId: stored.id, quantity: 1 }] }).expect(404);
+  await api.post('/api/billing/invoice').set(auth('admin')).send({ patientId: patient.id, invoiceType: 'GENERAL', items: [{ serviceId: stored.id, quantity: 1 }] }).expect(404);
   await api.patch(`/api/admin/catalog/services/${stored.id}`).set(auth('admin')).send({ category: 'CONSULTATION' }).expect(422);
 });
 

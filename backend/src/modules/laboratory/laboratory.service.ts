@@ -2,8 +2,10 @@ import {
   Injectable,
   HttpException,
   HttpStatus,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 import { RealtimeGateway } from '../realtime/realtime.gateway.js';
 import { isLabReviewDecision, type LabReviewInput } from './lab-review.schema.js';
 
@@ -12,6 +14,7 @@ export class LaboratoryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtimeGateway: RealtimeGateway,
+    @Optional() private readonly notificationsService?: NotificationsService,
   ) {}
 
   async getPendingReviews() {
@@ -207,6 +210,12 @@ export class LaboratoryService {
         returnedAppointmentId,
       };
     });
+
+    if (result.decision === 'CREATE_SERVICE' && result.service) {
+      await this.notificationsService?.notifyLabPricingRequired({
+        labOrderId: result.item.labOrderId, serviceId: result.service.id,
+      });
+    }
 
     // Same realtime events as Express (src/routes/records.js POST /lab-order-items/:itemId/review).
     this.realtimeGateway.emitQueueUpdate(
@@ -470,9 +479,12 @@ export class LaboratoryService {
         },
       });
 
-      return { item, returnedAppointmentId, returnedDoctorId };
+      return { item, returnedAppointmentId, returnedDoctorId, orderCompleted: remainingItems === 0 };
     });
 
+    if (result.orderCompleted) {
+      await this.notificationsService?.notifyLabResultReadyToDoctor({ labOrderId: result.item.labOrderId });
+    }
     if (result.returnedAppointmentId && result.returnedDoctorId) {
       this.realtimeGateway.emitQueueUpdate(
         {
@@ -489,7 +501,8 @@ export class LaboratoryService {
   }
 
   async releaseResults(id: string, user: any, ip?: string) {
-    return this.prisma.$transaction(async (tx: any) => {
+    const result = await this.prisma.$transaction(async (tx: any) => {
+      await tx.$queryRaw`SELECT "id" FROM "LabOrder" WHERE "id" = ${id} FOR UPDATE`;
       const order = await tx.labOrder.findUnique({ where: { id } });
       if (!order) {
         throw new HttpException(
@@ -527,5 +540,9 @@ export class LaboratoryService {
         idempotentReplay: false,
       };
     });
+    if (!result.idempotentReplay) {
+      await this.notificationsService?.notifyLabResultReleasedToPatient({ labOrderId: result.id });
+    }
+    return result;
   }
 }

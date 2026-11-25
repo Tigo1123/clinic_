@@ -91,9 +91,25 @@
 /* ── Day Stepper ───────────────────────────────────────────── */
 .reception-day-stepper {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
+  padding: .5rem;
+}
+.reception-day-stepper input[type="date"] {
+  width: auto;
+  max-width: 100%;
+}
+.reception-confirm-details {
+  grid-template-columns: auto 1fr;
+  gap: .5rem 1rem;
+}
+.reception-confirm-details dt {
   color: var(--color-text-muted);
+}
+.reception-confirm-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 .reception-stepper-btn {
   display: flex;

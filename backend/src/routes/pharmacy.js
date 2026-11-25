@@ -21,6 +21,7 @@ import {
   isMedicineIdentityUniqueViolation,
   normalizeBatchNumber,
   pharmacistMedicineCreateSchema,
+  pharmacistMedicineDeactivateSchema,
   pharmacistMedicineMetadataSchema,
   stockMovementSchema,
   summarizeMedicineStock
@@ -36,6 +37,14 @@ function apiFailure(status, code, message) {
   return Object.assign(new Error(message), { status, code });
 }
 
+function isIdentityLocked(medicine) {
+  if (typeof medicine?.identityLocked === 'boolean') return medicine.identityLocked;
+  if (!medicine?._count) return false;
+  return medicine._count.prescribedDrugs > 0
+    || medicine._count.inventoryBatches > 0
+    || medicine._count.stockMovements > 0;
+}
+
 function publicMedicine(medicine, batches) {
   return {
     id: medicine.id,
@@ -47,6 +56,7 @@ function publicMedicine(medicine, batches) {
     dosageForm: medicine.dosageForm,
     status: medicine.status,
     unitPriceSdg: medicine.unitPriceSdg == null ? null : Number(medicine.unitPriceSdg),
+    identityLocked: isIdentityLocked(medicine),
     updatedAt: medicine.updatedAt,
     stock: Array.isArray(batches)
       ? summarizeMedicineStock(batches, getClinicDateString())
@@ -159,7 +169,8 @@ router.get('/formulary', authenticate, readRoles, validate(formularySearchSchema
         select: {
           id: true, brandName: true, labelAr: true, labelEn: true,
           genericName: true, strength: true, dosageForm: true,
-          status: true, unitPriceSdg: true, updatedAt: true
+          status: true, unitPriceSdg: true, updatedAt: true,
+          _count: { select: { prescribedDrugs: true, inventoryBatches: true, stockMovements: true } }
         },
         orderBy: [{ brandName: 'asc' }, { id: 'asc' }],
         skip: (page - 1) * pageSize,
@@ -186,7 +197,8 @@ router.get('/formulary/:id', authenticate, readRoles, validate(formularyIdParams
       select: {
         id: true, brandName: true, labelAr: true, labelEn: true,
         genericName: true, strength: true, dosageForm: true,
-        status: true, unitPriceSdg: true, updatedAt: true
+        status: true, unitPriceSdg: true, updatedAt: true,
+        _count: { select: { prescribedDrugs: true, inventoryBatches: true, stockMovements: true } }
       }
     });
     if (!medicine) return sendError(res, 404, 'FORMULARY_MEDICINE_NOT_FOUND', 'Medicine was not found.');
@@ -245,7 +257,12 @@ router.post('/formulary', authenticate, pharmacistOnly, validate(pharmacistMedic
       } });
       return { medicine, batch };
     });
-    return res.status(201).json({ medicine: publicMedicine(result.medicine, result.batch ? [result.batch] : []) });
+    return res.status(201).json({
+      medicine: publicMedicine(
+        { ...result.medicine, identityLocked: Boolean(result.batch) },
+        result.batch ? [result.batch] : []
+      )
+    });
   } catch (error) {
     return handleMutationError(error, res, next);
   }
@@ -281,12 +298,14 @@ router.patch('/formulary/:id/metadata', authenticate, pharmacistOnly,
             ...(changedFields.some((field) => identityFields.includes(field)) && {
               identityKey: buildMedicineIdentityKey(nextMetadata)
             })
-          }
+          },
+          include: { _count: { select: { prescribedDrugs: true, inventoryBatches: true, stockMovements: true } } }
         });
         await tx.tenantAuditLog.create({ data: {
           userId: req.user.id,
           action: 'FORMULARY_METADATA_UPDATED',
           details: JSON.stringify({
+            drugId: current.id,
             medicineId: current.id,
             changedFields,
             changes: Object.fromEntries(changedFields.map((field) => [field, {
@@ -301,6 +320,51 @@ router.patch('/formulary/:id/metadata', authenticate, pharmacistOnly,
       const summaries = await loadStockSummaries([medicine.id]);
       return res.json({
         medicine: publicMedicine(medicine, summaries.get(medicine.id) || emptyStockSummary())
+      });
+    } catch (error) {
+      return handleMutationError(error, res, next);
+    }
+  });
+
+router.post('/formulary/:id/deactivate', authenticate, pharmacistOnly,
+  validate(formularyIdParamsSchema, 'params'), validate(pharmacistMedicineDeactivateSchema), async (req, res, next) => {
+    try {
+      const result = await prisma.$transaction(async (tx) => {
+        await lockMedicine(tx, req.params.id);
+        const current = await tx.drugFormulary.findUnique({
+          where: { id: req.params.id },
+          include: { _count: { select: { prescribedDrugs: true, inventoryBatches: true, stockMovements: true } } }
+        });
+        if (current.status === 'INACTIVE') {
+          return { medicine: current, alreadyInactive: true };
+        }
+        const updated = await tx.drugFormulary.update({
+          where: { id: current.id },
+          data: { status: 'INACTIVE' },
+          include: { _count: { select: { prescribedDrugs: true, inventoryBatches: true, stockMovements: true } } }
+        });
+        await tx.tenantAuditLog.create({ data: {
+          userId: req.user.id,
+          action: 'FORMULARY_MEDICINE_DEACTIVATED',
+          details: JSON.stringify({
+            drugId: current.id,
+            medicineId: current.id,
+            brandName: current.brandName,
+            labelAr: current.labelAr,
+            labelEn: current.labelEn,
+            previousStatus: current.status,
+            status: 'INACTIVE',
+            unitPriceSdg: current.unitPriceSdg == null ? null : Number(current.unitPriceSdg),
+            ...(req.body?.reason ? { reason: req.body.reason } : {})
+          }),
+          ipAddress: req.ip || 'unknown'
+        } });
+        return { medicine: updated, alreadyInactive: false };
+      });
+      const summaries = await loadStockSummaries([result.medicine.id]);
+      return res.json({
+        medicine: publicMedicine(result.medicine, summaries.get(result.medicine.id) || emptyStockSummary()),
+        alreadyInactive: result.alreadyInactive
       });
     } catch (error) {
       return handleMutationError(error, res, next);

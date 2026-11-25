@@ -127,7 +127,8 @@ test('consultation creation and finalization audit actor and record identifiers 
         appointmentId: appointment.id,
         doctorId: doctor.id,
         prescriptionId: null,
-        labOrderId: null
+        labOrderId: null,
+        serviceOrderId: null
       },
       containsClinicalMarker: false
     },

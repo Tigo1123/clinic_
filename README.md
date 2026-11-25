@@ -13,6 +13,29 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for deployment prerequisites and [OPERATIONS.
 for backup, restore, monitoring, rollback, and incident procedures. Never commit `.env` files,
 database files, backups, or uploaded clinical attachments.
 
+## Configure insurance providers
+
+1. Sign in as an administrator. Open **Doctors & catalogs**, then choose **Insurance providers → Add** in Clinic setup.
+2. Enter the insurer’s Arabic and English names, the patient copay percentage, and the claim billing cycle in days. For example, a 20% copay on an eligible SDG 10,000 bill gives the patient a share of SDG 2,000 and the insurer a share of SDG 8,000.
+3. Set **Active** and save. In **Reception → Billing**, select the insurer and check the displayed patient and insurer shares before issuing the invoice.
+4. To retire a provider, open its entry, choose **Edit**, turn off **Active**, and save. Existing invoices and claims retain their amounts.
+
+## Bill a doctor’s order
+
+During a consultation, the doctor can select tests from the laboratory catalogue, skip tests when none are needed, and enter the prescription afterward. For a procedure or other clinical service, the doctor selects the service and quantity.
+
+In **Reception → Billing**, select the patient and open the relevant doctor order. Check the charges, choose the insurer if applicable, and review the patient share. To remove an erroneous service charge before issuing the invoice, choose the line’s removal action and confirm a reason. The original medical order and the reason remain on record. If every charge is removed, the order cannot be invoiced.
+
+Open laboratory orders from the lab billing queue. A fully covered order can be settled with zero patient payment. To correct an eligible issued consultation or lab invoice, open **View Invoice → Review refund**. Check the invoice, amount and reason before confirming. Consultation refunds close when the doctor starts the visit, and laboratory refunds close when sample collection begins.
+
+## Bill and dispense clinic prescriptions
+
+Pharmacy bills against the prescription created during a clinic visit. For a walk-in who needs a clinic prescription, reception first registers or selects the patient and checks them in. Once the doctor prescribes the medicines, open the prescription in the pharmacy queue, resolve any items awaiting review, check the invoice, and record payment. Dispense against the paid prescription so the stock movement, payment and patient record refer to the same order.
+
+In Pharmacy, open medicine management to edit a medicine or deactivate it. Deactivation preserves stock, historical records and issued invoices. It removes the medicine from new prescriptions. An unbilled prescription may require review. An administrator can set prices or reactivate a medicine.
+
+Standalone retail sales without a clinic prescription are outside this workflow. If a payment attempt times out, reopen the prescription and check its outstanding balance before recording another payment.
+
 ## System architecture
 
 The NestJS application (`backend/src/main.ts`, built to `backend/dist/main.js`) is the production

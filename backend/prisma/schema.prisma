@@ -75,6 +75,7 @@ model Doctor {
   medicalRecords     MedicalRecord[]
   prescriptions      Prescription[]
   labOrders          LabOrder[]
+  serviceOrders      ServiceOrder[]
   schedules          DoctorSchedule[]
   scheduleExceptions DoctorScheduleException[]
 }
@@ -196,6 +197,7 @@ model Patient {
   consents                 Consent[]
   prescriptions            Prescription[]
   labOrders                LabOrder[]
+  serviceOrders            ServiceOrder[]
   invoices                 Invoice[]
   insuranceClaims          InsuranceClaim[]
   userId                   String?            @unique
@@ -251,6 +253,7 @@ model MedicalRecord {
   attachmentPath         String?
   prescriptions          Prescription[]
   labOrders              LabOrder[]
+  serviceOrder           ServiceOrder?
 
   @@index([patientId, visitDate])
 }
@@ -378,10 +381,11 @@ model ClinicalService {
   labelEn       String
   baseFeeSdg    Decimal?
   baseFeeUsd    Decimal?
-  category      String // CONSULTATION, LABORATORY, RADIOLOGY, CLINICAL_PROCEDURE
-  status        String         @default("ACTIVE") // ACTIVE, INACTIVE
-  updatedAt     DateTime       @updatedAt
-  labOrderItems LabOrderItem[]
+  category          String             // CONSULTATION, LABORATORY, RADIOLOGY, CLINICAL_PROCEDURE
+  status            String             @default("ACTIVE") // ACTIVE, INACTIVE
+  updatedAt         DateTime           @updatedAt
+  labOrderItems     LabOrderItem[]
+  serviceOrderItems ServiceOrderItem[]
 }
 
 model LabOrder {
@@ -564,6 +568,8 @@ model Invoice {
   appointment         Appointment?       @relation(fields: [appointmentId], references: [id])
   labOrderId          String?
   labOrder            LabOrder?          @relation(fields: [labOrderId], references: [id], onDelete: SetNull)
+  serviceOrderId      String?
+  serviceOrder        ServiceOrder?      @relation(fields: [serviceOrderId], references: [id], onDelete: SetNull)
   prescriptionId      String?
   prescription        Prescription?      @relation(fields: [prescriptionId], references: [id], onDelete: SetNull)
   invoiceDate         DateTime           @default(now())
@@ -584,9 +590,44 @@ model Invoice {
   @@index([invoiceDate])
   @@index([appointmentId, invoiceType, paymentStatus])
   @@index([labOrderId, invoiceType, paymentStatus])
+  @@index([serviceOrderId, invoiceType, paymentStatus])
   @@index([prescriptionId, invoiceType, paymentStatus])
 
   @@index([patientId, invoiceDate])
+}
+
+model ServiceOrder {
+  id              String             @id @default(uuid())
+  medicalRecordId String             @unique
+  medicalRecord   MedicalRecord      @relation(fields: [medicalRecordId], references: [id])
+  patientId       String
+  patient         Patient            @relation(fields: [patientId], references: [id])
+  doctorId        String
+  doctor          Doctor             @relation(fields: [doctorId], references: [id])
+  orderDate       DateTime           @default(now())
+  status          String             @default("PENDING_BILLING") // PENDING_BILLING, PAID, COMPLETED, CANCELLED
+  paidAt          DateTime?
+  billingVersion  Int                @default(0)
+  items           ServiceOrderItem[]
+  invoices        Invoice[]
+
+  @@index([patientId, status, orderDate])
+  @@index([doctorId, status, orderDate])
+}
+
+model ServiceOrderItem {
+  id             String          @id @default(uuid())
+  serviceOrderId String
+  serviceOrder   ServiceOrder    @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  serviceId      String
+  service        ClinicalService @relation(fields: [serviceId], references: [id])
+  quantity              Int      @default(1)
+  billingExcludedAt     DateTime?
+  billingExcludedBy     String?
+  billingExclusionReason String?
+
+  @@index([serviceOrderId])
+  @@index([serviceId])
 }
 
 model InvoiceItem {
@@ -667,6 +708,9 @@ model InsuranceCompany {
   labelEn          String
   copayPercentage  Decimal
   billingCycleDays Int              @default(30)
+  active           Boolean          @default(true)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @default(now()) @updatedAt
   claims           InsuranceClaim[]
 }
 
@@ -706,12 +750,23 @@ model TenantAuditLog {
 }
 
 model Notification {
-  id        String   @id @default(uuid())
-  userId    String
-  title     String
-  message   String
-  isRead    Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id         String   @id @default(uuid())
+  userId     String
+  title      String
+  message    String
+  titleAr    String?
+  titleEn    String?
+  messageAr  String?
+  messageEn  String?
+  eventType  String?
+  targetType String?
+  targetId   String?
+  payload    Json?
+  dedupeKey  String?
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
 
+  @@unique([userId, dedupeKey])
   @@index([userId, isRead])
+  @@index([userId, createdAt, id])
 }

@@ -1,3 +1,5 @@
+import { deliverNotification } from './notifications.js';
+import { notifyPharmacyInvoiceReady } from '../services/actionableNotifications.js';
 import { lockDoctorLifecycle, synchronizeDoctorAccount } from '../services/doctorLifecycle.js';
 import { usdFromSdg, subtractMoney } from '../utils/money.js';
 import express from 'express';
@@ -17,14 +19,23 @@ const priceUpdateSchema = z.object({
   status: z.enum(['ACTIVE', 'INACTIVE']).optional()
 }).strict();
 
-function auditDetails(resourceType, resourceId, previousPriceSdg, newPriceSdg, previousStatus, newStatus) {
+const medicinePriceUpdateSchema = z.object({
+  priceSdg: z.number().int().positive().max(MAX_MONEY_SDG).optional(),
+  status: z.enum(['ACTIVE', 'INACTIVE']).optional()
+}).strict().refine(
+  (value) => value.priceSdg !== undefined || value.status !== undefined,
+  'At least one medicine price or status field is required.'
+);
+
+function auditDetails(resourceType, resourceId, previousPriceSdg, newPriceSdg, previousStatus, newStatus, extra = {}) {
   return JSON.stringify({
     resourceType,
     resourceId,
     previousPriceSdg,
     newPriceSdg,
     previousStatus,
-    newStatus
+    newStatus,
+    ...extra
   });
 }
 
@@ -122,22 +133,43 @@ router.patch('/pricing/services/:id', authenticate, checkRoles('ADMIN'), validat
   }
 });
 
-router.patch('/pricing/medicines/:id', authenticate, checkRoles('ADMIN'), validate(priceUpdateSchema), async (req, res) => {
+router.patch('/pricing/medicines/:id', authenticate, checkRoles('ADMIN'), validate(medicinePriceUpdateSchema), async (req, res) => {
   try {
     const medicine = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "DrugFormulary" WHERE "id" = ${req.params.id} FOR UPDATE`;
       const existing = await tx.drugFormulary.findUnique({ where: { id: req.params.id } });
       if (!existing) throw Object.assign(new Error('Medicine not found.'), { status: 404, code: 'MEDICINE_NOT_FOUND' });
+      const nextStatus = req.body.status ?? existing.status;
+      const existingPrice = existing.unitPriceSdg == null ? null : Number(existing.unitPriceSdg);
+      const nextPrice = req.body.priceSdg ?? existingPrice;
+      if (nextStatus === 'ACTIVE' && (!Number.isSafeInteger(nextPrice) || nextPrice <= 0)) {
+        throw Object.assign(
+          new Error('An active medicine must have a valid positive price in SDG.'),
+          { status: 422, code: 'PHARMACY_PRICE_REQUIRED' }
+        );
+      }
       const updated = await tx.drugFormulary.update({
         where: { id: existing.id },
-        data: { unitPriceSdg: req.body.priceSdg, ...(req.body.status && { status: req.body.status }) }
+        data: {
+          ...(req.body.priceSdg !== undefined && { unitPriceSdg: req.body.priceSdg }),
+          ...(req.body.status && { status: req.body.status })
+        }
       });
       await tx.tenantAuditLog.create({ data: {
         userId: req.user.id,
         action: 'MEDICINE_SELLING_PRICE_UPDATED',
-        details: auditDetails('MEDICINE', existing.id, existing.unitPriceSdg == null ? null : Number(existing.unitPriceSdg), req.body.priceSdg, existing.status, updated.status),
+        details: auditDetails(
+          'MEDICINE',
+          existing.id,
+          existingPrice,
+          updated.unitPriceSdg == null ? null : Number(updated.unitPriceSdg),
+          existing.status,
+          updated.status,
+          { drugId: existing.id, status: updated.status }
+        ),
         ipAddress: req.ip || 'unknown'
       } });
+      const createdPharmacyInvoices = [];
       if (updated.status === 'ACTIVE') {
         const affectedPrescriptions = await tx.prescribedDrug.findMany({
           where: {
@@ -161,17 +193,23 @@ router.patch('/pricing/medicines/:id', authenticate, checkRoles('ADMIN'), valida
           });
         }
         for (const { prescriptionId } of affectedPrescriptions) {
-          await ensurePharmacyInvoiceInTransaction(tx, {
+          const invoiceResult = await ensurePharmacyInvoiceInTransaction(tx, {
             prescriptionId,
             actorUserId: req.user.id,
             ipAddress: req.ip || 'unknown',
             trigger: 'MEDICINE_PRICED_AND_ACTIVATED'
           });
+          if (invoiceResult?.invoice && !invoiceResult.existing) {
+            createdPharmacyInvoices.push({ prescriptionId, invoiceId: invoiceResult.invoice.id });
+          }
         }
       }
-      return updated;
+      return { updated, createdPharmacyInvoices };
     });
-    return res.json({ ...medicine, unitPriceSdg: Number(medicine.unitPriceSdg) });
+    for (const invoice of medicine.createdPharmacyInvoices) {
+      await deliverNotification(req, notifyPharmacyInvoiceReady, invoice);
+    }
+    return res.json({ ...medicine.updated, unitPriceSdg: medicine.updated.unitPriceSdg == null ? null : Number(medicine.updated.unitPriceSdg) });
   } catch (error) {
     if (error.status) return sendError(res, error.status, error.code, error.message);
     return sendError(res, 500, 'MEDICINE_PRICE_UPDATE_FAILED', 'Failed to update medicine pricing.');

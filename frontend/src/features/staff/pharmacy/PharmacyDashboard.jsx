@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ClipboardCheck, Package, Pill, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ClipboardCheck, Package, Pill, RefreshCw, X } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../../services/staff/staffApi';
 import PharmacyManagement from './PharmacyManagement';
 import PharmacyPayment from './PharmacyPayment';
@@ -13,7 +13,7 @@ import PharmacyAlertsBody from './components/PharmacyAlertsBody';
 import { useStaffNav } from '../staffShellContext';
 import './pharmacyDashboard.css';
 
-export default function PharmacyDashboard({ lang, t: _t }) {
+export default function PharmacyDashboard({ lang, t: _t, notificationIntent = null, onNotificationIntentHandled }) {
   const [prescriptions, setPrescriptions] = useState([]);
   const [prescriptionsLoadError, setPrescriptionsLoadError] = useState(false);
   const [prescriptionHistory, setPrescriptionHistory] = useState([]);
@@ -23,9 +23,13 @@ export default function PharmacyDashboard({ lang, t: _t }) {
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [paymentState, setPaymentState] = useState(null);
+  const dispensingAllowed = Boolean(selectedRx && paymentState?.prescriptionId === selectedRx.id && paymentState.dispensingAllowed);
   const [managementRefresh, setManagementRefresh] = useState(0);
   const [paymentRefresh, setPaymentRefresh] = useState(0);
   const [dispensing, setDispensing] = useState(false);
+  const dispensingRef = useRef(false);
+  const dispenseAttempts = useRef(new Map());
+  const paymentAttempts = useRef(new Map());
   const [activeSection, setActiveSection] = useState('dispensing');
   const [alertMedicines, setAlertMedicines] = useState(null);
   const [alertLoadError, setAlertLoadError] = useState('');
@@ -34,6 +38,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
 
   // Read-only formulary pricing; official prices are configured by ADMIN.
   const [drugCatalog, setDrugCatalog] = useState([]);
+  const [catalogRefresh, setCatalogRefresh] = useState(0);
 
   // Custom medications awaiting pharmacist review
   const [medicationReviews, setMedicationReviews] = useState([]);
@@ -49,6 +54,11 @@ export default function PharmacyDashboard({ lang, t: _t }) {
   const [unavailableNote, setUnavailableNote] = useState('');
   const [unavailableSaving, setUnavailableSaving] = useState(false);
   const [unavailableError, setUnavailableError] = useState('');
+  const [highlightedRxId, setHighlightedRxId] = useState(null);
+  const [staleNotificationMsg, setStaleNotificationMsg] = useState('');
+  const lastHandledIntentKeyRef = useRef(null);
+  const onIntentHandledRef = useRef(onNotificationIntentHandled);
+  onIntentHandledRef.current = onNotificationIntentHandled;
   const alertRequestRef = useRef(0);
 
   const loadAlertInventory = useCallback(async () => {
@@ -153,25 +163,137 @@ export default function PharmacyDashboard({ lang, t: _t }) {
     fetchPendingRx();
     fetchPrescriptionHistory();
     fetchMedicationReviews();
+  }, [fetchMedicationReviews, fetchPendingRx, fetchPrescriptionHistory]);
 
+  useEffect(() => {
+    let active = true;
     fetchWithAuth('/api/records/drugs')
       .then((res) => res.ok ? res.json() : [])
       .then((data) => {
-        if (Array.isArray(data)) {
-          setDrugCatalog(data);
-        } else {
-          setDrugCatalog([]);
-        }
+        if (active) setDrugCatalog(Array.isArray(data) ? data.filter((drug) => drug.status === 'ACTIVE') : []);
       })
       .catch(() => {
-        setDrugCatalog([]);
+        if (active) setDrugCatalog([]);
       });
-  }, [fetchMedicationReviews, fetchPendingRx, fetchPrescriptionHistory]);
+    return () => { active = false; };
+  }, [activeSection, catalogRefresh, managementRefresh]);
+
+  const refreshInventory = () => {
+    setCatalogRefresh((value) => value + 1);
+    loadAlertInventory();
+  };
 
   useEffect(() => {
     loadAlertInventory();
     return () => { alertRequestRef.current += 1; };
   }, [loadAlertInventory, managementRefresh]);
+
+  useEffect(() => {
+    const requestKey = notificationIntent?.requestKey;
+    if (!requestKey || lastHandledIntentKeyRef.current === requestKey) return;
+    lastHandledIntentKeyRef.current = requestKey;
+    let active = true;
+
+    async function handleDrillDown() {
+      setErrorMsg('');
+      setSuccessMsg('');
+      setStaleNotificationMsg('');
+      setHighlightedRxId(null);
+
+      const prescriptionId = notificationIntent.targetId || notificationIntent.context?.prescriptionId;
+      const prescribedDrugId = notificationIntent.context?.prescribedDrugId;
+
+      try {
+        const [pendingRes, historyRes, reviewsRes] = await Promise.all([
+          fetchWithAuth('/api/records/prescriptions/pending'),
+          fetchWithAuth('/api/records/prescriptions/history'),
+          fetchWithAuth('/api/records/medication-reviews/pending')
+        ]);
+        const [pendingData, historyData, reviewsData] = await Promise.all([
+          pendingRes.ok ? pendingRes.json().catch(() => []) : [],
+          historyRes.ok ? historyRes.json().catch(() => []) : [],
+          reviewsRes.ok ? reviewsRes.json().catch(() => []) : []
+        ]);
+        if (!active) return;
+
+        const nextPending = Array.isArray(pendingData) ? pendingData : [];
+        const nextHistory = Array.isArray(historyData) ? historyData : [];
+        const nextReviews = Array.isArray(reviewsData) ? reviewsData : [];
+
+        if (pendingRes.ok) {
+          setPrescriptionsLoadError(false);
+          setPrescriptions(nextPending);
+        }
+        if (historyRes.ok) {
+          setHistoryLoadError(false);
+          setPrescriptionHistory(nextHistory);
+        }
+        if (reviewsRes.ok) {
+          setMedicationReviews(nextReviews);
+        }
+
+        if (prescribedDrugId && nextReviews.some((item) => item.id === prescribedDrugId)) {
+          setActiveSection('reviews');
+          setSelectedReviewId(prescribedDrugId);
+          setHighlightedRxId(prescribedDrugId);
+          onIntentHandledRef.current?.();
+          return;
+        }
+
+        const pendingMatch = prescriptionId ? nextPending.find((rx) => rx.id === prescriptionId) : null;
+        if (pendingMatch) {
+          setActiveSection('dispensing');
+          setQueueView('active');
+          setSelectedRx(pendingMatch);
+          setPaymentState(null);
+          setHighlightedRxId(pendingMatch.id);
+          onIntentHandledRef.current?.();
+          return;
+        }
+
+        const historyMatch = prescriptionId ? nextHistory.find((rx) => rx.id === prescriptionId) : null;
+        if (historyMatch) {
+          setActiveSection('dispensing');
+          setQueueView('history');
+          setSelectedRx(historyMatch);
+          setPaymentState(null);
+          setHighlightedRxId(historyMatch.id);
+          onIntentHandledRef.current?.();
+          return;
+        }
+
+        const reviewByPrescription = prescriptionId
+          ? nextReviews.find((item) => item.prescriptionId === prescriptionId)
+          : null;
+        if (reviewByPrescription) {
+          setActiveSection('reviews');
+          setSelectedReviewId(reviewByPrescription.id);
+          setHighlightedRxId(reviewByPrescription.id);
+          onIntentHandledRef.current?.();
+          return;
+        }
+
+        setStaleNotificationMsg(
+          lang === 'ar'
+            ? 'الوصفة الطبية المشار إليها غير موجودة أو لم تعد متاحة.'
+            : 'The referenced prescription could not be found or is no longer available.'
+        );
+      } catch {
+        if (active) {
+          setStaleNotificationMsg(
+            lang === 'ar'
+              ? 'تعذر تحميل الوصفة الطبية المشار إليها.'
+              : 'Unable to load the referenced prescription.'
+          );
+        }
+      } finally {
+        onIntentHandledRef.current?.();
+      }
+    }
+
+    handleDrillDown();
+    return () => { active = false; };
+  }, [notificationIntent, lang]);
 
   useEffect(() => {
     let active = true;
@@ -260,7 +382,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
     const form = reviewForms[item.id] || {};
 
     if (decision === 'LINK_EXISTING') {
-      if (!form.drugId) {
+      if (!drugCatalog.some((drug) => drug.id === form.drugId)) {
         setReviewErrorMsg(
           lang === 'ar'
             ? 'اختر دواءً من قائمة الصيدلية أولاً.'
@@ -374,31 +496,6 @@ export default function PharmacyDashboard({ lang, t: _t }) {
         return next;
       });
 
-      if (
-        decision === 'CREATE_FORMULARY' &&
-        payload.drug
-      ) {
-        const createdDrug = {
-          ...payload.drug,
-          inventoryBatches:
-            payload.inventoryBatch
-              ? [payload.inventoryBatch]
-              : []
-        };
-
-        setDrugCatalog((current) => {
-          if (
-            current.some(
-              (drug) => drug.id === createdDrug.id
-            )
-          ) {
-            return current;
-          }
-
-          return [...current, createdDrug];
-        });
-      }
-
       fetchMedicationReviews();
       fetchPendingRx();
       setPaymentRefresh((value) => value + 1);
@@ -433,10 +530,12 @@ export default function PharmacyDashboard({ lang, t: _t }) {
   };
 
   const handleDispense = async (rx) => {
+    if (dispensingRef.current) return;
     setErrorMsg('');
     setSuccessMsg('');
 
-    if (!paymentState?.dispensingAllowed) {
+    const pendingAttempt = dispenseAttempts.current.get(rx.id);
+    if (!pendingAttempt && (paymentState?.prescriptionId !== rx.id || !paymentState.dispensingAllowed)) {
       setErrorMsg(
         lang === 'ar'
           ? 'لا يمكن صرف هذه الوصفة قبل دفع فاتورة الصيدلية بالكامل.'
@@ -445,10 +544,11 @@ export default function PharmacyDashboard({ lang, t: _t }) {
       return;
     }
 
-    const items = rx.prescribedDrugs
+    const items = pendingAttempt?.items || rx.prescribedDrugs
       .filter(
         (item) =>
           item.drug &&
+          item.pharmacyReviewStatus !== 'EXTERNAL' &&
           Number(item.qtyPrescribed) - Number(item.qtyDispensed) > 0
       )
       .map((item) => ({
@@ -466,13 +566,18 @@ export default function PharmacyDashboard({ lang, t: _t }) {
       return;
     }
 
+    const attempt = pendingAttempt || { items, key: crypto.randomUUID() };
+    dispenseAttempts.current.set(rx.id, attempt);
+    dispensingRef.current = true;
     try {
       setDispensing(true);
       const res = await fetchWithAuth(`/api/records/prescriptions/${rx.id}/dispense`, {
         method: 'POST',
-        body: JSON.stringify({ items })
+        headers: { 'Idempotency-Key': attempt.key },
+        body: JSON.stringify({ items: attempt.items })
       });
       if (res.ok) {
+        dispenseAttempts.current.delete(rx.id);
         setSuccessMsg(lang === 'ar' ? 'تم صرف الوصفة الطبية وإنقاص المخزون بنجاح.' : 'Prescription dispensed successfully.');
         setSelectedRx(null);
         setPaymentState(null);
@@ -481,11 +586,13 @@ export default function PharmacyDashboard({ lang, t: _t }) {
         fetchPrescriptionHistory();
       } else {
         const err = await res.json().catch(() => ({}));
+        if (res.status < 500) dispenseAttempts.current.delete(rx.id);
         setErrorMsg(apiErrorMessage(err, lang === 'ar' ? 'تعذر صرف الوصفة الطبية.' : 'Dispense failed.'));
       }
     } catch {
-      setErrorMsg(lang === 'ar' ? 'فشلت معاملة الصرف. تحقق من الاتصال وحاول مرة أخرى.' : 'Dispensing transaction failed.');
+      setErrorMsg(lang === 'ar' ? 'تعذر تأكيد الصرف. أعد المحاولة لإرسال طلب الصرف نفسه.' : 'Could not confirm dispensing. Retry to send the same dispensing request.');
     } finally {
+      dispensingRef.current = false;
       setDispensing(false);
     }
   };
@@ -568,6 +675,19 @@ export default function PharmacyDashboard({ lang, t: _t }) {
 
   return (
     <div className="pharmacy-workspace dashboard-wrapper">
+      {staleNotificationMsg && (
+        <div role="status" className="staff-notification-banner">
+          <span>{staleNotificationMsg}</span>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => setStaleNotificationMsg('')}
+            aria-label={lang === 'ar' ? 'إغلاق' : 'Dismiss'}
+          >
+            <X size={14} aria-hidden="true" />
+          </button>
+        </div>
+      )}
       {/* Accessible tablist preserved for screen readers and unit tests */}
       <div className="sr-only" role="tablist" aria-label={lang === 'ar' ? 'أقسام الصيدلية' : 'Pharmacy sections'}>
         {[
@@ -656,7 +776,11 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                     lang={lang}
                     queueView={queueView}
                     selected={selectedRx?.id === rx.id}
-                    onSelect={() => { setSelectedRx(rx); setPaymentState(null); }}
+                    isHighlighted={highlightedRxId === rx.id}
+                    onSelect={() => {
+                      if (selectedRx?.id !== rx.id) setPaymentState(null);
+                      setSelectedRx(rx);
+                    }}
                   />
                 ))
               )}
@@ -742,6 +866,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                     prescriptionId={selectedRx.id}
                     lang={lang}
                     onStateChange={setPaymentState}
+                    paymentAttempts={paymentAttempts.current}
                   />
                 )}
 
@@ -749,19 +874,21 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                 {queueView === 'active' && (
                   <div className="pharmacy-dispense-footer">
                     <span className="pharmacy-dispense-hint">
-                      {paymentState?.dispensingAllowed
+                      {dispensingAllowed
                         ? (lang === 'ar' ? 'تم استيفاء الدفع. الوصفة جاهزة للصرف.' : 'Invoice is fully paid. Prescription is ready to dispense.')
                         : (lang === 'ar' ? 'يتاح الصرف بعد سداد الفاتورة بالكامل واعتماد جميع الأدوية.' : 'Dispensing unlocks once the invoice is paid and every medicine is resolved.')}
                     </span>
                     <button
                       type="button"
-                      className={`btn ${paymentState?.dispensingAllowed ? 'btn-primary' : 'btn-secondary'}`}
-                      disabled={!paymentState?.dispensingAllowed || dispensing}
+                      className={`btn ${dispensingAllowed ? 'btn-primary' : 'btn-secondary'}`}
+                      disabled={dispensing || (!dispensingAllowed && !dispenseAttempts.current.has(selectedRx.id))}
                       onClick={() => handleDispense(selectedRx)}
                     >
                       {dispensing
                         ? (lang === 'ar' ? 'جارٍ الصرف…' : 'Dispensing…')
-                        : (lang === 'ar' ? 'صرف الوصفة الطبية' : 'Dispense prescription')}
+                        : dispenseAttempts.current.has(selectedRx.id)
+                          ? (lang === 'ar' ? 'إعادة محاولة الصرف' : 'Retry dispensing')
+                          : (lang === 'ar' ? 'صرف الوصفة الطبية' : 'Dispense prescription')}
                     </button>
                   </div>
                 )}
@@ -825,11 +952,18 @@ export default function PharmacyDashboard({ lang, t: _t }) {
                     ? (item.patient?.fullNameAr || item.patient?.fullNameEn)
                     : (item.patient?.fullNameEn || item.patient?.fullNameAr);
                   const isSelected = selectedReviewItem?.id === item.id;
+                  const isHighlighted = highlightedRxId === item.id;
                   return (
                     <button
                       key={item.id}
                       type="button"
-                      className={`pharmacy-queue-item ${isSelected ? 'is-selected' : ''}`}
+                      data-review-id={item.id}
+                      ref={(node) => {
+                        if (isHighlighted && node) {
+                          node.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+                        }
+                      }}
+                      className={`pharmacy-queue-item ${isSelected ? 'is-selected' : ''}${isHighlighted ? ' staff-notification-highlight' : ''}`}
                       onClick={() => setSelectedReviewId(item.id)}
                     >
                       <span className="pharmacy-queue-item__info">
@@ -883,7 +1017,7 @@ export default function PharmacyDashboard({ lang, t: _t }) {
           <PharmacyManagement
             lang={lang}
             refreshToken={managementRefresh}
-            onInventoryChanged={loadAlertInventory}
+            onInventoryChanged={refreshInventory}
           />
         </div>
       )}

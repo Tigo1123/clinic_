@@ -63,17 +63,15 @@ export function queueRowStatusStyles(status) {
   }
 }
 
-export const PATIENT_NAME_FIELDS = ['firstNameAr', 'fatherNameAr', 'grandfatherNameAr', 'familyNameAr', 'firstNameEn', 'fatherNameEn', 'grandfatherNameEn', 'familyNameEn'];
-
 export function createEmptyPatientName() {
   return { firstNameAr: '', fatherNameAr: '', grandfatherNameAr: '', familyNameAr: '', firstNameEn: '', fatherNameEn: '', grandfatherNameEn: '', familyNameEn: '' };
 }
 
 // Returns the ISO date (YYYY-MM-DD) shifted by `days`, or null when the input date is invalid.
 export function shiftQueueDate(isoDate, days) {
-  const nextDate = new Date(`${isoDate}T12:00:00`);
+  const nextDate = new Date(`${isoDate}T12:00:00Z`);
   if (Number.isNaN(nextDate.getTime())) return null;
-  nextDate.setDate(nextDate.getDate() + days);
+  nextDate.setUTCDate(nextDate.getUTCDate() + days);
   return nextDate.toISOString().slice(0, 10);
 }
 

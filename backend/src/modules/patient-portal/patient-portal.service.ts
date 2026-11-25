@@ -3,10 +3,13 @@ import {
   HttpException,
   HttpStatus,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import bcrypt from 'bcryptjs';
 import { createRequire } from 'node:module';
 import { PrismaService } from '../../database/prisma.service.js';
+import { RealtimeGateway } from '../realtime/realtime.gateway.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 
 const require = createRequire(import.meta.url);
 const { patientIdentitySummary } = require('../../utils/patientOnboarding.js');
@@ -118,7 +121,11 @@ function medicineOf(item: any, drug: any) {
 
 @Injectable()
 export class PatientPortalService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly realtimeGateway?: RealtimeGateway,
+    @Optional() private readonly notificationsService?: NotificationsService,
+  ) {}
 
   private async getOwnedPatient(userId: string) {
     const patient = await this.prisma.patient.findUnique({
@@ -458,7 +465,7 @@ export class PatientPortalService {
   async bookAppointment(patient: { id: string; userId: string }, body: BookingInput, ip?: string) {
     try {
       await this.validateSlot(body.doctorId, body.appointmentDate, body.appointmentTime);
-      return await this.prisma.$transaction(async (tx: any) => {
+      const created = await this.prisma.$transaction(async (tx: any) => {
         if (!(await lockDoctorScheduleRows(tx, [body.doctorId]))) {
           throw apiError(404, 'DOCTOR_NOT_FOUND', 'Active doctor not found.');
         }
@@ -466,7 +473,7 @@ export class PatientPortalService {
         if (!(await getConfiguredSlots(doctor, body.appointmentDate, undefined, tx)).includes(body.appointmentTime)) {
           throw apiError(409, 'INVALID_APPOINTMENT_SLOT', 'The selected appointment time is no longer available in the doctor schedule.');
         }
-        const created = await tx.appointment.create({
+        const appointment = await tx.appointment.create({
           data: { patientId: patient.id, ...body, status: 'PENDING' },
           include: { doctor: { select: doctorSelect } },
         });
@@ -474,12 +481,21 @@ export class PatientPortalService {
           data: {
             userId: patient.userId,
             action: 'PATIENT_APPOINTMENT_BOOKED',
-            details: `Patient booked appointment ${created.id}.`,
+            details: `Patient booked appointment ${appointment.id}.`,
             ipAddress: ip || 'unknown',
           },
         });
-        return created;
+        return appointment;
       });
+      await this.notificationsService?.notifyAppointmentBooked({
+        appointment: created,
+        source: 'PATIENT_PORTAL',
+      });
+      this.realtimeGateway?.emitQueueUpdate(
+        { type: 'BOOKING_PENDING', appointmentId: created.id, doctorId: created.doctorId },
+        [created.doctorId],
+      );
+      return created;
     } catch (error: any) {
       if (error instanceof HttpException) throw error;
       if (error?.code === 'P2002') {
@@ -521,6 +537,16 @@ export class PatientPortalService {
         },
       });
     });
+    await this.notificationsService?.notifyAppointmentCancelled({
+      appointment,
+      previousStatus: appointment.status,
+      actorUserId: patient.userId,
+      actorRole: 'PATIENT',
+    });
+    this.realtimeGateway?.emitQueueUpdate(
+      { type: 'STATUS_UPDATE', appointmentId: appointment.id, status: 'CANCELLED', doctorId: appointment.doctorId },
+      [appointment.doctorId],
+    );
     return { success: true };
   }
 
@@ -532,7 +558,7 @@ export class PatientPortalService {
     }
     await this.validateSlot(body.doctorId, body.appointmentDate, body.appointmentTime);
     try {
-      return await this.prisma.$transaction(async (tx: any) => {
+      const updated = await this.prisma.$transaction(async (tx: any) => {
         if (!(await lockDoctorScheduleRows(tx, [appointment.doctorId, body.doctorId]))) {
           throw apiError(404, 'DOCTOR_NOT_FOUND', 'Active doctor not found.');
         }
@@ -565,6 +591,17 @@ export class PatientPortalService {
           include: { doctor: { select: doctorSelect } },
         });
       });
+      await this.notificationsService?.notifyAppointmentRescheduled({
+        appointment: updated,
+        previousDoctorId: appointment.doctorId,
+        previousStatus: appointment.status,
+        actorUserId: patient.userId,
+      });
+      this.realtimeGateway?.emitQueueUpdate(
+        { type: 'APPOINTMENT_RESCHEDULED', appointmentId: updated.id, doctorId: updated.doctorId },
+        [appointment.doctorId, updated.doctorId],
+      );
+      return updated;
     } catch (error: any) {
       if (error instanceof HttpException) throw error;
       if (isAppointmentSlotConflict(error)) {

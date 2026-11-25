@@ -86,7 +86,7 @@ test('all linked account translations exist in Arabic and English', () => {
 
 test('ACCOUNT_LINK_REQUIRED leads to post-login hint in Profile and standard login is preserved', () => {
   // Check PatientLogin routing logic
-  assert.match(authPages, /if\s*\(googleAuth\.errorCode === 'ACCOUNT_LINK_REQUIRED'\)\s*\{\s*navigate\('\/patient\/profile',\s*\{\s*state:\s*\{\s*highlightGoogleLink:\s*true\s*\}\s*\}\);\s*\}\s*else\s*\{\s*navigate\('\/patient'\);\s*\}/);
+  assert.match(authPages, /if\s*\(googleAuth\.errorCode === 'ACCOUNT_LINK_REQUIRED'\)\s*\{\s*navigate\('\/patient\/profile',\s*\{\s*state:\s*\{\s*highlightGoogleLink:\s*true\s*\}\s*\}\);\s*\}\s*else\s*\{\s*navigate\(destination\);\s*\}/);
 
   // Check Profile hint banner
   assert.match(pages, /highlightGoogleLink && !data\.googleAccount\?\.linked/);

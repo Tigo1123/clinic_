@@ -49,8 +49,10 @@ export const insurancePreviewSchema = z
   .object({
     patientId: z.string().uuid(),
     insuranceCompanyId: z.string().uuid().nullable().optional(),
-    invoiceType: z.enum(['GENERAL', 'CONSULTATION']),
+    invoiceType: z.enum(['GENERAL', 'CONSULTATION', 'LABORATORY']),
     appointmentId: z.string().uuid().nullable().optional(),
+    serviceOrderId: z.string().uuid().nullable().optional(),
+    labOrderId: z.string().uuid().nullable().optional(),
     items: z
       .array(
         z
@@ -74,8 +76,9 @@ export class BillingController {
   @HttpCode(HttpStatus.OK)
   async getInsurancePreview(
     @Body(new ZodValidationPipe(insurancePreviewSchema)) body: any,
+    @CurrentUser() user: any,
   ) {
-    return this.billingService.getInsurancePreview(body);
+    return this.billingService.getInsurancePreview(body, user);
   }
 
   @Post('invoice')
@@ -114,6 +117,26 @@ export class BillingController {
     @Req() req: Request,
   ) {
     return this.billingService.processRefund(params.id, body, user, req.ip || 'unknown');
+  }
+
+  @Post('service-orders/:serviceOrderId/items/:itemId/exclude')
+  @PolicyRoles('ADMIN', 'RECEPTIONIST')
+  @HttpCode(HttpStatus.OK)
+  async excludeServiceOrderCharge(
+    @Param(new ZodValidationPipe(z.object({ serviceOrderId: z.string().uuid(), itemId: z.string().uuid() }))) params: { serviceOrderId: string; itemId: string },
+    @Body(new ZodValidationPipe(z.object({ reason: z.string().trim().min(1).max(500) }).strict())) body: { reason: string },
+    @CurrentUser() user: any,
+    @Req() req: Request,
+  ) {
+    return this.billingService.excludeServiceOrderCharge(params, body.reason, user.id, req.ip || 'unknown');
+  }
+
+  @Get('service-orders/pending/:patientId')
+  @PolicyRoles('ADMIN', 'RECEPTIONIST')
+  async getPendingServiceOrders(
+    @Param(new ZodValidationPipe(z.object({ patientId: z.string().uuid() }))) params: { patientId: string },
+  ) {
+    return this.billingService.getPendingServiceOrders(params.patientId);
   }
 
   @Get('lab-orders/pending')

@@ -1,3 +1,16 @@
+import { createHash } from 'node:crypto';
+import { deliverNotification } from './notifications.js';
+import {
+  notifyConsultationCompleted,
+  notifyLabOrdered,
+  notifyPrescriptionReady,
+  notifyLabPricingRequired,
+  notifyLabResultReadyToDoctor,
+  notifyLabResultReleasedToPatient,
+  notifyPharmacyMedicationExternal,
+  notifyPrescriptionDispensed,
+  notifyPharmacyPricingRequired,
+} from '../services/actionableNotifications.js';
 import express from 'express';
 import { asyncRouter } from '../utils/asyncRouter.js';
 import { Prisma } from '../generated/prisma/index.js';
@@ -21,11 +34,86 @@ import {
   stockMovementSchema
 } from '../utils/medicineManagement.js';
 import { ensurePharmacyInvoiceInTransaction } from '../services/pharmacyInvoice.js';
+import {
+  assertNoNewCustomTests,
+  BILLABLE_NON_LAB_CATEGORIES,
+  MAX_SERVICE_ORDER_ITEMS,
+  MAX_SERVICE_ORDER_QUANTITY,
+  normalizeDoctorServiceOrders
+} from '../utils/clinicalOrdering.js';
 
 const router = asyncRouter();
 
 const ACTIVE_PRESCRIPTION_STATUSES = ['ACTIVE', 'PARTIALLY_FILLED'];
 const TERMINAL_PRESCRIPTION_STATUSES = ['FILLED', 'RESOLVED', 'CANCELLED'];
+
+function parseOptionalIdempotencyKey(rawHeader) {
+  if (rawHeader === undefined) return null;
+  const trimmed = String(rawHeader).trim();
+  if (!/^[a-zA-Z0-9-]{8,128}$/.test(trimmed)) {
+    throw Object.assign(new Error('Invalid Idempotency-Key header.'), {
+      status: 400,
+      code: 'IDEMPOTENCY_KEY_INVALID'
+    });
+  }
+  return trimmed;
+}
+
+function buildDispenseRequestHash(prescriptionId, items) {
+  const normalizedItems = items
+    .map((item) => ({
+      prescribedDrugId: String(item.prescribedDrugId),
+      qtyToDispense: Number(item.qtyToDispense)
+    }))
+    .sort((a, b) => a.prescribedDrugId.localeCompare(b.prescribedDrugId));
+  return createHash('sha256')
+    .update(JSON.stringify({ prescriptionId, items: normalizedItems }))
+    .digest('hex');
+}
+
+function isStockMovementIdempotencyConflict(error) {
+  if (error?.code !== 'P2002') return false;
+  const target = error.meta?.target;
+  if (Array.isArray(target)) {
+    return target.map((entry) => String(entry).toLowerCase()).includes('idempotencykey');
+  }
+  if (typeof target === 'string') {
+    return target.toLowerCase().includes('idempotencykey');
+  }
+  return false;
+}
+
+async function resolveDispenseIdempotency(client, prescriptionId, idempotencyKey, requestHash) {
+  const existingMovement = await client.stockMovement.findUnique({
+    where: { idempotencyKey: `dispense:${idempotencyKey}:0` },
+    select: { id: true, referenceId: true }
+  });
+  if (!existingMovement) return false;
+
+  const existingAudit = await client.tenantAuditLog.findFirst({
+    where: {
+      action: 'PRESCRIPTION_DISPENSED',
+      details: { contains: `"idempotencyKey":${JSON.stringify(idempotencyKey)}` }
+    },
+    select: { details: true }
+  });
+
+  if (existingAudit?.details) {
+    try {
+      const parsed = JSON.parse(existingAudit.details);
+      if (parsed?.idempotencyKey === idempotencyKey && parsed.prescriptionId === prescriptionId && parsed.requestHash === requestHash) {
+        return true;
+      }
+    } catch {
+      // Fall through to conflict if audit payload is unreadable
+    }
+  }
+
+  throw Object.assign(
+    new Error('Idempotency-Key was already used for a different dispensing request.'),
+    { status: 409, code: 'IDEMPOTENCY_KEY_REUSED' }
+  );
+}
 
 async function refreshPrescriptionResolution(tx, prescriptionId) {
   const items = await tx.prescribedDrug.findMany({
@@ -53,11 +141,16 @@ function authorityError(status, code, message) {
   return Object.assign(new Error(message), { status, code });
 }
 
-async function lockAndValidateClinicalSelections(tx, { prescribedDrugs = [], orderedServices = [] }) {
+async function lockAndValidateClinicalSelections(
+  tx,
+  { prescribedDrugs = [], orderedServices = [], serviceOrders = [] }
+) {
   const drugIds = [...new Set(
     prescribedDrugs.map((item) => item.drugId).filter(Boolean)
   )].sort();
-  const serviceIds = [...new Set(orderedServices)].sort();
+  const labServiceIds = [...new Set(orderedServices)].sort();
+  const orderServiceIds = [...new Set(serviceOrders.map((item) => item.serviceId))].sort();
+  const allServiceIds = [...new Set([...labServiceIds, ...orderServiceIds])].sort();
 
   if (drugIds.length > 0) {
     const medicines = await tx.$queryRaw`
@@ -77,24 +170,41 @@ async function lockAndValidateClinicalSelections(tx, { prescribedDrugs = [], ord
     }
   }
 
-  if (serviceIds.length > 0) {
+  if (allServiceIds.length > 0) {
     const services = await tx.$queryRaw`
-      SELECT "id", "status", "category"
+      SELECT "id", "status", "category", "baseFeeSdg"
       FROM "ClinicalService"
-      WHERE "id" IN (${Prisma.join(serviceIds)})
+      WHERE "id" IN (${Prisma.join(allServiceIds)})
       ORDER BY "id"
       FOR UPDATE
     `;
     const servicesById = new Map(services.map((service) => [service.id, service]));
-    const missingId = serviceIds.find((id) => !servicesById.has(id));
+    const missingId = allServiceIds.find((id) => !servicesById.has(id));
     if (missingId) {
       throw authorityError(404, 'CLINICAL_SERVICE_NOT_FOUND', 'A selected clinical service was not found.');
     }
-    if (serviceIds.some((id) => servicesById.get(id).status !== 'ACTIVE')) {
+    if (allServiceIds.some((id) => servicesById.get(id).status !== 'ACTIVE')) {
       throw authorityError(409, 'CLINICAL_SERVICE_INACTIVE', 'A selected clinical service is inactive.');
     }
-    if (serviceIds.some((id) => servicesById.get(id).category !== 'LABORATORY')) {
+    if (labServiceIds.some((id) => servicesById.get(id).category !== 'LABORATORY')) {
       throw authorityError(422, 'CLINICAL_SERVICE_NOT_LABORATORY', 'A selected clinical service is not eligible for a laboratory order.');
+    }
+    if (orderServiceIds.some((id) => !BILLABLE_NON_LAB_CATEGORIES.includes(servicesById.get(id).category))) {
+      throw authorityError(
+        422,
+        'CLINICAL_SERVICE_NOT_BILLABLE_ORDER',
+        'A selected clinical service is not eligible for a non-laboratory service order.'
+      );
+    }
+    if (orderServiceIds.some((id) => {
+      const fee = Number(servicesById.get(id).baseFeeSdg);
+      return !Number.isSafeInteger(fee) || fee <= 0;
+    })) {
+      throw authorityError(
+        409,
+        'SERVICE_PRICE_NOT_CONFIGURED',
+        'The selected service does not have a valid configured price.'
+      );
     }
   }
 }
@@ -102,7 +212,7 @@ async function lockAndValidateClinicalSelections(tx, { prescribedDrugs = [], ord
 /**
  * POST /api/records
  * Saves the consultation results. Encrypts clinical fields, serializes vitals,
- * and creates prescriptions and lab orders in a single atomic transaction.
+ * and creates prescriptions, catalogue lab orders, and non-lab service orders atomically.
  */
 router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
   patientId: z.string().uuid(), appointmentId: z.string().uuid(), symptoms: z.string().max(5000).optional(),
@@ -123,6 +233,12 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
     )
   ).max(50).optional(),
   orderedServices: z.array(z.string().uuid()).max(50).optional(),
+  serviceOrders: z.array(
+    z.object({
+      serviceId: z.string().uuid(),
+      quantity: z.coerce.number().int().positive().max(MAX_SERVICE_ORDER_QUANTITY).optional()
+    }).strict()
+  ).max(MAX_SERVICE_ORDER_ITEMS).optional(),
   customTests: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
   attachmentPath: z.string().max(300).optional()
 })), async (req, res) => {
@@ -135,8 +251,9 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
     clinicalNotes,
     vitalSigns, // { blood_pressure, heart_rate, temperature, weight }
     prescribedDrugs, // Array of { drugId, dosage, duration, instructionsAr, instructionsEn, qtyPrescribed }
-    orderedServices, // Array of ClinicalService IDs
-    customTests, // Array of free-text laboratory test names
+    orderedServices, // Array of ClinicalService IDs (LABORATORY)
+    serviceOrders, // Array of { serviceId, quantity } (CLINICAL_PROCEDURE / RADIOLOGY)
+    customTests, // Rejected on new orders; historical customTestName remains readable/reviewable
     attachmentPath
   } = req.body;
 
@@ -146,9 +263,18 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
     });
   }
 
-  const hasLabOrders =
-    (Array.isArray(orderedServices) && orderedServices.length > 0) ||
-    (Array.isArray(customTests) && customTests.length > 0);
+  let normalizedServiceOrders = [];
+  try {
+    assertNoNewCustomTests(customTests);
+    normalizedServiceOrders = normalizeDoctorServiceOrders(serviceOrders);
+  } catch (domainErr) {
+    if (domainErr.status && domainErr.code) {
+      return sendError(res, domainErr.status, domainErr.code, domainErr.message);
+    }
+    throw domainErr;
+  }
+
+  const hasLabOrders = Array.isArray(orderedServices) && orderedServices.length > 0;
 
   if (!hasLabOrders && !diagnosis?.trim()) {
     return sendError(
@@ -187,7 +313,8 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
       where: { appointmentId },
       include: {
         prescriptions: true,
-        labOrders: true
+        labOrders: true,
+        serviceOrder: { include: { items: true } }
       }
     });
 
@@ -199,7 +326,12 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
         record: existingRecord,
         prescriptions: existingRecord.prescriptions,
         labOrders: existingRecord.labOrders,
-        data: { record: existingRecord, prescription: existingRecord.prescriptions[0] || null, labOrder: existingRecord.labOrders[0] || null }
+        data: {
+          record: existingRecord,
+          prescription: existingRecord.prescriptions[0] || null,
+          labOrder: existingRecord.labOrders[0] || null,
+          serviceOrder: existingRecord.serviceOrder || null
+        }
       });
     }
     // 1. Encrypt clinical text fields
@@ -211,7 +343,11 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
 
     // Execute atomic transaction
     const result = await prisma.$transaction(async (tx) => {
-      await lockAndValidateClinicalSelections(tx, { prescribedDrugs, orderedServices });
+      await lockAndValidateClinicalSelections(tx, {
+        prescribedDrugs,
+        orderedServices,
+        serviceOrders: normalizedServiceOrders
+      });
 
       // a. Create EMR Medical Record
       const record = await tx.medicalRecord.create({
@@ -289,18 +425,28 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
             }
           });
         }
+      }
 
-        for (const customTestName of customTests || []) {
-          await tx.labOrderItem.create({
-            data: {
-              labOrderId: labOrder.id,
-              serviceId: null,
-              customTestName: customTestName.trim(),
-              labReviewStatus: 'PENDING_REVIEW',
-              isOutOfRange: false
+      // c2. Create catalogue ServiceOrder for non-lab billable services (procedures / radiology)
+      let serviceOrder = null;
+      if (normalizedServiceOrders.length > 0) {
+        serviceOrder = await tx.serviceOrder.create({
+          data: {
+            medicalRecordId: record.id,
+            patientId,
+            doctorId,
+            status: 'PENDING_BILLING',
+            items: {
+              create: normalizedServiceOrders.map((item) => ({
+                serviceId: item.serviceId,
+                quantity: item.quantity
+              }))
             }
-          });
-        }
+          },
+          include: {
+            items: { include: { service: true } }
+          }
+        });
       }
 
       // d. If laboratory/radiology work was ordered, keep the visit open
@@ -328,14 +474,30 @@ router.post('/', authenticate, checkRoles('DOCTOR'), validate(z.object({
             appointmentId,
             doctorId,
             prescriptionId: prescription?.id || null,
-            labOrderId: labOrder?.id || null
+            labOrderId: labOrder?.id || null,
+            serviceOrderId: serviceOrder?.id || null
           }),
           ipAddress: req.ip || 'unknown'
         }
       });
 
-      return { record, prescription, labOrder };
+      return { record, prescription, labOrder, serviceOrder };
     });
+
+    const notificationContext = { appointmentId, appointmentDate: appointment.appointmentDate };
+    if (result.labOrder) {
+      await deliverNotification(req, notifyLabOrdered, {
+        ...notificationContext, labOrder: result.labOrder, hasCustomTestsPendingReview: Boolean(customTests?.length),
+      });
+    } else {
+      await deliverNotification(req, notifyConsultationCompleted, { ...notificationContext, doctorId, patientId });
+    }
+    if (result.prescription) {
+      await deliverNotification(req, notifyPrescriptionReady, {
+        ...notificationContext, prescription: result.prescription,
+        needsReview: prescribedDrugs?.some((drug) => !drug.drugId),
+      });
+    }
 
     // Emit WebSocket update
     const io = req.app.get('io');
@@ -556,6 +718,19 @@ router.put('/:id/finalize', authenticate, checkRoles('DOCTOR'), validate(z.objec
       };
     });
 
+    const notificationContext = {
+      appointmentId: record.appointmentId, appointmentDate: record.appointment?.appointmentDate,
+    };
+    await deliverNotification(req, notifyConsultationCompleted, {
+      ...notificationContext, doctorId, patientId: record.patientId,
+    });
+    if (result.prescription) {
+      await deliverNotification(req, notifyPrescriptionReady, {
+        ...notificationContext, prescription: result.prescription,
+        needsReview: prescribedDrugs?.some((drug) => !drug.drugId),
+      });
+    }
+
     const io = req.app.get('io');
 
     emitQueueUpdate(
@@ -646,7 +821,7 @@ router.post('/bypass', authenticate, checkRoles('DOCTOR'), async (req, res) => {
 router.get('/drugs', authenticate, allowRoles(ROLES.DOCTOR, ROLES.PHARMACIST), async (req, res) => {
   try {
     const drugs = await prisma.drugFormulary.findMany({
-      where: req.user.role === ROLES.DOCTOR ? { status: 'ACTIVE' } : undefined,
+      where: { status: 'ACTIVE' },
       include: {
         inventoryBatches: true
       }
@@ -972,6 +1147,8 @@ router.post(
                 'drugId is required when linking an existing formulary medication.'
               );
             }
+
+            await tx.$queryRaw`SELECT "id" FROM "DrugFormulary" WHERE "id" = ${targetDrugId} FOR SHARE`;
 
             linkedDrug =
               await tx.drugFormulary.findUnique({
@@ -1327,6 +1504,16 @@ router.post(
         }
       );
 
+      if (result.decision === 'CREATE_FORMULARY' && result.drug) {
+        await deliverNotification(req, notifyPharmacyPricingRequired, {
+          prescriptionId: result.prescribedDrug.prescriptionId, drugId: result.drug.id,
+        });
+      } else if (result.decision === 'EXTERNAL') {
+        await deliverNotification(req, notifyPharmacyMedicationExternal, {
+          prescriptionId: result.prescribedDrug.prescriptionId, prescribedDrugId: result.prescribedDrug.id,
+        });
+      }
+
       return res.json({
         success: true,
         message:
@@ -1560,6 +1747,7 @@ router.post('/prescribed-drugs/:id/unavailable', authenticate, allowRoles(ROLES.
       }
       return { prescribedDrugId: item.id, prescriptionId: item.prescriptionId, prescriptionStatus, billing };
     });
+    await deliverNotification(req, notifyPharmacyMedicationExternal, result);
     return res.json({ success: true, ...result });
   } catch (error) {
     if (error.status && error.code) return sendError(res, error.status, error.code, error.message);
@@ -1585,23 +1773,80 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
     return res.status(400).json({ error: 'Dispensing items are required.' });
   }
 
+  let idempotencyKey = null;
   try {
-    await prisma.$transaction(async (tx) => {
+    idempotencyKey = parseOptionalIdempotencyKey(req.get('Idempotency-Key'));
+  } catch (error) {
+    return sendError(res, error.status, error.code, error.message);
+  }
+
+  const seenPrescribedDrugIds = new Set();
+  for (const item of items) {
+    if (seenPrescribedDrugIds.has(item.prescribedDrugId)) {
+      return sendError(res, 422, 'DISPENSING_VALIDATION_FAILED', 'Duplicate prescribed drug items cannot be dispensed in one request.');
+    }
+    seenPrescribedDrugIds.add(item.prescribedDrugId);
+  }
+  const requestHash = buildDispenseRequestHash(prescriptionId, items);
+
+  try {
+    let idempotentReplay = false;
+    const delivery = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Prescription" WHERE "id" = ${prescriptionId} FOR UPDATE`;
+
+      if (idempotencyKey && await resolveDispenseIdempotency(tx, prescriptionId, idempotencyKey, requestHash)) {
+        idempotentReplay = true;
+        return;
+      }
+
+      const prescription = await tx.prescription.findUnique({
+        where: { id: prescriptionId },
+        select: {
+          patientId: true,
+          status: true,
+          prescribedDrugs: { select: { id: true, pharmacyReviewStatus: true } }
+        }
+      });
+      if (!prescription) {
+        throw Object.assign(new Error('Prescription was not found.'), {
+          status: 404,
+          code: 'PRESCRIPTION_NOT_FOUND'
+        });
+      }
+      if (!ACTIVE_PRESCRIPTION_STATUSES.includes(prescription.status)) {
+        throw Object.assign(new Error('Prescription is not open for dispensing.'), {
+          status: 409,
+          code: 'PRESCRIPTION_NOT_ACTIVE'
+        });
+      }
+      if ((prescription.prescribedDrugs || []).some((drug) => drug.pharmacyReviewStatus === 'PENDING_REVIEW')) {
+        throw Object.assign(new Error('Custom medications must be reviewed before dispensing.'), {
+          status: 409,
+          code: 'PHARMACY_REVIEW_PENDING'
+        });
+      }
+
+      await tx.$queryRaw`SELECT "id" FROM "Invoice" WHERE "prescriptionId" = ${prescriptionId} AND "invoiceType" = 'PHARMACY' ORDER BY "id" FOR UPDATE`;
+
       const dispensedPrescribedDrugIds = [];
+      let movementSeq = 0;
       // Financial hard gate: pharmacy dispensing is allowed only when
       // the prescription has a fully paid PHARMACY invoice.
-      const paidPharmacyInvoice = await tx.invoice.findFirst({
+      const pharmacyInvoices = await tx.invoice.findMany({
         where: {
           prescriptionId,
           invoiceType: 'PHARMACY',
-          paymentStatus: 'PAID'
+          paymentStatus: { notIn: ['REFUNDED', 'VOIDED'] }
         },
-        select: {
-          id: true
-        }
+        select: { patientId: true, paymentStatus: true },
+        take: 2
       });
 
-      if (!paidPharmacyInvoice) {
+      const invoice = pharmacyInvoices[0];
+      if (pharmacyInvoices.length > 1 || (invoice && invoice.patientId !== prescription.patientId)) {
+        throw authorityError(409, 'PHARMACY_INVOICE_INVARIANT_VIOLATION', 'Pharmacy billing requires administrative review.');
+      }
+      if (invoice?.paymentStatus !== 'PAID') {
         throw Object.assign(
           new Error('Prescription dispensing requires full pharmacy payment.'),
           {
@@ -1625,9 +1870,7 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
         }
         if (prescribedDrug.prescriptionId !== prescriptionId) throw new Error('Prescribed drug does not belong to this prescription.');
         if (!prescribedDrug.drugId) {
-          // Custom/free-text medications are not linked to clinic inventory.
-          // They are excluded from automatic pharmacy stock dispensing.
-          continue;
+          throw new Error('Custom or unlinked medications cannot be dispensed.');
         }
         if (prescribedDrug.pharmacyReviewStatus === 'EXTERNAL') {
           throw new Error('Unavailable medication cannot be dispensed.');
@@ -1695,7 +1938,8 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
             actorUserId: req.user.id,
             referenceType: 'PRESCRIBED_DRUG_DISPENSE',
             referenceId: prescribedDrug.id,
-            reason: 'Stock dispensed for a prescription.'
+            reason: 'Stock dispensed for a prescription.',
+            ...(idempotencyKey ? { idempotencyKey: `dispense:${idempotencyKey}:${movementSeq++}` } : {})
           });
 
           await tx.stockMovement.create({
@@ -1725,7 +1969,7 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
         dispensedPrescribedDrugIds.push(prescribedDrug.id);
 
       }
-      await refreshPrescriptionResolution(tx, prescriptionId);
+      const prescriptionStatus = await refreshPrescriptionResolution(tx, prescriptionId);
       if (dispensedPrescribedDrugIds.length > 0) {
         await tx.tenantAuditLog.create({
           data: {
@@ -1733,17 +1977,43 @@ router.post('/prescriptions/:id/dispense', authenticate, allowRoles(ROLES.PHARMA
             action: 'PRESCRIPTION_DISPENSED',
             details: JSON.stringify({
               prescriptionId,
-              prescribedDrugIds: dispensedPrescribedDrugIds
+              prescribedDrugIds: dispensedPrescribedDrugIds,
+              ...(idempotencyKey ? { idempotencyKey, requestHash } : {})
             }),
             ipAddress: req.ip || 'unknown'
           }
         });
       }
+      const totals = await tx.prescribedDrug.aggregate({
+        where: { prescriptionId }, _sum: { qtyDispensed: true },
+      });
+      return { prescriptionId, prescriptionStatus, totalDispensedAfter: totals._sum.qtyDispensed || 0 };
     });
 
-    return res.json({ success: true, message: 'Prescription dispensed successfully.' });
+    if (delivery) await deliverNotification(req, notifyPrescriptionDispensed, delivery);
+    return res.json({
+      success: true,
+      message: 'Prescription dispensed successfully.',
+      ...(idempotentReplay ? { idempotentReplay: true } : {})
+    });
 
   } catch (error) {
+    if (idempotencyKey && isStockMovementIdempotencyConflict(error)) {
+      try {
+        const replayed = await resolveDispenseIdempotency(prisma, prescriptionId, idempotencyKey, requestHash);
+        if (replayed) {
+          return res.json({
+            success: true,
+            message: 'Prescription dispensed successfully.',
+            idempotentReplay: true
+          });
+        }
+      } catch (conflictError) {
+        if (conflictError.status && conflictError.code) {
+          return sendError(res, conflictError.status, conflictError.code, conflictError.message);
+        }
+      }
+    }
     if (error.status && error.code) {
       return sendError(res, error.status, error.code, error.message);
     }
@@ -1899,6 +2169,11 @@ router.post('/lab-order-items/:id/review', authenticate, allowRoles(ROLES.LAB_TE
       return { decision, item: updated, service, returnedAppointmentId };
     });
 
+    if (result.decision === 'CREATE_SERVICE' && result.service) {
+      await deliverNotification(req, notifyLabPricingRequired, {
+        labOrderId: result.item.labOrderId, serviceId: result.service.id,
+      });
+    }
     emitQueueUpdate(
       req.app.get('io'),
       { type: 'LAB_REVIEW_RESOLVED', labOrderItemId: result.item.id, labOrderId: result.item.labOrderId, decision: result.decision },
@@ -2268,9 +2543,12 @@ router.put('/lab-orders/items/:id/results', authenticate, allowRoles(ROLES.LAB_T
         }
       });
 
-      return { item, returnedAppointmentId, returnedDoctorId };
+      return { item, returnedAppointmentId, returnedDoctorId, orderCompleted: remainingItems === 0 };
     });
 
+    if (result.orderCompleted) {
+      await deliverNotification(req, notifyLabResultReadyToDoctor, { labOrderId: result.item.labOrderId });
+    }
     if (result.returnedAppointmentId && result.returnedDoctorId) {
       emitQueueUpdate(
         req.app.get('io'),
@@ -2322,6 +2600,9 @@ router.put('/lab-orders/:id/release', authenticate, allowRoles(ROLES.LAB_TECH), 
       });
       return { order: updated, idempotentReplay: false };
     });
+    if (!result.idempotentReplay) {
+      await deliverNotification(req, notifyLabResultReleasedToPatient, { labOrderId: result.order.id });
+    }
     return res.json({
       id: result.order.id,
       releasedToPatientAt: result.order.releasedToPatientAt,
@@ -2363,6 +2644,13 @@ router.get('/:id/summary', authenticate, allowRoles(ROLES.DOCTOR), async (req, r
           }
         },
         labOrders: {
+          include: {
+            items: {
+              include: { service: true }
+            }
+          }
+        },
+        serviceOrder: {
           include: {
             items: {
               include: { service: true }
@@ -2434,6 +2722,13 @@ router.get('/:id/summary', authenticate, allowRoles(ROLES.DOCTOR), async (req, r
             : '',
         isOutOfRange: !!i.isOutOfRange
       }))),
+      serviceOrders: (record.serviceOrder?.items || []).map(i => ({
+        serviceId: i.serviceId,
+        serviceNameAr: i.service?.labelAr || '',
+        serviceNameEn: i.service?.labelEn || '',
+        category: i.service?.category || '',
+        quantity: i.quantity || 1
+      })),
       // There is currently no dedicated clinician-authored patient-instructions
       // field on MedicalRecord. Never synthesize clinical advice in a summary.
       instructions: []

@@ -1,3 +1,5 @@
+import { NAME_FIELDS, isValidPastDate, patientNameErrors } from '../../../utils/patientIdentityValidation.js';
+export { NAME_FIELDS, isValidPastDate };
 import { DEFAULT_PHONE_COUNTRY, normalisePatientPhone } from './phoneCountries.js';
 
 export const ONBOARDING_STEPS = ['arabicName', 'englishName', 'personalDetails', 'contact', 'address', 'security', 'review'];
@@ -7,11 +9,6 @@ export function resendSecondsRemaining(availableAt, now = Date.now()) {
   return Math.max(0, Math.ceil((availableAt - now) / 1000));
 }
 
-export const NAME_FIELDS = [
-  'firstNameAr', 'fatherNameAr', 'grandfatherNameAr', 'familyNameAr',
-  'firstNameEn', 'fatherNameEn', 'grandfatherNameEn', 'familyNameEn'
-];
-
 export const INITIAL_ONBOARDING_FORM = {
   firstNameAr: '', fatherNameAr: '', grandfatherNameAr: '', familyNameAr: '',
   firstNameEn: '', fatherNameEn: '', grandfatherNameEn: '', familyNameEn: '',
@@ -19,7 +16,6 @@ export const INITIAL_ONBOARDING_FORM = {
   password: '', confirmPassword: ''
 };
 
-const NAME_MAX = 80;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export function normaliseOnboardingForm(form) {
   return Object.fromEntries(Object.entries(form).map(([key, value]) =>
@@ -36,20 +32,17 @@ export function passwordChecks(password) {
   };
 }
 
-export function isValidPastDate(value, today = new Date().toISOString().slice(0, 10)) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value.slice(0, 4) === '0000' || value >= today) return false;
-  const date = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
-}
-
 export function validateOnboardingStep(form, step, messages, today, options = {}) {
   const value = normaliseOnboardingForm(form);
   const errors = {};
   const required = (field) => { if (!value[field]) errors[field] = messages.required; };
   const nameFields = step === 0 ? NAME_FIELDS.slice(0, 4) : step === 1 ? NAME_FIELDS.slice(4) : [];
-  for (const field of nameFields) {
-    required(field);
-    if (value[field] && (value[field].length > NAME_MAX || /[\u0000-\u001F\u007F]/u.test(value[field]))) errors[field] = messages.nameInvalid;
+  if (nameFields.length) {
+    const nameErrors = patientNameErrors(form);
+    const labels = { requiredField: messages.required, onboardingNameInvalid: messages.nameInvalid, patientNameRepeated: messages.nameRepeated };
+    for (const field of nameFields) {
+      if (nameErrors[field]) errors[field] = labels[nameErrors[field]] || messages.nameInvalid;
+    }
   }
   if (step === 2) { required('gender'); if (!isValidPastDate(value.dateOfBirth, today)) errors.dateOfBirth = messages.dateInvalid; }
   if (step === 3) { if (!normalisePatientPhone(value.phone, value.phoneCountry)) errors.phone = messages.phoneInvalid; if (options.requireEmail !== false && !emailPattern.test(value.email)) errors.email = messages.emailInvalid; }

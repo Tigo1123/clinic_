@@ -22,6 +22,7 @@ const mockPageSource = (source) => source
   .replace(/import \{ clearPatientSession \}[^;]+;/, 'const clearPatientSession = () => {};')
   .replace(/import \{ useTranslation \}[^;]+;/, "const useTranslation = () => ({ t: key => key, i18n: { language: globalThis.portalTestLanguage || 'en' } });")
   .replace(/import \{ patientApiRequest as apiRequest \}[^;]+;/, 'const apiRequest = (...args) => globalThis.portalTestApi(...args);')
+  .replace(/import \{ patientSocket \}[^;]+;/, 'const patientSocket = { on() {}, off() {} };')
   .replace(/import StatusBadge[^;]+;/, 'const StatusBadge = ({status}) => <span>{status}</span>;')
   .replace(/import \{ GoogleIdentityButton \}[^;]+;/, 'const GoogleIdentityButton = () => null;')
   .replace(/import Dialog[^;]+;/, 'const Dialog = ({open, children, onClose}) => open ? <section role="dialog">{children}<button onClick={onClose}>Close dialog</button></section> : null;')

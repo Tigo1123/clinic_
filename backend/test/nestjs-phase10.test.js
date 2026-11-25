@@ -56,11 +56,13 @@ test('BillingService: Insurance preview calculates patient share with exact basi
         },
       }),
     },
+    invoice: { findFirst: async () => null },
     insuranceCompany: {
       findUnique: async () => ({
         id: 'ins-1',
         labelAr: 'شركة التأمين',
         labelEn: 'Insurance Co',
+        active: true,
         copayPercentage: '20.00',
       }),
     },
@@ -73,7 +75,7 @@ test('BillingService: Insurance preview calculates patient share with exact basi
     insuranceCompanyId: 'ins-1',
     invoiceType: 'CONSULTATION',
     appointmentId: 'appt-1',
-  });
+  }, { role: 'RECEPTIONIST' });
 
   // 5000 SDG consultation fee with 20% patient copay:
   // patientShare = 5000 * 0.20 = 1000 SDG

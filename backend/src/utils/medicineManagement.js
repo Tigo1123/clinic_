@@ -65,6 +65,13 @@ export const pharmacistMedicineMetadataSchema = pharmacistMedicineSchema.partial
   'At least one medicine metadata field is required.'
 );
 
+export const pharmacistMedicineDeactivateSchema = z.preprocess(
+  (value) => (value === undefined || value === null ? {} : value),
+  z.object({
+    reason: singleLine('reason', 300).optional()
+  }).strict()
+);
+
 export const inventoryReceiptSchema = z.object({
   batchNumber: batchNumberSchema,
   expiryDate: expiryDateSchema,

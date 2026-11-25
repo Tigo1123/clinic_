@@ -18,9 +18,71 @@ const createSchema = z.object({ code, labelAr: label, labelEn: label, category: 
 const updateSchema = createSchema.omit({ category: true }).partial().refine(value => Object.keys(value).length > 0, 'No changes supplied.');
 const pageSchema = z.object({ search: z.string().trim().max(100).default(''), category: z.enum(categories).optional(), status: z.enum(['ACTIVE', 'INACTIVE']).optional(), page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(100).default(20) }).strict();
 const idSchema = z.object({ id: z.string().uuid() });
+function isValidCopayPercentage(value) {
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return false;
+  } else if (typeof value !== 'string') {
+    return false;
+  }
+  const normalized = String(value).trim();
+  if (!/^(?:0|[1-9]\d{0,2})(?:\.\d{1,2})?$/.test(normalized)) return false;
+  const [whole, fraction = ''] = normalized.split('.');
+  const basisPoints = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+  return Number.isSafeInteger(basisPoints) && basisPoints >= 0 && basisPoints <= 10_000;
+}
+function isValidBillingCycleDays(value) {
+  if (typeof value === 'number') return Number.isSafeInteger(value) && value >= 1 && value <= 365;
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim();
+  if (!/^[1-9]\d{0,2}$/.test(normalized)) return false;
+  const days = Number(normalized);
+  return Number.isSafeInteger(days) && days >= 1 && days <= 365;
+}
+const copayPercentageSchema = z.union([z.string(), z.number()])
+  .refine(isValidCopayPercentage, 'Copay percentage must be between 0 and 100 with up to 2 decimal places.')
+  .transform(value => String(value).trim());
+const billingCycleDaysSchema = z.union([z.string(), z.number()])
+  .refine(isValidBillingCycleDays, 'Billing cycle must be a whole number of days between 1 and 365.')
+  .transform(value => Number(String(value).trim()));
+const insuranceCreateSchema = z.object({
+  labelAr: label,
+  labelEn: label,
+  copayPercentage: copayPercentageSchema,
+  billingCycleDays: billingCycleDaysSchema,
+  active: z.boolean().default(true)
+}).strict();
+const insuranceUpdateSchema = z.object({
+  labelAr: label.optional(),
+  labelEn: label.optional(),
+  copayPercentage: copayPercentageSchema.optional(),
+  billingCycleDays: billingCycleDaysSchema.optional(),
+  active: z.boolean().optional()
+}).strict().refine(value => Object.keys(value).length > 0, 'No changes supplied.');
 const normalize = value => value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
 const dto = service => ({ id: service.id, code: service.code, labelAr: service.labelAr, labelEn: service.labelEn, category: service.category, status: service.status, priceSdg: service.baseFeeSdg?.toString() ?? null, updatedAt: service.updatedAt });
+const insuranceDto = company => ({
+  id: company.id,
+  labelAr: company.labelAr,
+  labelEn: company.labelEn,
+  copayPercentage: Number(company.copayPercentage),
+  billingCycleDays: company.billingCycleDays,
+  active: company.active,
+  createdAt: company.createdAt,
+  updatedAt: company.updatedAt
+});
 const audit = (tx, req, action, details) => tx.tenantAuditLog.create({ data: { userId: req.user.id, action, details: JSON.stringify(details), ipAddress: req.ip || 'unknown' } });
+
+async function uniqueInsuranceCompany(tx, data, exceptId) {
+  const keys = [
+    `insurance-company:ar:${normalize(data.labelAr)}`,
+    `insurance-company:en:${normalize(data.labelEn)}`
+  ].sort();
+  for (const key of [...new Set(keys)]) await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${key})) IS NULL AS locked`;
+  const candidates = await tx.insuranceCompany.findMany({ where: exceptId ? { id: { not: exceptId } } : {}, select: { labelAr: true, labelEn: true } });
+  if (candidates.some(item => normalize(item.labelAr) === normalize(data.labelAr) || normalize(item.labelEn) === normalize(data.labelEn))) {
+    throw Object.assign(new Error('An insurance provider with one of these names already exists.'), { status: 409, code: 'INSURANCE_COMPANY_DUPLICATE' });
+  }
+}
 
 async function uniqueService(tx, data, exceptId) {
   // Share the existing lab-review label lock protocol. Renames lock both new
@@ -94,6 +156,75 @@ router.patch('/catalog/payment-methods/:code', validate(z.object({ code: z.enum(
       return updated;
     });
     res.json(result);
+  } catch (error) { failure(error, res, next); }
+});
+
+router.get('/catalog/insurance-companies', async (req, res) => {
+  const companies = await prisma.insuranceCompany.findMany({ orderBy: [{ labelEn: 'asc' }, { id: 'asc' }] });
+  res.json(companies.map(insuranceDto));
+});
+
+router.post('/catalog/insurance-companies', validate(insuranceCreateSchema), async (req, res, next) => {
+  try {
+    const created = await prisma.$transaction(async tx => {
+      await uniqueInsuranceCompany(tx, req.body);
+      const company = await tx.insuranceCompany.create({
+        data: {
+          labelAr: req.body.labelAr,
+          labelEn: req.body.labelEn,
+          copayPercentage: money(req.body.copayPercentage),
+          billingCycleDays: req.body.billingCycleDays,
+          active: req.body.active
+        }
+      });
+      await audit(tx, req, 'INSURANCE_COMPANY_CREATED', {
+        insuranceCompanyId: company.id,
+        labelAr: company.labelAr,
+        labelEn: company.labelEn,
+        copayPercentage: Number(company.copayPercentage),
+        billingCycleDays: company.billingCycleDays,
+        active: company.active
+      });
+      return company;
+    });
+    res.status(201).json(insuranceDto(created));
+  } catch (error) { failure(error, res, next); }
+});
+
+router.patch('/catalog/insurance-companies/:id', validate(idSchema, 'params'), validate(insuranceUpdateSchema), async (req, res, next) => {
+  try {
+    const updated = await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT "id" FROM "InsuranceCompany" WHERE "id" = ${req.params.id} FOR UPDATE`;
+      const existing = await tx.insuranceCompany.findUnique({ where: { id: req.params.id } });
+      if (!existing) {
+        throw Object.assign(new Error('Insurance provider not found.'), { status: 404, code: 'INSURANCE_COMPANY_NOT_FOUND' });
+      }
+      const identity = {
+        labelAr: req.body.labelAr ?? existing.labelAr,
+        labelEn: req.body.labelEn ?? existing.labelEn
+      };
+      await uniqueInsuranceCompany(tx, identity, existing.id);
+      const { copayPercentage, ...rest } = req.body;
+      const company = await tx.insuranceCompany.update({
+        where: { id: existing.id },
+        data: {
+          ...rest,
+          ...(copayPercentage !== undefined ? { copayPercentage: money(copayPercentage) } : {})
+        }
+      });
+      await audit(tx, req, 'INSURANCE_COMPANY_UPDATED', {
+        insuranceCompanyId: company.id,
+        changedFields: Object.keys(req.body),
+        previousActive: existing.active,
+        active: company.active,
+        previousCopayPercentage: Number(existing.copayPercentage),
+        copayPercentage: Number(company.copayPercentage),
+        previousBillingCycleDays: existing.billingCycleDays,
+        billingCycleDays: company.billingCycleDays
+      });
+      return company;
+    });
+    res.json(insuranceDto(updated));
   } catch (error) { failure(error, res, next); }
 });
 

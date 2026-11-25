@@ -2,10 +2,12 @@ import {
   Injectable,
   HttpException,
   HttpStatus,
+  Optional,
 } from '@nestjs/common';
 import { createRequire } from 'node:module';
 import { PrismaService } from '../../database/prisma.service.js';
 import { RealtimeGateway } from '../realtime/realtime.gateway.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 
 const require = createRequire(import.meta.url);
 const {
@@ -95,6 +97,7 @@ export class AppointmentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtimeGateway: RealtimeGateway,
+    @Optional() private readonly notificationsService?: NotificationsService,
   ) {}
 
   async getSlots(doctorId: string, date: string) {
@@ -399,6 +402,10 @@ export class AppointmentsService {
       otpConsumed = true;
 
       await sendBookingConfirmation(appointment);
+      await this.notificationsService?.notifyAppointmentBooked({
+        appointment,
+        source: 'PUBLIC',
+      });
       this.realtimeGateway.emitQueueUpdate(
         { type: 'BOOKING_PENDING', appointmentId: appointment.id, doctorId },
         [doctorId],
@@ -619,6 +626,7 @@ export class AppointmentsService {
       });
 
       const notifResult = await sendStatusUpdateNotification(appointment, 'CHECKED_IN');
+      await this.notificationsService?.notifyPatientCheckedIn({ appointment });
       this.realtimeGateway.emitQueueUpdate(
         { type: 'STATUS_UPDATE', appointmentId: appointment.id, status: 'CHECKED_IN', doctorId },
         [doctorId],
@@ -744,7 +752,8 @@ export class AppointmentsService {
       );
     }
 
-    if (current.status === 'CHECKED_IN' && status === 'IN_CONSULTATION') {
+    const isStartingConsultation = current.status === 'CHECKED_IN' && status === 'IN_CONSULTATION';
+    if (isStartingConsultation) {
       const paidConsultationInvoice = await this.prisma.invoice.findFirst({
         where: {
           appointmentId: current.id,
@@ -770,6 +779,16 @@ export class AppointmentsService {
         data: { status },
       });
       if (claimed.count !== 1) throw appointmentStateConflict();
+      // The appointment update owns the same row lock used by consultation refunds.
+      if (isStartingConsultation && !await tx.invoice.findFirst({
+        where: { appointmentId: current.id, invoiceType: 'CONSULTATION', paymentStatus: 'PAID' },
+        select: { id: true }
+      })) {
+        throw Object.assign(new Error('Consultation fee must be paid at reception before the consultation can start.'), {
+          status: 409,
+          code: 'CONSULTATION_PAYMENT_REQUIRED'
+        });
+      }
 
       await tx.tenantAuditLog.create({
         data: {
@@ -791,6 +810,27 @@ export class AppointmentsService {
     });
 
     const notifResult = await sendStatusUpdateNotification(appointment, status);
+    if (status === 'CONFIRMED') {
+      await this.notificationsService?.notifyAppointmentConfirmed({ appointment });
+    } else if (status === 'CHECKED_IN') {
+      await this.notificationsService?.notifyPatientCheckedIn({ appointment });
+    } else if (status === 'IN_CONSULTATION' && current.status === 'CHECKED_IN') {
+      await this.notificationsService?.notifyConsultationStarted({ appointment });
+    } else if (status === 'COMPLETED') {
+      await this.notificationsService?.notifyConsultationCompleted({
+        appointmentId: appointment.id,
+        doctorId: appointment.doctorId,
+        patientId: appointment.patientId,
+        appointmentDate: appointment.appointmentDate,
+      });
+    } else if (status === 'CANCELLED') {
+      await this.notificationsService?.notifyAppointmentCancelled({
+        appointment,
+        previousStatus: current.status,
+        actorUserId: user.id,
+        actorRole: user.role,
+      });
+    }
     this.realtimeGateway.emitQueueUpdate(
       { type: 'STATUS_UPDATE', appointmentId: appointment.id, status, doctorId: appointment.doctorId },
       [appointment.doctorId],
@@ -866,6 +906,17 @@ export class AppointmentsService {
         });
       });
 
+      await this.notificationsService?.notifyPatientCheckedIn({
+        appointment: {
+          id,
+          patientId: appointment.patientId,
+          doctorId: appointment.doctorId,
+          appointmentDate: appointment.appointmentDate,
+          appointmentTime: appointment.appointmentTime,
+        },
+        emergencyOverride: true,
+        overrideOnlyDoctor: appointment.status === 'CHECKED_IN',
+      });
       this.realtimeGateway.emitQueueUpdate(
         { type: 'OVERRIDE', appointmentId: id, doctorId: appointment.doctorId },
         [appointment.doctorId],
@@ -974,6 +1025,16 @@ export class AppointmentsService {
         });
       });
 
+      await this.notificationsService?.notifyPatientCheckedIn({
+        appointment: {
+          id,
+          patientId: appointment.patientId,
+          doctorId: targetDoctorId,
+          appointmentDate: appointment.appointmentDate,
+          appointmentTime: appointment.appointmentTime,
+        },
+        transferred: true,
+      });
       this.realtimeGateway.emitQueueUpdate(
         { type: 'TRANSFER', appointmentId: id, targetDoctorId },
         [appointment.doctorId, targetDoctorId],

@@ -5,6 +5,7 @@ export default function LabBillingQueue({
   labBillingLoading,
   labBillingOrders,
   selectedLabBillingOrder,
+  highlightedLabOrderId = null,
   refreshLabBillingQueue,
   handleSelectLabBillingOrder
 }) {
@@ -68,6 +69,7 @@ export default function LabBillingQueue({
                 0;
               const paid = order.status === 'PAID';
               const isSelected = selectedLabBillingOrder?.id === order.id;
+              const isHighlighted = highlightedLabOrderId === order.id;
 
               let statusClass = 'ui-status--warn';
               let statusLabel = lang === 'ar' ? 'بانتظار الدفع' : 'Waiting for Payment';
@@ -101,7 +103,13 @@ export default function LabBillingQueue({
               return (
                 <article
                   key={order.id}
-                  className={`reception-lab-row ${isSelected ? 'is-selected' : ''}`}
+                  data-lab-order-id={order.id}
+                  ref={(node) => {
+                    if (isHighlighted && node) {
+                      node.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+                    }
+                  }}
+                  className={`reception-lab-row ${isSelected ? 'is-selected' : ''}${isHighlighted ? ' staff-notification-highlight' : ''}`}
                 >
                   <div className="reception-lab-patient">
                     <strong>{patientName}</strong>

@@ -21,22 +21,20 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 
 const require = createRequire(import.meta.url);
-const { STRUCTURED_PATIENT_NAME_FIELDS, structuredPatientNameSchema } = require('../../utils/patientName.js');
+const { newPatientSchema, STRUCTURED_PATIENT_NAME_FIELDS, structuredPatientNameSchema } = require('../../utils/patientName.js');
 const { patientDateOfBirthSchema } = require('../../utils/patientOnboarding.js');
 
-const patientCreationSchema = structuredPatientNameSchema
-  .extend({
-    gender: z.enum(['MALE', 'FEMALE']),
-    dateOfBirth: patientDateOfBirthSchema,
-    nationalId: z.string().trim().max(30).optional(),
-    phone: z.string().trim().min(7).max(30),
-    addressStateId: z.coerce.number().int().min(1).max(18),
-    addressDetails: z.string().trim().max(300).optional(),
-    emergencyContact: z.string().trim().max(150).optional(),
-    nationalIdAttachmentPath: z.string().max(300).optional(),
-    insuranceAttachmentPath: z.string().max(300).optional(),
-  })
-  .strict();
+const patientCreationSchema = newPatientSchema({
+  gender: z.enum(['MALE', 'FEMALE']),
+  dateOfBirth: patientDateOfBirthSchema,
+  nationalId: z.string().trim().max(30).optional(),
+  phone: z.string().trim().min(7).max(30),
+  addressStateId: z.coerce.number().int().min(1).max(18),
+  addressDetails: z.string().trim().max(300).optional(),
+  emergencyContact: z.string().trim().max(150).optional(),
+  nationalIdAttachmentPath: z.string().max(300).optional(),
+  insuranceAttachmentPath: z.string().max(300).optional(),
+});
 
 const patientCorrectionSchema = structuredPatientNameSchema
   .partial()

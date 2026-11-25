@@ -1,3 +1,5 @@
+import { Optional } from '@nestjs/common';
+import { NotificationsService } from '../notifications/notifications.service.js';
 import {
   Injectable,
   HttpException,
@@ -19,6 +21,11 @@ const {
   ROLES,
 } = require('../../middleware/policies.js');
 const { isClinicalDataDecryptionError } = require('../../utils/encryption.js');
+const {
+  assertNoNewCustomTests,
+  BILLABLE_NON_LAB_CATEGORIES,
+  normalizeDoctorServiceOrders,
+} = require('../../utils/clinicalOrdering.js');
 
 @Injectable()
 export class RecordsService {
@@ -26,35 +33,34 @@ export class RecordsService {
     private readonly prisma: PrismaService,
     private readonly cryptoService: CryptoService,
     private readonly realtimeGateway: RealtimeGateway,
+    @Optional() private readonly notificationsService?: NotificationsService,
   ) {}
 
   private async lockAndValidateClinicalSelections(
     tx: any,
-    { prescribedDrugs = [], orderedServices = [] }: { prescribedDrugs?: any[]; orderedServices?: string[] },
+    {
+      prescribedDrugs = [],
+      orderedServices = [],
+      serviceOrders = [],
+    }: { prescribedDrugs?: any[]; orderedServices?: string[]; serviceOrders?: any[] },
   ) {
     const drugIds = [
       ...new Set(prescribedDrugs.map((item) => item.drugId).filter(Boolean)),
     ].sort();
-    const serviceIds = [...new Set(orderedServices)].sort();
+    const labServiceIds = [...new Set(orderedServices)].sort();
+    const orderServiceIds = [...new Set(serviceOrders.map((item: any) => item.serviceId))].sort();
+    const allServiceIds = [...new Set([...labServiceIds, ...orderServiceIds])].sort();
 
     if (drugIds.length > 0) {
-      let medicines: any[];
-      try {
-        medicines = await tx.$queryRaw`
-          SELECT "id", "status"
-          FROM "DrugFormulary"
-          WHERE "id" IN (${Prisma.join(drugIds)})
-          ORDER BY "id"
-          FOR UPDATE
-        `;
-      } catch {
-        medicines = await tx.drugFormulary.findMany({
-          where: { id: { in: drugIds } },
-          select: { id: true, status: true },
-        });
-      }
+      const medicines: { id: string; status: string }[] = await tx.$queryRaw`
+        SELECT "id", "status"
+        FROM "DrugFormulary"
+        WHERE "id" IN (${Prisma.join(drugIds)})
+        ORDER BY "id"
+        FOR UPDATE
+      `;
 
-      const medicinesById = new Map(medicines.map((m: any) => [m.id, m]));
+      const medicinesById = new Map(medicines.map((medicine) => [medicine.id, medicine]));
       const missingId = drugIds.find((id) => !medicinesById.has(id));
       if (missingId) {
         throw new HttpException(
@@ -62,7 +68,7 @@ export class RecordsService {
           HttpStatus.NOT_FOUND,
         );
       }
-      if (drugIds.some((id) => medicinesById.get(id).status !== 'ACTIVE')) {
+      if (drugIds.some((id) => medicinesById.get(id)?.status !== 'ACTIVE')) {
         throw new HttpException(
           { code: 'FORMULARY_MEDICINE_INACTIVE', message: 'A selected formulary medicine is inactive.' },
           HttpStatus.CONFLICT,
@@ -70,41 +76,64 @@ export class RecordsService {
       }
     }
 
-    if (serviceIds.length > 0) {
+    if (allServiceIds.length > 0) {
       let services: any[];
       try {
         services = await tx.$queryRaw`
-          SELECT "id", "status", "category"
+          SELECT "id", "status", "category", "baseFeeSdg"
           FROM "ClinicalService"
-          WHERE "id" IN (${Prisma.join(serviceIds)})
+          WHERE "id" IN (${Prisma.join(allServiceIds)})
           ORDER BY "id"
           FOR UPDATE
         `;
       } catch {
         services = await tx.clinicalService.findMany({
-          where: { id: { in: serviceIds } },
-          select: { id: true, status: true, category: true },
+          where: { id: { in: allServiceIds } },
+          select: { id: true, status: true, category: true, baseFeeSdg: true },
         });
       }
 
       const servicesById = new Map(services.map((s: any) => [s.id, s]));
-      const missingId = serviceIds.find((id) => !servicesById.has(id));
+      const missingId = allServiceIds.find((id) => !servicesById.has(id));
       if (missingId) {
         throw new HttpException(
           { code: 'CLINICAL_SERVICE_NOT_FOUND', message: 'A selected clinical service was not found.' },
           HttpStatus.NOT_FOUND,
         );
       }
-      if (serviceIds.some((id) => servicesById.get(id).status !== 'ACTIVE')) {
+      if (allServiceIds.some((id) => servicesById.get(id).status !== 'ACTIVE')) {
         throw new HttpException(
           { code: 'CLINICAL_SERVICE_INACTIVE', message: 'A selected clinical service is inactive.' },
           HttpStatus.CONFLICT,
         );
       }
-      if (serviceIds.some((id) => servicesById.get(id).category !== 'LABORATORY')) {
+      if (labServiceIds.some((id) => servicesById.get(id).category !== 'LABORATORY')) {
         throw new HttpException(
           { code: 'CLINICAL_SERVICE_NOT_LABORATORY', message: 'A selected clinical service is not eligible for a laboratory order.' },
           HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
+      if (orderServiceIds.some((id) => !BILLABLE_NON_LAB_CATEGORIES.includes(servicesById.get(id).category))) {
+        throw new HttpException(
+          {
+            code: 'CLINICAL_SERVICE_NOT_BILLABLE_ORDER',
+            message: 'A selected clinical service is not eligible for a non-laboratory service order.',
+          },
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
+      if (
+        orderServiceIds.some((id) => {
+          const fee = Number(servicesById.get(id).baseFeeSdg);
+          return !Number.isSafeInteger(fee) || fee <= 0;
+        })
+      ) {
+        throw new HttpException(
+          {
+            code: 'SERVICE_PRICE_NOT_CONFIGURED',
+            message: 'The selected service does not have a valid configured price.',
+          },
+          HttpStatus.CONFLICT,
         );
       }
     }
@@ -138,6 +167,7 @@ export class RecordsService {
       vitalSigns,
       prescribedDrugs,
       orderedServices,
+      serviceOrders,
       customTests,
       attachmentPath,
     } = body;
@@ -149,9 +179,18 @@ export class RecordsService {
       );
     }
 
-    const hasLabOrders =
-      (Array.isArray(orderedServices) && orderedServices.length > 0) ||
-      (Array.isArray(customTests) && customTests.length > 0);
+    let normalizedServiceOrders: any[] = [];
+    try {
+      assertNoNewCustomTests(customTests);
+      normalizedServiceOrders = normalizeDoctorServiceOrders(serviceOrders);
+    } catch (domainErr: any) {
+      if (domainErr?.status && domainErr?.code) {
+        throw new HttpException({ code: domainErr.code, message: domainErr.message }, domainErr.status);
+      }
+      throw domainErr;
+    }
+
+    const hasLabOrders = Array.isArray(orderedServices) && orderedServices.length > 0;
 
     if (!hasLabOrders && !diagnosis?.trim()) {
       throw new HttpException(
@@ -197,7 +236,11 @@ export class RecordsService {
     // Check if EMR already exists for this appointment (idempotency)
     const existingRecord = await this.prisma.medicalRecord.findFirst({
       where: { appointmentId },
-      include: { prescriptions: true, labOrders: true },
+      include: {
+        prescriptions: true,
+        labOrders: true,
+        serviceOrder: { include: { items: true } },
+      },
     });
     if (existingRecord) {
       return {
@@ -211,6 +254,7 @@ export class RecordsService {
           record: existingRecord,
           prescription: existingRecord.prescriptions[0] || null,
           labOrder: existingRecord.labOrders[0] || null,
+          serviceOrder: existingRecord.serviceOrder || null,
         },
       };
     }
@@ -223,7 +267,11 @@ export class RecordsService {
     const vitalSignsStr = JSON.stringify(vitalSigns || {});
 
     const result = await this.prisma.$transaction(async (tx: any) => {
-      await this.lockAndValidateClinicalSelections(tx, { prescribedDrugs, orderedServices });
+      await this.lockAndValidateClinicalSelections(tx, {
+        prescribedDrugs,
+        orderedServices,
+        serviceOrders: normalizedServiceOrders,
+      });
 
       const record = await tx.medicalRecord.create({
         data: {
@@ -296,18 +344,27 @@ export class RecordsService {
             },
           });
         }
+      }
 
-        for (const customTestName of customTests || []) {
-          await tx.labOrderItem.create({
-            data: {
-              labOrderId: labOrder.id,
-              serviceId: null,
-              customTestName: customTestName.trim(),
-              labReviewStatus: 'PENDING_REVIEW',
-              isOutOfRange: false,
+      let serviceOrder: any = null;
+      if (normalizedServiceOrders.length > 0) {
+        serviceOrder = await tx.serviceOrder.create({
+          data: {
+            medicalRecordId: record.id,
+            patientId,
+            doctorId,
+            status: 'PENDING_BILLING',
+            items: {
+              create: normalizedServiceOrders.map((item: any) => ({
+                serviceId: item.serviceId,
+                quantity: item.quantity,
+              })),
             },
-          });
-        }
+          },
+          include: {
+            items: { include: { service: true } },
+          },
+        });
       }
 
       const nextAppointmentStatus = hasLabOrders ? 'WAITING_LAB' : 'COMPLETED';
@@ -336,13 +393,32 @@ export class RecordsService {
             doctorId,
             prescriptionId: prescription?.id || null,
             labOrderId: labOrder?.id || null,
+            serviceOrderId: serviceOrder?.id || null,
           }),
           ipAddress: ip || 'unknown',
         },
       });
 
-      return { record, prescription, labOrder };
+      return { record, prescription, labOrder, serviceOrder };
     });
+
+    const notificationContext = { appointmentId, appointmentDate: appointment.appointmentDate };
+    if (result.labOrder) {
+      await this.notificationsService?.notifyLabOrdered({
+        ...notificationContext,
+        labOrder: result.labOrder,
+        hasCustomTestsPendingReview: Boolean(customTests?.length),
+      });
+    } else {
+      await this.notificationsService?.notifyConsultationCompleted({ ...notificationContext, doctorId, patientId });
+    }
+    if (result.prescription) {
+      await this.notificationsService?.notifyPrescriptionReady({
+        ...notificationContext,
+        prescription: result.prescription,
+        needsReview: prescribedDrugs?.some((drug: any) => !drug.drugId),
+      });
+    }
 
     this.realtimeGateway.emitQueueUpdate(
       { type: 'CONSULTATION_COMPLETE', appointmentId, doctorId },
@@ -493,6 +569,21 @@ export class RecordsService {
       return { record: updatedRecord, prescription };
     });
 
+    const notificationContext = {
+      appointmentId: record.appointmentId,
+      appointmentDate: record.appointment.appointmentDate,
+    };
+    await this.notificationsService?.notifyConsultationCompleted({
+      ...notificationContext, doctorId, patientId: record.patientId,
+    });
+    if (result.prescription) {
+      await this.notificationsService?.notifyPrescriptionReady({
+        ...notificationContext,
+        prescription: result.prescription,
+        needsReview: prescribedDrugs?.some((drug: any) => !drug.drugId),
+      });
+    }
+
     this.realtimeGateway.emitQueueUpdate(
       { type: 'CONSULTATION_FINALIZED', appointmentId: record.appointmentId, doctorId },
       [doctorId],
@@ -530,9 +621,9 @@ export class RecordsService {
     };
   }
 
-  async getDrugs(user: any) {
+  async getDrugs() {
     return this.prisma.drugFormulary.findMany({
-      where: user.role === ROLES.DOCTOR ? { status: 'ACTIVE' } : undefined,
+      where: { status: 'ACTIVE' },
       include: { inventoryBatches: true },
     });
   }
@@ -556,6 +647,9 @@ export class RecordsService {
           include: { prescribedDrugs: { include: { drug: true } } },
         },
         labOrders: {
+          include: { items: { include: { service: true } } },
+        },
+        serviceOrder: {
           include: { items: { include: { service: true } } },
         },
       },
@@ -637,6 +731,13 @@ export class RecordsService {
           isOutOfRange: Boolean(i.isOutOfRange),
         })),
       ),
+      serviceOrders: (record.serviceOrder?.items || []).map((i: any) => ({
+        serviceId: i.serviceId,
+        serviceNameAr: i.service?.labelAr || '',
+        serviceNameEn: i.service?.labelEn || '',
+        category: i.service?.category || '',
+        quantity: i.quantity || 1,
+      })),
       instructions: [],
     };
   }

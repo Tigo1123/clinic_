@@ -49,7 +49,8 @@ test('patient and staff login retain their authentication endpoints, routing and
   assert.match(patientLogin, /withLoginSubmissionLock\(submitInFlight,setLoading/);
   assert.match(patientLogin, /apiRequest\('\/api\/auth\/login'/);
   assert.match(patientLogin, /data\.user\.role/);
-  assert.match(patientLogin, /navigate\('\/patient'/);
+  assert.match(patientLogin, /const destination = patientDestination\(location.state\)/);
+  assert.match(patientLogin, /navigate\(destination\)/);
   assert.match(patientLogin, /aria-busy=\{loading\}/);
   assert.match(patientLogin, /disabled=\{loading\}/);
   assert.match(patientLogin, /to="\/forgot-password"/);

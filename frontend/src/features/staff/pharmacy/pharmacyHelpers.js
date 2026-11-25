@@ -1,6 +1,7 @@
 import { clinicDateString } from '../../../utils/clinicTime.js';
 
 const metadataFields = ['brandName', 'labelAr', 'labelEn', 'genericName', 'strength', 'dosageForm'];
+const displayLabelFields = ['labelAr', 'labelEn'];
 const pharmacyReviewRequiredCodes = new Set([
   'PHARMACY_REFUNDED_INVOICE_REVIEW_REQUIRED',
   'PHARMACY_INVOICE_INVARIANT_VIOLATION'
@@ -67,8 +68,13 @@ export function buildMedicinePayload(form) {
   return payload;
 }
 
-export function buildMetadataPayload(form) {
-  return Object.fromEntries(metadataFields.map((field) => [field, String(form[field] || '').trim()]));
+export function buildMetadataPayload(form, medicine) {
+  const fields = medicine?.identityLocked ? displayLabelFields : metadataFields;
+  return Object.fromEntries(fields.flatMap((field) => {
+    const value = String(form[field] ?? '').trim();
+    const original = String(medicine?.[field] ?? '').trim();
+    return medicine && value === original ? [] : [[field, value]];
+  }));
 }
 
 export function buildBatchPayload(form) {
@@ -236,27 +242,15 @@ export function buildPaymentPayload(amount, paymentMethod) {
   return { payments: [{ amountSdg: Number(amount), paymentMethod }] };
 }
 
-export function newPaymentAttempt(invoiceId, amount, paymentMethod, paidBefore = 0, createId = () => crypto.randomUUID()) {
+export function newPaymentAttempt(invoiceId, amount, paymentMethod) {
   return {
     invoiceId,
     amount: Number(amount),
     paymentMethod,
-    paidBefore: Number(paidBefore),
-    idempotencyKey: createId()
+    idempotencyKey: crypto.randomUUID()
   };
 }
 
-export function samePaymentAttempt(attempt, invoiceId, amount, paymentMethod) {
-  return Boolean(attempt)
-    && attempt.invoiceId === invoiceId
-    && attempt.amount === Number(amount)
-    && attempt.paymentMethod === paymentMethod;
-}
-
-export function paymentAttemptIsReflected(attempt, paymentState) {
-  return Boolean(attempt && paymentState?.invoice?.id === attempt.invoiceId)
-    && Number(paymentState.invoice.paidAmountSdg) >= attempt.paidBefore + attempt.amount;
-}
 export function updateMedicineField(current, field, value) {
   return { ...current, [field]: value };
 }

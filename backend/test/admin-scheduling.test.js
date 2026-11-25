@@ -143,7 +143,7 @@ test('concurrent exception replacements serialize to one operational state', asy
   const current = await prisma.doctorScheduleException.findUnique({ where: { doctorId_date: { doctorId, date } }, include: { periods: true } });
   assert.equal(current.active, true);
   assert.ok(['FULL_DAY_LEAVE', 'SPECIAL_HOURS'].includes(current.type));
-  assert.equal(current.type === 'FULL_DAY_LEAVE' ? current.periods.length : current.periods.length > 0, true);
+  assert.equal(current.type === 'FULL_DAY_LEAVE' ? current.periods.length === 0 : current.periods.length > 0, true);
 });
 
 test('schedule deactivation is safe or rejects conflicting future appointments', async () => {

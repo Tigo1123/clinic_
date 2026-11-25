@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { createRequire } from 'node:module';
+import { z } from 'zod';
 import { PharmacyService } from './pharmacy.service.js';
 import { PolicyRoles } from '../../common/decorators/roles.decorator.js';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
@@ -24,8 +25,11 @@ const {
   inventoryPageSchema,
   inventoryReceiptSchema,
   pharmacistMedicineCreateSchema,
+  pharmacistMedicineDeactivateSchema,
   pharmacistMedicineMetadataSchema,
 } = require('../../utils/medicineManagement.js');
+
+const prescriptionIdParamsSchema = z.object({ id: z.string().uuid() }).strict();
 
 @Controller('pharmacy')
 export class PharmacyController {
@@ -72,6 +76,18 @@ export class PharmacyController {
     return this.pharmacyService.updateFormularyMetadata(params.id, body, user, req.ip);
   }
 
+  @Post('formulary/:id/deactivate')
+  @PolicyRoles('PHARMACIST')
+  @HttpCode(HttpStatus.OK)
+  async deactivateFormulary(
+    @Param(new ZodValidationPipe(formularyIdParamsSchema)) params: { id: string },
+    @Body(new ZodValidationPipe(pharmacistMedicineDeactivateSchema)) body: any,
+    @CurrentUser() user: any,
+    @Req() req: Request,
+  ) {
+    return this.pharmacyService.deactivateFormulary(params.id, body, user, req.ip);
+  }
+
   @Get('formulary/:id/batches')
   @PolicyRoles('PHARMACIST', 'ADMIN')
   @HttpCode(HttpStatus.OK)
@@ -108,8 +124,8 @@ export class PharmacyController {
   @PolicyRoles('PHARMACIST', 'ADMIN')
   @HttpCode(HttpStatus.OK)
   async getPrescriptionPaymentState(
-    @Param('id') id: string,
+    @Param(new ZodValidationPipe(prescriptionIdParamsSchema)) params: { id: string },
   ) {
-    return this.pharmacyService.getPrescriptionPaymentState(id);
+    return this.pharmacyService.getPrescriptionPaymentState(params.id);
   }
 }

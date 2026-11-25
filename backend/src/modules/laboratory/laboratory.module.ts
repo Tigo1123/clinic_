@@ -4,9 +4,10 @@ import { LaboratoryService } from './laboratory.service.js';
 import { PrismaModule } from '../../database/prisma.module.js';
 import { AppConfigModule } from '../config/config.module.js';
 import { RealtimeModule } from '../realtime/realtime.module.js';
+import { NotificationsModule } from '../notifications/notifications.module.js';
 
 @Module({
-  imports: [PrismaModule, AppConfigModule, RealtimeModule],
+  imports: [PrismaModule, AppConfigModule, RealtimeModule, NotificationsModule],
   controllers: [LaboratoryController],
   providers: [LaboratoryService],
   exports: [LaboratoryService],

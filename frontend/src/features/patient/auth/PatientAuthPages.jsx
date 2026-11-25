@@ -1,3 +1,4 @@
+import { latestBirthDate } from '../../../utils/patientIdentityValidation.js';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { Check, HeartPulse } from 'lucide-react';
@@ -16,6 +17,7 @@ import ThemeToggle from '../../../components/ui/ThemeToggle.jsx';
 import { useFacilityBranding } from '../../../app/branding/FacilityBrandingContext.js';
 import { brandingSubline } from '../../../app/branding/brandingConfig';
 import { withLoginSubmissionLock } from '../../../utils/loginSubmission.js';
+import { patientDestination } from '../../../app/router/patientBooking.js';
 import PasswordField from '../../../components/PasswordField.jsx';
 
 export function PatientLogin(){
@@ -23,8 +25,9 @@ export function PatientLogin(){
   const{login}=useAuth();
   const navigate=useNavigate();
   const location=useLocation();
-  const handleGoogleAuthenticated = useCallback((data) => { login(data.user, data.token); navigate('/patient'); }, [login, navigate]);
-  const handleGoogleOnboarding = useCallback(() => navigate('/register', { state: { googleOnboarding: true } }), [navigate]);
+  const destination = patientDestination(location.state);
+  const handleGoogleAuthenticated = useCallback((data) => { login(data.user, data.token); navigate(destination); }, [destination, login, navigate]);
+  const handleGoogleOnboarding = useCallback(() => navigate('/register', { state: { afterSignIn: destination, googleOnboarding: true } }), [destination, navigate]);
   const googleAuth = useGooglePatientAuth({ onAuthenticated: handleGoogleAuthenticated, onOnboarding: handleGoogleOnboarding });
 
   const[form,setForm]=useState({username:'',password:''});
@@ -76,7 +79,7 @@ export function PatientLogin(){
         if(googleAuth.errorCode === 'ACCOUNT_LINK_REQUIRED'){
           navigate('/patient/profile', { state: { highlightGoogleLink: true } });
         }else{
-          navigate('/patient');
+          navigate(destination);
         }
       }catch(requestError){
         if(requestError.code==='ACCOUNT_PENDING_VERIFICATION'){
@@ -252,7 +255,7 @@ export function PatientLogin(){
 
         <div className="patient-auth-create-account">
           <p>{t('dontHaveAccount')}</p>
-          <Link className="patient-auth-secondary-button" to="/register">
+          <Link className="patient-auth-secondary-button" to="/register" state={{ afterSignIn: destination }}>
             {t('createAccountAction')}
           </Link>
         </div>
@@ -466,6 +469,7 @@ export function PatientForgotPassword(){
 export function PatientRegister() {
   const { t, i18n } = useTranslation(); const navigate = useNavigate(); const location = useLocation();
   const { login } = useAuth();
+  const destination = patientDestination(location.state);
   const [form, setForm] = useState(INITIAL_ONBOARDING_FORM); const [step, setStep] = useState(0);
   const [stepDirection, setStepDirection] = useState('forward');
   const [stepLeaving, setStepLeaving] = useState(false);
@@ -476,17 +480,29 @@ export function PatientRegister() {
   const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [fieldErrors, setFieldErrors] = useState({}); const [loading, setLoading] = useState(false); const [resending, setResending] = useState(false); const [verified, setVerified] = useState(false); const [googleReviewState, setGoogleReviewState] = useState(''); const [googleExpired, setGoogleExpired] = useState(false); const [resendAvailableAt, setResendAvailableAt] = useState(0); const [now, setNow] = useState(Date.now());
   const googleOnboardingToken = getGoogleOnboardingToken();
   const googleOnboarding = Boolean(googleOnboardingToken || location.state?.googleOnboarding || googleExpired);
-  const handleGoogleAuthenticated = useCallback((data) => { login(data.user, data.token); navigate('/patient'); }, [login, navigate]);
-  const handleGoogleOnboarding = useCallback(() => navigate('/register', { replace: true, state: { googleOnboarding: true } }), [navigate]);
+  const handleGoogleAuthenticated = useCallback((data) => { login(data.user, data.token); navigate(destination); }, [destination, login, navigate]);
+  const handleGoogleOnboarding = useCallback(() => navigate('/register', { replace: true, state: { afterSignIn: destination, googleOnboarding: true } }), [destination, navigate]);
   const googleAuth = useGooglePatientAuth({ onAuthenticated: handleGoogleAuthenticated, onOnboarding: handleGoogleOnboarding });
-  const messages = { required:t('requiredField'), nameInvalid:t('onboardingNameInvalid'), dateInvalid:t('onboardingDobInvalid'), phoneInvalid:t('phoneInvalid'), emailInvalid:t('emailInvalid'), passwordInvalid:t('passwordRequirementsMissing'), passwordMismatch:t('passwordMismatch'), rateLimited:t('onboardingRateLimited'), addressStateInvalid:t('onboardingAddressStateInvalid'), emailDuplicate:t('onboardingEmailDuplicate'), phoneDuplicate:t('onboardingPhoneDuplicate'), manualReview:t('manualReviewRequired'), verificationFailed:t('onboardingVerificationFailed'), verificationUnavailable:t('onboardingVerificationUnavailable'), requestTimeout:t('onboardingRequestTimeout'), requestFailed:t('onboardingRequestFailed') };
+  const messages = { required:t('requiredField'), nameInvalid:t('onboardingNameInvalid'), nameRepeated:t('patientNameRepeated'), dateInvalid:t('onboardingDobInvalid'), phoneInvalid:t('phoneInvalid'), emailInvalid:t('emailInvalid'), passwordInvalid:t('passwordRequirementsMissing'), passwordMismatch:t('passwordMismatch'), rateLimited:t('onboardingRateLimited'), addressStateInvalid:t('onboardingAddressStateInvalid'), emailDuplicate:t('onboardingEmailDuplicate'), phoneDuplicate:t('onboardingPhoneDuplicate'), manualReview:t('manualReviewRequired'), verificationFailed:t('onboardingVerificationFailed'), verificationUnavailable:t('onboardingVerificationUnavailable'), requestTimeout:t('onboardingRequestTimeout'), requestFailed:t('onboardingRequestFailed') };
   const resendRemaining = resendSecondsRemaining(resendAvailableAt, now);
   useEffect(() => {
     if (!challenge || resendRemaining === 0) return undefined;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [challenge, resendRemaining]);
-  const update = (field, value) => { setForm(current => ({ ...current, [field]: value })); setFieldErrors(current => ({ ...current, [field]: undefined })); setError(''); };
+  const update = (field, value) => {
+    const updated = { ...form, [field]: value };
+    setForm(updated);
+    if (step <= 2) {
+      const errors = validateOnboardingStep(updated, step, messages);
+      setFieldErrors(previous => Object.fromEntries(Object.entries(errors).filter(
+        ([key]) => updated[key] || previous[key] || key === field
+      )));
+    } else {
+      setFieldErrors(current => ({ ...current, [field]: undefined }));
+    }
+    setError('');
+  };
   const updatePhone = (value) => { const nextPhone = splitInternationalPhone(value, form.phoneCountry); setForm(current => ({ ...current, phoneCountry: nextPhone.country, phone: nextPhone.phone })); setFieldErrors(current => ({ ...current, phone: undefined })); setError(''); };
   useEffect(() => () => window.clearTimeout(stepTimer.current), []);
   const goToStep = (target) => {
@@ -499,8 +515,15 @@ export function PatientRegister() {
   const next = () => { const errors = validateOnboardingStep(form, step, messages, undefined, { requireEmail: !googleOnboarding }); setFieldErrors(errors); if (!Object.keys(errors).length) goToStep(step + 1); else requestAnimationFrame(() => stepPanel.current?.querySelector('[aria-invalid="true"]')?.focus()); };
   async function submit(event) {
     event.preventDefault(); if (loading) return;
-    const errors = validateOnboardingStep(form, 5, messages, undefined, { requireEmail: !googleOnboarding });
-    if (Object.keys(errors).length) { setFieldErrors(errors); goToStep(5); return; }
+    if (step < 6) { next(); return; }
+    for (let index = 0; index < 6; index++) {
+      const errors = validateOnboardingStep(form, index, messages, undefined, { requireEmail: !googleOnboarding });
+      if (Object.keys(errors).length) {
+        setFieldErrors(errors);
+        goToStep(index);
+        return;
+      }
+    }
     setLoading(true); setError('');
     try {
       if (googleOnboarding) {
@@ -508,7 +531,7 @@ export function PatientRegister() {
         if (!token) { setGoogleExpired(true); setError(t('googleOnboardingExpired')); return; }
         const data = await apiRequest('/api/patient-auth/google/complete', { method:'POST', body:JSON.stringify(googleRegistrationPayload(form, token)) });
         if (data?.status === 'AUTHENTICATED' && typeof data.token === 'string' && data.token && data.user?.role === 'PATIENT') {
-          clearGoogleOnboardingToken(); login(data.user, data.token); navigate('/patient'); return;
+          clearGoogleOnboardingToken(); login(data.user, data.token); navigate(destination); return;
         }
         if (data?.state === 'MANUAL_REVIEW_REQUIRED' || data?.state === 'AMBIGUOUS_MATCH') {
           clearGoogleOnboardingToken(); setGoogleReviewState(data.state); return;
@@ -524,10 +547,10 @@ export function PatientRegister() {
   }
   async function verify(event) { event.preventDefault(); if (loading) return; setLoading(true); setError(''); try { const data = await apiRequest('/api/patient-auth/verify', { method:'POST', body:JSON.stringify({ challengeId:challenge.challengeId, code }) }); if (data.state === 'CLAIMED' || data.state === 'VERIFIED') { setIdentity(data.patient || identity); setVerified(true); } else setError(messages.manualReview); } catch (requestError) { setError(onboardingErrorMessage(requestError, messages)); } finally { setLoading(false); } }
   async function resendVerification() { if (resending || resendRemaining > 0 || !challenge) return; setResending(true); setError(''); setNotice(''); try { const data = await apiRequest('/api/patient-auth/verification/resend', { method:'POST', body:JSON.stringify({ challengeId:challenge.challengeId }) }); setChallenge(data); setCode(''); setNow(Date.now()); setResendAvailableAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000); setNotice(t('onboardingResendSuccess')); } catch (requestError) { setError(onboardingErrorMessage(requestError, messages)); } finally { setResending(false); } }
-  async function continueToDashboard() { if (loading) return; setLoading(true); setError(''); try { const data = await apiRequest('/api/auth/login', { method:'POST', body:JSON.stringify({ username:form.email, password:form.password }) }); if (data.user?.role !== 'PATIENT') throw new Error(); login(data.user, data.token); navigate('/patient'); } catch { setError(t('onboardingContinueFailed')); } finally { setLoading(false); } }
+  async function continueToDashboard() { if (loading) return; setLoading(true); setError(''); try { const data = await apiRequest('/api/auth/login', { method:'POST', body:JSON.stringify({ username:form.email, password:form.password }) }); if (data.user?.role !== 'PATIENT') throw new Error(); login(data.user, data.token); navigate(destination); } catch { setError(t('onboardingContinueFailed')); } finally { setLoading(false); } }
   const title = (key) => t(`onboarding${key[0].toUpperCase()}${key.slice(1)}`);
   const reviewPhone = normalisePatientPhone(form.phone, form.phoneCountry) || form.phone;
-  if (googleReviewState) return <AuthShell title={t('createPatientAccount')} onboarding><section className="onboarding-success" aria-live="polite"><h2>{t('googleManualReviewTitle')}</h2><p>{t(googleReviewState === 'AMBIGUOUS_MATCH' ? 'googleAmbiguousReview' : 'googleManualReview')}</p><button className="patient-button" onClick={() => navigate('/patient-login')}>{t('signIn')}</button></section></AuthShell>;
+  if (googleReviewState) return <AuthShell title={t('createPatientAccount')} onboarding><section className="onboarding-success" aria-live="polite"><h2>{t('googleManualReviewTitle')}</h2><p>{t(googleReviewState === 'AMBIGUOUS_MATCH' ? 'googleAmbiguousReview' : 'googleManualReview')}</p><button className="patient-button" onClick={() => navigate('/patient-login', { state: { afterSignIn: destination } })}>{t('signIn')}</button></section></AuthShell>;
   if (verified) return <AuthShell title={t('onboardingSuccessTitle')} onboarding><section className="onboarding-success" aria-live="polite"><Check size={44}/><p>{t('onboardingSuccessText')}</p><strong>{identity?.fullNameAr || identity?.fullNameEn}</strong>{identity?.fileNumber && <p className="onboarding-mrn">{t('onboardingMrn')}: {identity.fileNumber}</p>}{error&&<Alert>{error}</Alert>}<button className="patient-button" disabled={loading} onClick={continueToDashboard}>{loading?t('loading'):t('onboardingContinueDashboard')}</button></section></AuthShell>;
   if (challenge) return <AuthShell title={t('verificationCode')} onboarding><form className="onboarding-verification" onSubmit={verify} aria-live="polite"><p className="onboarding-caption">{t('onboardingVerificationIntro')}</p>{challenge.developmentCode && <div className="patient-alert success">{t('developmentCode')}: <strong>{challenge.developmentCode}</strong></div>}<Field label={t('verificationCode')} value={code} onChange={setCode} autoComplete="one-time-code" inputMode="numeric" maxLength={6} dir="ltr"/>{notice&&<div className="patient-alert success" role="status">{notice}</div>}{error&&<Alert>{error}</Alert>}<button className="patient-button" disabled={loading || resending}>{loading?t('loading'):t('verify')}</button><section className="onboarding-resend" aria-live="polite"><p>{t('onboardingResendPrompt')}</p><button type="button" className="onboarding-resend-button" disabled={resending || loading || resendRemaining > 0} onClick={resendVerification}>{resending ? t('loading') : resendRemaining > 0 ? t('onboardingResendAvailableIn', { seconds:resendRemaining }) : t('onboardingResendAction')}</button></section></form></AuthShell>;
   const nameFields = step === 0 ? NAME_FIELDS.slice(0, 4) : NAME_FIELDS.slice(4);
@@ -541,20 +564,21 @@ export function PatientRegister() {
     <div ref={stepPanel} key={step} className={`onboarding-step-panel${stepLeaving ? ' is-leaving' : ''}`} data-direction={stepDirection}>
       <h2 tabIndex={-1}>{title(ONBOARDING_STEPS[step])}</h2>
       <p className="onboarding-caption">{t(`onboarding${ONBOARDING_STEPS[step][0].toUpperCase()}${ONBOARDING_STEPS[step].slice(1)}Help`)}</p>
-  {step < 2 && <div className="onboarding-grid">{nameFields.map(field => <Field key={field} label={t(`onboarding${field[0].toUpperCase()}${field.slice(1)}`)} value={form[field]} onChange={value => update(field, value)} error={fieldErrors[field]} autoComplete="name" dir={step === 0 ? 'rtl' : 'ltr'}/>)}</div>}
-  {step === 2 && <div className="onboarding-grid"><Field label={t('dateOfBirth')} type="date" value={form.dateOfBirth} onChange={value => update('dateOfBirth', value)} error={fieldErrors.dateOfBirth}/><label className="patient-field">{t('gender')}<select value={form.gender} onChange={event => update('gender', event.target.value)}><option value="">{t('onboardingSelectGender')}</option><option value="MALE">{t('male')}</option><option value="FEMALE">{t('female')}</option></select></label>{fieldErrors.gender&&<span className="field-error">{fieldErrors.gender}</span>}</div>}
+  {step < 2 && <div className="onboarding-grid">{nameFields.map(field => <Field key={field} label={t(`onboarding${field[0].toUpperCase()}${field.slice(1)}`)} value={form[field]} onChange={value => update(field, value)} error={fieldErrors[field]} autoComplete={field.startsWith('firstName') ? 'given-name' : field.startsWith('familyName') ? 'family-name' : 'off'} dir={step === 0 ? 'rtl' : 'ltr'}/>)}</div>}
+  {step === 2 && <div className="onboarding-grid"><Field label={t('dateOfBirth')} type="date" max={latestBirthDate()} value={form.dateOfBirth} onChange={value => update('dateOfBirth', value)} error={fieldErrors.dateOfBirth}/><label className="patient-field">{t('gender')}<select value={form.gender} onChange={event => update('gender', event.target.value)}><option value="">{t('onboardingSelectGender')}</option><option value="MALE">{t('male')}</option><option value="FEMALE">{t('female')}</option></select></label>{fieldErrors.gender&&<span className="field-error">{fieldErrors.gender}</span>}</div>}
   {step === 3 && <div className="onboarding-grid onboarding-contact-grid"><div className="onboarding-contact-phone"><label className="patient-field">{t('phone')}<div className="patient-phone-control"><select value={form.phoneCountry} onChange={event => update('phoneCountry', event.target.value)} aria-label={t('selectCountry')} dir={i18n.language === 'ar' ? 'rtl' : 'ltr'}>{PATIENT_PHONE_COUNTRIES.map(country => <option key={country} value={country}>{countryFlag(country)} {countryName(country, i18n.language)} ({callingCode(country)})</option>)}</select><input type="tel" inputMode="tel" dir="ltr" aria-label={t('phone')} aria-describedby={fieldErrors.phone?'onboarding-phone-error':undefined} value={form.phone} onChange={event => updatePhone(event.target.value)} placeholder={t('phoneExample')} autoComplete="tel-national" required aria-invalid={Boolean(fieldErrors.phone)}/></div></label>{fieldErrors.phone&&<span id="onboarding-phone-error" className="field-error">{fieldErrors.phone}</span>}</div>{!googleOnboarding && <Field label={t('email')} type="email" value={form.email} onChange={value => update('email', value)} error={fieldErrors.email} autoComplete="email"/>}</div>}
   {step === 4 && <><label className="patient-field">{t('addressState')}<select value={form.addressStateId} onChange={event => update('addressStateId', event.target.value)}>{SUDANESE_STATES.map(state => <option key={state.id} value={state.id}>{i18n.language === 'ar' ? state.labelAr : state.labelEn}</option>)}</select></label><p className="onboarding-note">{t('onboardingContactAfterActivation')}</p></>}
   {step === 5 && <div dir="ltr"><Field label={t('password')} type="password" value={form.password} onChange={value => update('password', value)} error={fieldErrors.password} autoComplete="new-password"/><div className="password-requirements">{Object.entries(passwordChecks(form.password)).map(([key, valid]) => <span className={valid?'valid':''} key={key}><Check size={14}/>{t(`password${key[0].toUpperCase()}${key.slice(1)}`)}</span>)}</div><Field label={t('confirmPassword')} type="password" value={form.confirmPassword} onChange={value => update('confirmPassword', value)} error={fieldErrors.confirmPassword} autoComplete="new-password"/></div>}
   {step === 6 && <div className="onboarding-review"><p>{form.firstNameAr} {form.fatherNameAr} {form.grandfatherNameAr} {form.familyNameAr}</p><p dir="ltr">{form.firstNameEn} {form.fatherNameEn} {form.grandfatherNameEn} {form.familyNameEn}</p><p>{form.dateOfBirth} · {form.gender === 'MALE' ? t('male') : t('female')}</p><p dir="ltr">{reviewPhone}{!googleOnboarding && ` · ${form.email}`}</p><p>{t('addressState')}: {(SUDANESE_STATES.find(state => String(state.id) === form.addressStateId)?.[i18n.language === 'ar' ? 'labelAr' : 'labelEn'])}</p><p className="onboarding-note">{t('onboardingPasswordHidden')}</p></div>}
     </div>
-  {error&&<Alert>{error}</Alert>}<div className="onboarding-actions">{step > 0 && <button type="button" className="patient-button secondary" onClick={() => goToStep(step - 1)} disabled={loading}>{t('onboardingBack')}</button>}{step < 6 ? <button type="button" className="patient-button" onClick={next}>{t('onboardingNext')}</button> : <button className="patient-button" disabled={loading}>{loading?t('loading'):t('createAccount')}</button>}</div>{step === 0 && !googleOnboarding && <section className="patient-auth-google-entry"><div className="patient-auth-divider" role="separator"><span>{t('authOr')}</span></div><GoogleIdentityButton onCredential={googleAuth.handleCredential} loading={googleAuth.loading}/>{googleAuth.errorCode&&<Alert>{t(googleErrorMessageKey(googleAuth.errorCode))}</Alert>}</section>}<section className="patient-auth-registration-nav"><div className="patient-auth-divider" role="separator"><span>{t('authOr')}</span></div><p>{t('alreadyHaveAccount')}</p><Link className="patient-auth-secondary-button" to="/patient-login">{t('signIn')}</Link></section></form></AuthShell>;
+  {error&&<Alert>{error}</Alert>}<div className="onboarding-actions">{step > 0 && <button type="button" className="patient-button secondary" onClick={() => goToStep(step - 1)} disabled={loading}>{t('onboardingBack')}</button>}{step < 6 ? <button type="button" className="patient-button" onClick={next}>{t('onboardingNext')}</button> : <button className="patient-button" disabled={loading}>{loading?t('loading'):t('createAccount')}</button>}</div>{step === 0 && !googleOnboarding && <section className="patient-auth-google-entry"><div className="patient-auth-divider" role="separator"><span>{t('authOr')}</span></div><GoogleIdentityButton onCredential={googleAuth.handleCredential} loading={googleAuth.loading}/>{googleAuth.errorCode&&<Alert>{t(googleErrorMessageKey(googleAuth.errorCode))}</Alert>}</section>}<section className="patient-auth-registration-nav"><div className="patient-auth-divider" role="separator"><span>{t('authOr')}</span></div><p>{t('alreadyHaveAccount')}</p><Link className="patient-auth-secondary-button" to="/patient-login" state={{ afterSignIn: destination }}>{t('signIn')}</Link></section></form></AuthShell>;
 }
 
 export function PatientClaim() {
   const { i18n } = useTranslation();
   const { user, updateUser, logout } = useAuth();
   const navigate = useNavigate();
+  const destination = patientDestination(useLocation().state);
 
   const lang = i18n.language === 'ar' ? 'ar' : 'en';
 
@@ -568,7 +592,7 @@ export function PatientClaim() {
   const [error, setError] = useState('');
 
   if (user?.patientLinked === true) {
-    return <Navigate to="/patient" replace />;
+    return <Navigate to={destination} replace />;
   }
 
   function updateField(field, value) {
@@ -607,7 +631,7 @@ export function PatientClaim() {
             : {})
         });
 
-        navigate('/patient', {
+        navigate(destination, {
           replace: true
         });
 
@@ -649,7 +673,7 @@ export function PatientClaim() {
           patientLinked: true
         });
 
-        navigate('/patient', {
+        navigate(destination, {
           replace: true
         });
 
@@ -864,6 +888,6 @@ function AuthShell({ title, children, onboarding = false }) {
     </div>
   </main>;
 }
-function Field({label,type='text',value,onChange,autoComplete,error,inputMode,maxLength,dir,className,helperText}){const id=useId();if(type==='password')return <PasswordField id={id} label={label} value={value} onChange={event=>onChange(event.target.value)} autoComplete={autoComplete || 'current-password'} required error={Boolean(error)} helperText={helperText || error} maxLength={maxLength} dir={dir || 'ltr'} />;return <><label className="patient-field" htmlFor={id}>{label}<input id={id} className={className} type={type} value={value} onChange={event=>onChange(event.target.value)} autoComplete={autoComplete} inputMode={inputMode} maxLength={maxLength} dir={dir || (['email','tel'].includes(type)?'ltr':undefined)} required aria-invalid={Boolean(error)} aria-describedby={error?`${id}-error`:undefined}/></label>{error&&<span id={`${id}-error`} className="field-error">{error}</span>}</>}
+function Field({label,type='text',value,onChange,autoComplete,error,inputMode,maxLength,max,dir,className,helperText}){const id=useId();if(type==='password')return <PasswordField id={id} label={label} value={value} onChange={event=>onChange(event.target.value)} autoComplete={autoComplete || 'current-password'} required error={Boolean(error)} helperText={helperText || error} maxLength={maxLength} dir={dir || 'ltr'} />;return <><label className="patient-field" htmlFor={id}>{label}<input id={id} className={className} type={type} value={value} onChange={event=>onChange(event.target.value)} autoComplete={autoComplete} inputMode={inputMode} maxLength={maxLength} max={max} dir={dir || (['email','tel'].includes(type)?'ltr':undefined)} required aria-invalid={Boolean(error)} aria-describedby={error?`${id}-error`:undefined}/></label>{error&&<span id={`${id}-error`} className="field-error">{error}</span>}</>}
 function Alert({children}){return <div className="patient-alert error" role="alert">{children}</div>}
 function googleErrorMessageKey(code){if(code==='ACCOUNT_LINK_REQUIRED')return 'googleAccountLinkRequired';if(code==='REGISTRATION_PENDING')return 'googleRegistrationPending';if(code==='GOOGLE_SIGN_IN_CONFLICT')return 'googleAccountConflict';if(code==='GOOGLE_ONBOARDING_BUSY')return 'googleOnboardingBusy';if(code==='GOOGLE_AUTH_UNAVAILABLE')return 'googleSignInUnavailable';if(code==='GOOGLE_CREDENTIAL_INVALID'||code?.startsWith('GOOGLE_CREDENTIAL_')||code==='GOOGLE_EMAIL_UNVERIFIED')return 'googleCredentialInvalid';if(code==='GOOGLE_SIGN_IN_NETWORK_ERROR'||code==='GOOGLE_VERIFICATION_UNAVAILABLE'||code==='REQUEST_FAILED')return 'googleNetworkError';return 'googleSignInUnexpectedError'}

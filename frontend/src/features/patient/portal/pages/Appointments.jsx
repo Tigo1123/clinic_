@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ChevronRight } from 'lucide-react';
 import StatusBadge from '../../../../components/ui/StatusBadge';
 import { hasPendingAppointments } from '../../../../utils/appointmentStatus';
+import { patientSocket } from '../../../../services/patient/patientSocket';
 import { localizeDoctorSpecialty } from '../doctorSpecialty';
 import { useApi, State, Empty, doctorName } from './shared.jsx';
 
@@ -12,6 +13,18 @@ export function Appointments() {
   const [group, setGroup] = useState('upcoming');
   const { data, error, loading, reload } = useApi(`/api/patient/appointments?group=${group}`, { pollWhen: hasPendingAppointments });
   const language = i18n.language?.startsWith('ar') ? 'ar' : 'en';
+
+  useEffect(() => {
+    const handleNotification = (notif) => {
+      if (notif?.targetType === 'appointment' || notif?.eventType?.startsWith('APPOINTMENT_') || notif?.eventType === 'PATIENT_CHECKED_IN') {
+        reload();
+      }
+    };
+    patientSocket.on('notification', handleNotification);
+    return () => {
+      patientSocket.off('notification', handleNotification);
+    };
+  }, [reload]);
 
   return (
     <State loading={loading} error={error} onRetry={reload}>

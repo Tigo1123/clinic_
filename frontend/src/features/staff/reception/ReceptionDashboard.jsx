@@ -1,9 +1,9 @@
+import { NAME_FIELDS, patientNameErrors, isValidPastDate } from '../../../utils/patientIdentityValidation.js';
+import PatientIdentityField from './components/PatientIdentityField';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Calculator,
-  ChevronLeft,
-  ChevronRight,
   ClipboardList,
   DollarSign,
   FlaskConical,
@@ -30,21 +30,41 @@ import FacilityIdentityLine from '../components/FacilityIdentityLine';
 import ReceptionToolbar from './components/ReceptionToolbar';
 import PatientDirectoryPanel from './components/PatientDirectoryPanel';
 import LabBillingQueue from './components/LabBillingQueue';
+import ServiceOrderBillingOptions from './components/ServiceOrderBillingOptions';
+import ExcludeServiceChargeDialog from './components/ExcludeServiceChargeDialog';
+import InvoiceCorrectionDialog from './components/InvoiceCorrectionDialog';
 import PendingAppointmentRow from './components/PendingAppointmentRow';
-import QueueAppointmentRow from './components/QueueAppointmentRow';
+import AppointmentQueue from './components/AppointmentQueue';
+import ConfirmAppointmentDialog from './components/ConfirmAppointmentDialog';
 import {
   calculateInvoiceTotals,
-  createEmptyPatientName,
-  formatQueueDateLabel,
-  PATIENT_NAME_FIELDS,
-  shiftQueueDate
+  createEmptyPatientName
 } from './receptionHelpers';
 
-export default function ReceptionDashboard({ lang, t }) {
+function issuedInvoiceLines(invoice) {
+  return invoice.items.map((item) => ({
+    id: item.id,
+    labelAr: item.descriptionAr,
+    labelEn: item.descriptionEn,
+    baseFeeSdg: Number(item.unitPriceSdg),
+    qty: item.qty
+  }));
+}
+
+export default function ReceptionDashboard({ lang, t, notificationIntent = null, onNotificationIntentHandled }) {
   const branding = useFacilityBranding();
   const [doctors, setDoctors] = useState([]);
   const [selectedDoctor, setSelectedDoctor] = useState(null);
-  const [appointments, setAppointments] = useState([]);
+  const [queueRevision, setQueueRevision] = useState(0);
+  const [confirming, setConfirming] = useState(null);
+  const [confirmation, setConfirmation] = useState(null);
+  const confirmationNoticeRef = useRef(null);
+  const refreshDoctorQueue = useCallback(() => setQueueRevision(value => value + 1), []);
+  const closeConfirmation = useCallback(() => setConfirming(null), []);
+
+  useEffect(() => {
+    if (confirmation) confirmationNoticeRef.current?.focus();
+  }, [confirmation]);
   const [activeTab, setActiveTab] = useState('front-desk'); // 'front-desk', 'walkin', 'register', 'patients', 'billing', 'lab-billing', 'reconcile'
 
   // Billing patient search states
@@ -65,6 +85,13 @@ export default function ReceptionDashboard({ lang, t }) {
   const [patientName, setPatientName] = useState(createEmptyPatientName());
   const [gender, setGender] = useState('MALE');
   const [dob, setDob] = useState('');
+  const nameErrors = patientNameErrors(patientName);
+  const birthDateError = isValidPastDate(dob) ? undefined : 'onboardingDobInvalid';
+  const nameInputs = NAME_FIELDS.map(field => (
+    <PatientIdentityField key={field} field={field} value={patientName[field]} t={t} error={nameErrors[field]}
+      onChange={value => setPatientName(current => ({ ...current, [field]: value }))} />
+  ));
+  const birthDateInput = <PatientIdentityField field="dateOfBirth" value={dob} onChange={setDob} t={t} error={birthDateError} />;
   const [phone, setPhone] = useState('');
   const [nationalId, setNationalId] = useState('');
   const [addressStateId, setAddressStateId] = useState('1');
@@ -85,9 +112,16 @@ export default function ReceptionDashboard({ lang, t }) {
   const [billingPatient, setBillingPatient] = useState(null);
   const [insuranceCompanyId, setInsuranceCompanyId] = useState('');
   const [insuranceCompanies, setInsuranceCompanies] = useState([]);
+  const [insuranceCompaniesLoading, setInsuranceCompaniesLoading] = useState(false);
+  const [insuranceCompaniesError, setInsuranceCompaniesError] = useState('');
   const [insurancePreview, setInsurancePreview] = useState({ status: 'idle', data: null, error: '' });
   const [issuedBillingInvoice, setIssuedBillingInvoice] = useState(null);
-  const [clinicalServices, setClinicalServices] = useState([]);
+  const [billingServiceOrder, setBillingServiceOrder] = useState(null);
+  const [serviceOrders, setServiceOrders] = useState([]);
+  const [chargeToExclude, setChargeToExclude] = useState(null);
+  const [reviewingRefund, setReviewingRefund] = useState(false);
+  const [serviceOrderStatus, setServiceOrderStatus] = useState('loading');
+  const [serviceOrderRevision, setServiceOrderRevision] = useState(0);
   const [addedServices, setAddedServices] = useState([]);
 
   // Payment Allocation
@@ -114,6 +148,16 @@ export default function ReceptionDashboard({ lang, t }) {
   const [pendingAppointments, setPendingAppointments] = useState([]);
   const [pendingAppointmentsLoadError, setPendingAppointmentsLoadError] = useState(false);
   const [billingAppointment, setBillingAppointment] = useState(null);
+  const [highlightedAppointmentId, setHighlightedAppointmentId] = useState(null);
+  const [highlightedLabOrderId, setHighlightedLabOrderId] = useState(null);
+  const [staleNotificationNotice, setStaleNotificationNotice] = useState(null);
+  const lastHandledIntentKeyRef = useRef(null);
+  const doctorsRef = useRef(doctors);
+  doctorsRef.current = doctors;
+  const filterDateRef = useRef(filterDate);
+  filterDateRef.current = filterDate;
+  const onIntentHandledRef = useRef(onNotificationIntentHandled);
+  onIntentHandledRef.current = onNotificationIntentHandled;
 
   // Laboratory billing queue
   const [labBillingOrders, setLabBillingOrders] = useState([]);
@@ -128,23 +172,31 @@ export default function ReceptionDashboard({ lang, t }) {
   const walkInSearchSchedulerRef = useRef(null);
   const directoryLoadRequestRef = useRef(0);
   const insurancePreviewRequestRef = useRef(0);
+  const insuranceCompaniesRequestRef = useRef(0);
+  const issuedBillingInvoiceRef = useRef(null);
+  const selectedLabBillingOrderRef = useRef(null);
+  issuedBillingInvoiceRef.current = issuedBillingInvoice;
+  selectedLabBillingOrderRef.current = selectedLabBillingOrder;
   const paymentAttemptRef = useRef(null);
   if (!billingSearchSchedulerRef.current) billingSearchSchedulerRef.current = createLatestSearchScheduler();
   if (!directorySearchSchedulerRef.current) directorySearchSchedulerRef.current = createLatestSearchScheduler();
   if (!walkInSearchSchedulerRef.current) walkInSearchSchedulerRef.current = createLatestSearchScheduler();
 
+  const pendingRequestRef = useRef(0);
   const fetchPendingAppointments = () => {
+    const requestId = ++pendingRequestRef.current;
     fetchWithAuth('/api/appointments/pending')
       .then((res) => {
         if (!res.ok) throw new Error('Failed to load pending appointments');
         return res.json();
       })
       .then((data) => {
+        if (requestId !== pendingRequestRef.current) return;
         setPendingAppointmentsLoadError(false);
         setPendingAppointments(Array.isArray(data) ? data : []);
       })
       .catch(() => {
-        setPendingAppointmentsLoadError(true);
+        if (requestId === pendingRequestRef.current) setPendingAppointmentsLoadError(true);
       });
   };
 
@@ -188,94 +240,46 @@ export default function ReceptionDashboard({ lang, t }) {
 
     paymentAttemptRef.current = null;
     setSelectedLabBillingOrder(order);
-    setIssuedBillingInvoice(null);
+    setBillingServiceOrder(null);
+    setChargeToExclude(null);
+    setReviewingRefund(false);
+    setIssuedBillingInvoice(order.issuedInvoice ?? null);
     setBillingPatient(order.patient);
     setBillingAppointment(null);
-    setInsuranceCompanyId('');
+    setInsuranceCompanyId(order.issuedInvoice?.insuranceClaim?.insuranceCompanyId || '');
+    setInsurancePreview({ status: 'idle', data: null, error: '' });
 
-    setAddedServices(
-      order.items.filter((item) => item.labReviewStatus !== 'EXTERNAL').map((item) => ({
-        id: item.id,
-        labelAr:
-          item.service?.labelAr ||
-          item.customTestName ||
-          'فحص مخصص',
-        labelEn:
-          item.service?.labelEn ||
-          item.customTestName ||
-          'Custom Test',
-        baseFeeSdg: item.service?.baseFeeSdg == null ? null : Number(item.service.baseFeeSdg),
-        qty: 1
-      }))
-    );
+    const invoiceItems = order.issuedInvoice?.invoice.items;
+    setAddedServices(invoiceItems
+      ? issuedInvoiceLines(order.issuedInvoice.invoice)
+      : order.items.filter((item) => item.labReviewStatus !== 'EXTERNAL').map((item) => ({
+          id: item.id,
+          labelAr: item.service?.labelAr || item.customTestName || 'فحص مخصص',
+          labelEn: item.service?.labelEn || item.customTestName || 'Custom Test',
+          baseFeeSdg: item.service?.baseFeeSdg == null ? null : Number(item.service.baseFeeSdg),
+          qty: 1
+        })));
 
-    const amount =
-      order.pricingRequired || order.status === 'PAID'
-        ? ''
-        : Number(
-            order.invoice?.remainingBalanceSdg ??
-            order.estimatedTotalSdg ??
-            0
-          );
-
-    setPaymentRows([
-      {
-        amountSdg: amount > 0 ? String(amount) : '',
-        paymentMethod: 'CASH',
-        transactionReference: ''
-      }
-    ]);
+    setPaymentRows((rows) => [{
+      amountSdg: order.issuedInvoice ? String(order.issuedInvoice.remainingBalanceSdg) : '',
+      paymentMethod: rows[0]?.paymentMethod || '',
+      transactionReference: ''
+    }]);
     setActiveTab('billing');
   };
 
-  const handleApproveAppointment = async (appId) => {
-    if (pendingActionIdsRef.current.has(appId)) return;
-    const confirmed = window.confirm(
-      lang === 'ar'
-        ? 'هل أنت متأكد أنك تريد تأكيد هذا الموعد؟'
-        : 'Are you sure you want to confirm this appointment?'
-    );
+  function handleApproveAppointment(appointment) {
+    setConfirmation(null);
+    setConfirming(appointment);
+  }
 
-    if (!confirmed) return;
-
-    pendingActionIdsRef.current.add(appId);
-    setPendingActionIds(new Set(pendingActionIdsRef.current));
-
-    try {
-      const res = await fetchWithAuth(`/api/appointments/${appId}/status`, {
-        method: 'PUT',
-        body: JSON.stringify({ status: 'CONFIRMED' })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        setSuccessMsg(lang === 'ar' ? 'تم تأكيد الموعد بنجاح.' : 'Appointment confirmed successfully.');
-        fetchPendingAppointments();
-        refreshDoctorQueue();
-        if (data.whatsAppLinkAr) {
-          window.open(data.whatsAppLinkAr, '_blank', 'noopener,noreferrer');
-        }
-      } else {
-        setErrorMsg(
-          apiErrorMessage(
-            data,
-            lang === 'ar'
-              ? 'تعذر تأكيد الموعد.'
-              : 'Failed to confirm the appointment.'
-          )
-        );
-      }
-    } catch (err) {
-      console.error(err);
-      setErrorMsg(
-        lang === 'ar'
-          ? 'تعذر تأكيد الموعد. يرجى المحاولة مرة أخرى.'
-          : 'Failed to confirm the appointment. Please try again.'
-      );
-    } finally {
-      pendingActionIdsRef.current.delete(appId);
-      setPendingActionIds(new Set(pendingActionIdsRef.current));
-    }
-  };
+  function handleConfirmed(appointment, data) {
+    setConfirming(null);
+    setConfirmation({ patient: appointment.patient, ar: data.whatsAppLinkAr, en: data.whatsAppLinkEn });
+    setPendingAppointments(list => list.filter(item => item.id !== appointment.id));
+    fetchPendingAppointments();
+    refreshDoctorQueue();
+  }
 
   const handleCancelAppointment = async (appId) => {
     if (pendingActionIdsRef.current.has(appId)) return;
@@ -323,6 +327,49 @@ export default function ReceptionDashboard({ lang, t }) {
     }
   };
 
+  const loadInsuranceCompanies = useCallback(async () => {
+    const requestId = ++insuranceCompaniesRequestRef.current;
+    setInsuranceCompaniesLoading(true);
+    setInsuranceCompaniesError('');
+    try {
+      const res = await fetchWithAuth('/api/billing/insurance-companies');
+      const data = await res.json().catch(() => null);
+      if (requestId !== insuranceCompaniesRequestRef.current) return;
+      if (!res.ok || !Array.isArray(data)) {
+        setInsuranceCompanies([]);
+        setInsuranceCompaniesError(
+          apiErrorMessage(
+            data,
+            lang === 'ar'
+              ? 'تعذر تحميل شركات التأمين. حاول مرة أخرى.'
+              : 'Unable to load insurance providers. Please try again.',
+            lang
+          )
+        );
+        return;
+      }
+      setInsuranceCompanies(data);
+      if (!issuedBillingInvoiceRef.current && !selectedLabBillingOrderRef.current) {
+        setInsuranceCompanyId((current) => (
+          current && !data.some((company) => company.id === current) ? '' : current
+        ));
+      }
+    } catch (err) {
+      console.error(err);
+      if (requestId !== insuranceCompaniesRequestRef.current) return;
+      setInsuranceCompanies([]);
+      setInsuranceCompaniesError(
+        lang === 'ar'
+          ? 'تعذر الاتصال بخدمة شركات التأمين. حاول مرة أخرى.'
+          : 'Unable to reach the insurance providers service. Please try again.'
+      );
+    } finally {
+      if (requestId === insuranceCompaniesRequestRef.current) {
+        setInsuranceCompaniesLoading(false);
+      }
+    }
+  }, [lang]);
+
   // Fetch doctors & services on mount
   useEffect(() => {
     fetchPendingAppointments();
@@ -337,20 +384,49 @@ export default function ReceptionDashboard({ lang, t }) {
 
     apiRequest('/api/billing/payment-methods').then(data => { setPaymentMethods(Array.isArray(data) ? data : []); setPaymentMethodsError(false); }).catch(() => { setPaymentMethods([]); setPaymentMethodsError(true); });
 
-    apiRequest('/api/billing/services')
-      .then((data) => setClinicalServices(Array.isArray(data) ? data : []))
-      .catch((err) => {
-        console.error(err);
-        setClinicalServices([]);
-      });
+    loadInsuranceCompanies();
+  }, [loadInsuranceCompanies]);
 
-    apiRequest('/api/billing/insurance-companies')
-      .then((data) => setInsuranceCompanies(Array.isArray(data) ? data : []))
-      .catch((err) => {
-        console.error(err);
-        setInsuranceCompanies([]);
+  useEffect(() => {
+    if (activeTab === 'billing') {
+      loadInsuranceCompanies();
+    }
+  }, [activeTab, loadInsuranceCompanies]);
+
+  const prevBillingPatientIdRef = useRef(null);
+  useEffect(() => {
+    const currentId = billingPatient?.id ?? null;
+    if (currentId !== prevBillingPatientIdRef.current) {
+      prevBillingPatientIdRef.current = currentId;
+      if (!selectedLabBillingOrderRef.current && !issuedBillingInvoiceRef.current) {
+        setInsuranceCompanyId('');
+      }
+    }
+  }, [billingPatient]);
+
+  const issuedPaymentStatus = issuedBillingInvoice?.invoice.paymentStatus;
+  const paymentLocked = ['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED', 'VOIDED'].includes(issuedPaymentStatus);
+  const canReviewRefund = issuedBillingInvoice?.refundableSdg > 0 && (
+    billingAppointment?.status === 'CHECKED_IN' ||
+    ['PENDING_BILLING', 'PAID'].includes(selectedLabBillingOrder?.status)
+  );
+  const billingPatientId = billingPatient?.id;
+  useEffect(() => {
+    setServiceOrders([]);
+    setServiceOrderStatus('loading');
+    if (activeTab !== 'billing' || !billingPatientId || billingAppointment || selectedLabBillingOrder) return;
+    let current = true;
+    apiRequest(`/api/billing/service-orders/pending/${encodeURIComponent(billingPatientId)}`)
+      .then((orders) => {
+        if (!current) return;
+        setServiceOrders(Array.isArray(orders) ? orders : []);
+        setServiceOrderStatus('ready');
+      })
+      .catch(() => {
+        if (current) setServiceOrderStatus('error');
       });
-  }, []);
+    return () => { current = false; };
+  }, [activeTab, billingPatientId, billingAppointment, selectedLabBillingOrder, serviceOrderRevision]);
 
   useEffect(() => {
     const requestId = ++insurancePreviewRequestRef.current;
@@ -358,22 +434,23 @@ export default function ReceptionDashboard({ lang, t }) {
       setInsurancePreview({ status: 'ready', data: issuedBillingInvoice, error: '' });
       return;
     }
-    if (!billingPatient || selectedLabBillingOrder || addedServices.length === 0) {
+    if (!billingPatient || selectedLabBillingOrder?.pricingRequired || addedServices.length === 0) {
       setInsurancePreview({ status: 'idle', data: null, error: '' });
       return;
     }
 
     const timer = window.setTimeout(async () => {
       setInsurancePreview({ status: 'loading', data: null, error: '' });
-      const invoiceType = billingAppointment ? 'CONSULTATION' : 'GENERAL';
+      const invoiceType = selectedLabBillingOrder
+        ? 'LABORATORY'
+        : billingAppointment ? 'CONSULTATION' : 'GENERAL';
       const payload = {
         patientId: billingPatient.id,
         insuranceCompanyId: insuranceCompanyId || null,
         invoiceType,
         appointmentId: billingAppointment?.id || null,
-        ...(invoiceType === 'GENERAL' ? {
-          items: addedServices.map((service) => ({ serviceId: service.id, quantity: service.qty }))
-        } : {})
+        ...(selectedLabBillingOrder ? { labOrderId: selectedLabBillingOrder.id } : {}),
+        ...(billingServiceOrder ? { serviceOrderId: billingServiceOrder.id } : {})
       };
       try {
         const response = await fetchWithAuth('/api/billing/insurance-preview', {
@@ -391,8 +468,13 @@ export default function ReceptionDashboard({ lang, t }) {
           setPaymentRows([{ amountSdg: '', paymentMethod: 'CASH', transactionReference: '' }]);
           return;
         }
+        if (data.existing && data.invoice) {
+          setIssuedBillingInvoice(data);
+          setAddedServices(issuedInvoiceLines(data.invoice));
+          setInsuranceCompanyId(data.insuranceClaim?.insuranceCompanyId || '');
+        }
         setInsurancePreview({ status: 'ready', data, error: '' });
-        setPaymentRows([{ amountSdg: String(data.patientShareSdg), paymentMethod: 'CASH', transactionReference: '' }]);
+        setPaymentRows((rows) => [{ amountSdg: String(data.remainingBalanceSdg ?? data.patientShareSdg), paymentMethod: rows[0]?.paymentMethod || '', transactionReference: '' }]);
       } catch {
         if (requestId !== insurancePreviewRequestRef.current) return;
         setInsurancePreview({ status: 'error', data: null, error: lang === 'ar' ? 'تعذر الاتصال بخدمة احتساب التأمين.' : 'Unable to reach the insurance calculation service.' });
@@ -401,31 +483,7 @@ export default function ReceptionDashboard({ lang, t }) {
     }, 150);
 
     return () => window.clearTimeout(timer);
-  }, [addedServices, billingAppointment, billingPatient, insuranceCompanyId, issuedBillingInvoice, lang, selectedLabBillingOrder]);
-
-  // Fetch queue when doctor or date changes
-  const refreshDoctorQueue = useCallback(() => {
-    if (selectedDoctor) {
-      fetchWithAuth(`/api/appointments/queue/${selectedDoctor.id}?date=${filterDate}`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (Array.isArray(data)) {
-            setAppointments(data);
-          } else {
-            setAppointments([]);
-            console.error('Queue response is not an array:', data);
-          }
-        })
-        .catch((err) => {
-          console.error(err);
-          setAppointments([]);
-        });
-    }
-  }, [selectedDoctor, filterDate]);
-
-  useEffect(() => {
-    refreshDoctorQueue();
-  }, [refreshDoctorQueue]);
+  }, [addedServices.length, billingAppointment, billingPatient, billingServiceOrder, insuranceCompanyId, issuedBillingInvoice, lang, selectedLabBillingOrder]);
 
   useEffect(() => {
     if (!selectedDoctor && doctors.length) {
@@ -444,6 +502,165 @@ export default function ReceptionDashboard({ lang, t }) {
       socket.off('queueUpdated', handleQueueUpdate);
     };
   }, [refreshDoctorQueue]);
+
+  useEffect(() => {
+    const requestKey = notificationIntent?.requestKey;
+    if (!requestKey || lastHandledIntentKeyRef.current === requestKey) return;
+    lastHandledIntentKeyRef.current = requestKey;
+    let active = true;
+
+    async function handleDrillDown() {
+      setErrorMsg('');
+      setSuccessMsg('');
+      setStaleNotificationNotice(null);
+      setHighlightedAppointmentId(null);
+      setHighlightedLabOrderId(null);
+
+      const { targetType, targetId, eventType, context = {} } = notificationIntent;
+
+      if (targetType === 'labOrder') {
+        const labOrderId = targetId || context.labOrderId;
+        setActiveTab('lab-billing');
+        setLabBillingLoading(true);
+        try {
+          const res = await fetchWithAuth('/api/billing/lab-orders/pending');
+          const data = await res.json().catch(() => []);
+          if (!active) return;
+          if (!res.ok) {
+            setLabBillingLoadError(true);
+            setStaleNotificationNotice({
+              type: 'warning',
+              text: lang === 'ar'
+                ? 'تعذر فتح طلب فحص المختبر المشار إليه.'
+                : 'Unable to load the referenced laboratory billing order.'
+            });
+            return;
+          }
+          const queue = Array.isArray(data) ? data : [];
+          setLabBillingOrders(queue);
+          setLabBillingLoadError(false);
+          const matchedOrder = labOrderId ? queue.find((order) => order.id === labOrderId) : null;
+          if (matchedOrder) {
+            setHighlightedLabOrderId(matchedOrder.id);
+          } else {
+            setStaleNotificationNotice({
+              type: 'warning',
+              text: lang === 'ar'
+                ? 'طلب فحص المختبر المشار إليه تم سداده بالفعل أو لم يعد بانتظار التحصيل.'
+                : 'The referenced laboratory order has already been paid or is no longer awaiting billing.',
+              patientId: context.patientId || null
+            });
+          }
+        } catch {
+          if (active) setLabBillingLoadError(true);
+        } finally {
+          if (active) setLabBillingLoading(false);
+          onIntentHandledRef.current?.();
+        }
+        return;
+      }
+
+      if (targetType === 'appointment') {
+        const appointmentId = targetId || context.appointmentId;
+        const targetDate = context.appointmentDate || filterDateRef.current;
+        const targetDoctorId = context.doctorId || null;
+        const patientId = context.patientId || null;
+
+        setActiveTab('front-desk');
+
+        let availableDoctors = doctorsRef.current;
+        if (targetDoctorId && availableDoctors.length === 0) {
+          try {
+            const loadedDoctors = await apiRequest('/api/appointments/doctors');
+            if (!active) return;
+            availableDoctors = Array.isArray(loadedDoctors) ? loadedDoctors : [];
+            setDoctors(availableDoctors);
+          } catch {
+            availableDoctors = [];
+          }
+        }
+
+        const matchedDoctor = targetDoctorId
+          ? availableDoctors.find((doc) => doc.id === targetDoctorId) || null
+          : null;
+        if (matchedDoctor) {
+          setSelectedDoctor(matchedDoctor);
+        }
+        if (context.appointmentDate) {
+          setFilterDate(context.appointmentDate);
+        }
+
+        let pendingList = [];
+        try {
+          const pendingRes = await fetchWithAuth('/api/appointments/pending');
+          const pendingData = pendingRes.ok ? await pendingRes.json().catch(() => []) : [];
+          if (!active) return;
+          pendingList = Array.isArray(pendingData) ? pendingData : [];
+          setPendingAppointments(pendingList);
+          setPendingAppointmentsLoadError(!pendingRes.ok);
+        } catch {
+          if (active) setPendingAppointmentsLoadError(true);
+        }
+
+        const pendingMatch = appointmentId ? pendingList.find((item) => item.id === appointmentId) : null;
+        if (pendingMatch) {
+          if (!matchedDoctor && pendingMatch.doctorId) {
+            const pendingDoc = availableDoctors.find((doc) => doc.id === pendingMatch.doctorId);
+            if (pendingDoc) setSelectedDoctor(pendingDoc);
+          }
+          setHighlightedAppointmentId(pendingMatch.id);
+          refreshDoctorQueue();
+          onIntentHandledRef.current?.();
+          return;
+        }
+
+        const queueDoctorId = matchedDoctor?.id || targetDoctorId;
+        if (queueDoctorId && appointmentId) {
+          try {
+            const queueRes = await fetchWithAuth(`/api/appointments/queue/${queueDoctorId}?date=${encodeURIComponent(targetDate)}`);
+            const queueData = queueRes.ok ? await queueRes.json().catch(() => []) : [];
+            if (!active) return;
+            const queueList = Array.isArray(queueData) ? queueData : [];
+            refreshDoctorQueue();
+            const queueMatch = queueList.find((item) => item.id === appointmentId);
+            if (queueMatch) {
+              setHighlightedAppointmentId(queueMatch.id);
+              if (eventType === 'APPOINTMENT_BOOKED') {
+                setStaleNotificationNotice({
+                  type: 'info',
+                  text: lang === 'ar'
+                    ? 'تمت معالجة طلب الحجز مسبقاً — يتم عرض الموعد في طابور الطبيب.'
+                    : 'This booking request was already processed — showing the appointment in the doctor queue.'
+                });
+              }
+              onIntentHandledRef.current?.();
+              return;
+            }
+          } catch {
+            // Fall through to stale-record handling below.
+          }
+        }
+
+        if (patientId && !appointmentId) {
+          setViewingProfilePatientId(patientId);
+          onIntentHandledRef.current?.();
+          return;
+        }
+
+        setStaleNotificationNotice({
+          type: 'warning',
+          text: lang === 'ar'
+            ? 'الموعد المشار إليه لم يعد معلقاً أو نشطاً في الطابور (ربما تم إلغاؤه أو نقله).'
+            : 'The referenced appointment is no longer pending or active in the queue (it may have been cancelled or moved).',
+          patientId
+        });
+        onIntentHandledRef.current?.();
+      }
+    }
+
+    handleDrillDown();
+    return () => { active = false; };
+  }, [notificationIntent, lang, refreshDoctorQueue]);
 
   const handlePatientSearch = (val) => {
     setSearchQuery(val);
@@ -584,7 +801,7 @@ export default function ReceptionDashboard({ lang, t }) {
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setSuccessMsg(lang === 'ar' ? 'تم تسجيل المريض بنجاح.' : 'Patient registered successfully.');
-        setBillingPatient(data);
+        selectBillingPatient(data);
         setActiveTab('billing'); // Redirect to billing tab
         // Clear fields
         setPatientName(createEmptyPatientName());
@@ -643,6 +860,7 @@ export default function ReceptionDashboard({ lang, t }) {
     directorySearchSchedulerRef.current.cancel();
     walkInSearchSchedulerRef.current.cancel();
     directoryLoadRequestRef.current += 1;
+    insuranceCompaniesRequestRef.current += 1;
   }, []);
 
   const handleWalkInDoctorChange = async (doctorId) => {
@@ -701,9 +919,8 @@ export default function ReceptionDashboard({ lang, t }) {
       const doctor = doctors.find((item) => item.id === walkInDoctorId);
       if (doctor) {
         setSelectedDoctor(doctor);
-        const queueRes = await fetchWithAuth(`/api/appointments/queue/${doctor.id}?date=${clinicDateString()}`);
-        const queueData = await queueRes.json().catch(() => []);
-        if (queueRes.ok && Array.isArray(queueData)) setAppointments(queueData);
+        setFilterDate(clinicDateString());
+        refreshDoctorQueue();
       }
       setWalkInPatient(null);
       setWalkInPatientQuery('');
@@ -762,54 +979,82 @@ export default function ReceptionDashboard({ lang, t }) {
     }
   };
 
+  const selectBillingPatient = (patient) => {
+    paymentAttemptRef.current = null;
+    setSelectedLabBillingOrder(null);
+    setBillingAppointment(null);
+    setBillingServiceOrder(null);
+    setChargeToExclude(null);
+    setReviewingRefund(false);
+    setAddedServices([]);
+    setIssuedBillingInvoice(null);
+    setBillingPatient(patient);
+    setInsuranceCompanyId('');
+    setInsurancePreview({ status: 'idle', data: null, error: '' });
+  };
+
   const handleQuickBill = (app) => {
     if (!app.patient || app.status !== 'CHECKED_IN') return;
 
-    paymentAttemptRef.current = null;
-    setSelectedLabBillingOrder(null);
-    setIssuedBillingInvoice(null);
-    setBillingPatient(app.patient);
+    selectBillingPatient(app.patient);
     setBillingAppointment(app);
     setActiveTab('billing');
 
-    const consultService = clinicalServices.find(s =>
-      s.labelEn.toLowerCase().includes('consult') ||
-      s.labelAr.includes('كشف')
-    );
+    const docFee = app.doctor?.consultationFee ? Number(app.doctor.consultationFee) : 0;
+    setAddedServices([{
+      id: app.id,
+      labelAr: `معاينة - د. ${app.doctor.fullNameAr}`,
+      labelEn: `Consultation - Dr. ${app.doctor.fullNameEn}`,
+      baseFeeSdg: docFee,
+      qty: 1
+    }]);
+  };
 
-    const docFee = app.doctor?.consultationFee ? parseFloat(app.doctor.consultationFee) : 0;
+  const handleSelectServiceOrder = (order) => {
+    if (billingServiceOrder?.id === order.id && issuedBillingInvoice) return;
 
-    if (consultService) {
-      setAddedServices([{
-        id: consultService.id,
-        labelAr: `${consultService.labelAr} - د. ${lang === 'ar' ? app.doctor.fullNameAr : app.doctor.fullNameEn}`,
-        labelEn: `${consultService.labelEn} - Dr. ${app.doctor.fullNameEn}`,
-        baseFeeSdg: docFee,
-        qty: 1
-      }]);
-    } else {
-      setAddedServices([{
-        id: 'temp-consult',
-        labelAr: `معاينة - د. ${lang === 'ar' ? app.doctor.fullNameAr : app.doctor.fullNameEn}`,
-        labelEn: `Consultation - Dr. ${app.doctor.fullNameEn}`,
-        baseFeeSdg: docFee,
-        qty: 1
+    paymentAttemptRef.current = null;
+    setErrorMsg('');
+    setSuccessMsg('');
+    setBillingServiceOrder(order);
+    setChargeToExclude(null);
+    setInsuranceCompanyId(order.issuedInvoice?.insuranceClaim?.insuranceCompanyId || '');
+    setInsurancePreview({ status: 'idle', data: null, error: '' });
+    setIssuedBillingInvoice(order.issuedInvoice);
+    if (order.issuedInvoice) {
+      setPaymentRows((rows) => [{
+        amountSdg: String(order.issuedInvoice.remainingBalanceSdg),
+        paymentMethod: rows[0]?.paymentMethod || '',
+        transactionReference: ''
       }]);
     }
-    setPaymentRows([{ amountSdg: docFee.toString(), paymentMethod: 'CASH', transactionReference: '' }]);
+    setAddedServices(order.items.filter((item) => !item.billingExcludedAt).map((item) => ({ ...item, qty: item.quantity })));
   };
 
-  // Add consultation/service to billing list
-  const handleAddBillingService = (service) => {
-    setAddedServices([...addedServices, { ...service, qty: 1 }]);
+  const handleChargeExcluded = (itemId, reason) => {
+    ++insurancePreviewRequestRef.current;
+    setInsurancePreview({ status: 'idle', data: null, error: '' });
+    setAddedServices((services) => services.filter((item) => item.id !== itemId));
+    setBillingServiceOrder((order) => ({
+      ...order,
+      items: order.items.map((item) => item.id === itemId
+        ? { ...item, billingExcludedAt: true, billingExclusionReason: reason }
+        : item)
+    }));
+    setChargeToExclude(null);
+    setServiceOrderRevision((revision) => revision + 1);
   };
 
-  const handleRemoveBillingService = (index) => {
-    setAddedServices(addedServices.filter((_, idx) => idx !== index));
+  const handleInvoiceRefunded = async () => {
+    selectBillingPatient(null);
+    setErrorMsg('');
+    setSuccessMsg(lang === 'ar' ? 'تم تسجيل الاسترداد.' : 'Refund recorded.');
+    refreshDoctorQueue();
+    await refreshLabBillingQueue();
   };
 
   const handleCreateInvoice = async () => {
-    if (billingSubmitting) return;
+    if (billingSubmitting || paymentLocked) return;
 
     let paymentRequestSent = false;
     setErrorMsg('');
@@ -831,13 +1076,13 @@ export default function ReceptionDashboard({ lang, t }) {
     ) {
       setErrorMsg(
         lang === 'ar'
-          ? 'أضف خدمة طبية واحدة على الأقل.'
-          : 'Add at least one clinical service.'
+          ? 'اختر موعد معاينة أو طلبًا من الطبيب.'
+          : 'Select a consultation or doctor order.'
       );
       return;
     }
 
-    if (!isLaboratoryBilling && insurancePreview.status !== 'ready') {
+    if (insurancePreview.status !== 'ready') {
       setErrorMsg(
         insurancePreview.error || (lang === 'ar'
           ? 'انتظر اكتمال احتساب الفاتورة والتأمين قبل الإصدار.'
@@ -881,7 +1126,8 @@ export default function ReceptionDashboard({ lang, t }) {
           payment.amountSdg > 0
       );
 
-    if (validPayments.length === 0) {
+    const isZeroPatientShare = Number(insurancePreview.data?.patientShareSdg) === 0;
+    if (validPayments.length === 0 && !isZeroPatientShare) {
       setErrorMsg(
         lang === 'ar'
           ? 'أدخل مبلغ دفع صحيح.'
@@ -912,19 +1158,10 @@ export default function ReceptionDashboard({ lang, t }) {
             : undefined,
 
         invoiceType,
+        serviceOrderId: billingServiceOrder?.id,
 
-        insuranceCompanyId:
-          !isLaboratoryBilling
-            ? insuranceCompanyId || undefined
-            : undefined
+        insuranceCompanyId: insuranceCompanyId || undefined
       };
-
-      if (invoiceType === 'GENERAL') {
-        invoicePayload.items = addedServices.map((service) => ({
-          serviceId: service.id,
-          quantity: service.qty
-        }));
-      }
 
       let data = issuedBillingInvoice;
       if (!data) {
@@ -936,6 +1173,9 @@ export default function ReceptionDashboard({ lang, t }) {
         data = await res.json().catch(() => ({}));
 
         if (!res.ok) {
+          if (data.error?.code === 'SERVICE_ORDER_BILLING_CHANGED') {
+            setServiceOrderRevision((revision) => revision + 1);
+          }
           setErrorMsg(
             apiErrorMessage(
               data,
@@ -947,9 +1187,21 @@ export default function ReceptionDashboard({ lang, t }) {
           return;
         }
         setIssuedBillingInvoice(data);
+        setAddedServices(issuedInvoiceLines(data.invoice));
       }
 
-      const authoritativePatientShare = Number(data.patientShareSdg);
+      if (data.invoice.paymentStatus === 'PAID') {
+        paymentAttemptRef.current = null;
+        setSuccessMsg(isLaboratoryBilling
+          ? (lang === 'ar' ? 'تمت تسوية رسوم المختبر والطلب جاهز لجمع العينة.' : 'Laboratory invoice settled. The order is ready for sample collection.')
+          : (lang === 'ar' ? 'تمت تسوية الفاتورة.' : 'Invoice settled.'));
+        selectBillingPatient(null);
+        refreshDoctorQueue();
+        await refreshLabBillingQueue();
+        return;
+      }
+
+      const authoritativePatientShare = Number(data.remainingBalanceSdg ?? data.patientShareSdg);
       const requestedPaymentTotal = validPayments.reduce((sum, payment) => sum + payment.amountSdg, 0);
       if (!Number.isSafeInteger(authoritativePatientShare) || requestedPaymentTotal > authoritativePatientShare) {
         paymentAttemptRef.current = null;
@@ -1035,6 +1287,8 @@ export default function ReceptionDashboard({ lang, t }) {
           );
 
           setSelectedLabBillingOrder(null);
+        } else if (billingServiceOrder) {
+          setSuccessMsg(lang === 'ar' ? 'تم دفع فاتورة الإجراءات بالكامل.' : 'Procedure invoice paid in full.');
         } else {
           setSuccessMsg(
             lang === 'ar'
@@ -1047,6 +1301,7 @@ export default function ReceptionDashboard({ lang, t }) {
         setIssuedBillingInvoice(null);
         setBillingPatient(null);
         setBillingAppointment(null);
+        setBillingServiceOrder(null);
 
         setPaymentRows([
           {
@@ -1056,7 +1311,12 @@ export default function ReceptionDashboard({ lang, t }) {
           }
         ]);
       } else {
-        setIssuedBillingInvoice(data);
+        setIssuedBillingInvoice({
+          ...data,
+          invoice: { ...data.invoice, paymentStatus: paymentData.paymentStatus },
+          refundableSdg: paymentData.totalPaidSdg,
+          remainingBalanceSdg: paymentData.remainingBalanceSdg
+        });
         setSuccessMsg(
           lang === 'ar'
             ? `تم تسجيل دفعة جزئية. المتبقي ${paymentData.remainingBalanceSdg ?? 0} ج.س.`
@@ -1155,11 +1415,6 @@ export default function ReceptionDashboard({ lang, t }) {
     }
   };
 
-  const changeQueueDate = (days) => {
-    const nextDate = shiftQueueDate(filterDate, days);
-    if (nextDate) setFilterDate(nextDate);
-  };
-
   // Registered left-rail items
   const labAwaitingPaymentCount = useMemo(() => {
     return labBillingOrders.filter((order) => order.status !== 'PAID' && !order.pricingRequired).length;
@@ -1220,9 +1475,6 @@ export default function ReceptionDashboard({ lang, t }) {
     ? patientDirectoryError
     : patientDirectoryLoadError;
 
-  const todayIso = clinicDateString();
-  const stepperDateLabel = formatQueueDateLabel(filterDate, lang, todayIso);
-  const waitingCount = appointments.filter((appointment) => appointment.status === 'CHECKED_IN').length;
   const pendingRequestsCount = pendingAppointments.length;
   const labBillsToCollect = labBillingOrders.filter((order) => order.status !== 'PAID');
 
@@ -1233,6 +1485,8 @@ export default function ReceptionDashboard({ lang, t }) {
         <RoleHero role="reception" lang={lang} />
       </div>
 
+      {confirming && <ConfirmAppointmentDialog appointment={confirming} lang={lang}
+        onClose={closeConfirmation} onConfirmed={handleConfirmed} />}
       <div className="workspace-panel reception-workspace">
         {/* Alerts */}
         {errorMsg && (
@@ -1251,32 +1505,52 @@ export default function ReceptionDashboard({ lang, t }) {
             </button>
           </div>
         )}
+        {staleNotificationNotice && (
+          <div
+            role="status"
+            className={`staff-notification-banner${staleNotificationNotice.type === 'info' ? ' staff-notification-banner--info' : ''}`}
+          >
+            <span>{staleNotificationNotice.text}</span>
+            <div className="staff-notification-banner__actions">
+              {staleNotificationNotice.patientId && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setViewingProfilePatientId(staleNotificationNotice.patientId)}
+                >
+                  {lang === 'ar' ? 'فتح ملف المريض' : 'Open Patient File'}
+                </button>
+              )}
+              <button
+                type="button"
+                className="reception-alert-dismiss"
+                onClick={() => setStaleNotificationNotice(null)}
+                aria-label={lang === 'ar' ? 'إغلاق' : 'Dismiss'}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ── 1. FRONT DESK VIEW ────────────────────────────────────── */}
         {activeTab === 'front-desk' && (
           <div className="reception-frontdesk-view">
+            {confirmation && (
+              <div ref={confirmationNoticeRef} tabIndex={-1} role="status" className="reception-alert-banner is-success">
+                <span>{lang === 'ar' ? 'تم تأكيد الموعد' : 'Appointment confirmed'} · {lang === 'ar'
+                  ? confirmation.patient?.fullNameAr || confirmation.patient?.fullNameEn
+                  : confirmation.patient?.fullNameEn || confirmation.patient?.fullNameAr}</span>
+                {confirmation[lang] && <a href={confirmation[lang]} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
+                  {lang === 'ar' ? 'إرسال عبر واتساب' : 'Send WhatsApp message'}
+                </a>}
+                <button type="button" className="reception-alert-dismiss" onClick={() => setConfirmation(null)}
+                  aria-label={lang === 'ar' ? 'إغلاق' : 'Dismiss'}><X size={14} /></button>
+              </div>
+            )}
             <header className="ui-page-header reception-header">
               <div className="reception-header-title-block">
                 <h1 className="ui-page-title">{lang === 'ar' ? 'الاستقبال' : 'Front desk'}</h1>
-                <div className="reception-day-stepper">
-                  <button
-                    type="button"
-                    aria-label={lang === 'ar' ? 'اليوم السابق' : 'Previous day'}
-                    onClick={() => changeQueueDate(-1)}
-                    className="reception-stepper-btn"
-                  >
-                    <ChevronLeft size={18} />
-                  </button>
-                  <span className="reception-stepper-label">{stepperDateLabel}</span>
-                  <button
-                    type="button"
-                    aria-label={lang === 'ar' ? 'اليوم التالي' : 'Next day'}
-                    onClick={() => changeQueueDate(1)}
-                    className="reception-stepper-btn"
-                  >
-                    <ChevronRight size={18} />
-                  </button>
-                </div>
               </div>
 
               <div className="reception-header-actions">
@@ -1353,43 +1627,14 @@ export default function ReceptionDashboard({ lang, t }) {
                   </div>
                 </div>
 
-                <div className="ui-panel reception-queue-table-panel">
-                  <div className="reception-table-header-row">
-                    <h2 id="reception-queue-title" className="reception-panel-title">
-                      {lang === 'ar' ? 'مواعيد اليوم' : 'Today’s queue'}
-                    </h2>
-                    <span className="reception-panel-count">
-                      {appointments.length} {lang === 'ar' ? 'مرضى' : 'patients'} · {waitingCount} {lang === 'ar' ? 'بانتظار الطبيب' : 'waiting'}
-                    </span>
-                  </div>
-
-                  {appointments.length === 0 ? (
-                    <div className="reception-panel-empty">
-                      <span>
-                        {selectedDoctor
-                          ? (lang === 'ar' ? 'لا توجد مواعيد مسجلة لهذا الطبيب اليوم.' : 'No appointments scheduled for this doctor today.')
-                          : (lang === 'ar' ? 'يرجى اختيار طبيب من القائمة لعرض طابور الانتظار.' : 'Please select a doctor to view today’s queue.')}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="reception-queue-rows-container">
-                      {appointments.map((app, index) => (
-                        <QueueAppointmentRow
-                          key={app.id}
-                          index={index}
-                          lang={lang}
-                          app={app}
-                          branding={branding}
-                          selectedDoctor={selectedDoctor}
-                          setViewingProfilePatientId={setViewingProfilePatientId}
-                          handleCheckIn={handleCheckIn}
-                          handleQuickBill={handleQuickBill}
-                          isActionPending={pendingActionIds.has(app.id)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <AppointmentQueue
+                  lang={lang} doctor={selectedDoctor} date={filterDate} onDateChange={setFilterDate}
+                  revision={queueRevision} onRetry={refreshDoctorQueue}
+                  branding={branding} pendingActionIds={pendingActionIds}
+                  highlightedAppointmentId={highlightedAppointmentId}
+                  setViewingProfilePatientId={setViewingProfilePatientId}
+                  handleCheckIn={handleCheckIn} handleQuickBill={handleQuickBill}
+                />
               </section>
 
               {/* Needs Your Attention Column */}
@@ -1428,6 +1673,7 @@ export default function ReceptionDashboard({ lang, t }) {
                           handleApproveAppointment={handleApproveAppointment}
                           handleCancelAppointment={handleCancelAppointment}
                           isActionPending={pendingActionIds.has(app.id)}
+                          isHighlighted={highlightedAppointmentId === app.id}
                         />
                       ))}
                     </div>
@@ -1572,20 +1818,7 @@ export default function ReceptionDashboard({ lang, t }) {
                 ) : (
                   <div className="reception-new-patient-fields">
                     <div className="reception-name-grid">
-                      {PATIENT_NAME_FIELDS.map((field) => (
-                        <div key={field} className="reception-form-field">
-                          <label className="reception-form-label">
-                            <span className="ui-section-label">{t(field)} *</span>
-                            <input
-                              type="text"
-                              required
-                              className="form-input"
-                              value={patientName[field]}
-                              onChange={(e) => setPatientName((current) => ({ ...current, [field]: e.target.value }))}
-                            />
-                          </label>
-                        </div>
-                      ))}
+                      {nameInputs}
                     </div>
 
                     <div className="reception-details-grid">
@@ -1603,19 +1836,7 @@ export default function ReceptionDashboard({ lang, t }) {
                         </label>
                       </div>
 
-                      <div className="reception-form-field">
-                        <label className="reception-form-label">
-                          <span className="ui-section-label">{lang === 'ar' ? 'تاريخ الميلاد' : 'Date of Birth'} *</span>
-                          <input
-                            type="date"
-                            required
-                            className="form-input ui-mono"
-                            dir="ltr"
-                            value={dob}
-                            onChange={(e) => setDob(e.target.value)}
-                          />
-                        </label>
-                      </div>
+                      {birthDateInput}
 
                       <div className="reception-form-field">
                         <label className="reception-form-label">
@@ -1742,20 +1963,7 @@ export default function ReceptionDashboard({ lang, t }) {
             <form onSubmit={handleRegisterPatient} className="reception-focused-form">
               <section aria-label="Registration details" className="ui-panel reception-focused-panel">
                 <div className="reception-name-grid">
-                  {PATIENT_NAME_FIELDS.map((field) => (
-                    <div key={field} className="reception-form-field">
-                      <label className="reception-form-label">
-                        <span className="ui-section-label">{t(field)} *</span>
-                        <input
-                          type="text"
-                          required
-                          className="form-input"
-                          value={patientName[field]}
-                          onChange={(e) => setPatientName((current) => ({ ...current, [field]: e.target.value }))}
-                        />
-                      </label>
-                    </div>
-                  ))}
+                  {nameInputs}
                 </div>
 
                 <div className="reception-details-grid">
@@ -1773,19 +1981,7 @@ export default function ReceptionDashboard({ lang, t }) {
                     </label>
                   </div>
 
-                  <div className="reception-form-field">
-                    <label className="reception-form-label">
-                      <span className="ui-section-label">{lang === 'ar' ? 'تاريخ الميلاد' : 'Date of Birth'} *</span>
-                      <input
-                        type="date"
-                        required
-                        className="form-input ui-mono"
-                        dir="ltr"
-                        value={dob}
-                        onChange={(e) => setDob(e.target.value)}
-                      />
-                    </label>
-                  </div>
+                  {birthDateInput}
 
                   <div className="reception-form-field">
                     <label className="reception-form-label">
@@ -1879,6 +2075,7 @@ export default function ReceptionDashboard({ lang, t }) {
                   }
                   className="form-input reception-billing-search-input"
                   value={searchQuery}
+                  disabled={billingSubmitting || Boolean(chargeToExclude)}
                   onChange={(e) => handlePatientSearch(e.target.value)}
                 />
               </div>
@@ -1890,15 +2087,9 @@ export default function ReceptionDashboard({ lang, t }) {
                       <button
                         type="button"
                         className="reception-search-result-btn"
+                        disabled={billingSubmitting || Boolean(chargeToExclude)}
                         onClick={() => {
-                          paymentAttemptRef.current = null;
-                          setSelectedLabBillingOrder(null);
-                          setBillingAppointment(null);
-                          setAddedServices([]);
-                          setIssuedBillingInvoice(null);
-                          setBillingPatient(p);
-                          setInsuranceCompanyId('');
-                          setInsurancePreview({ status: 'idle', data: null, error: '' });
+                          selectBillingPatient(p);
                           setSearchResults([]);
                           setSearchQuery('');
                         }}
@@ -1915,6 +2106,17 @@ export default function ReceptionDashboard({ lang, t }) {
             <div className="reception-billing-grid">
               {/* Left Column: Services & Insurance */}
               <section aria-labelledby="svc-title" className="reception-services-column">
+                {billingPatient && !billingAppointment && !selectedLabBillingOrder && (
+                  <ServiceOrderBillingOptions
+                    lang={lang}
+                    orders={serviceOrders}
+                    status={serviceOrderStatus}
+                    selectedOrderId={billingServiceOrder?.id}
+                    onSelect={handleSelectServiceOrder}
+                    onRetry={() => setServiceOrderRevision((revision) => revision + 1)}
+                    disabled={billingSubmitting || Boolean(chargeToExclude)}
+                  />
+                )}
                 <div className="ui-panel reception-services-panel">
                   <h2 id="svc-title" className="reception-panel-title">
                     {lang === 'ar' ? 'الخدمات' : 'Services'}
@@ -1927,14 +2129,16 @@ export default function ReceptionDashboard({ lang, t }) {
 
                   {addedServices.length === 0 ? (
                     <div className="reception-panel-empty">
-                      <span>{lang === 'ar' ? 'أضف خدمة طبية واحدة على الأقل.' : 'Add at least one clinical service.'}</span>
+                      <span>{billingServiceOrder
+                        ? (lang === 'ar' ? 'استُبعدت كل الرسوم من هذا الطلب.' : 'All charges have been removed from this order.')
+                        : (lang === 'ar' ? 'اختر موعد معاينة أو طلبًا من الطبيب.' : 'Select a consultation or doctor order.')}</span>
                     </div>
                   ) : (
                     <div className="reception-services-list">
-                      {addedServices.map((item, idx) => (
-                        <div key={idx} className="reception-service-row">
+                      {addedServices.map((item) => (
+                        <div key={item.id} className="reception-service-row">
                           <span className="reception-service-name">
-                            {lang === 'ar' ? item.labelAr : item.labelEn}
+                            {lang === 'ar' ? item.labelAr : item.labelEn}{item.qty > 1 && ` × ${item.qty}`}
                           </span>
                           <div className="reception-service-price-block">
                             <span className="ui-mono reception-service-price" dir="ltr">
@@ -1942,15 +2146,17 @@ export default function ReceptionDashboard({ lang, t }) {
                                 ? (lang === 'ar' ? 'السعر غير محدد' : 'Pricing required')
                                 : `${Number(item.baseFeeSdg).toLocaleString(lang === 'ar' ? 'ar' : 'en')} ${lang === 'ar' ? 'ج.س' : 'SDG'}`}
                             </span>
-                            <button
-                              type="button"
-                              className="reception-remove-service-btn"
-                              onClick={() => handleRemoveBillingService(idx)}
-                              disabled={Boolean(selectedLabBillingOrder || issuedBillingInvoice)}
-                              aria-label={lang === 'ar' ? 'حذف الخدمة' : 'Remove service'}
-                            >
-                              <Trash2 size={14} aria-hidden="true" />
-                            </button>
+                            {billingServiceOrder && !issuedBillingInvoice && (
+                              <button
+                                type="button"
+                                className="reception-remove-service-btn"
+                                disabled={billingSubmitting}
+                                onClick={() => setChargeToExclude(item)}
+                                aria-label={lang === 'ar' ? `استبعاد رسوم ${item.labelAr}` : `Remove charge for ${item.labelEn}`}
+                              >
+                                <Trash2 size={14} aria-hidden="true" />
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -1958,31 +2164,36 @@ export default function ReceptionDashboard({ lang, t }) {
                   )}
                 </div>
 
-                {/* Add Service Controls */}
-                <div className="reception-add-service-row">
-                  <label className="reception-form-field reception-add-service-select-wrap">
-                    <span className="ui-section-label">{lang === 'ar' ? 'إضافة خدمة' : 'Add service'}</span>
-                    <select
-                      className="form-input"
-                      disabled={Boolean(selectedLabBillingOrder || issuedBillingInvoice)}
-                      onChange={(e) => {
-                        const svc = clinicalServices.find((s) => s.id === e.target.value);
-                        if (svc) {
-                          handleAddBillingService(svc);
-                          e.target.value = '';
-                        }
-                      }}
-                      defaultValue=""
-                    >
-                      <option value="">{lang === 'ar' ? 'اختر خدمة طبية...' : 'Select a clinical service'}</option>
-                      {clinicalServices.map((svc) => (
-                        <option key={svc.id} value={svc.id}>
-                          {lang === 'ar' ? svc.labelAr : svc.labelEn}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
+                {billingServiceOrder?.items.some((item) => item.billingExcludedAt) && (
+                  <ul className="reception-services-list">
+                    {billingServiceOrder.items.filter((item) => item.billingExcludedAt).map((item) => (
+                      <li key={item.id} className="reception-service-row">
+                        <span>{lang === 'ar' ? item.labelAr : item.labelEn} · {lang === 'ar' ? 'مستبعدة من الفاتورة' : 'Removed from invoice'}</span>
+                        <span>{item.billingExclusionReason}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {chargeToExclude && billingServiceOrder && (
+                  <ExcludeServiceChargeDialog
+                    lang={lang}
+                    orderId={billingServiceOrder.id}
+                    line={chargeToExclude}
+                    onClose={() => setChargeToExclude(null)}
+                    onExcluded={handleChargeExcluded}
+                  />
+                )}
+
+                {addedServices.length > 0 && (
+                  <p className="reception-payment-note">
+                    {issuedBillingInvoice
+                      ? (lang === 'ar' ? 'صدرت الفاتورة وبنودها ثابتة.' : 'This invoice has been issued and its lines are locked.')
+                      : billingServiceOrder
+                        ? (lang === 'ar' ? 'يمكن استبعاد رسوم خدمة قبل إصدار الفاتورة.' : 'Individual charges can be removed before the invoice is issued.')
+                        : (lang === 'ar' ? 'تُحدد البنود حسب الموعد أو الطلب الطبي.' : 'The appointment or clinical order determines these lines.')}
+                  </p>
+                )}
 
                 {/* Health Insurance Selector */}
                 <div className="reception-form-field reception-insurance-field">
@@ -1992,19 +2203,41 @@ export default function ReceptionDashboard({ lang, t }) {
                       className="form-input"
                       value={insuranceCompanyId}
                       onChange={(e) => setInsuranceCompanyId(e.target.value)}
-                      disabled={Boolean(selectedLabBillingOrder || issuedBillingInvoice)}
+                      disabled={Boolean(issuedBillingInvoice || selectedLabBillingOrder?.pricingRequired || billingSubmitting || addedServices.length === 0)}
                     >
                       <option value="">
                         {lang === 'ar' ? 'دفع مباشر بدون تأمين' : 'No insurance'}
                       </option>
-                      {insuranceCompanies.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {lang === 'ar' ? c.labelAr : c.labelEn}
-                          {` (${lang === 'ar' ? `مساهمة المريض ${parseFloat(c.copayPercentage)}%` : `${parseFloat(c.copayPercentage)}% Copay`})`}
-                        </option>
-                      ))}
+                      {insuranceCompanies.map((c) => {
+                        const copay = parseFloat(c.copayPercentage);
+                        const cycle = c.billingCycleDays != null ? Number(c.billingCycleDays) : null;
+                        return (
+                          <option key={c.id} value={c.id}>
+                            {lang === 'ar' ? c.labelAr : c.labelEn}
+                            {` (${lang === 'ar' ? `مساهمة المريض ${copay}%` : `${copay}% Copay`}${cycle ? (lang === 'ar' ? ` · دورة ${cycle} يوم` : ` · ${cycle}d cycle`) : ''})`}
+                          </option>
+                        );
+                      })}
                     </select>
                   </label>
+                  {insuranceCompaniesLoading && (
+                    <span role="status" className="reception-header-subtitle">
+                      {lang === 'ar' ? 'جارٍ تحديث قائمة شركات التأمين…' : 'Refreshing insurance providers…'}
+                    </span>
+                  )}
+                  {insuranceCompaniesError && (
+                    <div role="alert" className="reception-payment-alert">
+                      <span>{insuranceCompaniesError}</span>{' '}
+                      <button type="button" className="btn btn-secondary" onClick={loadInsuranceCompanies}>
+                        {lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}
+                      </button>
+                    </div>
+                  )}
+                  {!insuranceCompaniesLoading && !insuranceCompaniesError && insuranceCompanies.length === 0 && (
+                    <span className="reception-header-subtitle">
+                      {lang === 'ar' ? 'لا توجد شركات تأمين مفعّلة حالياً.' : 'No active insurance providers configured.'}
+                    </span>
+                  )}
                 </div>
               </section>
 
@@ -2034,7 +2267,7 @@ export default function ReceptionDashboard({ lang, t }) {
                       <div className="reception-summary-row is-due">
                         <dt>{lang === 'ar' ? 'المطلوب من المريض' : 'Patient amount due'}</dt>
                         <dd className="ui-mono reception-due-amount" dir="ltr">
-                          {Number(insurancePreview.data.patientShareSdg).toLocaleString(lang === 'ar' ? 'ar' : 'en')} {lang === 'ar' ? 'ج.س' : 'SDG'}
+                          {Number(insurancePreview.data.remainingBalanceSdg ?? insurancePreview.data.patientShareSdg).toLocaleString(lang === 'ar' ? 'ar' : 'en')} {lang === 'ar' ? 'ج.س' : 'SDG'}
                         </dd>
                       </div>
                     </>
@@ -2049,7 +2282,25 @@ export default function ReceptionDashboard({ lang, t }) {
                   )}
                 </dl>
 
-                <div className="reception-payment-form">
+                {canReviewRefund && (
+                  <button type="button" className="btn btn-secondary" disabled={billingSubmitting} onClick={() => setReviewingRefund(true)}>
+                    {lang === 'ar' ? 'مراجعة الاسترداد' : 'Review refund'}
+                  </button>
+                )}
+                {canReviewRefund && reviewingRefund && (
+                  <InvoiceCorrectionDialog
+                    lang={lang}
+                    invoice={issuedBillingInvoice}
+                    onClose={() => setReviewingRefund(false)}
+                    onRefunded={handleInvoiceRefunded}
+                  />
+                )}
+                {paymentLocked && (
+                  <p role="status">{issuedPaymentStatus === 'PAID'
+                    ? (lang === 'ar' ? 'تمت تسوية الفاتورة.' : 'Invoice settled.')
+                    : (lang === 'ar' ? 'هذه الفاتورة مغلقة أمام الدفعات الجديدة.' : 'This invoice is closed to further payments.')}</p>
+                )}
+                {!paymentLocked && <div className="reception-payment-form">
                   <span className="ui-section-label">{lang === 'ar' ? 'توزيع الدفعات' : 'Payment allocation'}</span>
 
                   {paymentMethodsError && (
@@ -2135,10 +2386,13 @@ export default function ReceptionDashboard({ lang, t }) {
                     onClick={handleCreateInvoice}
                     disabled={
                       billingSubmitting ||
-                      (!selectedLabBillingOrder && insurancePreview.status !== 'ready') ||
-                      paymentMethodsError ||
-                      paymentMethods.length === 0 ||
-                      paymentRows.some(row => !paymentMethods.some(method => method.code === row.paymentMethod)) ||
+                      Boolean(chargeToExclude) || reviewingRefund ||
+                      insurancePreview.status !== 'ready' ||
+                      ((!insurancePreview.data || Number(insurancePreview.data.patientShareSdg) !== 0) && (
+                        paymentMethodsError ||
+                        paymentMethods.length === 0 ||
+                        paymentRows.some(row => !paymentMethods.some(method => method.code === row.paymentMethod))
+                      )) ||
                       selectedLabBillingOrder?.status === 'PAID' ||
                       selectedLabBillingOrder?.pricingRequired
                     }
@@ -2153,10 +2407,12 @@ export default function ReceptionDashboard({ lang, t }) {
                             : selectedLabBillingOrder.billingStatus === 'PARTIALLY_PAID'
                               ? (lang === 'ar' ? 'إكمال دفع المختبر' : 'Continue Laboratory Payment')
                               : (lang === 'ar' ? 'دفع رسوم المختبر' : 'Pay Laboratory')
-                          : (lang === 'ar' ? 'إصدار الفاتورة وتأكيد الدفع' : 'Issue Invoice & Confirm Payment')}
+                          : Number(insurancePreview.data?.patientShareSdg) === 0
+                            ? (lang === 'ar' ? 'إصدار الفاتورة وتسويتها' : 'Issue and settle invoice')
+                            : (lang === 'ar' ? 'إصدار الفاتورة وتأكيد الدفع' : 'Issue Invoice & Confirm Payment')}
                     </span>
                   </button>
-                </div>
+                </div>}
               </aside>
             </div>
           </div>
@@ -2175,6 +2431,7 @@ export default function ReceptionDashboard({ lang, t }) {
               labBillingLoading={labBillingLoading}
               labBillingOrders={labBillingOrders}
               selectedLabBillingOrder={selectedLabBillingOrder}
+              highlightedLabOrderId={highlightedLabOrderId}
               refreshLabBillingQueue={refreshLabBillingQueue}
               handleSelectLabBillingOrder={handleSelectLabBillingOrder}
             />

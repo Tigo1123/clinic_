@@ -11,7 +11,7 @@ const patientPagesSource = () => readdirSync(path.join(root, 'src/features/patie
 
 test('doctor reads existing clinical data before changing appointment state or filling editable fields', () => {
   const dashboard = source('src/features/staff/doctor/DoctorDashboard.jsx');
-  const start = dashboard.indexOf('const handlePatientSelect = async (appt) =>');
+  const start = dashboard.indexOf('const handlePatientSelect = async (');
   const end = dashboard.indexOf('const focusClinicalField =', start);
   const handler = dashboard.slice(start, end);
   const summaryRead = handler.indexOf('fetchWithAuth(`/api/records/${appt.id}/summary`)');

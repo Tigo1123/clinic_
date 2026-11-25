@@ -90,7 +90,7 @@ html[lang="en"] {
 }
 
 .glass-panel:hover {
-  border-color: var(--color-border);
+  border-color: var(--color-control-border);
   box-shadow: var(--shadow-md);
 }
 
@@ -130,6 +130,7 @@ html[lang="en"] {
 
 .btn-secondary:hover {
   background: var(--color-surface-muted);
+  border-color: var(--color-text-secondary);
 }
 
 .btn-danger {
@@ -157,9 +158,9 @@ html[lang="en"] {
 }
 
 .form-label {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
   text-align: start;
 }
 
@@ -174,11 +175,16 @@ html[lang="en"] {
   outline: none;
   text-align: start;
   width: 100%;
-  transition: border-color var(--transition);
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.form-input:hover {
+  border-color: var(--color-text-secondary);
 }
 
 .form-input:focus {
-  border-color: var(--color-primary);
+  border-color: var(--color-primary-strong);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
 
 /* Navigation bar (kept for legacy; hidden when StaffShell is active) */

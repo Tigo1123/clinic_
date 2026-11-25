@@ -127,15 +127,22 @@ test('PharmacyService: dispensePrescription requires paid invoice, checks stock,
 
   let updatedBatchData = null;
   let createdMovement = null;
+  let dispenseAudit = null;
+  let movementCount = 0;
   let updatedPrescriptionStatus = null;
+  let invoiceLockError = null;
 
   const mockPrisma = {
     $transaction: async (fn) => {
       const tx = {
+        $queryRaw: async (sql) => {
+          if (invoiceLockError && sql.join('').includes('"Invoice"')) throw invoiceLockError;
+          return [];
+        },
         invoice: {
-          findFirst: async ({ where }) => {
-            if (where.prescriptionId === 'rx-unpaid') return null;
-            return { id: 'inv-1', paymentStatus: 'PAID' };
+          findMany: async ({ where }) => {
+            if (where.prescriptionId === 'rx-unpaid') return [{ paymentStatus: 'PARTIAL', patientId: 'patient-1' }];
+            return [{ id: 'inv-1', paymentStatus: 'PAID', patientId: 'patient-1' }];
           },
         },
         prescribedDrug: {
@@ -170,19 +177,30 @@ test('PharmacyService: dispensePrescription requires paid invoice, checks stock,
           },
         },
         stockMovement: {
+          findUnique: async ({ where }) => createdMovement?.idempotencyKey === where.idempotencyKey ? createdMovement : null,
           create: async ({ data }) => {
             createdMovement = data;
+            movementCount += 1;
             return { id: 'mov-1' };
           },
         },
         prescription: {
+          findUnique: async () => ({
+            patientId: 'patient-1',
+            status: updatedPrescriptionStatus || 'ACTIVE',
+            prescribedDrugs: [{ id: 'pd-1', pharmacyReviewStatus: 'NOT_REQUIRED' }]
+          }),
           update: async ({ data }) => {
             updatedPrescriptionStatus = data.status;
             return { id: 'rx-paid', ...data };
           },
         },
         tenantAuditLog: {
-          create: async () => ({ id: 'audit-1' }),
+          findFirst: async ({ where }) => dispenseAudit?.details.includes(where.details.contains) ? dispenseAudit : null,
+          create: async ({ data }) => {
+            dispenseAudit = data;
+            return { id: 'audit-1' };
+          },
         },
       };
       return fn(tx);
@@ -208,17 +226,24 @@ test('PharmacyService: dispensePrescription requires paid invoice, checks stock,
   );
 
   // 2. Dispensing paid prescription succeeds, decrements batch, creates stock movement, and marks prescription FILLED
-  const res = await service.dispensePrescription(
-    'rx-paid',
-    { items: [{ prescribedDrugId: 'pd-1', qtyToDispense: 10 }] },
-    { id: 'a0000000-0000-4000-8000-000000000001' },
+  const user = { id: 'a0000000-0000-4000-8000-000000000001' };
+  const dispense = (qty) => service.dispensePrescription(
+    'rx-paid', { items: [{ prescribedDrugId: 'pd-1', qtyToDispense: qty }] }, user, '127.0.0.1', 'test-dispense-1',
   );
+  invoiceLockError = new Error('Invoice row could not be locked');
+  await assert.rejects(dispense(10), invoiceLockError);
+  assert.equal(movementCount, 0);
+  invoiceLockError = null;
+  const res = await dispense(10);
 
   assert.equal(res.success, true);
   assert.equal(updatedPrescriptionStatus, 'FILLED');
   assert.ok(createdMovement);
   assert.equal(createdMovement.movementType, 'DISPENSE');
   assert.equal(createdMovement.quantityDelta, -10);
+  assert.equal((await dispense(10)).idempotentReplay, true);
+  await assert.rejects(dispense(9), (err) => err.getResponse().code === 'IDEMPOTENCY_KEY_REUSED');
+  assert.equal(movementCount, 1);
 });
 
 test('PharmacyService: markMedicationUnavailable resolves item and voids invoice', async () => {

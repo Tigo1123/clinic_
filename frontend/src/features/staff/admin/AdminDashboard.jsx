@@ -1,7 +1,7 @@
 import './clinicSetup.css';
 import './adminDashboard.css';
 import ClinicSetupPanel from './ClinicSetupPanel';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   Building,
@@ -24,12 +24,14 @@ import AuditLogPanel from './AuditLogPanel';
 import ClinicProfilePanel from './ClinicProfilePanel';
 import SpecialtyRow from './SpecialtyRow';
 import AdminSchedulePanel from './AdminSchedulePanel';
+import AdminAppointmentDialog from './AdminAppointmentDialog';
+import { PatientProfileModal } from '../clinical/ClinicalModals';
 import PasswordField from '../../../components/PasswordField.jsx';
 
 // recharts (via AnalyticsPanel) is large; load it only when the analytics tab is opened.
 const AnalyticsPanel = lazy(() => import('./AnalyticsPanel'));
 
-export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }) {
+export default function AdminDashboard({ user, lang, t, initialTab = 'profile', notificationIntent = null, onNotificationIntentHandled }) {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [users, setUsers] = useState([]);
   const [usersLoadError, setUsersLoadError] = useState(false);
@@ -39,6 +41,7 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
   const [pricing, setPricing] = useState(null);
   const [pricingDrafts, setPricingDrafts] = useState({});
   const [pricingLoading, setPricingLoading] = useState(false);
+  const [focusedPrice, setFocusedPrice] = useState(null);
 
   // Filters for staff directory
   const [searchStaff, setSearchStaff] = useState('');
@@ -81,6 +84,11 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
   const [revokeTarget, setRevokeTarget] = useState(null);
   const [revokeError, setRevokeError] = useState('');
   const [revokePending, setRevokePending] = useState(false);
+  const [inspectedAppointment, setInspectedAppointment] = useState(null);
+  const [viewingProfilePatientId, setViewingProfilePatientId] = useState(null);
+  const lastHandledIntentKeyRef = useRef(null);
+  const onIntentHandledRef = useRef(onNotificationIntentHandled);
+  onIntentHandledRef.current = onNotificationIntentHandled;
   const newPasswordChecks = getStaffPasswordChecks(newPassword);
   const resetPasswordChecks = getStaffPasswordChecks(resetNewPassword);
 
@@ -118,6 +126,37 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
   useEffect(() => {
     reloadSpecialties();
   }, [reloadSpecialties]);
+
+  useEffect(() => {
+    const requestKey = notificationIntent?.requestKey;
+    if (!requestKey || lastHandledIntentKeyRef.current === requestKey) return;
+    lastHandledIntentKeyRef.current = requestKey;
+
+    const { targetType, targetId, context = {} } = notificationIntent;
+    if (targetType === 'servicePricing' || targetType === 'medicinePricing') {
+      setFocusedPrice({ kind: targetType === 'servicePricing' ? 'services' : 'medicines', id: targetId });
+      setActiveTab('pricing');
+    } else if (targetType === 'appointment') {
+      const appointmentId = targetId || context.appointmentId || null;
+      if (appointmentId) {
+        setInspectedAppointment({
+          appointmentId,
+          doctorId: context.doctorId || null,
+          appointmentDate: context.appointmentDate || null,
+          patientId: context.patientId || null,
+          requestKey
+        });
+      } else if (context.patientId) {
+        setViewingProfilePatientId(context.patientId);
+      }
+    }
+    onIntentHandledRef.current?.();
+  }, [notificationIntent]);
+
+  useEffect(() => {
+    if (activeTab !== 'pricing' || !focusedPrice || pricingLoading || !pricing) return;
+    document.getElementById(`pricing-${focusedPrice.kind}-${focusedPrice.id}`)?.scrollIntoView({ block: 'center' });
+  }, [activeTab, focusedPrice, pricingLoading, pricing]);
 
   const createSpecialty = async (event) => {
     event.preventDefault();
@@ -897,11 +936,16 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
           </header>
           {errorMsg && <div className="badge badge-danger admin-alert" role="alert">{errorMsg}</div>}
           {successMsg && <div className="badge badge-success admin-alert" role="status">{successMsg}</div>}
+          {!pricingLoading && pricing && focusedPrice && !pricing[focusedPrice.kind].some((item) => item.id === focusedPrice.id) && (
+            <div className="badge badge-warning admin-alert" role="status">
+              {lang === 'ar' ? 'عنصر التسعير المشار إليه غير متاح.' : 'The referenced pricing item is unavailable.'}
+            </div>
+          )}
           {pricingLoading || !pricing ? <div className="portal-loading" /> : (
             <>
               <PricingTable title={lang === 'ar' ? 'رسوم الاستشارات' : 'Consultation Fees'} kind="doctors" items={pricing.doctors} lang={lang} drafts={pricingDrafts} setDrafts={setPricingDrafts} onSave={saveOfficialPrice} />
-              <PricingTable title={lang === 'ar' ? 'الخدمات السريرية والمختبرية' : 'Clinical & Laboratory Services'} kind="services" items={pricing.services} lang={lang} drafts={pricingDrafts} setDrafts={setPricingDrafts} onSave={saveOfficialPrice} />
-              <PricingTable title={lang === 'ar' ? 'أسعار الصيدلية' : 'Pharmacy Selling Prices'} kind="medicines" items={pricing.medicines} lang={lang} drafts={pricingDrafts} setDrafts={setPricingDrafts} onSave={saveOfficialPrice} />
+              <PricingTable title={lang === 'ar' ? 'الخدمات السريرية والمختبرية' : 'Clinical & Laboratory Services'} kind="services" items={pricing.services} focusedId={focusedPrice?.kind === "services" ? focusedPrice.id : null} lang={lang} drafts={pricingDrafts} setDrafts={setPricingDrafts} onSave={saveOfficialPrice} />
+              <PricingTable title={lang === 'ar' ? 'أسعار الصيدلية' : 'Pharmacy Selling Prices'} kind="medicines" items={pricing.medicines} focusedId={focusedPrice?.kind === "medicines" ? focusedPrice.id : null} lang={lang} drafts={pricingDrafts} setDrafts={setPricingDrafts} onSave={saveOfficialPrice} />
             </>
           )}
         </div>
@@ -1053,11 +1097,28 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile' }
           <AuditLogPanel lang={lang} t={t}/>
         </div>
       )}
+
+      {inspectedAppointment && (
+        <AdminAppointmentDialog
+          request={inspectedAppointment}
+          lang={lang}
+          onClose={() => setInspectedAppointment(null)}
+          onOpenPatientProfile={(patientId) => setViewingProfilePatientId(patientId)}
+        />
+      )}
+
+      {viewingProfilePatientId && (
+        <PatientProfileModal
+          patientId={viewingProfilePatientId}
+          onClose={() => setViewingProfilePatientId(null)}
+          lang={lang}
+        />
+      )}
     </div>
   );
 }
 
-function PricingTable({ title, kind, items, lang, drafts, setDrafts, onSave }) {
+function PricingTable({ title, kind, items, focusedId, lang, drafts, setDrafts, onSave }) {
   const priceField = kind === 'doctors' ? 'consultationFee' : kind === 'services' ? 'baseFeeSdg' : 'unitPriceSdg';
   return (
     <section className="admin-pricing-section">
@@ -1087,7 +1148,7 @@ function PricingTable({ title, kind, items, lang, drafts, setDrafts, onSave }) {
               const currentPrice = item[priceField];
               const draft = drafts[key] || { priceSdg: currentPrice == null ? '' : String(Number(currentPrice)), status: item.status };
               return (
-                <tr key={item.id}>
+                <tr key={item.id} id={`pricing-${kind}-${item.id}`} className={focusedId === item.id ? 'staff-notification-highlight' : undefined}>
                   <td className="admin-pricing-name">{lang === 'ar' ? (item.fullNameAr || item.labelAr) : (item.fullNameEn || item.labelEn)}</td>
                   <td className="admin-pricing-category">{item.category || item.specialtyEn || item.dosageForm || '—'}</td>
                   <td>

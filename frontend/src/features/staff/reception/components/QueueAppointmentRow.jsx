@@ -11,7 +11,8 @@ export default function QueueAppointmentRow({
   setViewingProfilePatientId,
   handleCheckIn,
   handleQuickBill,
-  isActionPending = false
+  isActionPending = false,
+  isHighlighted = false
 }) {
   const isEmergency = app.emergencyOverride;
   const patient = app.patient || {};
@@ -47,11 +48,18 @@ export default function QueueAppointmentRow({
   }
 
   const isPaymentDue = app.status === 'CHECKED_IN' && !app.consultationReady;
+  const canViewPaidInvoice = app.status === 'CHECKED_IN' && app.consultationReady && Boolean(app.consultationInvoice?.id);
   const isCheckInAvailable = app.status === 'SCHEDULED' || app.status === 'CONFIRMED';
 
   return (
     <article
-      className={`reception-queue-row ${isEmergency ? 'emergency-border' : ''}`}
+      data-appointment-id={app.id}
+      ref={(node) => {
+        if (isHighlighted && node) {
+          node.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+        }
+      }}
+      className={`reception-queue-row ${isEmergency ? 'emergency-border' : ''}${isHighlighted ? ' staff-notification-highlight' : ''}`}
     >
       <span className="ui-mono reception-queue-col-no" dir="ltr">
         {String(index + 1).padStart(2, '0')}
@@ -88,7 +96,7 @@ export default function QueueAppointmentRow({
       </span>
 
       <div className="reception-queue-col-action">
-        {isPaymentDue && (
+        {(isPaymentDue || canViewPaidInvoice) && (
           <button
             type="button"
             className="btn btn-secondary reception-action-btn"
@@ -96,9 +104,11 @@ export default function QueueAppointmentRow({
           >
             <DollarSign size={14} aria-hidden="true" />
             <span>
-              {app.consultationPaymentStatus === 'PARTIALLY_PAID'
-                ? (lang === 'ar' ? 'إكمال الدفع' : 'Continue Payment')
-                : (lang === 'ar' ? 'دفع رسوم الكشف' : 'Pay Consultation')}
+              {canViewPaidInvoice
+                ? (lang === 'ar' ? 'عرض الفاتورة' : 'View Invoice')
+                : app.consultationPaymentStatus === 'PARTIALLY_PAID'
+                  ? (lang === 'ar' ? 'إكمال الدفع' : 'Continue Payment')
+                  : (lang === 'ar' ? 'دفع رسوم الكشف' : 'Pay Consultation')}
             </span>
           </button>
         )}
@@ -114,7 +124,7 @@ export default function QueueAppointmentRow({
           </button>
         )}
 
-        {!isPaymentDue && !isCheckInAvailable && (
+        {!isPaymentDue && !canViewPaidInvoice && !isCheckInAvailable && (
           <button
             type="button"
             className="btn btn-secondary reception-action-btn"

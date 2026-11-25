@@ -45,6 +45,17 @@ const encounterCreationSchema = z
       .max(50)
       .optional(),
     orderedServices: z.array(z.string().uuid()).max(50).optional(),
+    serviceOrders: z
+      .array(
+        z
+          .object({
+            serviceId: z.string().uuid(),
+            quantity: z.coerce.number().int().positive().max(20).optional(),
+          })
+          .strict(),
+      )
+      .max(50)
+      .optional(),
     customTests: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
     attachmentPath: z.string().max(300).optional(),
   })
@@ -128,8 +139,8 @@ export class RecordsController {
   @Get('drugs')
   @PolicyRoles('DOCTOR', 'PHARMACIST')
   @HttpCode(HttpStatus.OK)
-  async getDrugs(@CurrentUser() user: any) {
-    return this.recordsService.getDrugs(user);
+  async getDrugs() {
+    return this.recordsService.getDrugs();
   }
 
   @Get(':id/summary')

@@ -2,10 +2,13 @@ import {
   Injectable,
   HttpException,
   HttpStatus,
+  Optional,
 } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { PrismaService } from '../../database/prisma.service.js';
 import { RealtimeGateway } from '../realtime/realtime.gateway.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 import { Prisma } from '../../generated/prisma/index.js';
 
 const require = createRequire(import.meta.url);
@@ -56,6 +59,16 @@ function emptyStockSummary() {
   };
 }
 
+function isIdentityLocked(medicine: any): boolean {
+  if (typeof medicine?.identityLocked === 'boolean') return medicine.identityLocked;
+  if (!medicine?._count) return false;
+  return (
+    Number(medicine._count.prescribedDrugs || 0) > 0 ||
+    Number(medicine._count.inventoryBatches || 0) > 0 ||
+    Number(medicine._count.stockMovements || 0) > 0
+  );
+}
+
 function publicMedicine(medicine: any, batches: any) {
   return {
     id: medicine.id,
@@ -67,6 +80,7 @@ function publicMedicine(medicine: any, batches: any) {
     dosageForm: medicine.dosageForm,
     status: medicine.status,
     unitPriceSdg: medicine.unitPriceSdg == null ? null : Number(medicine.unitPriceSdg),
+    identityLocked: isIdentityLocked(medicine),
     updatedAt: medicine.updatedAt,
     stock: Array.isArray(batches)
       ? summarizeMedicineStock(batches, getClinicDateString())
@@ -74,11 +88,54 @@ function publicMedicine(medicine: any, batches: any) {
   };
 }
 
+function parseOptionalIdempotencyKey(rawHeader?: string | string[]) {
+  if (rawHeader === undefined) return null;
+  if (Array.isArray(rawHeader)) {
+    throw new HttpException(
+      { code: 'IDEMPOTENCY_KEY_INVALID', message: 'A single valid Idempotency-Key header is required.' },
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+  const trimmed = String(rawHeader).trim();
+  if (!/^[a-zA-Z0-9-]{8,128}$/.test(trimmed)) {
+    throw new HttpException(
+      { code: 'IDEMPOTENCY_KEY_INVALID', message: 'Invalid Idempotency-Key header.' },
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+  return trimmed;
+}
+
+function buildDispenseRequestHash(prescriptionId: string, items: Array<{ prescribedDrugId: string; qtyToDispense: number }>) {
+  const normalizedItems = items
+    .map((item) => ({
+      prescribedDrugId: String(item.prescribedDrugId),
+      qtyToDispense: Number(item.qtyToDispense),
+    }))
+    .sort((a, b) => a.prescribedDrugId.localeCompare(b.prescribedDrugId));
+  return createHash('sha256')
+    .update(JSON.stringify({ prescriptionId, items: normalizedItems }))
+    .digest('hex');
+}
+
+function isStockMovementIdempotencyConflict(error: any): boolean {
+  if (error?.code !== 'P2002') return false;
+  const target = error.meta?.target;
+  if (Array.isArray(target)) {
+    return target.map((t) => String(t).toLowerCase()).includes('idempotencykey');
+  }
+  if (typeof target === 'string') {
+    return target.toLowerCase().includes('idempotencykey');
+  }
+  return false;
+}
+
 @Injectable()
 export class PharmacyService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtimeGateway: RealtimeGateway,
+    @Optional() private readonly notificationsService?: NotificationsService,
   ) {}
 
   private async loadStockSummaries(drugIds: string[], clinicDate = getClinicDateString()) {
@@ -209,6 +266,7 @@ export class PharmacyService {
           status: true,
           unitPriceSdg: true,
           updatedAt: true,
+          _count: { select: { prescribedDrugs: true, inventoryBatches: true, stockMovements: true } },
         },
         orderBy: [{ brandName: 'asc' }, { id: 'asc' }],
         skip: (page - 1) * pageSize,
@@ -239,6 +297,7 @@ export class PharmacyService {
         status: true,
         unitPriceSdg: true,
         updatedAt: true,
+        _count: { select: { prescribedDrugs: true, inventoryBatches: true, stockMovements: true } },
       },
     });
 
@@ -315,7 +374,10 @@ export class PharmacyService {
       });
 
       return {
-        medicine: publicMedicine(result.medicine, result.batch ? [result.batch] : []),
+        medicine: publicMedicine(
+          { ...result.medicine, identityLocked: Boolean(result.batch) },
+          result.batch ? [result.batch] : [],
+        ),
       };
     } catch (error: any) {
       if (isMedicineIdentityUniqueViolation(error)) {
@@ -338,11 +400,7 @@ export class PharmacyService {
   async updateFormularyMetadata(id: string, body: any, user: any, ip?: string) {
     try {
       const medicine = await this.prisma.$transaction(async (tx: any) => {
-        try {
-          await tx.$queryRaw`SELECT "id" FROM "DrugFormulary" WHERE "id" = ${id} FOR UPDATE`;
-        } catch {
-          // Fallback if raw update locking unsupported in mock
-        }
+        await tx.$queryRaw`SELECT "id" FROM "DrugFormulary" WHERE "id" = ${id} FOR UPDATE`;
 
         const current = await tx.drugFormulary.findUnique({
           where: { id },
@@ -386,6 +444,7 @@ export class PharmacyService {
               identityKey: buildMedicineIdentityKey(nextMetadata),
             }),
           },
+          include: { _count: { select: { prescribedDrugs: true, inventoryBatches: true, stockMovements: true } } },
         });
 
         await tx.tenantAuditLog.create({
@@ -393,6 +452,7 @@ export class PharmacyService {
             userId: user.id,
             action: 'FORMULARY_METADATA_UPDATED',
             details: JSON.stringify({
+              drugId: current.id,
               medicineId: current.id,
               changedFields,
               changes: Object.fromEntries(
@@ -423,6 +483,61 @@ export class PharmacyService {
       if (error instanceof HttpException) throw error;
       throw error;
     }
+  }
+
+  async deactivateFormulary(id: string, body: any, user: any, ip?: string) {
+    const result = await this.prisma.$transaction(async (tx: any) => {
+      await tx.$queryRaw`SELECT "id" FROM "DrugFormulary" WHERE "id" = ${id} FOR UPDATE`;
+
+      const current = await tx.drugFormulary.findUnique({
+        where: { id },
+        include: { _count: { select: { prescribedDrugs: true, inventoryBatches: true, stockMovements: true } } },
+      });
+
+      if (!current) {
+        throw new HttpException(
+          { code: 'FORMULARY_MEDICINE_NOT_FOUND', message: 'Medicine was not found.' },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      if (current.status === 'INACTIVE') {
+        return { medicine: current, alreadyInactive: true };
+      }
+
+      const updated = await tx.drugFormulary.update({
+        where: { id: current.id },
+        data: { status: 'INACTIVE' },
+        include: { _count: { select: { prescribedDrugs: true, inventoryBatches: true, stockMovements: true } } },
+      });
+
+      await tx.tenantAuditLog.create({
+        data: {
+          userId: user.id,
+          action: 'FORMULARY_MEDICINE_DEACTIVATED',
+          details: JSON.stringify({
+            drugId: current.id,
+            medicineId: current.id,
+            brandName: current.brandName,
+            labelAr: current.labelAr,
+            labelEn: current.labelEn,
+            previousStatus: current.status,
+            status: 'INACTIVE',
+            unitPriceSdg: current.unitPriceSdg == null ? null : Number(current.unitPriceSdg),
+            ...(body?.reason ? { reason: body.reason } : {}),
+          }),
+          ipAddress: ip || 'unknown',
+        },
+      });
+
+      return { medicine: updated, alreadyInactive: false };
+    });
+
+    const summaries = await this.loadStockSummaries([result.medicine.id]);
+    return {
+      medicine: publicMedicine(result.medicine, summaries.get(result.medicine.id) || emptyStockSummary()),
+      alreadyInactive: result.alreadyInactive,
+    };
   }
 
   async getBatches(id: string, query: any) {
@@ -488,11 +603,7 @@ export class PharmacyService {
 
     try {
       const batch = await this.prisma.$transaction(async (tx: any) => {
-        try {
-          await tx.$queryRaw`SELECT "id" FROM "DrugFormulary" WHERE "id" = ${id} FOR UPDATE`;
-        } catch {
-          // Fallback in test
-        }
+        await tx.$queryRaw`SELECT "id" FROM "DrugFormulary" WHERE "id" = ${id} FOR UPDATE`;
 
         const medicine = await tx.drugFormulary.findUnique({ where: { id } });
         if (!medicine) {
@@ -767,7 +878,7 @@ export class PharmacyService {
   }
 
   async markMedicationUnavailable(id: string, body: any, user: any, ip?: string) {
-    return this.prisma.$transaction(async (tx: any) => {
+    const result = await this.prisma.$transaction(async (tx: any) => {
       const item = await tx.prescribedDrug.findUnique({
         where: { id },
         include: { prescription: { select: { id: true, status: true } } },
@@ -885,9 +996,53 @@ export class PharmacyService {
 
       return { success: true, prescribedDrugId: item.id, prescriptionId: item.prescriptionId, prescriptionStatus, billing };
     });
+    if (!result.reconciled) {
+      await this.notificationsService?.notifyPharmacyMedicationExternal({
+        prescribedDrugId: result.prescribedDrugId,
+        prescriptionId: result.prescriptionId,
+      });
+    }
+    return result;
   }
 
-  async dispensePrescription(id: string, body: any, user: any, ip?: string) {
+  private async resolveDispenseIdempotency(
+    client: any,
+    prescriptionId: string,
+    idempotencyKey: string,
+    requestHash: string,
+  ) {
+    const existingMovement = await client.stockMovement.findUnique({
+      where: { idempotencyKey: `dispense:${idempotencyKey}:0` },
+      select: { id: true, referenceId: true },
+    });
+    if (!existingMovement) return false;
+
+    const existingAudit = await client.tenantAuditLog.findFirst({
+      where: {
+        action: 'PRESCRIPTION_DISPENSED',
+        details: { contains: `"idempotencyKey":${JSON.stringify(idempotencyKey)}` },
+      },
+      select: { details: true },
+    });
+
+    if (existingAudit?.details) {
+      try {
+        const parsed = JSON.parse(existingAudit.details);
+        if (parsed?.idempotencyKey === idempotencyKey && parsed.prescriptionId === prescriptionId && parsed.requestHash === requestHash) {
+          return true;
+        }
+      } catch {
+        // Fall through to conflict if audit payload is unreadable
+      }
+    }
+
+    throw new HttpException(
+      { code: 'IDEMPOTENCY_KEY_REUSED', message: 'Idempotency-Key was already used for a different dispensing request.' },
+      HttpStatus.CONFLICT,
+    );
+  }
+
+  async dispensePrescription(id: string, body: any, user: any, ip?: string, rawIdempotencyKey?: string | string[]) {
     const { items } = body;
     if (!items || items.length === 0) {
       throw new HttpException(
@@ -896,21 +1051,80 @@ export class PharmacyService {
       );
     }
 
+    const idempotencyKey = parseOptionalIdempotencyKey(rawIdempotencyKey);
+    const seenPrescribedDrugIds = new Set<string>();
+    for (const item of items) {
+      if (seenPrescribedDrugIds.has(item.prescribedDrugId)) {
+        throw new HttpException(
+          { code: 'DISPENSING_VALIDATION_FAILED', message: 'Duplicate prescribed drug items cannot be dispensed in one request.' },
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
+      seenPrescribedDrugIds.add(item.prescribedDrugId);
+    }
+    const requestHash = buildDispenseRequestHash(id, items);
+
     try {
-      await this.prisma.$transaction(async (tx: any) => {
+      let idempotentReplay = false;
+      const txResult = await this.prisma.$transaction(async (tx: any) => {
+        await tx.$queryRaw`SELECT "id" FROM "Prescription" WHERE "id" = ${id} FOR UPDATE`;
+
+        if (idempotencyKey && await this.resolveDispenseIdempotency(tx, id, idempotencyKey, requestHash)) {
+          idempotentReplay = true;
+          return;
+        }
+
+        const prescription = await tx.prescription.findUnique({
+          where: { id },
+          select: {
+            patientId: true,
+            status: true,
+            prescribedDrugs: { select: { id: true, pharmacyReviewStatus: true } },
+          },
+        });
+        if (!prescription) {
+          throw new HttpException(
+            { code: 'PRESCRIPTION_NOT_FOUND', message: 'Prescription was not found.' },
+            HttpStatus.NOT_FOUND,
+          );
+        }
+        if (!ACTIVE_PRESCRIPTION_STATUSES.includes(prescription.status)) {
+          throw new HttpException(
+            { code: 'PRESCRIPTION_NOT_ACTIVE', message: 'Prescription is not open for dispensing.' },
+            HttpStatus.CONFLICT,
+          );
+        }
+        if ((prescription.prescribedDrugs || []).some((drug: any) => drug.pharmacyReviewStatus === 'PENDING_REVIEW')) {
+          throw new HttpException(
+            { code: 'PHARMACY_REVIEW_PENDING', message: 'Custom medications must be reviewed before dispensing.' },
+            HttpStatus.CONFLICT,
+          );
+        }
+
+        await tx.$queryRaw`SELECT "id" FROM "Invoice" WHERE "prescriptionId" = ${id} AND "invoiceType" = 'PHARMACY' ORDER BY "id" FOR UPDATE`;
+
         const dispensedPrescribedDrugIds = [];
+        let movementSeq = 0;
 
         // Financial hard gate: paid PHARMACY invoice required
-        const paidPharmacyInvoice = await tx.invoice.findFirst({
+        const pharmacyInvoices = await tx.invoice.findMany({
           where: {
             prescriptionId: id,
             invoiceType: 'PHARMACY',
-            paymentStatus: 'PAID',
+            paymentStatus: { notIn: ['REFUNDED', 'VOIDED'] },
           },
-          select: { id: true },
+          select: { patientId: true, paymentStatus: true },
+          take: 2,
         });
 
-        if (!paidPharmacyInvoice) {
+        const invoice = pharmacyInvoices[0];
+        if (pharmacyInvoices.length > 1 || (invoice && invoice.patientId !== prescription.patientId)) {
+          throw new HttpException(
+            { code: 'PHARMACY_INVOICE_INVARIANT_VIOLATION', message: 'Pharmacy billing requires administrative review.' },
+            HttpStatus.CONFLICT,
+          );
+        }
+        if (invoice?.paymentStatus !== 'PAID') {
           throw new HttpException(
             { code: 'PHARMACY_PAYMENT_REQUIRED', message: 'Prescription dispensing requires full pharmacy payment.' },
             HttpStatus.FORBIDDEN,
@@ -944,7 +1158,10 @@ export class PharmacyService {
             );
           }
           if (!prescribedDrug.drugId) {
-            continue;
+            throw new HttpException(
+              { code: 'DISPENSING_VALIDATION_FAILED', message: 'Custom or unlinked medications cannot be dispensed from clinic stock.' },
+              HttpStatus.UNPROCESSABLE_ENTITY,
+            );
           }
           if (prescribedDrug.pharmacyReviewStatus === 'EXTERNAL') {
             throw new HttpException(
@@ -1020,6 +1237,7 @@ export class PharmacyService {
               referenceType: 'PRESCRIBED_DRUG_DISPENSE',
               referenceId: prescribedDrug.id,
               reason: 'Stock dispensed for a prescription.',
+              ...(idempotencyKey ? { idempotencyKey: `dispense:${idempotencyKey}:${movementSeq++}` } : {}),
             });
 
             await tx.stockMovement.create({
@@ -1060,9 +1278,18 @@ export class PharmacyService {
           dispensedPrescribedDrugIds.push(prescribedDrug.id);
         }
 
-        await this.refreshPrescriptionResolution(tx, id);
+        const prescriptionStatus = await this.refreshPrescriptionResolution(tx, id);
+        let totalDispensedAfter = 0;
 
         if (dispensedPrescribedDrugIds.length > 0) {
+          const updatedDrugs = await tx.prescribedDrug.findMany({
+            where: { prescriptionId: id },
+            select: { qtyDispensed: true },
+          });
+          totalDispensedAfter = updatedDrugs.reduce(
+            (sum: number, item: any) => sum + Number(item.qtyDispensed || 0),
+            0,
+          );
           await tx.tenantAuditLog.create({
             data: {
               userId: user.id,
@@ -1070,15 +1297,44 @@ export class PharmacyService {
               details: JSON.stringify({
                 prescriptionId: id,
                 prescribedDrugIds: dispensedPrescribedDrugIds,
+                ...(idempotencyKey ? { idempotencyKey, requestHash } : {}),
               }),
               ipAddress: ip || 'unknown',
             },
           });
         }
+
+        return {
+          dispensedCount: dispensedPrescribedDrugIds.length,
+          prescriptionStatus,
+          totalDispensedAfter,
+        };
       });
 
-      return { success: true, message: 'Prescription dispensed successfully.' };
+      if (txResult && txResult.dispensedCount > 0) {
+        await this.notificationsService?.notifyPrescriptionDispensed({
+          prescriptionId: id,
+          prescriptionStatus: txResult.prescriptionStatus,
+          totalDispensedAfter: txResult.totalDispensedAfter,
+        });
+      }
+
+      return {
+        success: true,
+        message: 'Prescription dispensed successfully.',
+        ...(idempotentReplay ? { idempotentReplay: true } : {}),
+      };
     } catch (error: any) {
+      if (idempotencyKey && isStockMovementIdempotencyConflict(error)) {
+        const replayed = await this.resolveDispenseIdempotency(this.prisma, id, idempotencyKey, requestHash);
+        if (replayed) {
+          return {
+            success: true,
+            message: 'Prescription dispensed successfully.',
+            idempotentReplay: true,
+          };
+        }
+      }
       if (error instanceof HttpException) throw error;
       throw error;
     }
@@ -1140,7 +1396,7 @@ export class PharmacyService {
     }
 
     try {
-      return await this.prisma.$transaction(async (tx: any) => {
+      const result = await this.prisma.$transaction(async (tx: any) => {
         const prescribedDrug = await tx.prescribedDrug.findUnique({
           where: { id },
           include: { prescription: { select: { id: true, status: true, patientId: true } } },
@@ -1228,6 +1484,8 @@ export class PharmacyService {
               HttpStatus.UNPROCESSABLE_ENTITY,
             );
           }
+
+          await tx.$queryRaw`SELECT "id" FROM "DrugFormulary" WHERE "id" = ${targetDrugId} FOR SHARE`;
 
           const linkedDrug = await tx.drugFormulary.findUnique({
             where: { id: targetDrugId },
@@ -1468,8 +1726,27 @@ export class PharmacyService {
           },
         });
 
+        await ensurePharmacyInvoiceInTransaction(tx, {
+          prescriptionId: prescribedDrug.prescriptionId,
+          actorUserId: user.id,
+          ipAddress: ip || 'unknown',
+          trigger: 'CUSTOM_MEDICATION_FORMULARY_CREATED',
+        });
+
         return { decision, prescribedDrug: updated, drug: linkedDrug, inventoryBatch: createdBatch };
       });
+      if (result.decision === 'CREATE_FORMULARY' && result.drug?.id) {
+        await this.notificationsService?.notifyPharmacyPricingRequired({
+          prescriptionId: result.prescribedDrug.prescriptionId,
+          drugId: result.drug.id,
+        });
+      } else if (result.decision === 'EXTERNAL') {
+        await this.notificationsService?.notifyPharmacyMedicationExternal({
+          prescribedDrugId: result.prescribedDrug.id,
+          prescriptionId: result.prescribedDrug.prescriptionId,
+        });
+      }
+      return result;
     } catch (error: any) {
       if (error instanceof HttpException) throw error;
       throw error;

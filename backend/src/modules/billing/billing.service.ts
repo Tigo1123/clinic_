@@ -2,12 +2,14 @@ import {
   Injectable,
   HttpException,
   HttpStatus,
+  Optional,
 } from '@nestjs/common';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { Prisma } from '../../generated/prisma/index.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { RealtimeGateway } from '../realtime/realtime.gateway.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 
 const require = createRequire(import.meta.url);
 const { usdFromSdg, money, addMoney, subtractMoney, multiplyMoney } = require('../../utils/money.js');
@@ -24,6 +26,19 @@ const {
   instantToClinicDateString,
 } = require('../../utils/clinicTime.js');
 
+const { assertBillingServiceSelectionAllowed } = require('../../utils/clinicalOrdering.js');
+const {
+  confirmServiceOrderBilling,
+  enforceRefundAppointmentCutoff,
+  excludeServiceOrderCharge,
+  findConsultationInvoice,
+  pendingServiceOrderBilling,
+  resolveServiceOrderBilling,
+  settleServiceOrder,
+  summarizeOrderInvoice,
+} = require('../../services/serviceOrderBilling.js');
+const { resolveLabOrderBilling } = require('../../services/labOrderBilling.js');
+
 const MAX_MONEY_SDG = 1_000_000_000;
 const MAX_GENERAL_QUANTITY = 100;
 const MAX_GENERAL_INVOICE_ITEMS = 100;
@@ -35,6 +50,7 @@ const INVOICE_REQUEST_FIELDS = new Set([
   'appointmentId',
   'labOrderId',
   'prescriptionId',
+  'serviceOrderId',
   'insuranceCompanyId',
   'items',
   'invoiceType',
@@ -126,13 +142,15 @@ export class BillingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtimeGateway: RealtimeGateway,
+    @Optional() private readonly notificationsService?: NotificationsService,
   ) {}
 
   /**
    * Pre-issuance preview of patient vs. insurance responsibility.
    */
-  async getInsurancePreview(body: any) {
-    const { patientId, insuranceCompanyId, invoiceType, appointmentId, items = [] } = body;
+  async getInsurancePreview(body: any, actorUser: any) {
+    const { patientId, insuranceCompanyId, invoiceType, appointmentId, serviceOrderId, labOrderId, items = [] } = body;
+    assertBillingServiceSelectionAllowed(actorUser.role, { invoiceType, serviceOrderId, items });
 
     const patient = await this.prisma.patient.findUnique({
       where: { id: patientId },
@@ -169,6 +187,8 @@ export class BillingService {
           HttpStatus.CONFLICT,
         );
       }
+      const issuedInvoice = await findConsultationInvoice(this.prisma, appointmentId);
+      if (issuedInvoice) return issuedInvoice;
       const fee = Number(appointment.doctor?.consultationFee);
       if (appointment.doctor?.status !== 'ACTIVE' || !isConfiguredPrice(fee)) {
         throw new HttpException(
@@ -177,6 +197,14 @@ export class BillingService {
         );
       }
       grossTotalSdg = fee;
+    } else if (invoiceType === 'LABORATORY') {
+      const billing = await resolveLabOrderBilling(this.prisma, labOrderId, patientId, isConfiguredPrice);
+      if (billing.existingInvoice) return billing.existingInvoice;
+      grossTotalSdg = billing.totalSdg;
+    } else if (serviceOrderId) {
+      const billing = await resolveServiceOrderBilling(this.prisma, serviceOrderId, patientId, isConfiguredPrice);
+      if (billing.existingInvoice) return billing.existingInvoice;
+      grossTotalSdg = billing.totalSdg;
     } else {
       if (!items.length) {
         throw new HttpException(
@@ -219,7 +247,7 @@ export class BillingService {
     let company: any = null;
     if (insuranceCompanyId) {
       company = await this.prisma.insuranceCompany.findUnique({ where: { id: insuranceCompanyId } });
-      if (!company) {
+      if (!company || !company.active) {
         throw new HttpException(
           { code: 'INSURANCE_COMPANY_INVALID', message: 'The selected insurance company is not available.' },
           HttpStatus.UNPROCESSABLE_ENTITY,
@@ -251,6 +279,7 @@ export class BillingService {
       appointmentId,
       labOrderId,
       prescriptionId,
+      serviceOrderId,
       insuranceCompanyId,
       items,
       invoiceType = 'GENERAL',
@@ -274,6 +303,8 @@ export class BillingService {
       );
     }
 
+    assertBillingServiceSelectionAllowed(actorUser.role, { invoiceType: normalizedInvoiceType, serviceOrderId, items });
+
     if (!patientId) {
       throw new HttpException(
         { code: 'PATIENT_ID_REQUIRED', message: 'Patient ID is required.' },
@@ -282,7 +313,7 @@ export class BillingService {
     }
 
     if (
-      !['CONSULTATION', 'LABORATORY', 'PHARMACY'].includes(normalizedInvoiceType) &&
+      normalizedInvoiceType === 'GENERAL' && !serviceOrderId &&
       (!Array.isArray(items) || items.length === 0)
     ) {
       throw new HttpException(
@@ -291,7 +322,7 @@ export class BillingService {
       );
     }
 
-    if (normalizedInvoiceType === 'GENERAL' && items.length > MAX_GENERAL_INVOICE_ITEMS) {
+    if (normalizedInvoiceType === 'GENERAL' && !serviceOrderId && items.length > MAX_GENERAL_INVOICE_ITEMS) {
       throw new HttpException(
         {
           code: 'GENERAL_INVOICE_ITEM_LIMIT_EXCEEDED',
@@ -302,6 +333,7 @@ export class BillingService {
     }
 
     let resolvedItems: any[];
+    let serviceOrderBillingVersion: number | undefined;
     let resolvedAppointmentId = appointmentId || null;
     let resolvedLabOrderId: string | null = null;
     let resolvedPrescriptionId: string | null = null;
@@ -355,103 +387,17 @@ export class BillingService {
         },
       ];
     } else if (normalizedInvoiceType === 'LABORATORY') {
-      if (typeof labOrderId !== 'string' || !labOrderId.trim()) {
-        throw new HttpException(
-          { code: 'LAB_ORDER_REQUIRED', message: 'Laboratory billing requires a lab order.' },
-          HttpStatus.UNPROCESSABLE_ENTITY,
-        );
-      }
-
-      const requestedLabOrderId = labOrderId.trim();
-      const labOrder = await this.prisma.labOrder.findUnique({
-        where: { id: requestedLabOrderId },
-        include: {
-          medicalRecord: { select: { appointmentId: true } },
-          items: { include: { service: true } },
-        },
-      });
-
-      if (!labOrder) {
-        throw new HttpException({ code: 'LAB_ORDER_NOT_FOUND', message: 'Laboratory order not found.' }, HttpStatus.NOT_FOUND);
-      }
-
-      if (labOrder.patientId !== patientId) {
-        throw new HttpException(
-          { code: 'LAB_ORDER_PATIENT_MISMATCH', message: 'The invoice patient does not match the laboratory order patient.' },
-          HttpStatus.CONFLICT,
-        );
-      }
-
-      if (!['PENDING_BILLING', 'PAID'].includes(labOrder.status)) {
-        throw new HttpException(
-          { code: 'LAB_BILLING_INVALID_STATE', message: 'This laboratory order can no longer be billed.' },
-          HttpStatus.CONFLICT,
-        );
-      }
-
-      if (!labOrder.items.length) {
-        throw new HttpException(
-          { code: 'LAB_ORDER_EMPTY', message: 'The laboratory order does not contain billable tests.' },
-          HttpStatus.CONFLICT,
-        );
-      }
-
-      const pendingReviewItem = labOrder.items.find((item: any) => item.labReviewStatus === 'PENDING_REVIEW');
-      if (pendingReviewItem) {
-        throw new HttpException(
-          { code: 'LAB_REVIEW_PENDING', message: 'A laboratory test requires review and pricing before the invoice can be issued.' },
-          HttpStatus.CONFLICT,
-        );
-      }
-
-      const billableLabItems = labOrder.items.filter((item: any) => item.labReviewStatus !== 'EXTERNAL');
-      if (!billableLabItems.length) {
-        throw new HttpException(
-          { code: 'LAB_NO_BILLABLE_TESTS', message: 'This laboratory order contains only external tests and has no clinic charge.' },
-          HttpStatus.CONFLICT,
-        );
-      }
-
-      const unpricedCustomItem = billableLabItems.find((item: any) => !item.serviceId || !item.service);
-      if (unpricedCustomItem) {
-        throw new HttpException(
-          { code: 'LAB_REVIEW_STATE_INVALID', message: 'A clinic-provided laboratory test is not linked to a catalogue service.' },
-          HttpStatus.CONFLICT,
-        );
-      }
-
-      const invalidService = billableLabItems.find(
-        (item: any) => !['LABORATORY', 'RADIOLOGY'].includes(item.service.category),
-      );
-      if (invalidService) {
-        throw new HttpException(
-          { code: 'LAB_ORDER_SERVICE_INVALID', message: 'The laboratory order contains a service that cannot be billed as a diagnostic test.' },
-          HttpStatus.CONFLICT,
-        );
-      }
-
-      const invalidPrice = billableLabItems.find((item: any) => {
-        const price = Number(item.service.baseFeeSdg);
-        return item.service.status !== 'ACTIVE' || !isConfiguredPrice(price);
-      });
-      if (invalidPrice) {
-        throw new HttpException(
-          { code: 'LAB_SERVICE_PRICE_NOT_CONFIGURED', message: 'One or more ordered tests do not have a valid configured price.' },
-          HttpStatus.CONFLICT,
-        );
-      }
-
-      resolvedLabOrderId = labOrder.id;
-      resolvedAppointmentId = labOrder.medicalRecord?.appointmentId || null;
-
-      // Security: diagnostic prices always come from ClinicalService, never browser
-      resolvedItems = billableLabItems.map((item: any) => ({
-        sourceServiceId: item.service.id,
-        descriptionAr: item.service.labelAr,
-        descriptionEn: item.service.labelEn,
-        qty: 1,
-        unitPriceSdg: Number(item.service.baseFeeSdg),
-      }));
+      const billing = await resolveLabOrderBilling(this.prisma, labOrderId, patientId, isConfiguredPrice);
+      if (billing.existingInvoice) return billing.existingInvoice;
+      resolvedLabOrderId = billing.id;
+      resolvedAppointmentId = billing.appointmentId;
+      resolvedItems = billing.items;
+    } else if (serviceOrderId) {
+      const billing = await resolveServiceOrderBilling(this.prisma, serviceOrderId, patientId, isConfiguredPrice);
+      if (billing.existingInvoice) return billing.existingInvoice;
+      resolvedItems = billing.items;
+      resolvedAppointmentId = billing.appointmentId;
+      serviceOrderBillingVersion = billing.billingVersion;
     } else {
       const invalidGeneralItem = items.find((item: any) => {
         if (!item || typeof item !== 'object' || Array.isArray(item)) return true;
@@ -567,34 +513,8 @@ export class BillingService {
         async (tx: any) => {
           // Repeated consultation checkout must not create another invoice.
           if (normalizedInvoiceType === 'CONSULTATION') {
-            const existingInvoice = await tx.invoice.findFirst({
-              where: {
-                appointmentId: resolvedAppointmentId,
-                invoiceType: 'CONSULTATION',
-                paymentStatus: { notIn: ['REFUNDED', 'VOIDED'] },
-              },
-              include: {
-                items: true,
-                insuranceClaim: true,
-              },
-              orderBy: { invoiceDate: 'desc' },
-            });
-
-            if (existingInvoice) {
-              const claimAmount = existingInvoice.insuranceClaim
-                ? Number(existingInvoice.insuranceClaim.claimAmountSdg)
-                : 0;
-              const grossTotal = Number(existingInvoice.totalAmountSdg);
-
-              return {
-                invoice: existingInvoice,
-                insuranceClaim: existingInvoice.insuranceClaim || null,
-                grossTotalSdg: grossTotal,
-                insuranceCoverageSdg: claimAmount,
-                patientShareSdg: Math.max(0, subtractMoney(grossTotal, claimAmount)),
-                existing: true,
-              };
-            }
+            const existingInvoice = await findConsultationInvoice(tx, resolvedAppointmentId);
+            if (existingInvoice) return existingInvoice;
           }
 
           // Repeated laboratory checkout must not create another invoice for the same LabOrder.
@@ -603,30 +523,23 @@ export class BillingService {
               where: {
                 labOrderId: resolvedLabOrderId,
                 invoiceType: 'LABORATORY',
-                paymentStatus: { not: 'REFUNDED' },
+                paymentStatus: { notIn: ['REFUNDED', 'VOIDED'] },
               },
               include: {
                 items: true,
                 insuranceClaim: true,
+                payments: true,
+                refunds: true,
               },
               orderBy: { invoiceDate: 'desc' },
             });
 
-            if (existingInvoice) {
-              const claimAmount = existingInvoice.insuranceClaim
-                ? Number(existingInvoice.insuranceClaim.claimAmountSdg)
-                : 0;
-              const grossTotal = Number(existingInvoice.totalAmountSdg);
+            if (existingInvoice) return summarizeOrderInvoice(existingInvoice);
+          }
 
-              return {
-                invoice: existingInvoice,
-                insuranceClaim: existingInvoice.insuranceClaim || null,
-                grossTotalSdg: grossTotal,
-                insuranceCoverageSdg: claimAmount,
-                patientShareSdg: Math.max(0, subtractMoney(grossTotal, claimAmount)),
-                existing: true,
-              };
-            }
+          if (serviceOrderId) {
+            const existingInvoice = await confirmServiceOrderBilling(tx, serviceOrderId, serviceOrderBillingVersion);
+            if (existingInvoice) return existingInvoice;
           }
 
           const catalogIds = [
@@ -669,7 +582,7 @@ export class BillingService {
           let company: any = null;
           if (insuranceCompanyId) {
             company = await tx.insuranceCompany.findUnique({ where: { id: insuranceCompanyId } });
-            if (!company) {
+            if (!company || !company.active) {
               throw Object.assign(new Error('The selected insurance company is not available.'), {
                 status: 422,
                 code: 'INSURANCE_COMPANY_INVALID',
@@ -689,6 +602,7 @@ export class BillingService {
               patientId,
               appointmentId: resolvedAppointmentId,
               labOrderId: resolvedLabOrderId,
+              serviceOrderId: serviceOrderId || null,
               prescriptionId: resolvedPrescriptionId,
               invoiceType: normalizedInvoiceType,
               totalAmountSdg: totalSdg,
@@ -719,6 +633,7 @@ export class BillingService {
           }
 
           if (settledAtCreation) {
+            if (serviceOrderId) await settleServiceOrder(tx, serviceOrderId);
             if (invoice.invoiceType === 'LABORATORY' && invoice.labOrderId) {
               await this.unlockLabOrderAfterSettlement(tx, invoice.labOrderId);
             }
@@ -759,10 +674,24 @@ export class BillingService {
       } catch (error: any) {
         const contention =
           ['P2028', 'P2034'].includes(error.code) ||
+          (serviceOrderId && error.code === 'P2002' && ['serviceOrderId', 'Invoice_active_service_order_key'].some((field) => error.meta?.target?.includes(field))) ||
           /serialization|write conflict|deadlock/i.test(error.message || '');
         if (!contention || attempt === 2) throw error;
         await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)));
       }
+    }
+
+    if (
+      !result.existing &&
+      result.invoice?.paymentStatus === 'PAID' &&
+      result.invoice?.invoiceType === 'LABORATORY' &&
+      result.invoice?.labOrderId
+    ) {
+      await this.notificationsService?.notifyLabOrderPaid({
+        labOrderId: result.invoice.labOrderId,
+        appointmentId: result.invoice.appointmentId,
+        patientId: result.invoice.patientId,
+      });
     }
 
     return result;
@@ -1067,6 +996,9 @@ export class BillingService {
           ) {
             await this.unlockLabOrderAfterSettlement(tx, invoice.labOrderId);
           }
+          if (invoice.serviceOrderId && invoiceStatus === 'PAID') {
+            await settleServiceOrder(tx, invoice.serviceOrderId);
+          }
 
           return {
             ...updatedInvoice,
@@ -1145,6 +1077,24 @@ export class BillingService {
       }
     }
 
+    if (!result.idempotentReplay) {
+      if (result.invoiceType === 'LABORATORY' && result.labOrderId && result.paymentStatus === 'PAID') {
+        await this.notificationsService?.notifyLabOrderPaid({
+          labOrderId: result.labOrderId,
+          appointmentId: result.appointmentId,
+          patientId: result.patientId,
+        });
+      } else if (result.invoiceType === 'PHARMACY' && result.prescriptionId && result.paymentStatus === 'PAID') {
+        await this.notificationsService?.notifyPharmacyPaymentRecorded({
+          prescriptionId: result.prescriptionId,
+          invoiceId: result.id,
+          patientId: result.patientId,
+          appointmentId: result.appointmentId,
+          actorUserId: actorUser.id,
+        });
+      }
+    }
+
     if (result.invoiceType === 'CONSULTATION' && result.appointmentId) {
       const appointment = await this.prisma.appointment.findUnique({
         where: { id: result.appointmentId },
@@ -1162,6 +1112,19 @@ export class BillingService {
           [appointment.doctorId],
         );
       }
+    }
+
+    if (
+      !result.existing &&
+      result.invoice?.paymentStatus === 'PAID' &&
+      result.invoice?.invoiceType === 'LABORATORY' &&
+      result.invoice?.labOrderId
+    ) {
+      await this.notificationsService?.notifyLabOrderPaid({
+        labOrderId: result.invoice.labOrderId,
+        appointmentId: result.invoice.appointmentId,
+        patientId: result.invoice.patientId,
+      });
     }
 
     return result;
@@ -1234,12 +1197,16 @@ export class BillingService {
     }
 
     const result = await this.prisma.$transaction(async (tx: any) => {
+      if (invoice.appointmentId && invoice.invoiceType !== 'LABORATORY') {
+        await enforceRefundAppointmentCutoff(tx, invoice.appointmentId);
+      }
       const financial = await tx.invoice.findUnique({
         where: { id: invoice.id },
         include: {
           payments: true,
           refunds: true,
           labOrder: true,
+          prescription: { include: { prescribedDrugs: { select: { id: true, qtyDispensed: true } } } },
           insuranceClaim: true,
         },
       });
@@ -1332,6 +1299,46 @@ export class BillingService {
         }
       }
 
+      if (financial.invoiceType === 'PHARMACY') {
+        if (!financial.prescriptionId || !financial.prescription) {
+          throw Object.assign(new Error('Pharmacy invoice is not linked to a prescription.'), {
+            status: 409,
+            code: 'PHARMACY_INVOICE_CONTEXT_INVALID',
+          });
+        }
+
+        await tx.$queryRaw`SELECT "id" FROM "Prescription" WHERE "id" = ${financial.prescriptionId} FOR UPDATE`;
+
+        const currentPrescription = await tx.prescription.findUnique({
+          where: { id: financial.prescriptionId },
+          include: { prescribedDrugs: { select: { id: true, qtyDispensed: true } } },
+        });
+
+        if (!currentPrescription) {
+          throw Object.assign(new Error('Pharmacy invoice is not linked to a prescription.'), {
+            status: 409,
+            code: 'PHARMACY_INVOICE_CONTEXT_INVALID',
+          });
+        }
+
+        if (
+          ['PARTIALLY_FILLED', 'FILLED'].includes(currentPrescription.status) ||
+          currentPrescription.prescribedDrugs.some((item: any) => Number(item.qtyDispensed) > 0)
+        ) {
+          throw Object.assign(
+            new Error('Pharmacy payment cannot be refunded after medication dispensing has started.'),
+            { status: 409, code: 'PHARMACY_ALREADY_DISPENSED' },
+          );
+        }
+
+        if (money(amountSdg).minus(refundableSdg).abs().toNumber() > 0.001) {
+          throw Object.assign(
+            new Error('Pharmacy refunds must reverse the full refundable amount before dispensing.'),
+            { status: 409, code: 'PHARMACY_PARTIAL_REFUND_NOT_SUPPORTED' },
+          );
+        }
+      }
+
       const claimed = await tx.invoice.updateMany({
         where: { id: invoice.id, ledgerVersion: financial.ledgerVersion },
         data: { ledgerVersion: { increment: 1 } },
@@ -1395,6 +1402,14 @@ export class BillingService {
   /**
    * Reception/admin billing queue for laboratory orders.
    */
+  async excludeServiceOrderCharge(params: { serviceOrderId: string; itemId: string }, reason: string, userId: string, ipAddress: string) {
+    return excludeServiceOrderCharge(this.prisma, { ...params, reason, userId, ipAddress });
+  }
+
+  async getPendingServiceOrders(patientId: string) {
+    return pendingServiceOrderBilling(this.prisma, patientId, isConfiguredPrice);
+  }
+
   async getPendingLabOrdersQueue() {
     const orders = await this.prisma.labOrder.findMany({
       where: {
@@ -1432,12 +1447,14 @@ export class BillingService {
           where: {
             invoiceType: 'LABORATORY',
             paymentStatus: {
-              not: 'REFUNDED',
+              notIn: ['REFUNDED', 'VOIDED'],
             },
           },
           include: {
             payments: true,
             refunds: true,
+            insuranceClaim: true,
+            items: true,
           },
           orderBy: {
             invoiceDate: 'desc',
@@ -1483,7 +1500,7 @@ export class BillingService {
           0,
         );
         const netCollectedSdg = Math.max(0, subtractMoney(totalPaidSdg, refundedSdg));
-        remainingBalanceSdg = Math.max(0, subtractMoney(Number(invoice.totalAmountSdg), netCollectedSdg));
+        remainingBalanceSdg = Math.max(0, subtractMoney(invoicePatientLiability(invoice).patientShareSdg, netCollectedSdg));
       }
 
       return {
@@ -1508,10 +1525,11 @@ export class BillingService {
               }
             : null,
         })),
-        pricingRequired,
+        pricingRequired: !invoice && pricingRequired,
         reviewPending,
         estimatedTotalSdg,
         billingStatus: invoice ? invoice.paymentStatus : 'UNBILLED',
+        issuedInvoice: summarizeOrderInvoice(invoice),
         invoice: invoice
           ? {
               id: invoice.id,
@@ -1567,6 +1585,7 @@ export class BillingService {
                 genericName: true,
                 strength: true,
                 dosageForm: true,
+                status: true,
                 unitPriceSdg: true,
               },
             },
@@ -1603,6 +1622,7 @@ export class BillingService {
           id: item.id,
           drugId: item.drugId,
           customDrugName: item.customDrugName,
+          pharmacyReviewStatus: item.pharmacyReviewStatus,
           qtyPrescribed: item.qtyPrescribed,
           qtyDispensed: item.qtyDispensed,
           remainingQty,
@@ -1614,16 +1634,19 @@ export class BillingService {
                 genericName: item.drug.genericName,
                 strength: item.drug.strength,
                 dosageForm: item.drug.dosageForm,
+                status: item.drug.status,
                 unitPriceSdg: item.drug.unitPriceSdg == null ? null : Number(item.drug.unitPriceSdg),
               }
             : null,
         };
       });
 
-      const billableItems = mappedItems.filter((item: any) => item.drugId && item.drug && item.remainingQty > 0);
+      const billableItems = mappedItems.filter(
+        (item: any) => item.pharmacyReviewStatus !== 'EXTERNAL' && item.drugId && item.drug && item.remainingQty > 0,
+      );
       const pricingRequired = billableItems.some((item: any) => {
         const price = Number(item.drug.unitPriceSdg);
-        return !Number.isFinite(price) || price <= 0;
+        return (item.drug.status && item.drug.status !== 'ACTIVE') || !Number.isFinite(price) || price <= 0;
       });
 
       const estimatedTotalSdg = billableItems.reduce((sum: number, item: any) => {
@@ -1657,7 +1680,10 @@ export class BillingService {
         patient: prescription.patient,
         doctor: prescription.doctor,
         items: mappedItems,
-        customMedicationCount: mappedItems.filter((item: any) => !item.drugId).length,
+        customMedicationCount: mappedItems.filter(
+          (item: any) => item.pharmacyReviewStatus === 'PENDING_REVIEW'
+            || (!item.drugId && item.pharmacyReviewStatus !== 'EXTERNAL'),
+        ).length,
         automaticBillingAvailable: billableItems.length > 0,
         pricingRequired,
         estimatedTotalSdg,
@@ -1736,8 +1762,9 @@ export class BillingService {
    */
   async getInsuranceCompanies() {
     return this.prisma.insuranceCompany.findMany({
+      where: { active: true },
       select: staffInsuranceCompanySelect,
-      orderBy: { labelEn: 'asc' },
+      orderBy: [{ labelEn: 'asc' }, { id: 'asc' }],
     });
   }
 

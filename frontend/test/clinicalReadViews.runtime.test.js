@@ -53,7 +53,10 @@ try {
 } finally {
   await unlink(clinicalSharedPath);
 }
-const doctorModule = await compileComponent('../src/features/staff/doctor/DoctorDashboard.jsx', [
+const clinicalOrderPicker = await compileModule('../src/features/staff/doctor/ClinicalOrderPicker.jsx', []);
+let doctorModule;
+try {
+  doctorModule = await compileComponent('../src/features/staff/doctor/DoctorDashboard.jsx', [
   [/import \{ PatientProfileModal, PostVisitSummaryModal \} from '\.\.\/clinical\/ClinicalModals';/, 'const PatientProfileModal = () => null; const PostVisitSummaryModal = () => null;'],
   [/import \{ getWhatsAppLink \} from '\.\.\/\.\.\/\.\.\/utils\/clinicData';/, 'const getWhatsAppLink = () => "#";'],
   [/import \{ apiErrorMessage, fetchWithAuth \} from '\.\.\/\.\.\/\.\.\/services\/staff\/staffApi';/, 'const fetchWithAuth = (...args) => globalThis.doctorFetch(...args); const apiErrorMessage = (data, fallback) => data?.error?.message || data?.error || fallback;'],
@@ -66,6 +69,14 @@ const doctorModule = await compileComponent('../src/features/staff/doctor/Doctor
   [/import \{ useFacilityBranding \} from '\.\.\/\.\.\/\.\.\/app\/branding\/FacilityBrandingContext\.js';/, "const useFacilityBranding = () => ({ displayNameAr: 'شفاء', displayNameEn: 'Shifa', facilityNameAr: null, facilityNameEn: null, productNameAr: 'شفاء', productNameEn: 'Shifa', productDescriptorAr: 'نظام إدارة المنشآت الصحية', productDescriptorEn: 'Healthcare Facility Management System' });"],
   [/import FacilityIdentityLine from '\.\.\/components\/FacilityIdentityLine';/, 'const FacilityIdentityLine = () => null;'],
   [/import \{ useStaffNav \} from '\.\.\/staffShellContext';/, 'const useStaffNav = () => {};']
+  ], { './ClinicalOrderPicker': clinicalOrderPicker.href });
+} finally {
+  await unlink(clinicalOrderPicker);
+}
+
+const refundModule = await compileComponent('../src/features/staff/reception/components/InvoiceCorrectionDialog.jsx', [
+  [/import Dialog from '[^']*';/, 'import { createElement } from "react"; const Dialog = ({ title, children }) => createElement("section", { role: "dialog" }, createElement("h2", null, title), children);'],
+  [/import \{ apiErrorMessage, fetchWithAuth \} from '[^']*';/, 'const fetchWithAuth = (...args) => globalThis.modalFetch(...args); const apiErrorMessage = (data, fallback) => data?.error?.message || fallback;']
 ]);
 
 let root;
@@ -193,6 +204,40 @@ test('doctor keeps A labelled and editable as A when B is unreadable, and only s
   assert.equal(doctorRequests.some(({ url }) => url.includes('record-B') || url === '/api/records/visit-B/finalize'), false);
 });
 
+for (const [eventType, expectedStep] of [['LAB_RESULT_READY', 'Review and complete'], ['PATIENT_CHECKED_IN', 'Vitals and symptoms']]) {
+  test(`doctor opens the intended consultation step from ${eventType}`, async () => {
+    globalThis.doctorQueue = [appointment('A')];
+    globalThis.doctorFetch = async (url) => {
+      if (url.startsWith('/api/appointments/queue/')) return jsonResponse(globalThis.doctorQueue);
+      if (url === '/api/records/visit-A/summary') {
+        return jsonResponse({
+          ...clinicalSummary('A'),
+          labOrders: [{ serviceNameEn: 'Synthetic laboratory test', resultValue: 'Synthetic result' }]
+        });
+      }
+      return jsonResponse([]);
+    };
+
+    await render(h(doctorModule.default, {
+      user: { doctorId: 'doctor-synthetic' },
+      lang: 'en',
+      t: (key) => key,
+      notificationIntent: {
+        requestKey: `open-${eventType}`,
+        eventType,
+        targetType: eventType === 'LAB_RESULT_READY' ? 'labOrder' : 'appointment',
+        targetId: eventType === 'LAB_RESULT_READY' ? 'synthetic-order' : 'visit-A',
+        context: { appointmentId: 'visit-A', appointmentDate: '2099-01-01' }
+      }
+    }));
+
+    assert.match(document.querySelector('[aria-current="step"]').textContent, new RegExp(expectedStep));
+    const resultPane = document.querySelector('.doctor-review-lab-results').closest('.doctor-step-pane');
+    assert.equal(resultPane.classList.contains('is-hidden'), eventType !== 'LAB_RESULT_READY');
+    assert.match(resultPane.textContent, /Synthetic result/);
+  });
+}
+
 test('doctor ignores an earlier visit response after a newer visit selection succeeds', async () => {
   const a = deferred();
   globalThis.doctorQueue = [appointment('A'), appointment('B')];
@@ -237,6 +282,84 @@ test('doctor treats a missing lookup for an existing record as an error but keep
   assert.ok(doctorRequests.some(({ url, options }) => url === '/api/appointments/visit-FIRST/status' && options.method === 'PUT'));
 });
 
+test('doctor selects catalogue tests before medication, removes a draft line, and submits only remaining orders', async () => {
+  globalThis.doctorQueue = [appointment('FIRST', { status: 'CHECKED_IN', medicalRecordId: null })];
+  globalThis.doctorApiRequest = async () => [
+    { id: 'cbc', category: 'LABORATORY', labelEn: 'Blood count', labelAr: 'تعداد الدم' },
+    { id: 'scan', category: 'RADIOLOGY', labelEn: 'Scan', labelAr: 'صورة' },
+    { id: 'dressing', category: 'CLINICAL_PROCEDURE', labelEn: 'Dressing', labelAr: 'ضماد' },
+    { id: 'visit', category: 'CONSULTATION', labelEn: 'Consultation charge', labelAr: 'رسوم المعاينة' }
+  ];
+  globalThis.doctorFetch = async (url, options = {}) => {
+    doctorRequests.push({ url, options });
+    if (url.startsWith('/api/appointments/queue/')) return jsonResponse(globalThis.doctorQueue);
+    if (url === '/api/records/drugs') return jsonResponse([]);
+    if (url === '/api/records') return jsonResponse({ data: { labOrder: { id: 'order' } } });
+    return jsonResponse({ history: [] });
+  };
+  await render(h(doctorModule.default, { user: { doctorId: 'doctor-synthetic' }, lang: 'en', t: (key) => key }));
+  await clickButton('Synthetic Patient FIRST');
+  const steps = [...document.querySelectorAll('.doctor-stepper-btn')];
+  assert.match(steps[2].textContent, /Tests and procedures/);
+  assert.match(steps[3].textContent, /Prescription/);
+  await act(async () => steps[2].click());
+  const picker = document.querySelector('.doctor-lab-order-card');
+  assert.doesNotMatch(picker.textContent, /Consultation charge|Custom test/i);
+  for (const name of ['Blood count', 'Scan', 'Dressing']) {
+    const option = [...picker.querySelectorAll('label')].find((item) => item.textContent.includes(name));
+    assert.ok(option, name);
+    await act(async () => option.querySelector('input').click());
+  }
+  await act(async () => steps[4].click());
+  const remove = document.querySelector('button[aria-label="Remove Scan"]');
+  assert.ok(remove);
+  await act(async () => remove.click());
+  assert.equal(document.querySelector('button[aria-label="Remove Scan"]'), null);
+  await clickButton('Send to Lab & Await Results');
+  const submission = doctorRequests.find(({ url, options }) => url === '/api/records' && options.method === 'POST');
+  assert.ok(submission);
+  const payload = JSON.parse(submission.options.body);
+  assert.deepEqual(payload.orderedServices, ['cbc']);
+  assert.deepEqual(payload.serviceOrders, [{ serviceId: 'dressing', quantity: 1 }]);
+  assert.equal(Object.hasOwn(payload, 'customTests'), false);
+});
+
+test('lab refund review shows the invoice and fixed refund amount, then submits only after a reason', async () => {
+  let refunded;
+  globalThis.modalFetch = async (url, options) => {
+    modalRequests.push({ url, options });
+    return jsonResponse({ refund: { id: 'refund' } });
+  };
+  await render(h(refundModule.default, {
+    lang: 'en',
+    invoice: { invoice: { id: 'lab-invoice-123', invoiceType: 'LABORATORY' }, refundableSdg: 1500 },
+    onClose() {},
+    onRefunded: (data) => { refunded = data; }
+  }));
+  const dialog = document.querySelector('[role="dialog"]');
+  assert.match(dialog.textContent, /lab-invoice-123/);
+  assert.match(dialog.textContent, /returns to awaiting payment/);
+  const amount = dialog.querySelector('input[type="number"]');
+  const submit = dialog.querySelector('button[type="submit"]');
+  assert.equal(amount.value, '1500');
+  assert.equal(amount.readOnly, true);
+  assert.equal(submit.disabled, true);
+  assert.deepEqual(modalRequests, []);
+  const reason = dialog.querySelector('textarea');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(reason, 'Charge correction');
+    reason.dispatchEvent(new window.Event('input', { bubbles: true }));
+  });
+  assert.equal(submit.disabled, false);
+  await act(async () => submit.click());
+  assert.deepEqual(modalRequests.map(({ url, options }) => ({ url, method: options.method, body: JSON.parse(options.body) })), [{
+    url: '/api/billing/invoice/lab-invoice-123/refund',
+    method: 'POST',
+    body: { amountSdg: 1500, refundMethod: 'CASH', reason: 'Charge correction' }
+  }]);
+  assert.equal(refunded.refund.id, 'refund');
+});
+
 function ProfileHarness() {
   const [patientId, setPatientId] = useState('patient-A');
   return h('div', {}, h('button', { onClick: () => setPatientId('patient-B') }, 'Switch profile'),
@@ -257,6 +380,23 @@ test('patient profile does not let a delayed A response overwrite selected B', a
   await act(async () => a.resolve(reply(profileData('A'))));
   assert.match(document.querySelector('#patient-file-title').textContent, /Synthetic Profile B/);
   assert.doesNotMatch(document.body.textContent, /Synthetic Profile A|Profile diagnosis A/);
+});
+
+test('patient profile labels recorded invoice coverage and distinguishes it from unavailable legacy coverage', async () => {
+  globalThis.modalFetch = async (url) => {
+    const firstPatient = url.endsWith('/patient-A/profile');
+    return jsonResponse({
+      ...profileData(firstPatient ? 'A' : 'B'),
+      insurance: { providerName: 'Recorded insurer', coverageRate: firstPatient ? 0 : null }
+    });
+  };
+  await render(h(ProfileHarness));
+  assert.match(document.querySelector('.patient-file-field--insurance small').textContent, /Coverage on invoice 0%/);
+  await clickButton('Switch profile');
+  assert.match(document.querySelector('.patient-file-field--insurance').textContent, /Recorded insurer/);
+  assert.equal(document.querySelector('.patient-file-field--insurance small'), null);
+  assert.match(document.querySelector('#patient-file-panel-overview').textContent, /Coverage on invoice—/);
+  assert.doesNotMatch(document.body.textContent, /null%|undefined%/);
 });
 
 test('patient profile removes A when selected B fails its clinical read', async () => {

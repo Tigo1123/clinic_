@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
-import { Activity, ArrowLeft, ArrowRight, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, FlaskConical, Lock, MessageCircle, Printer, RefreshCw, Search, Sliders, Stethoscope, User, Users, X } from 'lucide-react';
+import { Activity, ArrowLeft, ArrowRight, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, FlaskConical, Lock, MessageCircle, Printer, RefreshCw, Sliders, Stethoscope, User, Users, X } from 'lucide-react';
 import { PatientProfileModal, PostVisitSummaryModal } from '../clinical/ClinicalModals';
 import { getWhatsAppLink } from '../../../utils/clinicData';
 import { apiErrorMessage, fetchWithAuth } from '../../../services/staff/staffApi';
@@ -8,6 +8,7 @@ import RoleHero from '../components/RoleHero';
 import { clinicDateString } from '../../../utils/clinicTime';
 import { staffApiRequest as apiRequest } from '../../../services/apiClient';
 import MedicineCombobox from './MedicineCombobox';
+import ClinicalOrderPicker, { SelectedClinicalOrders } from './ClinicalOrderPicker';
 import { doctorPrescriptionItem, duplicatePrescriptionItem, validateDoctorPrescriptionEntry } from './doctorPrescription';
 import './doctorDashboard.css';
 import { useFacilityBranding } from '../../../app/branding/FacilityBrandingContext.js';
@@ -16,7 +17,7 @@ import { useStaffNav } from '../staffShellContext';
 
 const DEFAULT_VITALS = { blood_pressure: '120/80', heart_rate: '75', temperature: '37.0', weight: '70' };
 
-export default function DoctorDashboard({ user, lang, t }) {
+export default function DoctorDashboard({ user, lang, t, notificationIntent = null, onNotificationIntentHandled }) {
   const branding = useFacilityBranding();
   const [queue, setQueue] = useState([]);
   const [queueLoadError, setQueueLoadError] = useState(false);
@@ -33,7 +34,7 @@ export default function DoctorDashboard({ user, lang, t }) {
   const [viewingProfilePatientId, setViewingProfilePatientId] = useState(null);
   const summaryReturnFocusRef = useRef(null);
 
-  // Stepper state (1: Vitals & symptoms, 2: Diagnosis & plan, 3: Prescription, 4: Lab tests, 5: Review & complete)
+  // Stepper state (1: Vitals & symptoms, 2: Diagnosis & plan, 3: Tests and procedures, 4: Prescription, 5: Review & complete)
   const [consultationStep, setConsultationStep] = useState(1);
 
   // Lab-return / consultation finalization
@@ -43,6 +44,7 @@ export default function DoctorDashboard({ user, lang, t }) {
   const [currentLabResults, setCurrentLabResults] = useState([]);
   const [historicalPrescriptions, setHistoricalPrescriptions] = useState([]);
   const [historicalLabOrders, setHistoricalLabOrders] = useState([]);
+  const [historicalServiceOrders, setHistoricalServiceOrders] = useState([]);
 
   // Consult records entry
   const [symptoms, setSymptoms] = useState('');
@@ -71,26 +73,33 @@ export default function DoctorDashboard({ user, lang, t }) {
   // Lab services selectors
   const [clinicalServices, setClinicalServices] = useState([]);
   const [orderedTests, setOrderedTests] = useState([]);
-  const [customTestName, setCustomTestName] = useState('');
-  const [customTests, setCustomTests] = useState([]);
-  const [labServiceSearch, setLabServiceSearch] = useState('');
-  const [showCustomTestInput, setShowCustomTestInput] = useState(false);
+  const [serviceOrders, setServiceOrders] = useState([]);
 
   // Messages
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [highlightedAppointmentId, setHighlightedAppointmentId] = useState(null);
+  const [notificationNotice, setNotificationNotice] = useState(null);
 
   // Prevent duplicate consultation/finalize submissions.
   const consultationSaveLock = useRef(false);
   const patientSelectionRequestRef = useRef(0);
+  const lastHandledIntentKeyRef = useRef(null);
+  const selectedAppointmentIdRef = useRef(selectedAppointmentId);
+  selectedAppointmentIdRef.current = selectedAppointmentId;
+  const selectedPatientRef = useRef(selectedPatient);
+  selectedPatientRef.current = selectedPatient;
+  const handlePatientSelectRef = useRef(null);
+  const onIntentHandledRef = useRef(onNotificationIntentHandled);
+  onIntentHandledRef.current = onNotificationIntentHandled;
   const [isSavingConsultation, setIsSavingConsultation] = useState(false);
 
   // Stepper definition
   const consultationSteps = [
     { id: 1, ar: 'العلامات والأعراض', en: 'Vitals and symptoms' },
     { id: 2, ar: 'التشخيص والخطة', en: 'Diagnosis and plan' },
-    { id: 3, ar: 'الوصفة الطبية', en: 'Prescription' },
-    { id: 4, ar: 'الفحوصات المخبرية', en: 'Lab tests' },
+    { id: 3, ar: 'الفحوصات والإجراءات', en: 'Tests and procedures' },
+    { id: 4, ar: 'الوصفة الطبية', en: 'Prescription' },
     { id: 5, ar: 'المراجعة والإنهاء', en: 'Review and complete' }
   ];
 
@@ -246,7 +255,7 @@ export default function DoctorDashboard({ user, lang, t }) {
 
   useEffect(() => {
     loadCatalogs();
-  }, [loadCatalogs]);
+  }, [loadCatalogs, selectedAppointmentId]);
 
   const fetchPatientHistory = (patientId, selectionRequestId = patientSelectionRequestRef.current) => {
     if (!patientId) return;
@@ -271,7 +280,7 @@ export default function DoctorDashboard({ user, lang, t }) {
       });
   };
 
-  const handlePatientSelect = async (appt) => {
+  const handlePatientSelect = async (appt, initialStep = 1) => {
     const selectionRequestId = ++patientSelectionRequestRef.current;
     setErrorMsg('');
     setSuccessMsg('');
@@ -354,7 +363,8 @@ export default function DoctorDashboard({ user, lang, t }) {
       setSelectedPatient(appt.patient);
       setSelectedAppointmentId(appt.id);
       setSelectedAppointmentStatus(appt.status === 'CHECKED_IN' ? 'IN_CONSULTATION' : appt.status);
-      setConsultationStep(1);
+      setConsultationStep(existingSummary ? initialStep : 1);
+      setServiceOrders([]);
       fetchPatientHistory(appt.patient.id, selectionRequestId);
 
       if (existingSummary) {
@@ -363,6 +373,7 @@ export default function DoctorDashboard({ user, lang, t }) {
         setCurrentLabResults(existingSummary.labOrders || []);
         setHistoricalPrescriptions(existingSummary.prescriptions || []);
         setHistoricalLabOrders(existingSummary.labOrders || []);
+        setHistoricalServiceOrders(existingSummary.serviceOrders || []);
 
         setSymptoms(existingSummary.symptoms || '');
         setDiagnosis(existingSummary.diagnosis || '');
@@ -394,6 +405,7 @@ export default function DoctorDashboard({ user, lang, t }) {
         setCurrentLabResults([]);
         setHistoricalPrescriptions([]);
         setHistoricalLabOrders([]);
+        setHistoricalServiceOrders([]);
         setSymptoms('');
         setDiagnosis('');
         setTreatment('');
@@ -401,8 +413,6 @@ export default function DoctorDashboard({ user, lang, t }) {
         setVitals(DEFAULT_VITALS);
         setPrescribedItems([]);
         setOrderedTests([]);
-        setCustomTests([]);
-        setCustomTestName('');
         setSelectedDrug('');
         setCustomDrugName('');
         setDosage('');
@@ -426,6 +436,118 @@ export default function DoctorDashboard({ user, lang, t }) {
           : 'An error occurred while opening the consultation.')));
     }
   };
+  handlePatientSelectRef.current = handlePatientSelect;
+
+  useEffect(() => {
+    const requestKey = notificationIntent?.requestKey;
+    if (!requestKey || lastHandledIntentKeyRef.current === requestKey) return;
+    lastHandledIntentKeyRef.current = requestKey;
+    let active = true;
+
+    async function handleDrillDown() {
+      setNotificationNotice(null);
+      setHighlightedAppointmentId(null);
+
+      const { targetType, targetId, eventType, context = {} } = notificationIntent;
+      if (context.doctorId && user?.doctorId && context.doctorId !== user.doctorId) {
+        setNotificationNotice({
+          type: 'warning',
+          text: lang === 'ar'
+            ? 'هذا السجل يخص طبيباً آخر ولا يمكن فتحه من حسابك.'
+            : 'This record belongs to another doctor and cannot be opened from your account.'
+        });
+        onIntentHandledRef.current?.();
+        return;
+      }
+
+      const appointmentId = context.appointmentId || (targetType === 'appointment' ? targetId : null);
+      const targetDate = context.appointmentDate || clinicDateString();
+      const patientId = context.patientId || null;
+
+      if (appointmentId && user?.doctorId) {
+        setFilterDate(targetDate);
+        try {
+          const res = await fetchWithAuth(`/api/appointments/queue/${user.doctorId}?date=${encodeURIComponent(targetDate)}`);
+          const data = res.ok ? await res.json().catch(() => []) : [];
+          if (!active) return;
+          const queueList = Array.isArray(data) ? data : [];
+          if (res.ok) {
+            setQueueLoadError(false);
+            setQueue(queueList);
+          }
+
+          const matchedAppt = queueList.find((item) => item.id === appointmentId);
+          if (matchedAppt) {
+            const initialStep = eventType === 'LAB_RESULT_READY' ? 5 : 1;
+            setHighlightedAppointmentId(matchedAppt.id);
+            const hasOtherOpenVisit = Boolean(
+              selectedPatientRef.current
+              && selectedAppointmentIdRef.current
+              && selectedAppointmentIdRef.current !== matchedAppt.id
+            );
+            if (hasOtherOpenVisit) {
+              setNotificationNotice({
+                type: 'info',
+                text: lang === 'ar'
+                  ? 'تم تحديد الموعد في طابورك. أغلِق أو احفظ المعاينة الحالية لفتحه.'
+                  : 'The appointment is highlighted in your queue. Open it when ready without losing current notes.',
+                pendingAppt: matchedAppt,
+                initialStep
+              });
+            } else {
+              await handlePatientSelectRef.current?.(matchedAppt, initialStep);
+            }
+            onIntentHandledRef.current?.();
+            return;
+          }
+        } catch {
+          // Fall through to summary or stale-record handling below.
+        }
+
+        if (eventType === 'LAB_RESULT_READY' || targetType === 'labOrder' || targetType === 'prescription') {
+          try {
+            const summaryRes = await fetchWithAuth(`/api/records/${encodeURIComponent(appointmentId)}/summary`);
+            if (!active) return;
+            if (summaryRes.ok) {
+              setActiveSummaryId(appointmentId);
+              onIntentHandledRef.current?.();
+              return;
+            }
+          } catch {
+            // Fall through to stale-record handling below.
+          }
+        }
+
+        if (active) {
+          setNotificationNotice({
+            type: 'warning',
+            text: lang === 'ar'
+              ? 'الموعد المشار إليه لم يعد في طابورك لهذا التاريخ (ربما تم إلغاؤه أو تحويله).'
+              : 'The referenced appointment is no longer in your queue for this date (it may have been cancelled or transferred).'
+          });
+          onIntentHandledRef.current?.();
+        }
+        return;
+      }
+
+      if (patientId) {
+        setViewingProfilePatientId(patientId);
+        onIntentHandledRef.current?.();
+        return;
+      }
+
+      setNotificationNotice({
+        type: 'warning',
+        text: lang === 'ar'
+          ? 'السجل المشار إليه لم يعد متاحاً.'
+          : 'The referenced record is no longer available.'
+      });
+      onIntentHandledRef.current?.();
+    }
+
+    handleDrillDown();
+    return () => { active = false; };
+  }, [notificationIntent, lang, user?.doctorId]);
 
   const focusClinicalField = (fieldId) => {
     requestAnimationFrame(() => document.getElementById(fieldId)?.focus());
@@ -444,7 +566,7 @@ export default function DoctorDashboard({ user, lang, t }) {
         duration: { id: 'doctor-rx-duration', ar: 'يرجى تحديد مدة العلاج.', en: 'Please specify the treatment duration.' },
         quantity: { id: 'doctor-rx-quantity', ar: 'يرجى تحديد كمية صحيحة أكبر من صفر.', en: 'Please enter a valid quantity greater than zero.' }
       }[invalidField];
-      setConsultationStep(3);
+      setConsultationStep(4);
       setPrescriptionInvalidField(invalidField);
       setPrescriptionMessage(lang === 'ar' ? validation.ar : validation.en);
       focusClinicalField(validation.id);
@@ -483,7 +605,7 @@ export default function DoctorDashboard({ user, lang, t }) {
     setInstrEn(item.instructionsEn || '');
     setEditingPrescriptionIndex(index);
     setPrescriptionMessage('');
-    setConsultationStep(3);
+    setConsultationStep(4);
     focusClinicalField('doctor-rx-dosage');
   };
 
@@ -498,31 +620,17 @@ export default function DoctorDashboard({ user, lang, t }) {
     }
   };
 
-  const handleToggleTest = (serviceId) => {
-    if (orderedTests.includes(serviceId)) {
-      setOrderedTests(orderedTests.filter((id) => id !== serviceId));
-    } else {
-      setOrderedTests([...orderedTests, serviceId]);
-    }
+  const handleToggleClinicalOrder = (id, category) => {
+    const setSelection = category === 'LABORATORY' ? setOrderedTests : setServiceOrders;
+    setSelection((selected) => {
+      if (selected.includes(id)) return selected.filter((item) => item !== id);
+      return selected.length < 50 ? [...selected, id] : selected;
+    });
   };
 
-  const handleAddCustomTest = () => {
-    const normalized = customTestName.trim();
-    if (!normalized) return;
-
-    const alreadyExists = customTests.some(
-      (item) => item.toLowerCase() === normalized.toLowerCase()
-    );
-
-    if (!alreadyExists) {
-      setCustomTests([...customTests, normalized]);
-    }
-
-    setCustomTestName('');
-  };
-
-  const handleRemoveCustomTest = (testName) => {
-    setCustomTests(customTests.filter((item) => item !== testName));
+  const handleRemoveDraftOrder = (id) => {
+    setOrderedTests((selected) => selected.filter((item) => item !== id));
+    setServiceOrders((selected) => selected.filter((item) => item !== id));
   };
 
   const handleSaveConsultation = async (event) => {
@@ -540,9 +648,7 @@ export default function DoctorDashboard({ user, lang, t }) {
     setConsultationInvalidField('');
 
     const isFinalize = isFinalizingVisit && currentRecordId;
-    const hasLabOrders =
-      orderedTests.length > 0 ||
-      customTests.length > 0;
+    const hasLabOrders = orderedTests.length > 0;
 
     if (!isFinalize && !hasLabOrders && !diagnosis.trim()) {
       setConsultationInvalidField('diagnosis');
@@ -586,7 +692,7 @@ export default function DoctorDashboard({ user, lang, t }) {
             vitalSigns: vitals,
             prescribedDrugs: prescribedItems,
             orderedServices: orderedTests,
-            customTests
+            serviceOrders: serviceOrders.map((serviceId) => ({ serviceId, quantity: 1 }))
           };
 
       const res = await fetchWithAuth(url, {
@@ -597,6 +703,9 @@ export default function DoctorDashboard({ user, lang, t }) {
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
+        if (['FORMULARY_MEDICINE_INACTIVE', 'FORMULARY_MEDICINE_NOT_FOUND'].includes(data?.error?.code)) {
+          loadCatalogs();
+        }
         setErrorMsg(
           apiErrorMessage(
             data,
@@ -652,8 +761,7 @@ export default function DoctorDashboard({ user, lang, t }) {
       setClinicalNotes('');
       setPrescribedItems([]);
       setOrderedTests([]);
-      setCustomTests([]);
-      setCustomTestName('');
+      setServiceOrders([]);
       setSelectedDrug('');
       setCustomDrugName('');
       setDosage('');
@@ -667,6 +775,7 @@ export default function DoctorDashboard({ user, lang, t }) {
       setCurrentLabResults([]);
       setHistoricalPrescriptions([]);
       setHistoricalLabOrders([]);
+      setHistoricalServiceOrders([]);
       setConsultationStep(1);
 
       fetchDoctorQueue();
@@ -697,6 +806,38 @@ export default function DoctorDashboard({ user, lang, t }) {
     <div className="dashboard-wrapper doctor-dashboard" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
       <div className="workspace-panel doctor-dashboard__workspace">
         <RoleHero role="doctor" lang={lang}/>
+
+        {notificationNotice && (
+          <div
+            role="status"
+            className={`staff-notification-banner${notificationNotice.type === 'info' ? ' staff-notification-banner--info' : ''}`}
+          >
+            <span>{notificationNotice.text}</span>
+            <div className="staff-notification-banner__actions">
+              {notificationNotice.pendingAppt && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    const { pendingAppt, initialStep } = notificationNotice;
+                    setNotificationNotice(null);
+                    handlePatientSelect(pendingAppt, initialStep);
+                  }}
+                >
+                  {lang === 'ar' ? 'فتح الموعد' : 'Open appointment'}
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setNotificationNotice(null)}
+                aria-label={lang === 'ar' ? 'إغلاق' : 'Dismiss'}
+              >
+                <X size={14} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ── Daily Summary Strip (One-line ledger strip) ── */}
         <section className="doctor-daily-summary" aria-labelledby="doctor-daily-summary-title">
@@ -779,7 +920,13 @@ export default function DoctorDashboard({ user, lang, t }) {
                   <button
                     type="button"
                     key={appt.id}
-                    className={`doctor-queue-card ${isEmergency ? 'emergency-border' : ''} ${selectedAppointmentId === appt.id ? 'selected' : ''}`}
+                    data-appointment-id={appt.id}
+                    ref={(node) => {
+                      if (highlightedAppointmentId === appt.id && node) {
+                        node.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+                      }
+                    }}
+                    className={`doctor-queue-card ${isEmergency ? 'emergency-border' : ''} ${selectedAppointmentId === appt.id ? 'selected' : ''} ${highlightedAppointmentId === appt.id ? 'staff-notification-highlight' : ''}`}
                     onClick={() => handlePatientSelect(appt)}
                     aria-pressed={selectedAppointmentId === appt.id}
                   >
@@ -887,7 +1034,7 @@ export default function DoctorDashboard({ user, lang, t }) {
                   </div>
                 )}
 
-                {isReadOnlyVisit && (historicalPrescriptions.length > 0 || historicalLabOrders.length > 0) && (
+                {isReadOnlyVisit && (historicalPrescriptions.length > 0 || historicalLabOrders.length > 0 || historicalServiceOrders.length > 0) && (
                   <div className="ui-panel doctor-historical-summary">
                     <h4 className="doctor-historical-summary__title">{lang === 'ar' ? 'ملخص الوصفة والفحوصات' : 'Prescription and laboratory summary'}</h4>
                     {historicalPrescriptions.length > 0 && (
@@ -909,6 +1056,14 @@ export default function DoctorDashboard({ user, lang, t }) {
                             {lang === 'ar' ? item.serviceNameAr : item.serviceNameEn}
                             {item.resultValue ? ` — ${item.resultValue}` : ''}
                           </div>
+                        ))}
+                      </div>
+                    )}
+                    {historicalServiceOrders.length > 0 && (
+                      <div className="doctor-historical-summary__list">
+                        <strong>{lang === 'ar' ? 'الإجراءات الطبية والأشعة' : 'Procedures and radiology'}</strong>
+                        {historicalServiceOrders.map((item, index) => (
+                          <span key={index}>{lang === 'ar' ? item.serviceNameAr : item.serviceNameEn}</span>
                         ))}
                       </div>
                     )}
@@ -1124,8 +1279,24 @@ export default function DoctorDashboard({ user, lang, t }) {
                     </section>
                   </div>
 
-                  {/* STEP 3: Prescription */}
-                  <div className={`doctor-step-pane ${!isReadOnlyVisit && consultationStep !== 3 ? 'is-hidden' : ''}`}>
+                  {/* STEP 3: Tests and procedures */}
+                  <div className={`doctor-step-pane ${consultationStep !== 3 ? 'is-hidden' : ''}`}>
+                    <ClinicalOrderPicker
+                      key={selectedAppointmentId}
+                      lang={lang}
+                      services={clinicalServices}
+                      orderedTests={orderedTests}
+                      serviceOrders={serviceOrders}
+                      onToggle={handleToggleClinicalOrder}
+                      lockedOrders={[...historicalLabOrders, ...historicalServiceOrders]}
+                      isLocked={isFinalizingVisit || isReadOnlyVisit}
+                      loadError={catalogLoadError}
+                      onRetry={loadCatalogs}
+                    />
+                  </div>
+
+                  {/* STEP 4: Prescription */}
+                  <div className={`doctor-step-pane ${!isReadOnlyVisit && consultationStep !== 4 ? 'is-hidden' : ''}`}>
                     <section className="doctor-clinical-section doctor-prescription-section" aria-labelledby="doctor-prescription-title">
                       {catalogLoadError && (
                         <div role="alert" className="patient-alert error">
@@ -1243,89 +1414,6 @@ export default function DoctorDashboard({ user, lang, t }) {
                     </section>
                   </div>
 
-                  {/* STEP 4: Lab tests */}
-                  <div className={`doctor-step-pane ${!isReadOnlyVisit && consultationStep !== 4 ? 'is-hidden' : ''}`}>
-                    <section className="doctor-lab-order-card" aria-labelledby="doctor-lab-order-title">
-                      {catalogLoadError && (
-                        <div role="alert" className="patient-alert error">
-                          {lang === 'ar' ? 'تعذر تحميل القائمة. تحقق من الاتصال وحاول مرة أخرى.' : 'Could not load this list. Check the connection and try again.'}{' '}
-                          <button type="button" onClick={loadCatalogs}>
-                            {lang === 'ar' ? 'إعادة المحاولة' : 'Retry'}
-                          </button>
-                        </div>
-                      )}
-                      <div className="doctor-lab-order-header">
-                        <div>
-                          <h4 id="doctor-lab-order-title"><FlaskConical size={17} aria-hidden="true" />{lang === 'ar' ? 'طلب الفحوصات' : 'Order investigations'}</h4>
-                          <p className="doctor-lab-order-desc">{lang === 'ar' ? 'اختر الفحوصات المطلوبة للمريض من القائمة المعتمدة.' : 'Select the required tests from the approved catalogue.'}</p>
-                        </div>
-                        <span className="doctor-lab-selected-count" aria-live="polite">
-                          {lang === 'ar' ? `تم اختيار ${orderedTests.length} فحوصات` : `${orderedTests.length} test${orderedTests.length === 1 ? '' : 's'} selected`}
-                        </span>
-                      </div>
-
-                      {clinicalServices.filter((serviceItem) => serviceItem.category === 'LABORATORY' || serviceItem.category === 'RADIOLOGY').length > 4 && (
-                        <label className="doctor-lab-search">
-                          <Search size={16} aria-hidden="true" />
-                          <span className="sr-only">{lang === 'ar' ? 'البحث في الفحوصات' : 'Search tests'}</span>
-                          <input type="search" value={labServiceSearch} onChange={(event) => setLabServiceSearch(event.target.value)} placeholder={lang === 'ar' ? 'ابحث عن فحص...' : 'Search tests...'} />
-                        </label>
-                      )}
-
-                      {['LABORATORY', 'RADIOLOGY'].map((category) => {
-                        const normalizedSearch = labServiceSearch.trim().toLocaleLowerCase();
-                        const services = clinicalServices.filter((serviceItem) => {
-                          if (serviceItem.category !== category) return false;
-                          if (!normalizedSearch) return true;
-                          return [serviceItem.labelAr, serviceItem.labelEn].filter(Boolean).some((label) => label.toLocaleLowerCase().includes(normalizedSearch));
-                        });
-                        if (services.length === 0) return null;
-                        return (
-                          <div className="doctor-lab-subsection" key={category}>
-                            <h5>{category === 'LABORATORY' ? (lang === 'ar' ? 'الفحوصات المخبرية' : 'Laboratory tests') : (lang === 'ar' ? 'الأشعة' : 'Radiology')}</h5>
-                            <div className="doctor-lab-service-grid">
-                              {services.map((svc) => (
-                                <label className={`doctor-lab-service-option ${orderedTests.includes(svc.id) ? 'is-selected' : ''}`} key={svc.id}>
-                                  <input type="checkbox" checked={orderedTests.includes(svc.id)} onChange={() => handleToggleTest(svc.id)} />
-                                  <span className="doctor-lab-service-copy">
-                                    <strong>{lang === 'ar' ? svc.labelAr : svc.labelEn}</strong>
-                                    {lang === 'ar' && svc.labelEn && <small>{svc.labelEn}</small>}
-                                    {lang !== 'ar' && svc.labelAr && <small>{svc.labelAr}</small>}
-                                  </span>
-                                  <span className="doctor-lab-checkmark" aria-hidden="true">{orderedTests.includes(svc.id) ? <Check size={14} /> : null}</span>
-                                </label>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })}
-
-                      {!isFinalizingVisit && (
-                        <div className="doctor-custom-test-area">
-                          <button type="button" className="doctor-custom-test-toggle" onClick={() => setShowCustomTestInput((visible) => !visible)} aria-expanded={showCustomTestInput}>
-                            + {lang === 'ar' ? 'إضافة فحص غير موجود في القائمة' : 'Add a test not in the catalogue'}
-                          </button>
-                          {showCustomTestInput && (
-                            <div className="doctor-custom-test-form">
-                              <input type="text" value={customTestName} onChange={(event) => setCustomTestName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); handleAddCustomTest(); } }} placeholder={lang === 'ar' ? 'مثال: CRP أو Thyroid Function Test' : 'Example: CRP or Thyroid Function Test'} aria-label={lang === 'ar' ? 'اسم الفحص المخصص' : 'Custom test name'} />
-                              <button type="button" className="btn btn-secondary" onClick={handleAddCustomTest}>{lang === 'ar' ? 'إضافة الفحص' : 'Add Test'}</button>
-                            </div>
-                          )}
-                          {customTests.length > 0 && (
-                            <div className="doctor-custom-test-list">
-                              {customTests.map((testName) => (
-                                <div className="doctor-custom-test-chip" key={testName}>
-                                  <span>{testName}</span>
-                                  <button type="button" onClick={() => handleRemoveCustomTest(testName)} aria-label={lang === 'ar' ? `حذف ${testName}` : `Remove ${testName}`}><X size={14} /></button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </section>
-                  </div>
-
                   {/* STEP 5: Review and complete */}
                   <div className={`doctor-step-pane ${!isReadOnlyVisit && consultationStep !== 5 ? 'is-hidden' : ''}`}>
                     <section className="doctor-clinical-section doctor-review-section" aria-labelledby="doctor-review-title">
@@ -1385,8 +1473,26 @@ export default function DoctorDashboard({ user, lang, t }) {
 
                         <div className="doctor-review-card">
                           <div className="doctor-review-card__header">
+                            <span className="ui-section-label">{lang === 'ar' ? 'الفحوصات والإجراءات' : 'Tests and procedures'}</span>
+                            <button type="button" className="doctor-review-card__edit" onClick={() => setConsultationStep(3)}>{isFinalizingVisit ? (lang === 'ar' ? 'عرض' : 'View') : (lang === 'ar' ? 'تعديل' : 'Edit')}</button>
+                          </div>
+                          <div className="doctor-review-card__content">
+                            {orderedTests.length > 0 || serviceOrders.length > 0 ? (
+                              <SelectedClinicalOrders lang={lang} services={clinicalServices} orderedTests={orderedTests} serviceOrders={serviceOrders} onRemove={handleRemoveDraftOrder} />
+                            ) : (
+                              <span className="doctor-review-empty">
+                                {isFinalizingVisit
+                                  ? (lang === 'ar' ? 'تم إرسال الطلبات السابقة.' : 'Earlier orders have been submitted.')
+                                  : (lang === 'ar' ? 'لا توجد فحوصات أو إجراءات مطلوبة.' : 'No tests or procedures selected.')}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="doctor-review-card">
+                          <div className="doctor-review-card__header">
                             <span className="ui-section-label">{lang === 'ar' ? 'الأدوية الموصوفة' : 'Prescriptions'}</span>
-                            <button type="button" className="doctor-review-card__edit" onClick={() => setConsultationStep(3)}>{lang === 'ar' ? 'تعديل' : 'Edit'}</button>
+                            <button type="button" className="doctor-review-card__edit" onClick={() => setConsultationStep(4)}>{lang === 'ar' ? 'تعديل' : 'Edit'}</button>
                           </div>
                           <div className="doctor-review-card__content">
                             {prescribedItems.length === 0 ? (
@@ -1401,22 +1507,6 @@ export default function DoctorDashboard({ user, lang, t }) {
                           </div>
                         </div>
 
-                        <div className="doctor-review-card">
-                          <div className="doctor-review-card__header">
-                            <span className="ui-section-label">{lang === 'ar' ? 'الفحوصات المطلوبة' : 'Investigations'}</span>
-                            <button type="button" className="doctor-review-card__edit" onClick={() => setConsultationStep(4)}>{lang === 'ar' ? 'تعديل' : 'Edit'}</button>
-                          </div>
-                          <div className="doctor-review-card__content">
-                            {(orderedTests.length === 0 && customTests.length === 0) ? (
-                              <span className="doctor-review-empty">{lang === 'ar' ? 'لا توجد فحوصات مطلوبة' : 'No tests ordered'}</span>
-                            ) : (
-                              <div>
-                                {orderedTests.length > 0 && <span>{lang === 'ar' ? `${orderedTests.length} فحوصات مختارة` : `${orderedTests.length} tests selected`}</span>}
-                                {customTests.length > 0 && <div>{customTests.join(', ')}</div>}
-                              </div>
-                            )}
-                          </div>
-                        </div>
                       </div>
 
                       <div className="doctor-consultation-action-info">
@@ -1466,7 +1556,7 @@ export default function DoctorDashboard({ user, lang, t }) {
                             ? (lang === 'ar'
                                 ? 'مراجعة النتائج وإنهاء الزيارة'
                                 : 'Review Results & Complete Visit')
-                            : (orderedTests.length > 0 || customTests.length > 0)
+                            : (orderedTests.length > 0)
                               ? (lang === 'ar'
                                   ? 'إرسال للمختبر وانتظار النتائج'
                                   : 'Send to Lab & Await Results')
