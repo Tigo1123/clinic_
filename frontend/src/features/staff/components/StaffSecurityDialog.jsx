@@ -1,3 +1,4 @@
+import { guardFormSubmit } from '../../../utils/guardFormSubmit.js';
 import { clearStaffSession } from '../../../services/authStorage.js';
 import { disconnectStaffSocket, connectStaffSocket } from '../../../services/staff/staffSocket.js';
 import React, { useRef, useState } from 'react';
@@ -171,7 +172,7 @@ export default function StaffSecurityDialog({ user, onClose, t }) {
         </div>
       </div>}
 
-      {mode === 'password' && <form className="staff-login-form" onSubmit={async (event) => { event.preventDefault(); setError(''); if (newPassword !== confirmPassword) return setError(t('passwordsDoNotMatch')); setPending(true); try { const response = await fetchWithAuth('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }); const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(apiErrorMessage(body, t('passwordChangeFailed'))); clearStaffSession(); disconnectStaffSocket(); window.location.reload(); } catch (requestError) { setError(requestError.message); } finally { setPending(false); } }}>
+      {mode === 'password' && <form className="staff-login-form" onSubmit={event => guardFormSubmit(event, async () => { setError(''); if (newPassword !== confirmPassword) return setError(t('passwordsDoNotMatch')); setPending(true); try { const response = await fetchWithAuth('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }); const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(apiErrorMessage(body, t('passwordChangeFailed'))); clearStaffSession(); disconnectStaffSocket(); window.location.reload(); } catch (requestError) { setError(requestError.message); } finally { setPending(false); } })}>
         <p className="staff-login-description">{t('passwordChangeSignInAgain')}</p>
         <div className="form-group"><PasswordField label={t('currentPassword')} autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></div>
         <div className="form-group"><PasswordField label={t('newPassword')} autoComplete="new-password" required minLength={10} maxLength={200} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} helperText={t('passwordRequirementsSummary')} /></div>
@@ -179,14 +180,14 @@ export default function StaffSecurityDialog({ user, onClose, t }) {
         <button className="btn btn-primary" disabled={pending} type="submit">{pending ? t('loading') : t('changePassword')}</button><button className="btn btn-secondary" disabled={pending} type="button" onClick={() => resetSensitive()}>{t('cancel')}</button>
       </form>}
 
-      {mode === 'enroll' && <form className="staff-login-form" onSubmit={requestEnrollment}>
+      {mode === 'enroll' && <form className="staff-login-form" onSubmit={event => guardFormSubmit(event, requestEnrollment)}>
         <p className="staff-login-description">{t('mfaPasswordPrompt')}</p>
         <div className="form-group"><PasswordField id="mfa-enroll-password" label={t('currentPassword')} autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></div>
         <button className="btn btn-primary" disabled={pending} type="submit">{pending ? t('loading') : t('continue')}</button>
         <button className="btn btn-secondary" disabled={pending} type="button" onClick={() => resetSensitive()}>{t('cancel')}</button>
       </form>}
 
-      {mode === 'setup' && enrollment && <form className="staff-login-form" onSubmit={confirmEnrollment}>
+      {mode === 'setup' && enrollment && <form className="staff-login-form" onSubmit={event => guardFormSubmit(event, confirmEnrollment)}>
         <div className="security-pending"><KeyRound size={18} /> {t('enrollmentPending')}</div>
         <p className="staff-login-description">{t('mfaScanInstructions')}</p>
         <div className="security-qr" aria-label={t('mfaQrCode')}><QRCodeSVG value={enrollment.otpauthUri} size={190} level="M" /></div>
@@ -205,7 +206,7 @@ export default function StaffSecurityDialog({ user, onClose, t }) {
         <button className="btn btn-primary" disabled={!acknowledged} type="button" onClick={() => resetSensitive()}>{t('finish')}</button>
       </div>}
 
-      {(mode === 'disable' || mode === 'regenerate') && <form className="staff-login-form" onSubmit={submitManagement}>
+      {(mode === 'disable' || mode === 'regenerate') && <form className="staff-login-form" onSubmit={event => guardFormSubmit(event, submitManagement)}>
         <p className="staff-login-description">{mode === 'disable' ? t('disableMfaWarning') : t('regenerateRecoveryWarning')}</p>
         <ProofFields {...{ currentPassword, setCurrentPassword, proofType, setProofType, proof, setProof, proofRef, t }} />
         <button className={`btn ${mode === 'disable' ? 'btn-danger' : 'btn-primary'}`} disabled={pending} type="submit">{pending ? t('loading') : mode === 'disable' ? t('disableMfa') : t('regenerateRecoveryCodes')}</button>

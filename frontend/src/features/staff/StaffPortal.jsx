@@ -1,3 +1,4 @@
+import { guardFormSubmit } from '../../utils/guardFormSubmit.js';
 import { logoutAccount } from '../../services/logout.js';
 import React, { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -212,7 +213,7 @@ function RequiredPasswordChange({ t, lang, onComplete }) {
       <p className="patient-auth-intro">{t('passwordChangeRequiredDescription')}</p>
     </header>
     {error && <div role="alert" className="patient-alert error">{error}</div>}
-    <form onSubmit={submit} className="staff-login-form">
+    <form onSubmit={event => guardFormSubmit(event, submit)} className="staff-login-form">
       <PasswordField label={t('currentPassword')} value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} autoComplete="current-password" required />
       <PasswordField label={t('newPassword')} value={newPassword} onChange={event => setNewPassword(event.target.value)} autoComplete="new-password" required minLength={10} maxLength={200} helperText={t('passwordRequirementsSummary')} />
       <PasswordField label={t('confirmNewPassword')} value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} autoComplete="new-password" required error={Boolean(confirmPassword && newPassword !== confirmPassword)} helperText={confirmPassword && newPassword !== confirmPassword ? t('passwordsDoNotMatch') : undefined} />
@@ -338,7 +339,7 @@ function LoginView({ onLogin, t, lang, productName, productDescriptor, showProdu
 
       {errorMsg && <div role="alert" className="patient-alert error">{errorMsg}</div>}
 
-      <form onSubmit={handleMfaSubmit}>
+      <form onSubmit={event => guardFormSubmit(event, handleMfaSubmit)}>
         {mfaMethod === 'totp' ? (
           <label className="patient-field">
             {t('authenticatorCode')}
@@ -406,7 +407,7 @@ function LoginView({ onLogin, t, lang, productName, productDescriptor, showProdu
         </div>
       )}
 
-      <form onSubmit={handleSubmit} aria-busy={submitting}>
+      <form onSubmit={event => guardFormSubmit(event, handleSubmit)} aria-busy={submitting}>
         <label className="patient-field">
           {t('username')}
           <input

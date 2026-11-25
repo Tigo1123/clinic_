@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import i18n from '../src/i18n.js';
 import { readFileSync } from 'node:fs';
-import { INITIAL_ONBOARDING_FORM, NAME_FIELDS, normaliseOnboardingForm, ONBOARDING_STEPS, onboardingErrorMessage, registrationPayload, RESEND_COOLDOWN_SECONDS, resendSecondsRemaining, validateOnboardingStep } from '../src/features/patient/auth/onboarding.js';
+import { INITIAL_ONBOARDING_FORM, NAME_FIELDS, normaliseOnboardingForm, ONBOARDING_STEPS, onboardingErrorMessage, registrationVerificationOutcome, registrationPayload, RESEND_COOLDOWN_SECONDS, resendSecondsRemaining, validateOnboardingStep } from '../src/features/patient/auth/onboarding.js';
 import { DEFAULT_PHONE_COUNTRY, normalisePatientPhone, PATIENT_PHONE_COUNTRIES, splitInternationalPhone } from '../src/features/patient/auth/phoneCountries.js';
 const passwordField = readFileSync(new URL('../src/components/PasswordField.jsx', import.meta.url), 'utf8');
 
@@ -189,4 +189,18 @@ test('birth date limits use the previous clinic calendar day across leap days an
     assert.equal(validateOnboardingStep({ ...complete, dateOfBirth }, 2, messages, '2024-03-01').dateOfBirth, 'dob');
   }
   assert.deepEqual(validateOnboardingStep({ ...complete, dateOfBirth: '2024-02-29' }, 2, messages, '2024-03-01'), {});
+});
+
+
+test('successful email verification can leave an existing medical record awaiting linkage', () => {
+  assert.equal(registrationVerificationOutcome('CLAIMED'), 'record-linked');
+  assert.equal(registrationVerificationOutcome('VERIFIED'), 'record-linked');
+  assert.equal(registrationVerificationOutcome('MANUAL_REVIEW_REQUIRED'), 'record-link-pending');
+  assert.equal(registrationVerificationOutcome('AMBIGUOUS_MATCH'), 'record-link-pending');
+  assert.equal(registrationVerificationOutcome('VERIFICATION_REQUIRED'), null);
+  assert.equal(onboardingErrorMessage({ code: 'VERIFICATION_DELIVERY_FAILED' }, {
+    ...messages,
+    verificationUnavailable: 'offline',
+    verificationDeliveryFailed: 'email delivery failed'
+  }), 'email delivery failed');
 });

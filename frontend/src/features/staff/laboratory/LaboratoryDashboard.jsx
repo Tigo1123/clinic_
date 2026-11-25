@@ -22,6 +22,8 @@ export default function LaboratoryDashboard({ lang, notificationIntent = null, o
   const [historyLoadError, setHistoryLoadError] = useState(false);
   const [reviewLoadError, setReviewLoadError] = useState(false);
   const [collectingSample, setCollectingSample] = useState(false);
+  const resultWrites = useRef(new Set());
+  const batchWriteInFlight = useRef(false);
   const [savingAllResults, setSavingAllResults] = useState(false);
   const [releasingResults, setReleasingResults] = useState(false);
   const [orderView, setOrderView] = useState('work');
@@ -370,6 +372,7 @@ export default function LaboratoryDashboard({ lang, notificationIntent = null, o
   };
 
   const handleSubmitResult = async (item) => {
+    if (resultWrites.current.has(item.id)) return false;
     setErrorMsg('');
     setSuccessMsg('');
 
@@ -387,8 +390,17 @@ export default function LaboratoryDashboard({ lang, notificationIntent = null, o
     const numericValue = Number(form.value);
     const min = form.min === '' || form.min == null ? undefined : Number(form.min);
     const max = form.max === '' || form.max == null ? undefined : Number(form.max);
+    if ((min !== undefined && !Number.isFinite(min)) ||
+        (max !== undefined && !Number.isFinite(max)) ||
+        (min !== undefined && max !== undefined && min > max)) {
+      setErrorMsg(lang === 'ar'
+        ? 'أدخل نطاقاً مرجعياً صالحاً بحيث لا يتجاوز الحد الأدنى الحد الأقصى.'
+        : 'Enter a valid reference range with the minimum at or below the maximum.');
+      return false;
+    }
     const isOut = Number.isFinite(numericValue) && ((Number.isFinite(min) && numericValue < min) || (Number.isFinite(max) && numericValue > max));
 
+    resultWrites.current.add(item.id);
     try {
       const res = await fetchWithAuth(`/api/records/lab-orders/items/${item.id}/results`, {
         method: 'PUT',
@@ -466,11 +478,13 @@ export default function LaboratoryDashboard({ lang, notificationIntent = null, o
           : 'The request could not be completed. Please try again.'
       );
       return false;
+    } finally {
+      resultWrites.current.delete(item.id);
     }
   };
 
   const handleSaveAllResults = async () => {
-    if (savingAllResults) return;
+    if (batchWriteInFlight.current || resultWrites.current.size) return;
     if (!selectedOrder || selectedOrder.status !== 'SAMPLE_COLLECTED') {
       if (selectedOrder?.status === 'PAID') {
         setErrorMsg(lang === 'ar' ? 'يجب جمع العينة أولاً.' : 'Collect the sample first.');
@@ -483,6 +497,7 @@ export default function LaboratoryDashboard({ lang, notificationIntent = null, o
       (item) => item.labReviewStatus !== 'EXTERNAL' && resultForms[item.id]?.value?.trim()
     );
     if (dirtyItems.length === 0) return;
+    batchWriteInFlight.current = true;
     setSavingAllResults(true);
     let failureCount = 0;
     try {
@@ -507,6 +522,7 @@ export default function LaboratoryDashboard({ lang, notificationIntent = null, o
         );
       }
     } finally {
+      batchWriteInFlight.current = false;
       setSavingAllResults(false);
     }
   };
@@ -1197,7 +1213,8 @@ export default function LaboratoryDashboard({ lang, notificationIntent = null, o
                                 <button
                                   type="button"
                                   className="laboratory-row-save-btn btn btn-secondary"
-                                  onClick={() => handleSubmitResult(item)}
+                                  disabled={savingAllResults}
+                                  onClick={() => { if (!batchWriteInFlight.current) handleSubmitResult(item); }}
                                   title={lang === 'ar' ? 'حفظ نتيجة الفحص' : 'Save Test Result'}
                                   aria-label={lang === 'ar' ? `حفظ نتيجة الفحص: ${testName}` : `Save Test Result: ${testName}`}
                                 >

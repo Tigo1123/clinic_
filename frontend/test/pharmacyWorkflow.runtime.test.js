@@ -16,6 +16,7 @@ const { createRoot } = await import('react-dom/client');
 
 async function compile(relativePath, replacements = []) {
   let source = await readFile(new URL(relativePath, import.meta.url), 'utf8');
+  source = source.replace(/from '(?:\.\.\/)+utils\/guardFormSubmit\.js'/, "from '../src/utils/guardFormSubmit.js'");
   for (const [pattern, replacement] of replacements) source = source.replace(pattern, replacement);
   const compiled = await transformWithOxc(source, relativePath.split('/').at(-1), { jsx: { runtime: 'automatic' } });
   const output = new URL(`.pharmacy-runtime-${process.pid}-${relativePath.split('/').at(-1)}.mjs`, import.meta.url);

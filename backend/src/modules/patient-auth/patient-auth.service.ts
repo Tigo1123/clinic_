@@ -280,6 +280,14 @@ export class PatientAuthService {
       code: body.code,
       purpose: challengeRecord.type,
       transition: async (tx: any, challenge: any) => {
+        await tx.user.update({
+          where: { id: challenge.userId },
+          data: {
+            status: 'ACTIVE',
+            ...(challenge.type.endsWith('PHONE') ? { phoneVerifiedAt: new Date() } : { emailVerifiedAt: new Date() }),
+          },
+        });
+
         const linkedPatient = await tx.patient.findUnique({ where: { userId: challenge.userId } });
         if (linkedPatient) return { state: 'VERIFIED', patient: patientIdentitySummary(linkedPatient) };
 
@@ -292,13 +300,6 @@ export class PatientAuthService {
         }
 
         const addressStateId = await resolveAddressStateId(tx, registration.addressStateId);
-        await tx.user.update({
-          where: { id: challenge.userId },
-          data: {
-            status: 'ACTIVE',
-            ...(challenge.type.endsWith('PHONE') ? { phoneVerifiedAt: new Date() } : { emailVerifiedAt: new Date() }),
-          },
-        });
 
         await lockPatientIdentity(tx, { phone: challenge.user.phoneNormalized, dateOfBirth: registration.dateOfBirth });
         const matches = await matchingPatients(challenge.user.phoneNormalized, registration.dateOfBirth, tx);

@@ -98,44 +98,90 @@ test('self-registration waits for verification, creates one MRN, and repeated ve
   assert.equal(await prisma.tenantAuditLog.count({ where: { action: 'PATIENT_FILE_CREATED', details: { contains: records[0].id } } }), 1);
 });
 
-test('email registration uses the configured SMTP transport, never falls back to phone, and verifies the emailed code', async () => {
-  const previous = { ...process.env };
-  const sent = [];
-  const transport = mock.method(nodemailer, 'createTransport', options => ({
-    async sendMail(message) { sent.push({ options, message }); return { messageId: 'synthetic-email-registration' }; }
-  }));
-  try {
-    Object.assign(process.env, {
-      VERIFICATION_PROVIDER: 'email', PHONE_VERIFICATION_PROVIDER: 'disabled', NOTIFICATIONS_DISABLED: 'false',
-      SMTP_HOST: 'smtp-relay.brevo.com', SMTP_PORT: '587', SMTP_SECURE: 'false',
-      SMTP_USER: 'synthetic-user', SMTP_PASS: 'synthetic-password', SMTP_FROM_EMAIL: 'clinic@example.test'
-    });
-    const payload = portalPayload();
-    const registration = await api.post('/api/patient-auth/register').send(payload);
-    assert.equal(registration.status, 201);
-    assert.equal(registration.body.state, 'VERIFICATION_REQUIRED');
-    assert.equal(registration.body.developmentCode, undefined);
-    const challenge = await prisma.verificationChallenge.findUnique({ where: { id: registration.body.challengeId } });
-    assert.equal(challenge.type, 'REGISTRATION_EMAIL');
-    assert.equal(challenge.targetNormalized, payload.email);
-    assert.equal(sent.length, 1);
-    assert.equal(sent[0].options.host, 'smtp-relay.brevo.com');
-    assert.deepEqual(sent[0].options.auth, { user: 'synthetic-user', pass: 'synthetic-password' });
-    assert.equal(sent[0].message.to, payload.email);
-    const code = sent[0].message.text.match(/\b\d{6}\b/)[0];
-    const verified = await api.post('/api/patient-auth/verify').send({ challengeId: challenge.id, code });
-    assert.equal(verified.status, 200);
-    assert.equal(verified.body.state, 'CLAIMED');
-    const user = await prisma.user.findUnique({ where: { email: payload.email } });
-    assert.ok(user.emailVerifiedAt);
-    assert.equal(user.phoneVerifiedAt, null);
-    assert.equal(await prisma.patient.count({ where: { userId: user.id } }), 1);
-  } finally {
-    transport.mock.restore();
-    for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
-    Object.assign(process.env, previous);
-  }
-});
+for (const server of ['Express', 'NestJS']) {
+  test(`${server}: email verification activates accounts independently of medical record linkage`, async () => {
+    const previous = { ...process.env };
+    const sent = [];
+    const transport = mock.method(nodemailer, 'createTransport', options => ({
+      async sendMail(message) { sent.push({ options, message }); return { messageId: 'synthetic-email-registration' }; }
+    }));
+    let nest;
+    try {
+      if (server === 'NestJS') {
+        const { createApp } = await import('../dist/main.js');
+        nest = await createApp({ logger: false });
+        await nest.init();
+      }
+      const client = nest ? request(nest.getHttpServer()) : api;
+      Object.assign(process.env, {
+        VERIFICATION_PROVIDER: 'email', PHONE_VERIFICATION_PROVIDER: 'disabled', NOTIFICATIONS_DISABLED: 'false',
+        SMTP_HOST: 'smtp-relay.brevo.com', SMTP_PORT: '587', SMTP_SECURE: 'false',
+        SMTP_USER: 'synthetic-user', SMTP_PASS: 'synthetic-password', SMTP_FROM_EMAIL: 'clinic@example.test'
+      });
+      const scenarios = ['new', 'already-linked', 'unclaimed-record'];
+      for (const [delivery, scenario] of scenarios.entries()) {
+        const payload = portalPayload();
+        const registration = await client.post('/api/patient-auth/register').send(payload);
+        assert.equal(registration.status, 201);
+        assert.equal(registration.body.state, 'VERIFICATION_REQUIRED');
+        assert.equal(registration.body.developmentCode, undefined);
+        const challenge = await prisma.verificationChallenge.findUnique({ where: { id: registration.body.challengeId } });
+        assert.equal(challenge.type, 'REGISTRATION_EMAIL');
+        assert.equal(challenge.targetNormalized, payload.email);
+        assert.equal(sent.length, delivery + 1);
+        assert.equal(sent[delivery].options.host, 'smtp-relay.brevo.com');
+        assert.deepEqual(sent[delivery].options.auth, { user: 'synthetic-user', pass: 'synthetic-password' });
+        assert.equal(sent[delivery].message.to, payload.email);
+        const code = sent[delivery].message.text.match(/\b\d{6}\b/)[0];
+        const pending = await prisma.user.findUnique({ where: { email: payload.email } });
+        assert.equal(pending.status, 'PENDING_VERIFICATION');
+        const { password: _, email, ...patient } = payload;
+        let existingRecord;
+        if (scenario !== 'new') {
+          const name = Object.fromEntries(STRUCTURED_PATIENT_NAME_FIELDS.map(field => [field, patient[field].trim()]));
+          existingRecord = await prisma.patient.create({
+            data: {
+              ...name,
+              userId: scenario === 'already-linked' ? pending.id : null,
+              fullNameAr: 'ملف سابق',
+              fullNameEn: 'Existing patient',
+              gender: patient.gender,
+              dateOfBirth: patient.dateOfBirth,
+              phone: patient.phone,
+              addressStateId: patient.addressStateId,
+              emergencyContact: 'Self'
+            }
+          });
+        }
+        const verified = await client.post('/api/patient-auth/verify').send({ challengeId: challenge.id, code });
+        assert.equal(verified.status, 200);
+        const linkPending = scenario === 'unclaimed-record';
+        assert.equal(verified.body.state, linkPending ? 'MANUAL_REVIEW_REQUIRED' : existingRecord ? 'VERIFIED' : 'CLAIMED');
+        const user = await prisma.user.findUnique({ where: { email: payload.email } });
+        assert.equal(user.status, 'ACTIVE');
+        assert.ok(user.emailVerifiedAt);
+        assert.equal(user.phoneVerifiedAt, null);
+        assert.equal(await prisma.patient.count({ where: { userId: user.id } }), linkPending ? 0 : 1);
+        const login = await client.post('/api/auth/login').send({ username: email, password });
+        assert.equal(login.status, 200);
+        assert.equal(login.body.user.patientLinked, !linkPending);
+        const profile = await client.get('/api/patient/me').set('Authorization', `Bearer ${login.body.token}`);
+        assert.equal(profile.status, linkPending ? 409 : 200);
+        if (linkPending) {
+          assert.equal(profile.body.error.code, 'PATIENT_RECORD_NOT_LINKED');
+          assert.equal((await prisma.patient.findUnique({ where: { id: existingRecord.id } })).userId, null);
+        } else if (existingRecord) {
+          assert.equal(profile.body.id, existingRecord.id);
+        }
+      }
+    } finally {
+      await nest?.close();
+      transport.mock.restore();
+      for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
+      Object.assign(process.env, previous);
+    }
+  });
+}
 
 test('registration OTP resend is cooldown-protected, rotates the code, and still creates one patient file', async () => {
   const payload = portalPayload();

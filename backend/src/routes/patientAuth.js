@@ -176,12 +176,14 @@ router.post('/verify', verificationLimiter, validate(z.object({ challengeId: z.s
     const challengeRecord = await prisma.verificationChallenge.findUnique({ where: { id: req.body.challengeId }, select: { type: true } });
     if (!challengeRecord || !['REGISTRATION_EMAIL', 'REGISTRATION_PHONE'].includes(challengeRecord.type)) return sendError(res, 422, 'VERIFICATION_INVALID', 'Verification challenge is invalid or already used.');
     const result = await consumeVerificationChallenge({ challengeId: req.body.challengeId, code: req.body.code, purpose: challengeRecord.type, transition: async (tx, challenge) => {
+      await tx.user.update({ where: { id: challenge.userId }, data: { status: 'ACTIVE', ...(challenge.type.endsWith('PHONE') ? { phoneVerifiedAt: new Date() } : { emailVerifiedAt: new Date() }) } });
+
       const linkedPatient = await tx.patient.findUnique({ where: { userId: challenge.userId } });
       if (linkedPatient) return { state: 'VERIFIED', patient: patientIdentitySummary(linkedPatient) };
       const registration = await tx.patientRegistration.findUnique({ where: { userId: challenge.userId } });
       if (!registration) throw new ApiError(409, 'REGISTRATION_STATE_INVALID', 'Registration details are unavailable.');
       const addressStateId = await resolveAddressStateId(tx, registration.addressStateId);
-      await tx.user.update({ where: { id: challenge.userId }, data: { status: 'ACTIVE', ...(challenge.type.endsWith('PHONE') ? { phoneVerifiedAt: new Date() } : { emailVerifiedAt: new Date() }) } });
+
     await lockPatientIdentity(tx, { phone: challenge.user.phoneNormalized, dateOfBirth: registration.dateOfBirth });
     const matches = await matchingPatients(challenge.user.phoneNormalized, registration.dateOfBirth, tx);
     if (matches.some((patient) => patient.userId)) {

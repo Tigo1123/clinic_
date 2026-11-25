@@ -1,3 +1,4 @@
+import { guardFormSubmit } from '../../../utils/guardFormSubmit.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ReceiptText, RefreshCw } from 'lucide-react';
 import { apiErrorMessage, fetchWithAuth } from '../../../services/staff/staffApi';
@@ -237,7 +238,7 @@ export default function PharmacyPayment({ prescriptionId, lang, onStateChange, p
             </span>
           </div>
         ) : (
-          <form className="pharmacy-payment-form-card ui-panel" onSubmit={submit}>
+          <form className="pharmacy-payment-form-card ui-panel" onSubmit={event => guardFormSubmit(event, submit)}>
             <label className="pharmacy-payment-field">
               <span className="form-label ui-section-label">{lang === 'ar' ? 'طريقة الدفع' : 'Payment method'}</span>
               <select

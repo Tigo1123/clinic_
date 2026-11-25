@@ -57,6 +57,7 @@ export default function ClinicSetupPanel({ lang = 'en', t, initialTab = 'doctors
   const [confirm, setConfirm] = useState(false);
   const [scheduleDoctor, setScheduleDoctor] = useState(null);
   const requestVersion = useRef(0);
+  const saveInFlight = useRef(false);
   useEffect(() => {
     const token = ++requestVersion.current;
     let cancelled = false;
@@ -101,6 +102,8 @@ export default function ClinicSetupPanel({ lang = 'en', t, initialTab = 'doctors
     setFormError(''); setConfirm(true);
   };
   const save = async () => {
+    if (saveInFlight.current) return;
+    saveInFlight.current = true;
     setSaving(true); setConfirm(false);
     try {
       const editing = Boolean(editor.item);
@@ -109,7 +112,7 @@ export default function ClinicSetupPanel({ lang = 'en', t, initialTab = 'doctors
       setEditor(null); setDraft(blank); setSuccess(copy.saved); setVersion(value => value + 1);
     } catch (failure) {
       setFormError(['CATALOG_DUPLICATE', 'SPECIALTY_NAME_EXISTS', 'SPECIALTY_CODE_EXISTS', 'USERNAME_ALREADY_REGISTERED', 'INSURANCE_COMPANY_DUPLICATE'].includes(failure.code) ? (lang === 'ar' ? 'يوجد مدخل بهذا الرمز أو الاسم. عدّل البيانات وحاول مجدداً.' : 'An entry with this code or name already exists. Update the fields and retry.') : copy.saveFailed);
-    } finally { setSaving(false); }
+    } finally { saveInFlight.current = false; setSaving(false); }
   };
   return <CacheProvider value={patientStyleCaches[direction]}><ThemeProvider theme={theme}>
     <Stack dir={direction} spacing={4} className="clinic-setup-panel">

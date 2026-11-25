@@ -8,6 +8,7 @@ Object.assign(globalThis, { window: dom.window, document: dom.window.document, H
 const { createElement, act } = await import('react');
 const { createRoot } = await import('react-dom/client');
 let source = await readFile(new URL('../src/features/staff/admin/AdminSchedulePanel.jsx', import.meta.url), 'utf8');
+source = source.replace(/from '(?:\.\.\/)+utils\/guardFormSubmit\.js'/, "from '../src/utils/guardFormSubmit.js'");
 source = source.replace(/import \{ apiErrorMessage, fetchWithAuth \}[^;]+;/, 'const fetchWithAuth = (...args) => globalThis.scheduleFetch(...args); const apiErrorMessage = (d, fallback) => d?.error?.message || fallback;').replace(/import '\.\/adminSchedule.css';/, '').replace("'./scheduleVersion'", JSON.stringify(new URL('../src/features/staff/admin/scheduleVersion.js', import.meta.url).href)).replace("'./latestRequest'", JSON.stringify(new URL('../src/features/staff/admin/latestRequest.js', import.meta.url).href));
 const compiled = await transformWithOxc(source, 'AdminSchedulePanel.jsx', { jsx: { runtime: 'automatic' } });
 const modulePath = new URL(`.schedule-component-${process.pid}.mjs`, import.meta.url);

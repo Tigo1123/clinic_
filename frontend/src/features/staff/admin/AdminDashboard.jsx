@@ -1,3 +1,4 @@
+import { guardFormSubmit } from '../../../utils/guardFormSubmit.js';
 import './clinicSetup.css';
 import './adminDashboard.css';
 import ClinicSetupPanel from './ClinicSetupPanel';
@@ -696,7 +697,7 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile', 
                 </div>
                 {errorMsg && <div className="badge badge-danger admin-modal-alert">{errorMsg}</div>}
                 {successMsg && <div className="badge badge-success admin-modal-alert">{successMsg}</div>}
-                <form onSubmit={handleCreateUser} className="admin-form">
+                <form onSubmit={event => guardFormSubmit(event, handleCreateUser)} className="admin-form">
                   <div className="form-group">
                     <label className="form-label">{t('username')}</label>
                     <input
@@ -872,7 +873,7 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile', 
               <h3 id="staff-password-reset-title">{lang === 'ar' ? 'إعادة تعيين كلمة مرور الموظف' : 'Reset Staff Password'}</h3>
               <p>{resetTarget.username} — {getRoleLabel(resetTarget.role)}</p>
               {resetError && <div role="alert" className="badge badge-danger admin-modal-alert">{resetError}</div>}
-              <form onSubmit={handlePasswordReset} className="admin-grid-form">
+              <form onSubmit={event => guardFormSubmit(event, handlePasswordReset)} className="admin-grid-form">
                 <div className="form-group">
                   <PasswordField id="staff-reset-new-password" label={lang === 'ar' ? 'كلمة المرور الجديدة' : 'New Password'} autoComplete="new-password" required minLength={10} maxLength={STAFF_PASSWORD_MAX_LENGTH} value={resetNewPassword} onChange={(event) => setResetNewPassword(event.target.value)} helperText={t('passwordRequirementsSummary')} />
                   <div className="password-requirements" aria-live="polite">
@@ -1032,7 +1033,7 @@ export default function AdminDashboard({ user, lang, t, initialTab = 'profile', 
                   </div>
                   <button type="button" className="btn btn-secondary" onClick={() => setShowAddSpecialtyModal(false)} aria-label={lang === 'ar' ? 'إغلاق' : 'Close'}><X size={18} aria-hidden="true" /></button>
                 </div>
-                <form onSubmit={createSpecialty} className="admin-form">
+                <form onSubmit={event => guardFormSubmit(event, createSpecialty)} className="admin-form">
                   <div className="form-group">
                     <label className="form-label">{lang === 'ar' ? 'رمز التخصص' : 'Specialty code'}</label>
                     <input required className="form-input ui-mono" placeholder={lang === 'ar' ? 'مثال: CARD' : 'e.g. CARD'} value={specialtyDraft.code} onChange={(e) => setSpecialtyDraft((v) => ({ ...v, code: e.target.value }))}/>

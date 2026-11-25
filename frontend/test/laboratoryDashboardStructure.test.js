@@ -35,7 +35,7 @@ test('existing laboratory state transitions and actions remain status guarded', 
   assert.match(dashboard, /selectedOrder\.status !== 'PAID'/);
   assert.match(dashboard, /onClick=\{handleCollectSample\}/);
   assert.match(dashboard, /selectedOrder\.status !== 'SAMPLE_COLLECTED'/);
-  assert.match(dashboard, /onClick=\{\(\) => handleSubmitResult\(item\)\}/);
+  assert.match(dashboard, /if \(!batchWriteInFlight\.current\) handleSubmitResult\(item\)/);
   assert.match(dashboard, /selectedOrder\.status !== 'COMPLETED'/);
   assert.match(dashboard, /onClick=\{handleReleaseResults\}/);
   assert.match(dashboard, /Payment[\s\S]*Sample collection[\s\S]*Result entry[\s\S]*Completion[\s\S]*Release/);
