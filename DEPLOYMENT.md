@@ -11,11 +11,23 @@ Commands below are operator instructions inspected against source, **not procedu
 | Local development | Node/Express, React/Vite, PostgreSQL; tracked [backend](backend/.env.example) and [frontend](frontend/.env.example) examples | Separate local databases and uploads; development verification must never be exposed as production. |
 | General Docker reference | [docker-compose.yml](docker-compose.yml), [backend Dockerfile](backend/Dockerfile), [frontend Dockerfile](frontend/Dockerfile) | PostgreSQL 16 and persistent uploads; requires an external HTTPS edge and a reviewed network/privilege configuration. Not a turnkey hardened production installation. |
 | Offline LAN test bench | [compose.lan.yml](compose.lan.yml), [LAN runbook](deploy/lan/README.md), [LAN example](deploy/lan/env.example) | HTTPS-only port 443, private API/database networks, explicit installation profiles. Clinical operation and fresh offline installation retain the runbook's acceptance gates. |
-| Hosted/custom infrastructure | The same backend and compiled frontend can be adapted to a managed PostgreSQL service and HTTPS proxy | No Render Blueprint or automatic hosted deployment procedure is supplied. Configure the actual upstream, persistent uploads, secrets, migrations, and direct revocation connection explicitly. Existing platform settings were not inspected. |
+| Hosted/custom infrastructure | The same backend and compiled frontend can be adapted to a managed PostgreSQL service and HTTPS proxy | GitHub Actions can trigger the existing Render services after CI. Configure the upstream, persistent uploads, secrets, migrations, and direct revocation connection for the hosting environment. |
 
 Use Node.js 22 with the committed npm lockfiles for local builds, Docker with Compose v2 for container deployment, and PostgreSQL 16 (the supplied images' version). A release host needs access to the required images/dependencies or an independently prepared offline bundle. Migration/grant/backup jobs additionally need the appropriate PostgreSQL client tools; the backend image installs OpenSSL but **does not install `psql`, `pg_dump`, or `pg_restore`**. LAN bootstrap/backup images supply those tools.
 
 The active Prisma provider is **PostgreSQL**, including local development and automated tests. [schema.prisma](backend/prisma/schema.prisma) and `backend/prisma/migrations/` define the supported history. `backend/prisma/sqlite-migrations/` and `backend/scripts/sqlite-archive/` are historical artifacts, not a current deployment mode. There is no supported SQLite data-conversion command or `backup:sqlite` npm script.
+
+## Automatic Render deploys from GitHub
+
+[The CI/CD workflow](.github/workflows/ci-cd.yml) requests a deployment of the exact tested `main` commit for the API and frontend after tests, lint, and both Docker builds pass. Pull requests and pushes to other branches run their configured checks without deploying. A superseded workflow skips deployment when a newer commit is already on `main`.
+
+1. In Render, confirm the existing production API and Static Site are connected to this GitHub repo. Set both services to `main`. The production frontend may still be linked to `redesign` from the earlier setup.
+2. In the GitHub repo, open **Settings → Environments → production**. Add `RENDER_API_DEPLOY_HOOK` and `RENDER_FRONTEND_DEPLOY_HOOK` as environment secrets, using the respective URLs from each service’s **Settings → Deploy Hook** on Render. Treat these URLs as credentials.
+3. Set Render’s **Auto-Deploy** to **Off** for both services so GitHub Actions is the deployment trigger. Render also turns off its own automatic trigger when a hook supplies an exact commit.
+4. Before the first rollout, confirm the API can reach the intended production database, required migrations have been applied by the migration identity, and the frontend is built with the correct API URL. See the sections below for those settings. Repeat the migration step before releasing later schema changes.
+5. After the workflow runs on `main`, verify the matching commit is **Live** in both Render Deploys pages and check `/api/health/ready`. A successful GitHub deploy job means Render accepted the requests. Render builds and starts the services asynchronously. If only one request succeeds, check both services’ deploy histories before retrying.
+
+[Render deploy hooks](https://render.com/docs/deploy-hooks) · [Render deployment settings](https://render.com/docs/deploys#automatic-deploys)
 
 ## PostgreSQL installation and initial administrator
 
