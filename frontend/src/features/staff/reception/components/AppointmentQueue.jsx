@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { fetchWithAuth } from '../../../../services/staff/staffApi';
 import { clinicDateString } from '../../../../utils/clinicTime';
-import { formatQueueDateLabel, shiftQueueDate } from '../receptionHelpers';
+import { formatQueueDateLabel, formatQueueEmptyMessage, shiftQueueDate } from '../receptionHelpers';
 import QueueAppointmentRow from './QueueAppointmentRow';
 
 export default function AppointmentQueue({
@@ -65,7 +65,7 @@ export default function AppointmentQueue({
         </div>
         : !appointments ? <p role="status">{ar ? 'جارٍ تحميل المواعيد…' : 'Loading appointments…'}</p>
         : appointments.length === 0 ? <p className="reception-panel-empty">
-          {ar ? 'لا توجد مواعيد مجدولة لهذا الطبيب في' : 'No appointments scheduled for this doctor on'} {dateLabel}.
+          {formatQueueEmptyMessage(doctor, formatQueueDateLabel(date, lang), lang)}
         </p>
         : <div className="reception-queue-rows-container">
           {appointments.map((app, index) => <QueueAppointmentRow key={app.id} app={app} index={index}

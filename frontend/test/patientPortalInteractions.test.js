@@ -17,6 +17,7 @@ const stateMocks = {
   EmptyState: 'const EmptyState = ({title}) => <div>{title}</div>;',
 };
 const mockPageSource = (source) => source
+  .replace("import './BookAppointment.css';", '')
   .replace(/import \{ useTheme \}[^;]+;/, "const useTheme = () => ({ theme: 'light' });")
   .replace(/import PasswordField[^;]+;/, 'const PasswordField = ({label,value,onChange,name,autoComplete}) => <label>{label}<input name={name} aria-label={label} value={value} onChange={onChange} type="password" autoComplete={autoComplete}/></label>;')
   .replace(/import \{ clearPatientSession \}[^;]+;/, 'const clearPatientSession = () => {};')
@@ -72,9 +73,22 @@ async function mount(Page, route = '/patient') {
 async function click(element) { await act(async () => element.click()); }
 afterEach(async () => { if (root) await act(async () => root.unmount()); root = null; delete globalThis.portalTestApi; delete globalThis.portalTestLanguage; });
 
+const bookingDoctorPath = '/api/patient/doctors/doctor-fixture';
+const bookingDoctor = {
+  id: 'doctor-fixture',
+  fullNameEn: 'Dr Casey',
+  specialty: { nameEn: 'Clinical Genetics' },
+  consultationFee: '0'
+};
+
 test('booking discards late slot responses, clears old selections, and blocks submission after slot errors', async () => {
   const requests = [];
-  globalThis.portalTestApi = () => { const request = deferred(); requests.push(request); return request.promise; };
+  globalThis.portalTestApi = path => {
+    if (path === bookingDoctorPath) return Promise.resolve(bookingDoctor);
+    const request = deferred();
+    requests.push(request);
+    return request.promise;
+  };
   await mount(pages.BookAppointment, '/patient/book/doctor-fixture');
   await click(document.querySelectorAll('.date-chip')[0]);
   await click(document.querySelectorAll('.date-chip')[1]);
@@ -89,11 +103,53 @@ test('booking discards late slot responses, clears old selections, and blocks su
   assert.equal(document.querySelectorAll('.slot-chip').length, 0);
   await act(async () => requests[2].reject(new Error('Slots unavailable')));
   const alert = document.querySelector('[role=alert]');
-  assert.match(alert.textContent, /patientLoadError/);
+  assert.match(alert.textContent, /Unable to connect to the server/);
   assert.equal(document.querySelector('form>button').disabled, true);
   await click(alert.querySelector('button'));
   await act(async () => requests[3].resolve(['11:00']));
   assert.equal(document.querySelector('.slot-chip').textContent, '11:00');
+});
+
+test('booking shows the selected doctor and sends the chosen slot before showing the pending request', async () => {
+  const submissions = [];
+  let response;
+  globalThis.portalTestApi = async (path, options) => {
+    if (path === bookingDoctorPath) return bookingDoctor;
+    if (path.startsWith('/api/appointments/slots?')) return ['14:00'];
+    assert.equal(path, '/api/patient/appointments');
+    assert.equal(options.method, 'POST');
+    submissions.push(JSON.parse(options.body));
+    return response;
+  };
+  await mount(pages.BookAppointment, '/patient/book/doctor-fixture');
+  const summary = document.querySelector('.patient-book__doctor-card');
+  assert.match(summary.textContent, /Dr Casey.*Clinical Genetics.*0 SDG/);
+  const selectedDay = document.querySelector('.date-chip');
+  await click(selectedDay);
+  const slot = document.querySelector('.slot-chip');
+  await click(slot);
+  await click(selectedDay);
+  for (const choice of [selectedDay, slot]) {
+    assert.equal(choice.getAttribute('aria-pressed'), 'true');
+    assert.ok(choice.querySelector('svg[aria-hidden="true"]'));
+  }
+  const submit = document.querySelector('button[type=submit]');
+  assert.equal(submit.textContent, 'sendBookingRequest');
+  assert.equal(submit.disabled, false);
+  await click(submit);
+  assert.ok(document.querySelector('[role=alert]'));
+  assert.equal(document.querySelector('.patient-book__summary-panel'), null);
+
+  response = { id: 'request-fixture', status: 'PENDING' };
+  await click(submit);
+  assert.equal(submissions.length, 2);
+  assert.deepEqual(submissions[0], submissions[1]);
+  assert.equal(submissions[1].doctorId, bookingDoctor.id);
+  assert.match(submissions[1].appointmentDate, /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(submissions[1].appointmentTime, '14:00');
+  assert.match(document.body.textContent, /bookingRequestSent.*bookingPendingReview/);
+  assert.match(document.querySelector('.patient-book__summary-panel').textContent, /PENDING.*Dr Casey.*14:00/);
+  assert.ok(document.querySelector('a[href="/patient/appointments/request-fixture"]'));
 });
 
 test('closing a loading record does not reopen it when its response arrives', async () => {

@@ -39,7 +39,8 @@ import AppointmentQueue from './components/AppointmentQueue';
 import ConfirmAppointmentDialog from './components/ConfirmAppointmentDialog';
 import {
   calculateInvoiceTotals,
-  createEmptyPatientName
+  createEmptyPatientName,
+  formatReceptionDoctorName
 } from './receptionHelpers';
 
 function issuedInvoiceLines(invoice) {
@@ -1005,8 +1006,8 @@ export default function ReceptionDashboard({ lang, t, notificationIntent = null,
     const docFee = app.doctor?.consultationFee ? Number(app.doctor.consultationFee) : 0;
     setAddedServices([{
       id: app.id,
-      labelAr: `معاينة - د. ${app.doctor.fullNameAr}`,
-      labelEn: `Consultation - Dr. ${app.doctor.fullNameEn}`,
+      labelAr: `معاينة - ${formatReceptionDoctorName(app.doctor, 'ar')}`,
+      labelEn: `Consultation - ${formatReceptionDoctorName(app.doctor, 'en')}`,
       baseFeeSdg: docFee,
       qty: 1
     }]);
@@ -2045,7 +2046,7 @@ export default function ReceptionDashboard({ lang, t, notificationIntent = null,
                   <span className="reception-billing-subtitle">
                     <span className="ui-mono" dir="ltr">{billingPatient.fileNumber || '—'}</span>
                     {billingAppointment?.doctor && (
-                      <span> · {lang === 'ar' ? `د. ${billingAppointment.doctor.fullNameAr}` : `Dr. ${billingAppointment.doctor.fullNameEn}`}</span>
+                      <span> · {formatReceptionDoctorName(billingAppointment.doctor, lang)}</span>
                     )}
                   </span>
                 ) : (

@@ -1945,6 +1945,10 @@
   color: var(--secondary);
 }
 
+.patient-auth-login-intro__copy {
+  min-width: 0;
+}
+
 .patient-auth-shell--login .patient-auth-welcome,
 .patient-auth-shell--staff .patient-auth-welcome {
   margin: 0 0 3px;
@@ -1952,6 +1956,12 @@
   font-size: 0.86rem;
   font-weight: 650;
   line-height: 1.4;
+}
+
+[dir="rtl"] .patient-auth-shell--login .patient-auth-welcome,
+[dir="rtl"] .patient-auth-shell--staff .patient-auth-welcome {
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .patient-auth-product-line {
@@ -2089,6 +2099,11 @@
   .patient-auth-shell--login .patient-auth,
   .patient-auth-shell--staff .patient-auth {
     padding-inline: 12px;
+  }
+
+  .patient-auth-shell--login .patient-auth h1,
+  .patient-auth-shell--staff .patient-auth h1 {
+    font-size: 1.5rem;
   }
 }
 

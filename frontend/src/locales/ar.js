@@ -1,6 +1,9 @@
 export default {
       patientNameRepeated: 'أدخل كل جزء من الاسم في خانته. تكرر الاسم الكامل في أكثر من خانة.',
       brandName: 'شفاء',
+      patientBookingLoginEyebrow: 'حجز موعد',
+      patientBookingLoginTitle: 'سجّل الدخول لحجز موعد',
+      patientBookingLoginIntro: 'سجّل الدخول أو أنشئ حساب مريض لاختيار الطبيب وطلب موعدك.',
       email: 'البريد الإلكتروني', patientVerified: 'موثق', patientNotVerified: 'غير موثق',
       patientVital_blood_pressure: 'ضغط الدم', patientVital_heart_rate: 'معدل نبض القلب', patientVital_pulse: 'النبض', patientVital_temperature: 'درجة الحرارة', patientVital_weight: 'الوزن', patientVital_height: 'الطول', patientVital_oxygen_saturation: 'تشبع الأكسجين', patientVital_respiratory_rate: 'معدل التنفس',
       patientSkipToContent: 'انتقل إلى المحتوى', patientBack: 'رجوع', patientUpdatesDescription: 'تابع حالة مواعيدك ونتائج المختبر المتاحة من الروابط التالية.', patientLoadError: 'تعذر تحميل البيانات', patientRetry: 'حاول مرة أخرى', patientDataUnavailable: 'غير متاح',
@@ -173,4 +176,9 @@ clinicProfileEyebrow:'ملف المنشأة',clinicProfileTitle:'الملف ال
       auditEventPrescriptionDispensed:'صرف وصفة طبية',
       auditEventPharmacyInvoiceCreated:'إنشاء فاتورة صيدلية',
       auditEventPharmacyPaymentRecorded:'تسجيل دفع صيدلية',
+      specialty:'التخصص',
+      consultationFee:'رسوم الكشف',
+      sendBookingRequest:'إرسال طلب الحجز',
+      appointmentTime:'الوقت',
+      bookingStatus:'الحالة',
 };

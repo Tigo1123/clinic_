@@ -18,7 +18,7 @@ import ThemeToggle from '../../../components/ui/ThemeToggle.jsx';
 import { useFacilityBranding } from '../../../app/branding/FacilityBrandingContext.js';
 import { brandingSubline } from '../../../app/branding/brandingConfig';
 import { withLoginSubmissionLock } from '../../../utils/loginSubmission.js';
-import { patientDestination } from '../../../app/router/patientBooking.js';
+import { PATIENT_BOOKING_PATH, patientDestination } from '../../../app/router/patientBooking.js';
 import PasswordField from '../../../components/PasswordField.jsx';
 
 export function PatientLogin(){
@@ -27,6 +27,10 @@ export function PatientLogin(){
   const navigate=useNavigate();
   const location=useLocation();
   const destination = patientDestination(location.state);
+  const isBookingEntry = destination === PATIENT_BOOKING_PATH;
+  const loginTitle = isBookingEntry ? t('patientBookingLoginTitle') : t('patientLogin');
+  const loginEyebrow = isBookingEntry ? t('patientBookingLoginEyebrow') : undefined;
+  const loginSubtitle = isBookingEntry ? t('patientBookingLoginIntro') : undefined;
   const handleGoogleAuthenticated = useCallback((data) => { login(data.user, data.token); navigate(destination); }, [destination, login, navigate]);
   const handleGoogleOnboarding = useCallback(() => navigate('/register', { state: { afterSignIn: destination, googleOnboarding: true } }), [destination, navigate]);
   const googleAuth = useGooglePatientAuth({ onAuthenticated: handleGoogleAuthenticated, onOnboarding: handleGoogleOnboarding });
@@ -164,7 +168,7 @@ export function PatientLogin(){
 
   if(challenge){
     return (
-      <AuthShell title={t('patientLogin')}>
+      <AuthShell title={loginTitle} eyebrow={loginEyebrow} subtitle={loginSubtitle} login>
         <form onSubmit={event => guardFormSubmit(event, verify)}>
           <p>{t('enterVerificationCode')}</p>
 
@@ -197,7 +201,7 @@ export function PatientLogin(){
   }
 
   return (
-    <AuthShell title={t('patientLogin')}>
+    <AuthShell title={loginTitle} eyebrow={loginEyebrow} subtitle={loginSubtitle} login>
       {loginNotice && (
         <div className="patient-alert info" role="status">
           {loginNotice}
@@ -228,7 +232,7 @@ export function PatientLogin(){
 
         <Field label={t('password')} type="password" dir="ltr" value={form.password} onChange={password=>setForm({...form,password})} autoComplete="current-password" />
 
-        <Link className="patient-auth-forgot" to="/forgot-password">
+        <Link className="patient-auth-forgot" to="/forgot-password" state={isBookingEntry ? { afterSignIn: destination } : undefined}>
           {t('forgotPassword')}
         </Link>
 
@@ -274,6 +278,9 @@ export function PatientLogin(){
 export function PatientForgotPassword(){
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
+  const destination = patientDestination(location.state);
+  const bookingState = destination === PATIENT_BOOKING_PATH ? { afterSignIn: destination } : undefined;
 
   const [step, setStep] = useState('request');
   const [email, setEmail] = useState('');
@@ -354,6 +361,7 @@ export function PatientForgotPassword(){
 
       navigate('/patient-login',{
         state:{
+          ...(bookingState || {}),
           message:t('passwordResetSuccess')
         }
       });
@@ -394,7 +402,7 @@ export function PatientForgotPassword(){
           </button>
 
           <div className="patient-auth-back-nav">
-            <Link to="/patient-login">
+            <Link to="/patient-login" state={bookingState}>
               {t('backToLogin')}
             </Link>
           </div>
@@ -878,7 +886,7 @@ function OfflineActivation(){
   return <AuthShell title={t('offlineActivation')}><p>{t('offlineActivationInstructions')}</p><form onSubmit={event => guardFormSubmit(event, submit)}><Field label={t('claimCode')} value={form.code} onChange={code=>setForm({...form,code})} autoComplete="one-time-code"/><Field label={t('dateOfBirth')} type="date" value={form.dateOfBirth} onChange={dateOfBirth=>setForm({...form,dateOfBirth})}/><Field label={t('emailOptional')} type="email" value={form.email} onChange={email=>setForm({...form,email})}/><Field label={t('newPassword')} type="password" value={form.password} onChange={password=>setForm({...form,password})} autoComplete="new-password" helperText={t('passwordRequirementsSummary')}/><Field label={t('confirmPassword')} type="password" value={form.confirmPassword} onChange={confirmPassword=>setForm({...form,confirmPassword})} autoComplete="new-password" error={Boolean(form.confirmPassword && form.password !== form.confirmPassword)} helperText={form.confirmPassword && form.password !== form.confirmPassword ? t('passwordMismatch') : undefined}/>{error&&<Alert>{error}</Alert>}<button className="patient-button" disabled={loading}>{loading?t('loading'):t('activatePatientAccount')}</button></form></AuthShell>;
 }
 
-function AuthShell({ title, children, onboarding = false }) {
+function AuthShell({ title, children, onboarding = false, login = false, eyebrow, subtitle }) {
   const { t, i18n } = useTranslation();
   const branding = useFacilityBranding();
   const language = (i18n.resolvedLanguage || i18n.language || 'ar').startsWith('ar') ? 'ar' : 'en';
@@ -888,7 +896,7 @@ function AuthShell({ title, children, onboarding = false }) {
   const productName = language === 'ar' ? branding.productNameAr : branding.productNameEn;
   const productDescriptor = language === 'ar' ? branding.productDescriptorAr : branding.productDescriptorEn;
   const isRegistration = onboarding || title === t('createPatientAccount');
-  const isLogin = title === t('patientLogin');
+  const isLogin = !isRegistration && (login || title === t('patientLogin'));
   const mode = isRegistration ? 'register' : isLogin ? 'login' : 'flow';
 
   return <main className={`patient-auth-shell patient-auth-shell--${mode}`}>
@@ -913,11 +921,11 @@ function AuthShell({ title, children, onboarding = false }) {
           <header className="patient-auth-heading">
             {isLogin ? <div className="patient-auth-login-intro">
               <HeartPulse className="patient-auth-login-intro__icon" size={27} strokeWidth={1.8} aria-hidden="true" />
-              <div>
+              <div className="patient-auth-login-intro__copy">
                 {facilityName && <p className="patient-auth-product-line">{productName}<span aria-hidden="true"> · </span>{productDescriptor}</p>}
-                <p className="patient-auth-welcome">{t('welcomeBack')}</p>
+                <p className="patient-auth-welcome">{eyebrow || t('welcomeBack')}</p>
                 <h1 id="patient-auth-title">{title}</h1>
-                <p className="patient-auth-intro">{language === 'ar' ? 'سجّل الدخول لمتابعة خدماتك الصحية.' : 'Sign in to continue to your health services.'}</p>
+                <p className="patient-auth-intro">{subtitle || (language === 'ar' ? 'سجّل الدخول لمتابعة خدماتك الصحية.' : 'Sign in to continue to your health services.')}</p>
               </div>
             </div> : <h1 id="patient-auth-title">{title}</h1>}
           </header>

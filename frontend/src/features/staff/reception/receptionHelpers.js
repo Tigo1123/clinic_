@@ -98,3 +98,29 @@ export function formatQueueDateLabel(isoDate, lang, todayIso) {
   return isToday ? (lang === 'ar' ? `اليوم، ${formatted}` : `Today, ${formatted}`) : formatted;
 }
 
+const DOCTOR_TITLE_PREFIX_RE = /^(?:dr\.(?:\s*|$)|dr\s+|doctor\s+|د\.(?:\s*|$)|د\/\s*|د\s+|دكتور(?:ة)?\s+)/i;
+
+// Formats a localized doctor name with a single title prefix, avoiding "Dr. Dr." or "د. د." duplication.
+export function formatReceptionDoctorName(doctor, lang) {
+  const rawName = (lang === 'ar'
+    ? doctor?.fullNameAr || doctor?.fullNameEn
+    : doctor?.fullNameEn || doctor?.fullNameAr)?.trim();
+  if (!rawName || rawName === '—') return '—';
+  if (DOCTOR_TITLE_PREFIX_RE.test(rawName)) return rawName;
+  return lang === 'ar' ? `د. ${rawName}` : `Dr. ${rawName}`;
+}
+
+// Formats the queue empty-state text naming the selected doctor alongside the queue date.
+export function formatQueueEmptyMessage(doctor, dateLabel, lang) {
+  const ar = lang === 'ar';
+  const doctorName = formatReceptionDoctorName(doctor, lang);
+  const hasDoctorName = doctorName !== '—';
+  if (ar) {
+    return hasDoctorName
+      ? `لا توجد مواعيد مجدولة مع ${doctorName} في ${dateLabel}.`
+      : `لا توجد مواعيد مجدولة لهذا الطبيب في ${dateLabel}.`;
+  }
+  return hasDoctorName
+    ? `No appointments scheduled for ${doctorName} on ${dateLabel}.`
+    : `No appointments scheduled for this doctor on ${dateLabel}.`;
+}

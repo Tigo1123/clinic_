@@ -1,0 +1,151 @@
+.patient-book__header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.patient-book__loading-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.patient-book__doctor-card,
+.patient-book__summary-panel {
+  gap: 0;
+}
+
+.patient-book__doctor-row {
+  min-height: 52px;
+  cursor: default;
+}
+
+.patient-book__doctor-name {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+  text-align: end;
+}
+
+.patient-book__doctor-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+  text-align: end;
+}
+
+.patient-book .date-chip {
+  position: relative;
+  min-width: 0;
+  padding: 10px 6px;
+}
+
+.patient-book .date-chip.selected,
+.patient-book .date-chip[aria-pressed='true'] {
+  border: 2px solid var(--color-primary-strong);
+  box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-primary-action);
+}
+
+.patient-book .date-chip:focus-visible,
+.patient-book .slot-chip:focus-visible {
+  outline: 3px solid var(--color-primary-strong);
+  outline-offset: 3px;
+}
+
+.patient-book__chip-check {
+  position: absolute;
+  inset-block-start: 4px;
+  inset-inline-end: 4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-inverse);
+  color: var(--color-primary-action);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.patient-book .slot-chip {
+  gap: 6px;
+  padding-inline: 10px;
+}
+
+.patient-book .slot-chip.selected,
+.patient-book .slot-chip[aria-pressed='true'] {
+  border: 2px solid var(--color-primary-strong);
+  box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-primary-strong);
+  font-weight: 600;
+}
+
+.patient-book__slot-check {
+  flex: none;
+}
+
+.patient-book__alert-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.patient-book__alert-message {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.patient-book__retry-btn {
+  flex: none;
+}
+
+.patient-book__success-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.patient-book__success-panel .patient-alert {
+  margin-block-end: 0;
+}
+
+[data-theme='dark'] .patient-book .date-chip.selected,
+[data-theme='dark'] .patient-book .date-chip[aria-pressed='true'] {
+  border-color: var(--color-secondary);
+  box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-secondary);
+}
+
+[data-theme='dark'] .patient-book .slot-chip.selected,
+[data-theme='dark'] .patient-book .slot-chip[aria-pressed='true'] {
+  border-color: var(--color-secondary);
+  box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-secondary);
+}
+
+@media (max-width: 480px) {
+  .patient-book__doctor-row {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-block: 12px;
+  }
+
+  .patient-book__doctor-name,
+  .patient-book__doctor-value {
+    text-align: start;
+  }
+
+  .patient-book__success-actions {
+    flex-direction: column;
+  }
+
+  .patient-book__success-actions .patient-button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 340px) {
+  .patient-book .slot-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

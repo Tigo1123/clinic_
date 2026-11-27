@@ -257,8 +257,16 @@
 }
 
 @media (max-width: 900px) {
-  .public-header__actions > :not(.public-menu-toggle) {
+  .public-header__actions {
+    flex: none;
+  }
+
+  .public-header__actions > :not(.public-menu-toggle):not(.public-language) {
     display: none;
+  }
+
+  .public-site .public-language {
+    white-space: nowrap;
   }
 
   .public-site .public-menu-toggle {
@@ -302,6 +310,10 @@
 }
 
 @media (max-width: 680px) {
+  .public-header__inner {
+    gap: 0.75rem;
+  }
+
   .public-hero,
   .public-visit__list {
     grid-template-columns: 1fr;
