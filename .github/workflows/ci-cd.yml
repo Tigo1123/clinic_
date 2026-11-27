@@ -105,3 +105,60 @@ jobs:
           file: ./frontend/Dockerfile
           push: false # Set to true and configure Docker Hub/GitHub Container Registry login to push
           tags: alshifa-cms-frontend:latest
+
+  deploy-render:
+    name: Request production deploys on Render
+    needs: [test-and-lint, build-docker-images]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    concurrency:
+      group: render-production
+      cancel-in-progress: false
+    steps:
+      - name: Request deploys for the tested main commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RENDER_API_DEPLOY_HOOK: ${{ secrets.RENDER_API_DEPLOY_HOOK }}
+          RENDER_FRONTEND_DEPLOY_HOOK: ${{ secrets.RENDER_FRONTEND_DEPLOY_HOOK }}
+        run: |
+          latest_main=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          if [[ "$GITHUB_SHA" != "$latest_main" ]]; then
+            echo "A newer commit is on main. Its workflow will handle deployment if its checks pass."
+            exit 0
+          fi
+
+          hook_pattern='^https://api\.render\.com/deploy/(srv-[a-zA-Z0-9]+)\?key=[a-zA-Z0-9_-]+$'
+          if [[ ! "$RENDER_API_DEPLOY_HOOK" =~ $hook_pattern ]]; then
+            echo "::error::Set RENDER_API_DEPLOY_HOOK to the API service's Render deploy hook in the production environment."
+            exit 1
+          fi
+          api_service_id="${BASH_REMATCH[1]}"
+          if [[ ! "$RENDER_FRONTEND_DEPLOY_HOOK" =~ $hook_pattern ]]; then
+            echo "::error::Set RENDER_FRONTEND_DEPLOY_HOOK to the frontend service's Render deploy hook in the production environment."
+            exit 1
+          fi
+          if [[ "$api_service_id" == "${BASH_REMATCH[1]}" ]]; then
+            echo "::error::The API and frontend deploy hooks must target different Render services."
+            exit 1
+          fi
+
+          request_deploy() {
+            local service="$1" hook="$2" status
+            if ! status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                --globoff --connect-timeout 10 --max-time 30 --request POST \
+                "${hook}&ref=${GITHUB_SHA}"); then
+              echo "::error::Could not reach the Render deploy hook for $service."
+              return 1
+            fi
+            case "$status" in
+              200|202) echo "Render accepted the $service deploy request for $GITHUB_SHA." ;;
+              *) echo "::error::Render rejected the $service deploy request (HTTP $status)."; return 1 ;;
+            esac
+          }
+
+          request_deploy API "$RENDER_API_DEPLOY_HOOK"
+          request_deploy frontend "$RENDER_FRONTEND_DEPLOY_HOOK"
