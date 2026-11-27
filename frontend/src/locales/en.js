@@ -1,6 +1,9 @@
 export default {
       patientNameRepeated: 'Enter each part of the name in its own field. This full name appears more than once.',
       brandName: 'Shifa',
+      patientBookingLoginEyebrow: 'Appointment booking',
+      patientBookingLoginTitle: 'Sign in to book an appointment',
+      patientBookingLoginIntro: 'Sign in or create a patient account to choose a doctor and request your appointment.',
       email: 'Email', patientVerified: 'Verified', patientNotVerified: 'Not verified',
       patientVital_blood_pressure: 'Blood pressure', patientVital_heart_rate: 'Heart rate', patientVital_pulse: 'Pulse', patientVital_temperature: 'Temperature', patientVital_weight: 'Weight', patientVital_height: 'Height', patientVital_oxygen_saturation: 'Oxygen saturation', patientVital_respiratory_rate: 'Respiratory rate',
       patientSkipToContent: 'Skip to content', patientBack: 'Back', patientUpdatesDescription: 'Review your appointment status and available laboratory results using these links.', patientLoadError: 'Unable to load information', patientRetry: 'Try again', patientDataUnavailable: 'Unavailable',
@@ -173,4 +176,9 @@ auditEventUserStatusChange:'User status change',auditEventStaffCreated:'Staff ac
       auditEventPrescriptionDispensed:'Prescription dispensed',
       auditEventPharmacyInvoiceCreated:'Pharmacy invoice created',
       auditEventPharmacyPaymentRecorded:'Pharmacy payment recorded',
+      specialty:'Specialty',
+      consultationFee:'Consultation fee',
+      sendBookingRequest:'Send booking request',
+      appointmentTime:'Time',
+      bookingStatus:'Status',
 };

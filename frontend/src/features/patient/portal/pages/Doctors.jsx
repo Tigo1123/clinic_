@@ -62,39 +62,41 @@ export function Doctors() {
           <Empty>{t('noDoctors')}</Empty>
         ) : (
           <div className="patient-panel">
-            {filtered.map((doctor) => (
-              <div
-                className="patient-hairline-row patient-doctors__row"
-                key={doctor.id}
-              >
-                <Link
-                  to={`/patient/book/${doctor.id}`}
-                  className="patient-doctors__info"
+            {filtered.map((doctor) => {
+              const name = doctorName(doctor, language);
+              return (
+                <div
+                  className="patient-hairline-row patient-doctors__row"
+                  key={doctor.id}
                 >
-                  <span className="patient-doctors__name">{doctorName(doctor, i18n.language)}</span>
-                  <span className="patient-doctors__meta">
-                    {localizeDoctorSpecialty(doctor, language)}
-                    {doctor.consultationFee ? <> · <span className="ui-mono">{Number(doctor.consultationFee).toLocaleString(i18n.language === 'ar' ? 'ar' : 'en')} {i18n.language === 'ar' ? 'ج.س' : 'SDG'}</span></> : ''}
-                  </span>
-                </Link>
+                  <div className="patient-doctors__info">
+                    <span className="patient-doctors__name">{name}</span>
+                    <span className="patient-doctors__meta">
+                      {localizeDoctorSpecialty(doctor, language)}
+                      {doctor.consultationFee ? <> · <span className="ui-mono">{Number(doctor.consultationFee).toLocaleString(language === 'ar' ? 'ar' : 'en')} {language === 'ar' ? 'ج.س' : 'SDG'}</span></> : ''}
+                    </span>
+                  </div>
 
-                <div className="patient-doctors__actions">
-                  <Link
-                    className="patient-button secondary patient-doctors__details-btn"
-                    to={`/patient/doctors/${doctor.id}`}
-                  >
-                    {t('details')}
-                  </Link>
-                  <Link
-                    to={`/patient/book/${doctor.id}`}
-                    aria-label={`${t('book')} ${doctorName(doctor, i18n.language)}`}
-                    className="patient-doctors__book-link"
-                  >
-                    <ChevronRight size={18} strokeWidth={1.8} className="patient-row-link__arrow" aria-hidden="true" />
-                  </Link>
+                  <div className="patient-doctors__actions">
+                    <Link
+                      className="patient-button secondary patient-doctors__details-btn"
+                      to={`/patient/doctors/${doctor.id}`}
+                      aria-label={`${t('details')} ${name}`}
+                    >
+                      {t('details')}
+                    </Link>
+                    <Link
+                      to={`/patient/book/${doctor.id}`}
+                      aria-label={`${t('book')} ${name}`}
+                      className="patient-button patient-doctors__book-btn"
+                    >
+                      <span>{t('book')}</span>
+                      <ChevronRight size={16} strokeWidth={1.8} className="patient-row-link__arrow" aria-hidden="true" />
+                    </Link>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

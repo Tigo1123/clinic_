@@ -22,7 +22,8 @@ export default function LandingHeader({ copy, brand, language, onLanguageChange 
         toggleRef.current?.focus();
       }
       if (event.key !== 'Tab') return;
-      const focusable = [...menuRef.current.querySelectorAll('a, button')];
+      const focusable = [...menuRef.current?.querySelectorAll('a, button') ?? []];
+      if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable.at(-1);
       if (event.shiftKey && document.activeElement === first) {
@@ -54,9 +55,9 @@ export default function LandingHeader({ copy, brand, language, onLanguageChange 
       </Link>
       <div className="public-header__actions">
         <a className="public-staff-link" href="#visit">{copy.visit}</a>
-        <button className="public-language" type="button" onClick={changeLanguage} aria-label={copy.language} title={copy.language}>
+        <button className="public-language" type="button" onClick={changeLanguage} disabled={menuOpen} aria-label={copy.language} title={copy.language}>
           <Languages aria-hidden="true" size={16} />
-          <span>{language === 'ar' ? 'EN' : 'عربي'}</span>
+          <span lang={language === 'ar' ? 'en' : 'ar'}>{language === 'ar' ? 'EN' : 'عربي'}</span>
         </button>
         <ThemeToggle className="public-theme-toggle" size={16} />
         <Link className="public-staff-link" to="/staff">{copy.staffLogin}</Link>

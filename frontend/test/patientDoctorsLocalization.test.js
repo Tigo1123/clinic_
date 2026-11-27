@@ -56,7 +56,7 @@ test('Doctors page uses localized UI while preserving names, fees, details, and 
   assert.match(i18n, /searchDoctors: 'Search doctors'/);
   assert.match(page, /placeholder=\{t\('searchDoctors'\)\}/);
   assert.match(page, /localizeDoctorSpecialty\(doctor, language\)/);
-  assert.match(page, /doctorName\(doctor, i18n\.language\)/);
+  assert.match(page, /doctorName\(doctor, language\)/);
   assert.match(page, /doctor\.consultationFee/);
   assert.match(page, /to=\{`\/patient\/doctors\/\$\{doctor\.id\}`\}/);
   assert.match(page, /to=\{`\/patient\/book\/\$\{doctor\.id\}`\}/);
