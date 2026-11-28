@@ -203,6 +203,7 @@ model Patient {
   userId                   String?            @unique
   user                     User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
   claimCodes               PatientClaimCode[]
+  insuranceMemberships     PatientInsurance[]
 
   @@index([phone])
 }
@@ -450,6 +451,7 @@ model VerificationChallenge {
   maxAttempts      Int       @default(5)
   usedAt           DateTime?
   createdAt        DateTime  @default(now())
+  qaCapture        QaVerificationCapture?
 
   @@index([userId, type, createdAt])
 }
@@ -586,6 +588,7 @@ model Invoice {
   payments            Payment[]
   paymentOperations   PaymentOperation[]
   refunds             Refund[]
+  issueOperations     InvoiceIssueOperation[]
 
   @@index([invoiceDate])
   @@index([appointmentId, invoiceType, paymentStatus])
@@ -709,9 +712,12 @@ model InsuranceCompany {
   copayPercentage  Decimal
   billingCycleDays Int              @default(30)
   active           Boolean          @default(true)
+  coveredCategories String[]         @default(["CONSULTATION", "LABORATORY", "RADIOLOGY", "CLINICAL_PROCEDURE"])
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @default(now()) @updatedAt
   claims           InsuranceClaim[]
+  memberships      PatientInsurance[]
+
 }
 
 model InsuranceClaim {
@@ -754,6 +760,10 @@ model Notification {
   userId     String
   title      String
   message    String
+  type       String   @default("GENERAL")
+  entityType String?
+  entityId   String?
+  eventKey   String?
   titleAr    String?
   titleEn    String?
   messageAr  String?
@@ -764,9 +774,60 @@ model Notification {
   payload    Json?
   dedupeKey  String?
   isRead     Boolean  @default(false)
-  createdAt  DateTime @default(now())
+  createdAt  DateTime @default(dbgenerated("timezone('UTC'::text, CURRENT_TIMESTAMP)"))
 
   @@unique([userId, dedupeKey])
+  @@unique([userId, eventKey])
   @@index([userId, isRead])
   @@index([userId, createdAt, id])
+}
+
+
+model RateLimitBucket {
+  key       String   @id
+  count     Int
+  resetTime DateTime
+
+  @@index([resetTime])
+}
+
+model QaVerificationCapture {
+  challengeId   String                @id
+  challenge     VerificationChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  codeEncrypted String
+  expiresAt     DateTime
+  createdAt     DateTime              @default(now())
+
+  @@index([expiresAt])
+}
+
+model StockNotificationState {
+  drugId   String @id
+  state    String @default("UNKNOWN")
+  revision Int    @default(0)
+}
+
+model PatientInsurance {
+  id                 String @id @default(uuid())
+  patientId          String
+  patient            Patient @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  insuranceCompanyId String
+  insuranceCompany   InsuranceCompany @relation(fields: [insuranceCompanyId], references: [id], onDelete: Restrict)
+  memberNumber       String
+  plan               String?
+  validFrom          String
+  validUntil         String
+  active             Boolean @default(true)
+  updatedAt          DateTime @default(now()) @updatedAt
+
+  @@unique([patientId, insuranceCompanyId])
+}
+
+model InvoiceIssueOperation {
+  key         String @id
+  requestHash String
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@index([invoiceId])
 }
