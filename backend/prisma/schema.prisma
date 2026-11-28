@@ -712,6 +712,7 @@ model InsuranceCompany {
   copayPercentage  Decimal
   billingCycleDays Int              @default(30)
   active           Boolean          @default(true)
+  coveredCategories String[]         @default(["CONSULTATION", "LABORATORY", "RADIOLOGY", "CLINICAL_PROCEDURE"])
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @default(now()) @updatedAt
   claims           InsuranceClaim[]  memberships       PatientInsurance[]
