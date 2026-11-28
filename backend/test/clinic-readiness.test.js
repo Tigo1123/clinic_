@@ -4,10 +4,34 @@ import { repositoryInventory, inspectDatabase } from '../scripts/audit-clinic-re
 
 test('repository inventory includes every Prisma model, relationship and migration', async () => {
   const inventory = await repositoryInventory();
-  assert.equal(inventory.modelCount, 43);
+  assert.equal(inventory.modelCount, 48);
+  const modelNames = new Set(inventory.models.map(model => model.name));
+  for (const name of [
+    'RateLimitBucket',
+    'PatientInsurance',
+    'StockNotificationState',
+    'InvoiceIssueOperation',
+    'QaVerificationCapture',
+    'ServiceOrder',
+    'ServiceOrderItem',
+  ]) {
+    assert.ok(modelNames.has(name), `missing Prisma model: ${name}`);
+  }
   assert.ok(inventory.models.find(model => model.name === 'Patient').relationships.some(relation => relation.field === 'invoices' && relation.target === 'Invoice' && relation.cardinality === 'many'));
   assert.ok(inventory.models.find(model => model.name === 'Payment').relationships.some(relation => relation.field === 'invoice' && relation.target === 'Invoice' && relation.cardinality === 'required'));
-  assert.equal(inventory.migrations.length, 29);
+  assert.equal(inventory.migrations.length, 36);
+  const migrationNames = new Set(inventory.migrations.map(migration => migration.name));
+  for (const name of [
+    '20261022120000_shared_rate_limit_buckets',
+    '20261024100000_patient_insurance_membership',
+    '20261027120000_durable_workflow_notifications',
+    '20261027130000_dedupe_custom_prescription_notices',
+    '20261027140000_distinguish_medicine_catalog_notices',
+    '20261030190000_reception_cancellation_notice',
+    '20261107090000_durable_qa_verification_capture',
+  ]) {
+    assert.ok(migrationNames.has(name), `missing restored migration: ${name}`);
+  }
 });
 
 function fixture(readOnly = 'on') {
