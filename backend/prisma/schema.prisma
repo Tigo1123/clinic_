@@ -715,7 +715,8 @@ model InsuranceCompany {
   coveredCategories String[]         @default(["CONSULTATION", "LABORATORY", "RADIOLOGY", "CLINICAL_PROCEDURE"])
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @default(now()) @updatedAt
-  claims           InsuranceClaim[]  memberships       PatientInsurance[]
+  claims           InsuranceClaim[]
+  memberships      PatientInsurance[]
 
 }
 
